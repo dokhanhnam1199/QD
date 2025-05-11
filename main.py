@@ -27,6 +27,8 @@ def main(cfg):
         from variants.reevo import ReEvoRF as LHH
     elif cfg.algorithm == "eoh":
         from baselines.eoh import EoH as LHH
+    elif cfg.algorithm == "reevo-qd":
+        from baselines.reevo_qd import ReEvo as LHH
     else:
         raise NotImplementedError
 
