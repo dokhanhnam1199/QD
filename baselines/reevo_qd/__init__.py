@@ -1,1 +1,1 @@
-from .reevo_qd import ReEvo
+from .reevo_qd import ReEvo_QD

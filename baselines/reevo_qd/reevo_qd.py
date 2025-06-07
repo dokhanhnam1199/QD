@@ -7,7 +7,7 @@ import os
 from utils.utils import *
 from baselines.reevo.gls_tsp_adapt.gls_tsp_eval import Sandbox
 
-class ReEvo:
+class ReEvo_QD:
     def __init__(self, cfg, root_dir) -> None:
         self.cfg = cfg
         self.root_dir = root_dir
@@ -60,7 +60,7 @@ class ReEvo:
         self.system_reflector_prompt = file_to_string(f'{self.prompt_dir}/common/system_reflector.txt')
         self.user_reflector_st_prompt = file_to_string(
             f'{self.prompt_dir}/common/user_reflector_st.txt') if self.problem_type != "black_box" else file_to_string(
-            f'{self.prompt_dir}/common/user_reflector_st_black_box.txt')  # shrot-term reflection
+            f'{self.prompt_dir}/common/user_reflector_st_black_box.txt')  # short-term reflection
         self.user_reflector_lt_prompt = file_to_string(
             f'{self.prompt_dir}/common/user_reflector_lt.txt')  # long-term reflection
         self.crossover_prompt = file_to_string(f'{self.prompt_dir}/common/crossover.txt')
@@ -110,7 +110,7 @@ class ReEvo:
         self.seed_ind = seed_ind
         self.population = self.evaluate_population([seed_ind])
 
-        # If seed function is invalid, stop
+        # If the seed function is invalid, stop
         if not self.seed_ind["exec_success"]:
             raise RuntimeError(f"Seed function is invalid. Please check the stdout file in {os.getcwd()}.")
 
@@ -315,12 +315,21 @@ class ReEvo:
     
     def archive_evaluated_population(self, evaluated_population: list[dict]) -> None:
         # Create a dictionary to map bd values to individuals in self.population
-        bd_to_individual = {tuple(individual.get(bd, None) for bd in self.cfg.bd_list): individual for individual in self.population}
+        bd_to_individual = {
+            tuple(
+                individual.get(self.cfg.bd_list[i], 0) // div
+                for i, div in enumerate(self.cfg.bd_step)
+            ): individual
+            for individual in self.population
+        }
 
         for evaluated_individual in evaluated_population:
             try:
                 # Get the behavior descriptor (bd) values as a tuple
-                bd_values = tuple(evaluated_individual[bd] for bd in self.cfg.bd_list)
+                bd_values = tuple(
+                    evaluated_individual[self.cfg.bd_list[i]] // div
+                    for i, div in enumerate(self.cfg.bd_step)
+                )
 
                 if bd_values in bd_to_individual:
                     # Compare objective values and keep the one with the lower obj value

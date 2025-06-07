@@ -28,7 +28,11 @@ def main(cfg):
     elif cfg.algorithm == "eoh":
         from baselines.eoh import EoH as LHH
     elif cfg.algorithm == "reevo-qd":
-        from baselines.reevo_qd import ReEvo as LHH
+        from baselines.reevo_qd import ReEvo_QD as LHH
+    elif cfg.algorithm == "hsevo-qd":
+        from hsevo_qd import HSEvo_QD as LHH
+    elif cfg.algorithm == "eoh-qd":
+        from baselines.eoh_qd import EoH as LHH
     else:
         raise NotImplementedError
 
