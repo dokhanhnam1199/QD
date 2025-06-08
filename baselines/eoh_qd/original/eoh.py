@@ -72,12 +72,33 @@ class EOH:
     #                     print("duplicated result, retrying ... ")
     #         population.append(off)
 
+    def remove_duplicate(self, population: list[dict]) -> None:
+        bd_seen = set()
+        unique_individuals = []
+
+        for individual in population:
+            try:
+                bd_values = tuple(
+                    (individual.get(self.cfg.bd_list[i], 0) or 0) // div
+                    for i, div in enumerate(self.cfg.bd_step)
+                )
+
+                if bd_values not in bd_seen:
+                    bd_seen.add(bd_values)
+                    unique_individuals.append(individual)
+            except KeyError as e:
+                missing_key = str(e)
+                logging.info(f"Skipping individual due to missing behavior descriptor: {missing_key}")
+                continue
+
+        population = unique_individuals
+
     
     def add2pop(self, population, evaluated_population):
         # Create a dictionary to map bd values to individuals in population
         bd_to_individual = {
             tuple(
-                individual.get(self.cfg.bd_list[i], 0) // div
+                (individual.get(self.cfg.bd_list[i], 0) or 0) // div
                 for i, div in enumerate(self.cfg.bd_step)
             ): individual
             for individual in population
@@ -87,14 +108,14 @@ class EOH:
             try:
                 # Get the behavior descriptor (bd) values as a tuple
                 bd_values = tuple(
-                    evaluated_individual[self.cfg.bd_list[i]] // div
+                    (evaluated_individual.get(self.cfg.bd_list[i], 0) or 0) // div
                     for i, div in enumerate(self.cfg.bd_step)
                 )
 
                 if bd_values in bd_to_individual:
                     # Compare objective values and keep the one with the lower obj value
                     existing_individual = bd_to_individual[bd_values]
-                    if evaluated_individual["obj"] < existing_individual["obj"]:
+                    if evaluated_individual["objective"] < existing_individual["objective"]:
                         bd_to_individual[bd_values] = evaluated_individual
                 else:
                     # Add the new individual if no matching bd values exist
@@ -103,6 +124,7 @@ class EOH:
             except KeyError as e:
                 # Log a warning and skip the individual if a key is missing
                 missing_key = str(e)
+                print(f"Warning: Missing key {missing_key} in evaluated individual. Skipping this individual.")
                 continue
 
         population = list(bd_to_individual.values())
@@ -149,6 +171,7 @@ class EOH:
             else:  # create new population
                 print("creating initial population:")
                 population = interface_ec.population_generation()
+                self.remove_duplicate(population)
                 population = self.manage.population_management(population, self.pop_size)
 
                 # print(len(population))
@@ -164,7 +187,7 @@ class EOH:
                 
                 print(f"Pop initial: ")
                 for off in population:
-                    print(" Obj: ", off['obj'], end="|")
+                    print(" Obj: ", off['objective'], end="|")
                 print()
                 print("initial population has been created!")
                 # Save population to a file
@@ -186,7 +209,7 @@ class EOH:
                     parents, offsprings = interface_ec.get_algorithm(population, op)
                 self.add2pop(population, offsprings)  # Check duplication, and add the new offspring
                 for off in offsprings:
-                    print(" Obj: ", off['obj'], end="|")
+                    print(" Obj: ", off['objective'], end="|")
                 # if is_add:
                 #     data = {}
                 #     for i in range(len(parents)):

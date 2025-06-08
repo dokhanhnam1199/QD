@@ -219,6 +219,7 @@ class Problem:
                         individual["obj"] = float(lines[-4])
                         for i, bd in enumerate(self.config.bd_list):
                             individual[bd] = float(lines[-3 + i])
+                            logging.info(f"Behavior descriptor {bd} for response_id {response_id}: {individual[bd]}")
                         assert individual["obj"] > 0, "Objective value <= 0 is not supported."
                         if self.obj_type == "max":
                             individual["obj"] = -individual["obj"]

@@ -77,24 +77,26 @@ class InterfaceEC():
     
     def population_generation_seed(self,seeds):
 
-        population = self.interface_eval.batch_evaluate([seed['code'] for seed in seeds], 0)
+        population = []
 
-        # for i in range(len(seeds)):
-        #     try:
-        #         seed_alg = {
-        #             'algorithm': seeds[i]['algorithm'],
-        #             'code': seeds[i]['code'],
-        #             'objective': None,
-        #             'other_inf': None
-        #         }
+        fitness = self.interface_eval.batch_evaluate([seed['code'] for seed in seeds])
 
-        #         obj = np.array(fitness[i])
-        #         seed_alg['objective'] = np.round(obj, 5)
-        #         population.append(seed_alg)
+        for i in range(len(seeds)):
+            try:
+                seed_alg = {
+                    'algorithm': seeds[i]['algorithm'],
+                    'code': seeds[i]['code'],
+                    'objective': None,
+                    'other_inf': None
+                }
 
-        #     except Exception as e:
-        #         print("Error in seed algorithm")
-        #         exit()
+                obj = np.array(fitness[i])
+                seed_alg['objective'] = np.round(obj, 5)
+                population.append(seed_alg)
+
+            except Exception as e:
+                print("Error in seed algorithm")
+                exit()
 
         print("Initiliazation finished! Get "+str(len(seeds))+" seed algorithms")
 
@@ -164,9 +166,17 @@ class InterfaceEC():
             offspring = self.get_offspring(pop, operator)
             offspring_list.append(offspring)
             
-        offs = self.interface_eval.batch_evaluate([offspring['code'] for _, offspring in offspring_list], 0)
+        objs = self.interface_eval.batch_evaluate([offspring['code'] for _, offspring in offspring_list], 0)
         for i, (p, offspring) in enumerate(offspring_list):
-            offspring = offs[i]
+            offspring['objective'] = np.round(objs[i].get('obj'), 5)
+            if objs[i].get('exec_success'):
+                offspring['SLOC'] = objs[i].get('SLOC', None)
+                offspring['cyclomatic_complexity'] = objs[i].get('cyclomatic_complexity', None)
+                offspring['halstead'] = objs[i].get('halstead', None)
+            else:
+                offspring['SLOC'] = None
+                offspring['cyclomatic_complexity'] = None
+                offspring['halstead'] = None
         
         results = offspring_list
 

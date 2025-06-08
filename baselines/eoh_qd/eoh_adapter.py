@@ -24,7 +24,7 @@ class EoH:
     def evolve(self):
         print("- Evolution Start -")
 
-        method = EOH(self.paras, self.problem, prob_rank, self.cfg, pop_greedy)
+        method = EOH(self.paras, self.problem, prob_rank, pop_greedy, self.cfg)
         results = method.run()
 
         print("> End of Evolution! ")

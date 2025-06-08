@@ -166,7 +166,7 @@ class HSEvo_QD:
         population = self.evaluate_population(population)
 
         # Update iteration
-        self.population = population
+        self.archive_evaluated_population(population)
         self.update_iter()
 
     def response_to_individual(self, response: str, response_id: int, file_name: str = None) -> dict:
@@ -246,9 +246,6 @@ class HSEvo_QD:
                     # Use default code execution for other problems
                     process = self._run_code(population[response_id], response_id)
                     inner_runs.append(process)
-                    for bd in self.cfg.bd_list:
-                        bd_process = self.behavior_descriptor(population[response_id], bd, response_id)
-                        logging.info(f"bd_process: {bd_process}")
                 except Exception as e:  # If code execution fails
                     logging.info(f"Error for response_id {response_id}: {e}")
                     population[response_id] = self.mark_invalid_individual(population[response_id], str(e))
@@ -281,6 +278,10 @@ class HSEvo_QD:
                     population[response_id] = self.mark_invalid_individual(population[response_id], str(e))
                     inner_run.kill()
                     continue
+
+                for bd in self.cfg.bd_list:
+                    bd_process = self.behavior_descriptor(population[response_id], bd, response_id)
+                    logging.info(f"bd_process: {bd_process}")
 
                 stdout_filepath = individual["stdout_filepath"]
                 with open(stdout_filepath, 'r') as f:  # read the stdout file
@@ -328,7 +329,6 @@ class HSEvo_QD:
 
         block_until_running(individual["stdout_filepath"], log_status=True, iter_num=self.iteration,
                             response_id=response_id)
-        process.wait()  # Wait for the subprocess to complete
 
         return process
     
@@ -345,10 +345,33 @@ class HSEvo_QD:
         return process
 
     def archive_evaluated_population(self, evaluated_population: list[dict]) -> None:
+        if not self.population:
+            # When population is empty, remove individuals with duplicate bd values
+            bd_seen = set()
+            unique_individuals = []
+
+            for individual in evaluated_population:
+                try:
+                    bd_values = tuple(
+                        individual[self.cfg.bd_list[i]] // div
+                        for i, div in enumerate(self.cfg.bd_step)
+                    )
+
+                    if bd_values not in bd_seen:
+                        bd_seen.add(bd_values)
+                        unique_individuals.append(individual)
+                except KeyError as e:
+                    missing_key = str(e)
+                    logging.info(f"Skipping individual due to missing behavior descriptor: {missing_key}")
+                    continue
+
+            self.population = unique_individuals
+            return  # Done early since we handled the empty-population case
+
         # Create a dictionary to map bd values to individuals in self.population
         bd_to_individual = {
             tuple(
-                individual.get(self.cfg.bd_list[i], 0) // div
+                individual[self.cfg.bd_list[i]] // div
                 for i, div in enumerate(self.cfg.bd_step)
             ): individual
             for individual in self.population
@@ -374,7 +397,7 @@ class HSEvo_QD:
             except KeyError as e:
                 # Log a warning and skip the individual if a key is missing
                 missing_key = str(e)
-                logging.warning(f"Skipping individual due to missing behavior descriptor: {missing_key}")
+                logging.info(f"Skipping individual due to missing behavior descriptor: {missing_key}")
                 continue
 
         # Update self.population with the archived individuals
