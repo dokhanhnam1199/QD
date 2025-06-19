@@ -127,7 +127,7 @@ The description must be inside a brace. Next, implement it in Python as a functi
 
         algorithm = re.findall(r"\{(.*)\}", response, re.DOTALL)
         if len(algorithm) == 0:
-            if 'python' in response:
+            if 'python3' in response:
                 algorithm = re.findall(r'^.*?(?=python)', response,re.DOTALL)
             elif 'import' in response:
                 algorithm = re.findall(r'^.*?(?=import)', response,re.DOTALL)
@@ -147,7 +147,7 @@ The description must be inside a brace. Next, implement it in Python as a functi
 
             algorithm = re.findall(r"\{(.*)\}", response, re.DOTALL)
             if len(algorithm) == 0:
-                if 'python' in response:
+                if 'python3' in response:
                     algorithm = re.findall(r'^.*?(?=python)', response,re.DOTALL)
                 elif 'import' in response:
                     algorithm = re.findall(r'^.*?(?=import)', response,re.DOTALL)

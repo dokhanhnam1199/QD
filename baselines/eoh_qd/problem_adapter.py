@@ -140,7 +140,7 @@ class Problem:
 
                     with open(stdout_filepath, 'w') as f:
                         process = subprocess.Popen(
-                            ['python', '-u', file_path, f'{self.problem_size}', self.root_dir, "train"], stdout=f,
+                            ['python3', '-u', file_path, f'{self.problem_size}', self.root_dir, "train"], stdout=f,
                             stderr=f)
 
                     block_until_running(stdout_filepath, log_status=True)
@@ -216,10 +216,10 @@ class Problem:
                     try:
                         # Split the output into lines
                         lines = stdout_str.strip().split('\n')
-                        individual["obj"] = float(lines[-4])
+                        l = len(self.config.bd_list)
+                        individual["obj"] = float(lines[-(l+1)]) if self.obj_type == "min" else -float(lines[-(l+1)])
                         for i, bd in enumerate(self.config.bd_list):
-                            individual[bd] = float(lines[-3 + i])
-                            logging.info(f"Behavior descriptor {bd} for response_id {response_id}: {individual[bd]}")
+                            individual[bd] = float(lines[-l + i])
                         assert individual["obj"] > 0, "Objective value <= 0 is not supported."
                         if self.obj_type == "max":
                             individual["obj"] = -individual["obj"]
@@ -245,7 +245,7 @@ class Problem:
         # Execute the python file with flags
         with open(individual["stdout_filepath"], 'a') as f:
             bd_file_path = f'{self.root_dir}/problems/{self.problem}/{bd_file_name}.py'
-            process = subprocess.Popen(['python', '-u', bd_file_path], stdout=f, stderr=f)
+            process = subprocess.Popen(['python3', '-u', bd_file_path], stdout=f, stderr=f)
 
         block_until_running(individual["stdout_filepath"], log_status=True, iter_num=self.iteration, response_id=response_id)
         process.wait()  # Wait for the subprocess to complete

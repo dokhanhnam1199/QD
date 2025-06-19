@@ -169,7 +169,7 @@ class HSEvo_QD:
         self.archive_evaluated_population(population)
         self.update_iter()
 
-    def response_to_individual(self, response: str, response_id: int, file_name: str = None) -> dict:
+    def response_to_individual(self, response: str, response_id: int, file_name: str = None) -> dict: # type: ignore
         """
         Convert response to individual
         """
@@ -214,7 +214,7 @@ class HSEvo_QD:
                 file.writelines("\n".join(map(str, objs + [self.local_sel_hs])) + '\n')
 
 
-    def evaluate_population(self, population: list[dict], hs_try_idx: int = None) -> list[dict]:
+    def evaluate_population(self, population: list[dict], hs_try_idx: int = None) -> list[dict]: # type: ignore
         """
         Evaluate population by running code in parallel and computing objective values.
         """
@@ -292,11 +292,12 @@ class HSEvo_QD:
                     try:
                         # Split the output into lines
                         lines = stdout_str.strip().split('\n')
+                        l = len(self.cfg.bd_list)
 
-                        individual["obj"] = float(lines[-4]) if self.obj_type == "min" else -float(lines[-4])
+                        individual["obj"] = float(lines[-(l+1)]) if self.obj_type == "min" else -float(lines[-(l+1)])
 
                         for i, bd in enumerate(self.cfg.bd_list):
-                            individual[bd] = float(lines[-3 + i])
+                            individual[bd] = float(lines[-l + i])
                     
                         individual["exec_success"] = True
                     except:
@@ -324,7 +325,7 @@ class HSEvo_QD:
         # Execute the python file with flags
         with open(individual["stdout_filepath"], 'w') as f:
             eval_file_path = f'{self.root_dir}/problems/{self.problem}/eval.py' if self.problem_type != "black_box" else f'{self.root_dir}/problems/{self.problem}/eval_black_box.py'
-            process = subprocess.Popen(['python', '-u', eval_file_path, f'{self.problem_size}', self.root_dir, "train"],
+            process = subprocess.Popen(['python3', '-u', eval_file_path, f'{self.problem_size}', self.root_dir, "train"],
                                        stdout=f, stderr=f)
 
         block_until_running(individual["stdout_filepath"], log_status=True, iter_num=self.iteration,
@@ -336,7 +337,7 @@ class HSEvo_QD:
         # Execute the python file with flags
         with open(individual["stdout_filepath"], 'a') as f:
             bd_file_path = f'{self.root_dir}/problems/{self.problem}/{bd_file_name}.py'
-            process = subprocess.Popen(['python', '-u', bd_file_path], stdout=f, stderr=f)
+            process = subprocess.Popen(['python3', '-u', bd_file_path], stdout=f, stderr=f)
 
         block_until_running(individual["stdout_filepath"], log_status=True, iter_num=self.iteration,
                             response_id=response_id)
@@ -347,8 +348,7 @@ class HSEvo_QD:
     def archive_evaluated_population(self, evaluated_population: list[dict]) -> None:
         if not self.population:
             # When population is empty, remove individuals with duplicate bd values
-            bd_seen = set()
-            unique_individuals = []
+            bd_to_individual = {}
 
             for individual in evaluated_population:
                 try:
@@ -357,15 +357,16 @@ class HSEvo_QD:
                         for i, div in enumerate(self.cfg.bd_step)
                     )
 
-                    if bd_values not in bd_seen:
-                        bd_seen.add(bd_values)
-                        unique_individuals.append(individual)
+                    obj = individual['obj']  # Replace 'objective' with your actual objective key
+
+                    if (bd_values not in bd_to_individual) or (obj < bd_to_individual[bd_values]['obj']):
+                        bd_to_individual[bd_values] = individual
                 except KeyError as e:
                     missing_key = str(e)
                     logging.info(f"Skipping individual due to missing behavior descriptor: {missing_key}")
                     continue
 
-            self.population = unique_individuals
+            self.population = list(bd_to_individual.values())
             return  # Done early since we handled the empty-population case
 
         # Create a dictionary to map bd values to individuals in self.population
@@ -422,13 +423,17 @@ class HSEvo_QD:
             self.elitist = population[best_sample_idx]
             logging.info(f"Iteration {self.iteration}: Elitist: {self.elitist['obj']}")
 
+        # Dump the current population to a JSON file for inspection
+        with open(f"population_iter{self.iteration}.json", "w") as f:
+            json.dump(self.population, f, indent=2)
+
         logging.info(f"Iteration {self.iteration} finished...")
         logging.info(f"Best obj: {self.best_obj_overall}, Best Code Path: {self.best_code_path_overall}")
         logging.info(f"LLM usage: prompt_tokens = {self.prompt_tokens}, completion_tokens = {self.completion_tokens}")
         logging.info(f"Function Evals: {self.function_evals}")
         self.iteration += 1
 
-    def random_select(self, population: list[dict]) -> list[dict]:
+    def random_select(self, population: list[dict]):
         """
         Random selection, select individuals with equal probability.
         """
@@ -444,7 +449,7 @@ class HSEvo_QD:
         trial = 0
         while len(selected_population) < 2 * self.cfg.pop_size:
             trial += 1
-            parents = np.random.choice(population, size=2, replace=False)
+            parents = np.random.choice(population, size=2, replace=False) # type: ignore
             # If two parents have the same objective value, consider them as identical;
             # otherwise, add them to the selected population
             if parents[0]["obj"] != parents[1]["obj"]:
@@ -614,7 +619,7 @@ class HSEvo_QD:
             user_generator=user_generator_prompt_full,
             reflection=self.str_comprehensive_memory,
             func_signature1=func_signature1,
-            elitist_code=filter_code(self.elitist["code"]),
+            elitist_code=filter_code(self.elitist["code"]), # type: ignore
             func_name=self.func_name,
         )
 
@@ -638,7 +643,7 @@ class HSEvo_QD:
         return population
 
     def sel_individual_hs(self):
-        candidate_hs = [individual for individual in self.population if individual["tryHS"] is False]
+        candidate_hs = [individual for individual in self.population if individual.get("tryHS", False) is False]
         best_candidate_id = self.find_best_obj(candidate_hs)
         self.local_sel_hs = best_candidate_id
         self.population[best_candidate_id]['tryHS'] = True
@@ -659,7 +664,7 @@ class HSEvo_QD:
         population = []
         for response_id, response in enumerate(responses):
             filename = None if try_hs_idx is None else f"problem_iter{self.iteration}_hs{try_hs_idx}"
-            individual = self.response_to_individual(response, response_id, filename)
+            individual = self.response_to_individual(response, response_id, filename) # type: ignore
             population.append(individual)
         return population
 
@@ -674,7 +679,7 @@ class HSEvo_QD:
             str_create_pop.append(tmp_str)
 
         population_hs = self.responses_to_population(str_create_pop, try_hs_idx)
-        return self.evaluate_population(population_hs, try_hs_idx)
+        return self.evaluate_population(population_hs, try_hs_idx) # type: ignore
 
     def find_best_obj(self, population_hs):
         objs = [individual["obj"] for individual in population_hs]
@@ -698,7 +703,7 @@ class HSEvo_QD:
         objs = [individual["obj"] for individual in population_hs]
         worst_index = np.argmax(np.array(objs))
 
-        new_individual = self.create_population_hs(func_block, parameter_ranges, [new_harmony.tolist()], try_hs_idx)[0]
+        new_individual = self.create_population_hs(func_block, parameter_ranges, [new_harmony.tolist()], try_hs_idx)[0] # type: ignore
 
         if new_individual['obj'] < population_hs[worst_index]['obj']:
             population_hs[worst_index] = new_individual
@@ -761,7 +766,7 @@ class HSEvo_QD:
             # Reflection
             self.flash_reflection(selected_population)
             self.comprehensive_reflection()
-            curr_code_path = self.elitist["code_path"]
+            curr_code_path = self.elitist["code_path"] # type: ignore
 
             # Crossover
             crossed_population = self.crossover(selected_population)
@@ -779,7 +784,7 @@ class HSEvo_QD:
             # Update
             self.update_iter()
 
-            if curr_code_path != self.elitist["code_path"]:
+            if curr_code_path != self.elitist["code_path"]: # type: ignore
                 self.lst_good_reflection.append(self.str_flash_memory["exp"])
             else:
                 self.lst_bad_reflection.append(self.str_flash_memory["exp"])

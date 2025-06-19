@@ -2,135 +2,52 @@ import numpy as np
 
 def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
     """
-    Heuristics for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    A heuristic function for the Capacitated Vehicle Routing Problem (CVRP).
 
-    This version incorporates several improvements over v1, including:
-
-    1.  Adaptive Distance Scaling: Dynamically adjusts the importance of distance based on problem tightness.
-    2.  Refined Demand Feasibility: Considers remaining vehicle capacity for more accurate feasibility assessments.
-    3.  Enhanced Depot Attraction: Uses a softmax function to prioritize returns to the depot based on urgency.
-    4.  Adaptive Gravitational Constant: Adjusts the gravitational constant based on the average demand.
-    5.  Edge Clustering Coefficient: Focuses on connections within high-demand clusters.
-    6.  Lookahead Savings: Estimates savings based on potential future connections.
-    7.  Reinforced Sparsification: Adaptively sets thresholds based on edge characteristics.
-    8.  Capacity Slack Aware weight adjustments: adjusts weights based on how close total demand is to vehicle capacity.
+    This version combines distance, demand, and a "savings" approach to
+    prioritize edges.  It biases towards connecting nodes with smaller
+    demands and shorter distances, and encourages connections that result in
+    large savings (reduction in total travel distance) by connecting them.
 
     Args:
-        distance_matrix (np.ndarray): Distance matrix between nodes (shape: n x n).
-        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n x 2).
-        demands (np.ndarray): Vector of customer demands (shape: n). The demand of depot is demands[0].
-        capacity (int): Vehicle capacity.
+        distance_matrix (np.ndarray): A distance matrix of shape (n, n) where
+                                      n is the number of nodes.
+        coordinates (np.ndarray): Coordinates of the nodes (shape: n x 2).
+        demands (np.ndarray): A vector of customer demands (shape: n).
+        capacity (int): The capacity of the vehicles.
 
     Returns:
-        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (shape: n x n).
+        np.ndarray: A matrix of the same shape as the distance_matrix,
+                    representing the desirability of including each edge
+                    in a solution. Higher values indicate more desirable edges.
     """
+
     n = distance_matrix.shape[0]
-    heuristics = np.zeros((n, n))
-    epsilon = 1e-6
+    heuristic_matrix = np.zeros((n, n))
 
-    # 1. Adaptive Distance Scaling
-    total_demand = np.sum(demands[1:])
-    capacity_ratio = total_demand / (capacity * (n - 1))
-    distance_scale = 1.0 + 0.5 * capacity_ratio  # Increase distance importance if capacity is tight
-    distance_heuristic = 1 / (distance_matrix * distance_scale + epsilon)
+    # Inverse distance, with a small constant to avoid division by zero
+    inverse_distance = 1 / (distance_matrix + 1e-6)
 
-    # 2. Refined Demand Feasibility
-    demand_heuristic = np.ones((n, n))
-    for i in range(n):
-        for j in range(n):
-            if i == j:
-                demand_heuristic[i, j] = 0
-            #Consider the edge between depot and the node.
-            if demands[i] + demands[j] > capacity and i == 0:
-                demand_heuristic[i, j] = 0.1
-            elif demands[i] + demands[j] > capacity and j == 0:
-                demand_heuristic[i, j] = 0.1
-            elif i != 0 and demands[i] > capacity or j != 0 and demands[j] > capacity:
-                demand_heuristic[i,j] = 0.05
+    # Demand-based factor: penalize edges connecting high-demand nodes
+    demand_factor = np.outer(demands, demands)
+    demand_factor = 1 / (demand_factor + 1e-6) # Inverted to favor small demand
 
-    # 3. Enhanced Depot Attraction
-    depot_heuristic = np.zeros((n, n))
-    urgency_factor = 5.0
+
+    # "Savings" calculation:  How much distance is saved by connecting i and j
+    # instead of going i -> depot -> j
+    savings = np.zeros((n, n))
     for i in range(1, n):
-        avg_distance = np.sum(distance_matrix[i, 1:]) / (n - 2) if n > 2 else distance_matrix[i,0]
-        urgency = np.exp(urgency_factor * (avg_distance / np.max(distance_matrix)) * (demands[i] / capacity))
-        depot_heuristic[i, 0] = urgency
-        depot_heuristic[0, i] = urgency
-
-    # 4. Adaptive Gravitational Attraction
-    gravitational_heuristic = np.zeros((n, n))
-    avg_demand = np.mean(demands[1:])
-    adaptive_gravitational_constant = 1.0 + 0.2 * (avg_demand / capacity)
-    for i in range(1, n):
-        for j in range(1, n):
-            if i == j:
-                gravitational_heuristic[i,j] = 0
-                continue
-            mass_i = demands[i]
-            mass_j = demands[j]
-            gravitational_heuristic[i, j] = adaptive_gravitational_constant * (mass_i * mass_j) / (distance_matrix[i, j]**2 + epsilon)
-
-    # 5. Savings Heuristic with Lookahead
-    savings_heuristic = np.zeros((n, n))
-    lookahead_neighbors = 5 #number of neighbors to consider for lookahead
-    for i in range(1, n):
-        for j in range(i + 1, n):
-            savings = distance_matrix[i, 0] + distance_matrix[0, j] - distance_matrix[i, j]
-            #Lookahead
-            neighbor_i = np.argsort(distance_matrix[i, 1:])[:lookahead_neighbors] + 1
-            neighbor_j = np.argsort(distance_matrix[j, 1:])[:lookahead_neighbors] + 1
-            future_savings = 0
-            for ni in neighbor_i:
-                for nj in neighbor_j:
-                    future_savings += distance_matrix[ni, 0] + distance_matrix[0, nj] - distance_matrix[ni, nj]
-            savings += 0.1 * future_savings / (lookahead_neighbors**2 + epsilon)
-            savings_heuristic[i, j] = savings
-            savings_heuristic[j, i] = savings
-
-    # 6. Edge Clustering Coefficient (focus on high-demand clusters)
-    clustering_heuristic = np.zeros((n, n))
-    k_nearest = 6
-    for i in range(1, n):
-        nearest_neighbors = np.argsort(distance_matrix[i, 1:])[:k_nearest] + 1
         for j in range(1, n):
             if i != j:
-                common_neighbors = 0
-                for neighbor_i in nearest_neighbors:
-                    if neighbor_i in (np.argsort(distance_matrix[j, 1:])[:k_nearest] + 1):
-                        common_neighbors += 1
-                clustering_heuristic[i, j] = (common_neighbors / k_nearest) * (demands[i] + demands[j]) / (2*capacity) # Scale by demand
+                savings[i, j] = distance_matrix[i, 0] + distance_matrix[0, j] - distance_matrix[i, j]
 
-    # 7. Sparsification
-    k_nearest = 10
-    sparsification_threshold = 25 #more aggressive sparsification
-    heuristics = (distance_heuristic * demand_heuristic)**0.5 + 0.3 * depot_heuristic + 0.2 * gravitational_heuristic + 0.15 * savings_heuristic + 0.1 * clustering_heuristic
-    threshold = np.percentile(heuristics[heuristics > 0], sparsification_threshold)
+
+    # Combine factors
+    heuristic_matrix = inverse_distance * demand_factor * (savings + 1) #Savings added, and offset by 1
+
+    #Zero out depot-depot connections and self-connections
     for i in range(n):
-        nearest_neighbors = np.argsort(distance_matrix[i, :])[1:k_nearest+1]
-        for j in range(n):
-            if heuristics[i, j] < threshold and j not in nearest_neighbors:
-                heuristics[i, j] = 0
+        heuristic_matrix[i, i] = 0
+    heuristic_matrix[0,0] = 0
 
-    # 8. Capacity Slack Aware Weight Adjustments
-
-    # Measure capacity slack as the percentage of unused capacity across all vehicles, assuming one vehicle per customer.
-    capacity_slack = 1 - (total_demand / (capacity * (n - 1)))
-    alpha = 0.4 # Distance heuristic
-    beta = 0.2 # Depot heuristic
-    gamma = 0.1 # Gravitational heuristic
-    delta = 0.15 # Savings heuristic
-    eta = 0.15 # Clustering heuristic
-
-    # If we have a lot of spare capacity, reduce the importance of the depot trips.
-    alpha = alpha + 0.1*capacity_slack # Give more weight to distance
-    beta = beta - 0.1*capacity_slack  # Give less weight to depot
-    gamma = gamma + 0.05*capacity_slack
-    delta = delta + 0.05*capacity_slack
-    # Recombine heuristics with adjusted weights.
-    # heuristics = (distance_heuristic * demand_heuristic)**0.5 + 0.3 * depot_heuristic + 0.2 * gravitational_heuristic + 0.15 * savings_heuristic + 0.1 * clustering_heuristic
-    # Normalize
-    max_val = np.max(heuristics)
-    if max_val > 0:
-        heuristics = heuristics / max_val
-
-    return heuristics
+    return heuristic_matrix

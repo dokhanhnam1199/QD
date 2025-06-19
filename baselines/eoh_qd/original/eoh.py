@@ -73,26 +73,25 @@ class EOH:
     #         population.append(off)
 
     def remove_duplicate(self, population: list[dict]) -> None:
-        bd_seen = set()
-        unique_individuals = []
+        bd_to_best_individual = {}
 
         for individual in population:
             try:
                 bd_values = tuple(
-                    (individual.get(self.cfg.bd_list[i], 0) or 0) // div
+                    individual[self.cfg.bd_list[i]] // div
                     for i, div in enumerate(self.cfg.bd_step)
                 )
+                obj = individual['objective']  # Replace 'objective' with your actual objective key
 
-                if bd_values not in bd_seen:
-                    bd_seen.add(bd_values)
-                    unique_individuals.append(individual)
+                if (bd_values not in bd_to_best_individual or
+                    obj > bd_to_best_individual[bd_values]['objective']):
+                    bd_to_best_individual[bd_values] = individual
             except KeyError as e:
                 missing_key = str(e)
-                logging.info(f"Skipping individual due to missing behavior descriptor: {missing_key}")
+                print(f"Skipping individual due to missing behavior descriptor: {missing_key}")
                 continue
 
-        population = unique_individuals
-
+        population = list(bd_to_best_individual.values())
     
     def add2pop(self, population, evaluated_population):
         # Create a dictionary to map bd values to individuals in population
