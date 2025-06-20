@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    An adaptive priority function that dynamically adjusts its strategy based on
+    the item size and overall bin utilization. It employs a combination of
+    best-fit, worst-fit avoidance, and targeted bin filling, with adaptive
+    weights determined by the problem state.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    valid_bins = bins_remain_cap >= item
+    priorities[~valid_bins] = -np.inf
+
+    # Overall bin utilization
+    total_capacity = np.sum(bins_remain_cap) + np.sum(1 - bins_remain_cap)  # Assume bin capacity is 1
+    overall_utilization = 1 - np.sum(bins_remain_cap) / total_capacity if total_capacity > 0 else 0.0
+
+    # Item size relative to bin capacity
+    item_ratio = item / np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else 0.0
+    
+    # Best-Fit with adaptive scaling based on item size.  Smaller items get a stronger best-fit preference.
+    size_diff = bins_remain_cap - item
+    priorities[valid_bins] += (1 + (1 - item_ratio)**2) / (size_diff[valid_bins] + 0.0001)**2
+
+    # Avoid creating tiny waste fragments. More aggressive as bins fill up.
+    remaining_after_fit = bins_remain_cap[valid_bins] - item
+    waste_ratio = remaining_after_fit / np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else 0.0
+    small_waste_penalty = np.exp(-20 * waste_ratio) * (overall_utilization**2)
+    priorities[valid_bins] -= small_waste_penalty
+    
+    # Encourage filling bins that are nearly full, but only when utilization is low to medium.
+    # Diminishing returns as utilization increases.
+    nearly_full = bins_remain_cap < 0.2 * np.max(bins_remain_cap)
+    if np.any(nearly_full & valid_bins):  # Only apply if there are nearly full bins available.
+        fullness_bonus = np.exp(-5 * bins_remain_cap[valid_bins])
+
+        if overall_utilization < 0.6:
+           priorities[valid_bins & nearly_full] += 3 * fullness_bonus[valid_bins & nearly_full] * (1 - overall_utilization)
+        elif overall_utilization < 0.8:
+           priorities[valid_bins & nearly_full] += 1.5 * fullness_bonus[valid_bins & nearly_full] * (1 - overall_utilization)
+    
+    # Bin balancing:  Penalize bins deviating from the mean, adaptively scaled
+    # based on overall utilization.
+
+    bin_utilization = 1 - bins_remain_cap / np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else 0.0
+    mean_utilization = np.mean(bin_utilization)
+    balance_penalty = np.abs(bin_utilization - mean_utilization)
+    
+    if overall_utilization < 0.4:
+        priorities[valid_bins] -= 2 * balance_penalty[valid_bins]
+    elif overall_utilization > 0.7:
+        priorities[valid_bins] -= 5 * balance_penalty[valid_bins] * (overall_utilization - 0.7)
+    else:
+         priorities[valid_bins] -= balance_penalty[valid_bins]
+
+    # Handling larger items that might be difficult to place later: Prioritize bins with more remaining capacity
+    if item_ratio > 0.6: #item is large relative to bin size
+        priorities[valid_bins] += 0.5 * (bins_remain_cap[valid_bins] / np.max(bins_remain_cap))
+    
+    return priorities
+```

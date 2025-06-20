@@ -1,0 +1,47 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins based on a combination of factors including fit, fullness,
+    wastage, and exploration, with adaptive scaling and robust constraint handling.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    remaining_capacity = bins_remain_cap - item
+    fit_indices = remaining_capacity >= 0
+
+    if np.any(fit_indices):
+        # Fit-based Priority: Smaller remaining capacity gets higher priority
+        fit_priority = 1 / (remaining_capacity[fit_indices] + 1e-9)
+
+        # Fullness-based Priority: Bins that are already relatively full get higher priority
+        fullness_priority = bins_remain_cap[fit_indices] / np.max(bins_remain_cap)
+
+        # Wastage-based priority : Less wastage higher the priority. More impact if item is large
+        wastage_priority = (item / (remaining_capacity[fit_indices] + item))
+
+        #Adaptive scaling based on the item size
+        scale = item / np.mean(bins_remain_cap[fit_indices]) if np.mean(bins_remain_cap[fit_indices]) > 0 else item
+        # Combine priorities with adaptive scaling and weighting
+        combined_priority = (0.4 * fit_priority + 0.3 * fullness_priority + 0.3 * wastage_priority ) * scale
+
+
+        priorities[fit_indices] = combined_priority
+
+        # Exploration: Add a small amount of randomness to encourage diversity
+        exploration_factor = min(0.05, 0.005 * np.sum(fit_indices))
+        priorities[fit_indices] += np.random.rand(np.sum(fit_indices)) * exploration_factor
+
+    # Penalize bins where item doesn't fit severely
+    priorities[remaining_capacity < 0] = -1e9
+
+    # Ensure positive priorities and normalize to a probability distribution (if possible)
+    if np.sum(priorities) > 0:
+        priorities = priorities / np.sum(priorities)
+    elif np.sum(priorities) < 0 and np.any(priorities > 0): #If only negative and zero values are present
+        min_neg = np.min(priorities[priorities < 0])
+
+        priorities = priorities - min_neg #shift to make everythign positive
+        priorities = priorities / np.sum(priorities)
+
+    return priorities
+```

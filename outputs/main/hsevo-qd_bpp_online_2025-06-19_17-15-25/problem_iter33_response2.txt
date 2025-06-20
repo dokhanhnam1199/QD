@@ -1,0 +1,48 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins considering fit, waste, fullness, a decay factor, and exploration."""
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    remaining_capacity = bins_remain_cap - item
+    fit_indices = remaining_capacity >= 0
+
+    if np.any(fit_indices):
+        # Waste Factor: Smaller waste is better
+        waste = remaining_capacity[fit_indices]
+        waste_priority = 1.0 / (waste + 0.01) #Avoid zero division, and give high priority to small waste
+
+        # Fullness Factor: High fullness is preferred
+        fullness = bins_remain_cap[fit_indices] / np.max(bins_remain_cap) # scale to 0-1
+        
+        # Decay Factor: Bins used less recently should have slightly higher priority (exploration and mitigates packing in the same bins always)
+        decay_factor = np.exp(-0.1 * (np.max(bins_remain_cap) - bins_remain_cap[fit_indices])) # decay exponentially
+
+        # Combine factors with adaptive scaling. More weight to waste and fullness
+        combined_priority = 0.5 * waste_priority + 0.3 * fullness + 0.2 * decay_factor
+
+        # Adaptive scaling based on item size and available capacity
+        scale = np.mean(bins_remain_cap[fit_indices]) + item
+        priorities[fit_indices] = combined_priority / scale
+
+        # Exploration bonus: item-size aware
+        exploration_strength = min(0.15, item * 0.5) #Slightly increased randomness for better coverage
+        exploration_bonus = np.random.rand(np.sum(fit_indices)) * exploration_strength
+        priorities[fit_indices] += exploration_bonus
+    else:
+        priorities = np.full_like(priorities, -1e9)
+        return priorities
+    
+    # Penalize bins where the item doesn't fit
+    priorities[remaining_capacity < 0] = -1e9
+
+    # Normalize priorities, handling edge cases
+    if np.sum(priorities) > 0:
+        priorities = priorities / np.sum(priorities)
+    elif np.sum(priorities) < 0:
+        min_priority = np.min(priorities)
+        priorities = priorities - min_priority
+        priorities = priorities / np.sum(priorities) if np.sum(priorities) > 0 else np.zeros_like(priorities)
+    
+    return priorities
+```

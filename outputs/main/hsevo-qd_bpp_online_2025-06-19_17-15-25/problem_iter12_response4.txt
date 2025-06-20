@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins based on a combination of remaining capacity,
+    fit assessment, adaptive scaling, and a novel exploration strategy.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    remaining_capacity = bins_remain_cap - item
+    fit_indices = remaining_capacity >= 0
+
+    if np.any(fit_indices):
+        # Prioritize bins with tighter fits, but avoid near-zero remaining capacity to
+        # preserve options for potentially larger incoming items later. We introduce a threshold.
+        tight_fit_threshold = np.mean(bins_remain_cap[fit_indices]) * 0.1 # Adaptive threshold
+
+        tight_fit_indices = (remaining_capacity[fit_indices] <= tight_fit_threshold) & (remaining_capacity[fit_indices] >= 0)
+
+        if np.any(tight_fit_indices):
+            priorities[fit_indices[tight_fit_indices]] += 1.0 / (remaining_capacity[fit_indices[tight_fit_indices]] + 1e-9)
+
+
+        # Prioritize fuller bins, scaled by current item size to encourage filling
+        # rather than keeping bins mostly empty.  Also apply adaptive scaling based on the
+        # median available capacity, since the mean can be skewed by outliers.
+        scale = np.median(bins_remain_cap[fit_indices])
+        priorities[fit_indices] += (bins_remain_cap[fit_indices] / scale) * item
+
+        # Exploration: Favor bins that have higher *potential* to accommodate future items.
+        # This is a simple prediction based on current remaining capacity.
+        priorities[fit_indices] += bins_remain_cap[fit_indices] * 0.001
+
+
+    # Very low priority to bins where item doesn't fit. Stronger penalty than v1.
+    priorities[remaining_capacity < 0] = -1e12
+
+    # Normalization is crucial: ensures proper weighting and avoids domination by extreme values.
+    # Normalization is performed only if positive priorities exist. Prevents issues when all bins
+    # are non-fitting.
+    if np.any(priorities > 0):
+        priorities[priorities < 0] = 0  # Clip negative values after penalty assignment.
+        total_priority = np.sum(priorities)
+        if total_priority > 0:
+            priorities = priorities / total_priority
+    elif np.any(priorities < 0):
+        min_priority = np.min(priorities)
+        priorities = priorities - min_priority  # Shift to non-negative
+        total_priority = np.sum(priorities)
+        if total_priority > 0:
+            priorities = priorities / total_priority
+    else: #All bins are equally bad, spread the priority evenly
+        priorities = np.ones_like(priorities) / len(priorities)
+
+    return priorities
+```

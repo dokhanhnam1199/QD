@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    A refined priority function for online bin packing, focusing on dynamic
+    adjustment of best-fit and a new fragmentation penalty based on
+    empirical testing and iterative refinement.
+
+    The weights for best-fit and fragmentation are dynamically adjusted
+    based on the overall utilization to prevent premature bin closure
+    and excessive fragmentation.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    valid_bins = bins_remain_cap >= item
+    priorities[~valid_bins] = -np.inf
+
+    # Best-Fit component with dynamic weight adjustment.
+    size_diff = bins_remain_cap - item
+    best_fit_score = 1.0 / (size_diff[valid_bins] + 0.0001)
+
+    # Calculate overall utilization. Use a small constant to avoid division by zero
+    total_capacity = np.sum(bins_remain_cap) + np.sum(np.where(bins_remain_cap < 0, -bins_remain_cap, 0))
+    overall_utilization = 1 - (np.sum(bins_remain_cap[bins_remain_cap>0]) / (total_capacity + 1e-9)) # only consider positive remaining capacity
+
+    # Dynamic weight for best-fit based on utilization.
+    if overall_utilization < 0.5:
+        best_fit_weight = 1.2  # Emphasize best-fit when bins are relatively empty.
+    else:
+        best_fit_weight = 0.8  # Reduce best-fit emphasis when bins are filling up.
+
+    priorities[valid_bins] += best_fit_weight * best_fit_score
+
+
+    # Fragmentation Penalty: Discourage creating tiny fragments, adjusted dynamically.
+    remaining_after_fit = bins_remain_cap[valid_bins] - item
+    fragment_ratio = remaining_after_fit / np.max(bins_remain_cap)  # Normalize by bin capacity
+
+    # Dynamic penalty based on fragmentation and overall utilization.
+    if overall_utilization < 0.4:
+         fragmentation_penalty = np.exp(-50 * fragment_ratio) #Strong penalty
+    elif overall_utilization < 0.7:
+        fragmentation_penalty = np.exp(-20 * fragment_ratio) #medium penalty
+    else:
+        fragmentation_penalty = np.exp(-10 * fragment_ratio)  # Reduced penalty when bins are mostly full.
+
+    priorities[valid_bins] -= fragmentation_penalty
+
+
+    # Encourage filling bins that are already significantly utilized.
+    bin_utilization = 1 - (bins_remain_cap / np.max(bins_remain_cap))
+    utilization_threshold = 0.6  # Bins utilized more than 60% are favored
+    almost_full_bonus = np.where(bin_utilization[valid_bins] > utilization_threshold, 0.5 * (bin_utilization[valid_bins] - utilization_threshold), 0)
+    priorities[valid_bins] += almost_full_bonus
+
+    return priorities
+```

@@ -1,0 +1,59 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    An adaptive priority function for online bin packing that dynamically adjusts
+    its strategy based on the current bin fill levels and item sizes.  It aims
+    to improve upon previous approaches by incorporating a more sophisticated
+    waste management system, focusing on long-term bin utilization.  Includes
+    exploration of underutilized bins.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    valid_bins = bins_remain_cap >= item
+    priorities[~valid_bins] = -np.inf
+
+    # 1. Best-Fit with Refined Waste Calculation: Prioritize bins where the remaining space is close to item size
+    size_diff = bins_remain_cap - item
+    priorities[valid_bins] += 1.0 / (size_diff[valid_bins] + 0.0001)**2
+
+    # 2. Dynamic Waste Penalty: Penalize bins that would lead to significant waste, based on item size
+    waste_ratio = (bins_remain_cap[valid_bins] - item) / bins_remain_cap[valid_bins]
+    waste_penalty = np.where(waste_ratio > 0.6, -10 * waste_ratio, 0)  # Heavily penalize >60% waste
+    priorities[valid_bins] += waste_penalty
+
+
+    # 3. Bin Balancing with Exploration Bonus:  Encourage filling empty bins and balance the load
+    bin_utilization = 1 - bins_remain_cap / np.max(bins_remain_cap)
+    avg_utilization = np.mean(bin_utilization)
+
+    # Exploration Bonus: Add a small bonus to underutilized bins (adaptive)
+    exploration_threshold = 0.2
+    exploration_bonus = np.where(bin_utilization < exploration_threshold, 0.5 * (exploration_threshold - bin_utilization), 0)
+    priorities[valid_bins] += exploration_bonus[valid_bins]
+
+    # Balancing Factor: Adjust bin preferences based on the overall fill level of all bins
+    balance_factor = np.abs(bin_utilization - avg_utilization)
+    priorities[valid_bins] -= 2 * balance_factor[valid_bins] # Penalize unbalanced bins
+
+    # 4. Adaptive Fullness Bonus: Reward bins nearing capacity based on overall utilization
+
+    fullness_level = 1- (bins_remain_cap / np.max(bins_remain_cap))
+    fullness_bonus = np.exp(-5 * np.abs(bins_remain_cap / np.max(bins_remain_cap))) #Similar to full_bonus of V1
+
+
+    if avg_utilization < 0.4:
+        priorities[valid_bins] += 3 * fullness_bonus[valid_bins] * (1 - avg_utilization)  # Encourage filling almost full bins
+    elif avg_utilization < 0.7:
+        priorities[valid_bins] += 1.5 * fullness_bonus[valid_bins] * (1 - avg_utilization)
+    else:
+        priorities[valid_bins] += 0.5 * fullness_bonus[valid_bins] * (1 - avg_utilization)  # Less bonus when bins are mostly full
+
+    # 5. Item size consideration: Give higher priority to the best fit bin when the item is large
+    large_item_threshold = 0.6
+    if item > large_item_threshold * np.max(bins_remain_cap):
+         priorities[valid_bins] += 2 / (size_diff[valid_bins] + 0.0001)**2  # Boost best-fit for large items
+
+    return priorities
+```

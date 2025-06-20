@@ -1,0 +1,66 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    A refined priority function for online bin packing, building upon v1 with improved
+    adaptability, normalization, and robust handling of edge cases.  It prioritizes bins
+    based on a weighted combination of factors, including space utilization, waste minimization,
+    bin balancing, and a dynamic learning component that responds to the overall packing density.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    valid_bins = bins_remain_cap >= item
+    priorities[~valid_bins] = -np.inf  # Invalidate bins that can't fit the item
+
+    # 1. Best-Fit with Normalized Difference
+    size_diff = bins_remain_cap - item
+    normalized_diff = size_diff / np.max(bins_remain_cap[valid_bins], initial=1) # Normalize to bin capacity
+    priorities[valid_bins] += 1.0 / (normalized_diff[valid_bins] + 0.0001)**1.5 # Dampen sensitivity
+
+    # 2. Waste Minimization with Adaptive Penalty
+    remaining_after_fit = bins_remain_cap[valid_bins] - item
+    waste_ratio = remaining_after_fit / np.max(bins_remain_cap[valid_bins], initial=1)
+
+    # Adapt the penalty based on the item size and remaining capacity.
+    waste_penalty_strength = 5 * (item / np.max(bins_remain_cap, initial=1))
+    small_waste_penalty = np.exp(-waste_penalty_strength * remaining_after_fit * item)
+    priorities[valid_bins] -= small_waste_penalty
+
+
+    # 3. Bin Balancing with Dynamic Target Utilization and Sigmoid Smoothing
+    utilization = 1 - (bins_remain_cap / np.max(bins_remain_cap))
+    overall_utilization = np.mean(utilization)
+
+    # Dynamic Target Utilization
+    if overall_utilization < 0.4:
+        target_utilization = 0.4  # Encourage filling
+    elif overall_utilization > 0.6:
+        target_utilization = 0.6  # Discourage further filling
+    else:
+        target_utilization = 0.5  # Balance
+
+    # Sigmoid Smoothing for Bin Balancing Penalty
+    balance_diff = utilization - target_utilization
+    balance_penalty = 10 / (1 + np.exp(-20 * balance_diff)) #Steeper transition around target
+
+    priorities[valid_bins] -= balance_penalty[valid_bins]
+
+    # 4. Adaptive Fullness Bonus
+    fullness_level = 1 - (bins_remain_cap / np.max(bins_remain_cap, initial=1))  # Normalized Fullness
+    fullness_bonus = np.exp(-5 * np.abs(fullness_level - 1))  # Near-full bins get higher bonus
+
+    # Weight the bonus based on overall utilization
+    if overall_utilization < 0.5:
+        bonus_weight = 2 * (1 - overall_utilization)  # Higher bonus when bins are empty
+    else:
+        bonus_weight = 0.5 * (1 - overall_utilization)  # Lower bonus when bins are full
+
+    priorities[valid_bins] += bonus_weight * fullness_bonus[valid_bins]
+
+    # 5. Introduce Noise (Exploration) - Very Small
+    # Adding tiny random noise for exploration. Reduce chance of getting stuck
+    #priorities[valid_bins] += 0.001 * np.random.randn(valid_bins.sum())
+
+    return priorities
+```

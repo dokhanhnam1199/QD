@@ -1,0 +1,43 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins based on remaining capacity, item size relative to bin size,
+    a bin utilization score, and adaptive randomness. Aims for better bin packing
+    by considering multiple factors and adapting to problem context.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    remaining_capacity = bins_remain_cap - item
+    fit_indices = remaining_capacity >= 0
+
+    if np.any(fit_indices):
+        # 1. Bin Utilization Score: How full the bin would be *after* adding the item.
+        utilization = (bins_remain_cap[fit_indices] - remaining_capacity[fit_indices]) / bins_remain_cap[fit_indices]
+        priorities[fit_indices] += utilization * 0.5  # Weight for utilization
+
+        # 2. Relative Item Size:  Item size relative to remaining capacity. Smaller is better
+        relative_item_size = item / bins_remain_cap[fit_indices]
+        priorities[fit_indices] += (1 - relative_item_size) * 0.3 # Weight for relative size
+
+        # 3. Remaining Capacity Preference: Favor bins with smaller remaining capacity.
+        #    But avoid bins that are *too* tight, by squaring the remaining cap
+        priorities[fit_indices] += (1 / (remaining_capacity[fit_indices]**2 + 1e-6)) * 0.2 # Weight for remaining cap
+
+        # 4. Adaptive Randomness: Introduce randomness, scaled by the number of bins that fit.
+        #    More randomness when there are many valid choices. Less when there are few.
+        num_fit = np.sum(fit_indices)
+        randomness_scale = min(0.1, num_fit * 0.01)  # Scale randomness based on num_fit (up to 10% max)
+        priorities[fit_indices] += np.random.rand(np.sum(fit_indices)) * randomness_scale
+
+    # Very low priority to bins where item doesn't fit.
+    priorities[remaining_capacity < 0] = -1e9
+
+    # Normalize priorities to ensure they sum to 1 (or handle negative priorities correctly).
+    if np.sum(priorities) > 0:
+        priorities = priorities / np.sum(priorities)
+    elif np.sum(priorities) < 0:
+        priorities = priorities - np.min(priorities)
+        priorities = priorities / np.sum(priorities)
+
+    return priorities
+```
