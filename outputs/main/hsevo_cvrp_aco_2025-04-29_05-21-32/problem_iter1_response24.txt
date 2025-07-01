@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    A more sophisticated heuristics function for CVRP.  It considers distance,
+    demand, and angular relationships between nodes to estimate the desirability
+    of including an edge in a route.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Normalize demands for scaling purposes.  Avoid division by zero.
+    max_demand = np.max(demands)
+    normalized_demands = demands / max_demand if max_demand > 0 else np.zeros_like(demands)
+
+
+    # Depot location
+    depot_x, depot_y = coordinates[0]
+
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+                continue
+
+            distance = distance_matrix[i, j]
+            if distance == 0:
+                heuristic_matrix[i, j] = 0 #Avoid divide by zero, same point
+                continue
+
+            # Base heuristic: inverse of distance
+            heuristic = 1 / distance
+
+            # Demand factor:  Less desirable to link high-demand nodes directly
+            # unless it is to the depot.
+            demand_penalty = normalized_demands[i] + normalized_demands[j]
+
+            if i!= 0 and j != 0:
+               heuristic /= (1 + demand_penalty)
+
+            # Angular component:  Penalize sharp turns. Nodes should be added more favorably
+            #   in similar directions to the depot. This is only relevant if
+            #   neither node is the depot itself
+
+            if i != 0 and j != 0:
+
+                angle_i = np.arctan2(coordinates[i, 1] - depot_y, coordinates[i, 0] - depot_x)
+                angle_j = np.arctan2(coordinates[j, 1] - depot_y, coordinates[j, 0] - depot_x)
+
+                angle_diff = np.abs(angle_i - angle_j)
+                angle_diff = np.minimum(angle_diff, 2 * np.pi - angle_diff)  # Ensure the smaller angle is used
+
+                # Penalize edges where the nodes have very different angles from the depot.
+                # Higher values indicate angles are very different so penalty is increased.
+                angle_penalty = (angle_diff / np.pi)**2
+                heuristic /= (1+angle_penalty)
+
+
+            heuristic_matrix[i, j] = heuristic
+
+    return heuristic_matrix
+```

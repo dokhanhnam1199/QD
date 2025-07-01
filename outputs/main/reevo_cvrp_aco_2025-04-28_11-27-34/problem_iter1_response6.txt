@@ -1,0 +1,71 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for CVRP based on stochastic solution sampling.
+
+    Combines distance, demand, and angular considerations to estimate edge desirability.
+    Sparsifies the matrix by setting unpromising elements to zero.
+
+    Args:
+        distance_matrix: (n, n) distance matrix.
+        coordinates: (n, 2) Euclidean coordinates.
+        demands: (n,) customer demands.
+        capacity: vehicle capacity.
+
+    Returns:
+        (n, n) matrix of edge desirability scores.
+    """
+    n = distance_matrix.shape[0]
+    desirability = np.zeros_like(distance_matrix)
+
+    # Parameters (tuned via experimentation)
+    alpha = 1.0  # Distance importance
+    beta = 1.5   # Demand importance
+    gamma = 0.5  # Angular importance
+    sparsity_threshold = 0.1  # Threshold for sparsification
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                desirability[i, j] = 0  # No self-loops
+                continue
+
+            # Distance factor: closer nodes are preferred
+            distance_factor = 1 / (distance_matrix[i, j] + 1e-6)  # Adding small value to avoid division by zero
+
+            # Demand factor: penalize edges that lead to capacity violations
+            demand_factor = 1.0
+            if i != 0 and j != 0:  # Considering demand only for customer nodes.
+                demand_factor = 1 / (demands[i] + demands[j] + 1e-6)  #Combined demand penalty
+
+            # Angular factor: encourages connections that minimize sharp turns, try to point to the other points.
+            angular_factor = 1.0
+            if i != 0 and j != 0:
+
+                #calculate the vector pointing from node i to node j
+                vector_ij = coordinates[j] - coordinates[i]
+                
+                #calculates how well node j points at all of the other node locations.
+                angular_similarity = 0
+                for k in range(1, n):
+                    if k != i and k != j:
+                        vector_ik = coordinates[k] - coordinates[i]
+                        dot_product = np.dot(vector_ij, vector_ik)
+                        magnitudes = np.linalg.norm(vector_ij) * np.linalg.norm(vector_ik) + 1e-6
+                        angular_similarity += max(0, dot_product / magnitudes) #Only add when positive
+
+                angular_factor = (angular_similarity + 1)
+
+            desirability[i, j] = distance_factor**alpha * demand_factor**beta * angular_factor**gamma
+
+    # Normalize desirability scores to [0, 1]
+    desirability = (desirability - np.min(desirability)) / (np.max(desirability) - np.min(desirability) + 1e-6)
+
+    # Sparsify the matrix: set low-desirability edges to zero
+    threshold = np.quantile(desirability[desirability > 0], sparsity_threshold) # Ignore zero valued entries when deciding on the threshold
+    desirability[desirability < threshold] = 0
+
+    return desirability
+```

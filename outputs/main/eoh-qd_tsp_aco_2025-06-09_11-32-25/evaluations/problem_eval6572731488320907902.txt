@@ -1,0 +1,57 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a genetic algorithm approach to evolve a population of tours, selecting the best tours to contribute to a heuristic matrix based on edge frequency.}"""
+    n = distance_matrix.shape[0]
+    population_size = 100
+    num_generations = 50
+    mutation_rate = 0.01
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Initialize population
+    population = [np.random.permutation(n) for _ in range(population_size)]
+
+    for generation in range(num_generations):
+        # Calculate fitness (tour length) for each tour
+        fitness_scores = []
+        for tour in population:
+            tour_length = 0
+            for i in range(n - 1):
+                tour_length += distance_matrix[tour[i], tour[i+1]]
+            tour_length += distance_matrix[tour[-1], tour[0]]
+            fitness_scores.append(tour_length)
+
+        # Select the best tours (lower tour length is better)
+        ranked_tours = sorted(zip(fitness_scores, population))
+        best_tours = [tour for _, tour in ranked_tours[:population_size // 2]]  # Select top half
+
+        # Update heuristics matrix based on selected tours
+        for tour in best_tours:
+            for i in range(n - 1):
+                heuristics_matrix[tour[i], tour[i+1]] += 1
+                heuristics_matrix[tour[i+1], tour[i]] += 1
+            heuristics_matrix[tour[-1], tour[0]] += 1
+            heuristics_matrix[tour[0], tour[-1]] += 1
+
+        # Create a new population through crossover and mutation
+        new_population = best_tours[:]  # Keep the best tours
+        while len(new_population) < population_size:
+            # Select two parent tours randomly from the best tours
+            parent1 = np.random.choice(best_tours)
+            parent2 = np.random.choice(best_tours)
+
+            # Crossover (e.g., ordered crossover)
+            start_pos = np.random.randint(0, n)
+            end_pos = np.random.randint(start_pos + 1, n + 1) if start_pos < n - 1 else n
+            child = np.concatenate([parent1[start_pos:end_pos], [node for node in parent2 if node not in parent1[start_pos:end_pos]]])
+
+            # Mutation (swap two random cities)
+            if np.random.rand() < mutation_rate:
+                idx1, idx2 = np.random.choice(n, 2, replace=False)
+                child[idx1], child[idx2] = child[idx2], child[idx1]
+            
+            new_population.append(child)
+
+        population = new_population[:population_size]  # Trim if necessary
+
+    return heuristics_matrix

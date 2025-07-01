@@ -1,0 +1,63 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm iteratively refines edge probabilities based on the frequency with which edges appear in short, randomly sampled tours.}"""
+    n = distance_matrix.shape[0]
+    edge_probability_matrix = np.ones_like(distance_matrix) / n  # Initialize with uniform probabilities
+    num_iterations = 100
+    num_samples = 50
+    sample_size = n // 2 
+    scaling_factor = 10.0
+
+    for iteration in range(num_iterations):
+        all_tour_lengths = []
+        all_tours = []
+
+        for _ in range(num_samples):
+            # Sample a tour based on current edge probabilities
+            tour = [np.random.choice(n)]  # Start with a random node
+            remaining_nodes = set(range(n))
+            remaining_nodes.remove(tour[0])
+            
+            while remaining_nodes:
+                current_node = tour[-1]
+                probabilities = edge_probability_matrix[current_node, list(remaining_nodes)]
+                probabilities /= np.sum(probabilities)  # Normalize probabilities
+                
+                next_node = np.random.choice(list(remaining_nodes), p=probabilities)
+                tour.append(next_node)
+                remaining_nodes.remove(next_node)
+            
+            tour.append(tour[0])  # Return to starting node
+            
+            # Calculate tour length
+            tour_length = 0
+            for i in range(n):
+                tour_length += distance_matrix[tour[i], tour[i+1]]
+            
+            all_tours.append(tour)
+            all_tour_lengths.append(tour_length)
+        
+        # Normalize tour lengths to emphasize better tours
+        normalized_lengths = np.array(all_tour_lengths)
+        normalized_lengths = np.max(normalized_lengths) / normalized_lengths  # Higher value for shorter tours
+        normalized_lengths /= np.sum(normalized_lengths)
+        
+        # Update edge probabilities based on frequency in sampled tours
+        for i in range(n):
+          for j in range(n):
+            edge_probability_matrix[i, j] *= 0.9 # Decay
+        
+        for tour, tour_length in zip(all_tours, normalized_lengths):
+            for i in range(n):
+                node1 = tour[i]
+                node2 = tour[i+1]
+                edge_probability_matrix[node1, node2] += tour_length / scaling_factor
+                edge_probability_matrix[node2, node1] += tour_length / scaling_factor
+        
+        # Normalize each row of the probability matrix so each node transits with probability 1
+        for i in range(n):
+            edge_probability_matrix[i, :] /= np.sum(edge_probability_matrix[i, :])
+                
+    heuristics_matrix = edge_probability_matrix
+    return heuristics_matrix

@@ -1,0 +1,82 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a clustering approach based on demand density to prioritize edges, adjusting edge weights based on cluster demand and distance, refined by simulated annealing.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    
+    # Demand Density Clustering
+    num_clusters = int(np.sqrt(n)) + 1
+    cluster_centers = np.random.choice(n, num_clusters, replace=False)
+    clusters = [[] for _ in range(num_clusters)]
+    cluster_assignments = []
+    cluster_demands = [0] * num_clusters
+
+    for i in range(n):
+        min_dist = float('inf')
+        closest_cluster = -1
+        for j in range(num_clusters):
+            dist = distance_matrix[i, cluster_centers[j]]
+            if dist < min_dist:
+                min_dist = dist
+                closest_cluster = j
+        
+        clusters[closest_cluster].append(i)
+        cluster_assignments.append(closest_cluster)
+    
+    for k in range(num_clusters):
+        for node_id in clusters[k]:
+            cluster_demands[k] += demands[node_id]
+            
+
+    # Edge Weight Prioritization based on cluster demand and distance
+    intra_cluster_weight = 1.0
+    inter_cluster_weight = 0.5
+    depot_cluster_weight = 0.75
+    demand_weight_factor = 0.01
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            cluster_i = cluster_assignments[i]
+            cluster_j = cluster_assignments[j]
+            
+            base_weight = 1.0 / distance_matrix[i, j] if distance_matrix[i,j] > 0 else 1.0
+
+            if cluster_i == cluster_j:
+                demand_weight = 1 + demand_weight_factor * cluster_demands[cluster_i]
+                heuristics_matrix[i, j] = intra_cluster_weight * base_weight * demand_weight
+                heuristics_matrix[j, i] = intra_cluster_weight * base_weight * demand_weight
+            else:
+                demand_weight_i = 1 + demand_weight_factor * cluster_demands[cluster_i]
+                demand_weight_j = 1 + demand_weight_factor * cluster_demands[cluster_j]
+                heuristics_matrix[i, j] = inter_cluster_weight * base_weight * (demand_weight_i + demand_weight_j) / 2
+                heuristics_matrix[j, i] = inter_cluster_weight * base_weight * (demand_weight_i + demand_weight_j) / 2
+
+            if i == 0 or j == 0:
+                heuristics_matrix[i, j] *= depot_cluster_weight
+                heuristics_matrix[j, i] *= depot_cluster_weight
+
+    #Simulated Annealing (very basic)
+    temperature = 100
+    cooling_rate = 0.95
+    
+    for _ in range(100):
+        i = random.randint(0, n-1)
+        j = random.randint(0, n-1)
+        if i != j:
+            old_value = heuristics_matrix[i, j]
+            
+            change = random.uniform(-0.1, 0.1)
+            new_value = old_value + change
+            new_value = max(0, min(1, new_value))
+            
+            delta_e = new_value - old_value
+            
+            if delta_e > 0 or random.random() < np.exp(delta_e / temperature):
+                heuristics_matrix[i, j] = new_value
+                heuristics_matrix[j, i] = new_value
+                
+        temperature *= cooling_rate
+    
+    return heuristics_matrix

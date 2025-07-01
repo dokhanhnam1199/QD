@@ -1,0 +1,88 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm estimates edge probabilities by repeatedly sampling routes using a regret-based insertion heuristic, rewarding edges in good routes and penalizing edges that lead to exceeding capacity.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones((n, n))
+
+    num_samples = 1000
+    reward_factor = 1
+    penalty_factor = 0.1
+
+    for _ in range(num_samples):
+        current_route = [0]
+        remaining_nodes = list(range(1, n))
+        vehicle_load = 0
+
+        while remaining_nodes:
+            insertion_costs = {}
+            for node in remaining_nodes:
+                best_insertion_cost = float('inf')
+                best_insertion_index = -1
+
+                if vehicle_load + demands[node] <= capacity:
+                    for i in range(len(current_route)):
+                        cost = distance_matrix[current_route[i-1], node] + distance_matrix[node, current_route[i]] - distance_matrix[current_route[i-1], current_route[i]]
+                        if cost < best_insertion_cost:
+                            best_insertion_cost = cost
+                            best_insertion_index = i
+
+                    insertion_costs[node] = (best_insertion_cost, best_insertion_index)
+                else:
+                    insertion_costs[node] = (float('inf'), -1)
+
+            #Regret calculation
+            if len(insertion_costs) > 0:
+                sorted_insertion_costs = sorted(insertion_costs.items(), key=lambda item: item[1][0])
+            else:
+                break
+
+            best_node = None
+            regret = -float('inf')
+            
+            for i in range(len(sorted_insertion_costs)):
+                node, (cost, index) = sorted_insertion_costs[i]
+
+                if cost == float('inf'):
+                    continue
+
+                if i + 1 < len(sorted_insertion_costs):
+                    next_node, (next_cost, next_index) = sorted_insertion_costs[i+1]
+                    current_regret = next_cost - cost
+                else:
+                    current_regret = cost
+
+                if current_regret > regret:
+                    regret = current_regret
+                    best_node = node
+                
+
+            if best_node is not None:
+                cost, index = insertion_costs[best_node]
+                current_route.insert(index, best_node)
+                vehicle_load += demands[best_node]
+                remaining_nodes.remove(best_node)
+            else:
+                # No feasible insertions, end the route and return to depot
+                break
+        
+        # Return to depot
+        current_route.append(0)
+        
+        # Update heuristic matrix based on route
+        for i in range(len(current_route) - 1):
+            node1 = current_route[i]
+            node2 = current_route[i+1]
+            heuristics_matrix[node1, node2] += reward_factor
+            heuristics_matrix[node2, node1] += reward_factor
+
+        if vehicle_load > capacity:
+            for i in range(len(current_route) - 1):
+                node1 = current_route[i]
+                node2 = current_route[i+1]
+                heuristics_matrix[node1, node2] -= penalty_factor
+                heuristics_matrix[node2, node1] -= penalty_factor
+            
+    return heuristics_matrix

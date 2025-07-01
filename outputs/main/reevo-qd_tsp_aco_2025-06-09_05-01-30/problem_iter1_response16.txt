@@ -1,0 +1,67 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for TSP using stochastic solution sampling principles.
+    Combines inverse distance, node degree centrality, and sparsification.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix representing TSP instance.
+
+    Returns:
+        np.ndarray: Heuristic matrix indicating the promise of each edge.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Inverse Distance: Closer nodes are more promising
+    inverse_distance = 1 / (distance_matrix + 1e-9)  # Add small constant to avoid division by zero
+
+    # 2. Node Degree Centrality: Preferentially connect nodes with fewer connections
+    #    (helps avoid getting stuck in local optima early on)
+
+    # Calculate degree centrality based on inverse distances (higher is more central)
+    degree_centrality = np.sum(inverse_distance, axis=1)
+
+    # Penalize edges connected to highly central nodes, encourage exploration
+    node_penalty = np.outer(degree_centrality, degree_centrality)
+    node_penalty = (node_penalty / np.max(node_penalty))  # Normalize between 0 and 1
+
+    # 3. Edge density. Penalize overly dense connections to neighbors
+    edge_density_penalty = np.zeros_like(distance_matrix)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Count how many of node i's neighbors (defined based on close distance)
+                # are also neighbors of node j.  A high count indicates these connections
+                # are likely to lead to poor local optima.
+                neighbors_i = np.where(distance_matrix[i, :] < np.median(distance_matrix[i,:]))[0] # Close neighbors of i
+                neighbors_j = np.where(distance_matrix[j, :] < np.median(distance_matrix[j,:]))[0] # Close neighbors of j
+                common_neighbors = len(np.intersect1d(neighbors_i, neighbors_j))
+
+                edge_density_penalty[i,j] = common_neighbors / (n - 2 + 1e-9) # proportion of neighbors in common
+
+
+    # Combine Factors
+    heuristic_matrix = inverse_distance / (1 + node_penalty + edge_density_penalty) #Elementwise division
+
+    # Sparsification: Zero out less promising edges
+    threshold = np.median(heuristic_matrix[heuristic_matrix > 0])  # Adaptive threshold based on existing values
+
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+
+    #Ensure symmetry and no self loops after sparsification.
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0.0
+            else:
+                heuristic_matrix[i,j] = max(heuristic_matrix[i,j], heuristic_matrix[j,i]) #Symmetry is important.
+
+
+
+    return heuristic_matrix
+```

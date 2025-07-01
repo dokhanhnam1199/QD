@@ -1,0 +1,73 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm samples a large number of random routes, evaluates their feasibility and cost, and then uses the inverse of the route cost, weighted by a factor that considers the number of vehicles used, to update the desirability of edges.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000  # Number of random routes to sample
+    top_k = 20 # Consider the top k best routes
+    alpha = 0.5 # Weight for number of vehicles
+
+    feasible_routes = []
+
+    for _ in range(num_samples):
+        # Generate a random route
+        route = list(range(1, n))
+        random.shuffle(route)
+
+        # Check feasibility and calculate cost
+        current_route = []
+        current_demand = 0
+        total_cost = 0
+        is_feasible = True
+
+        vehicle_routes = []
+
+        for node in route:
+            if current_demand + demands[node] <= capacity:
+                current_route.append(node)
+                current_demand += demands[node]
+            else:
+                # Vehicle returns to depot
+                if len(current_route) > 0:
+                    total_cost += distance_matrix[0, current_route[0]]
+                    for i in range(len(current_route) - 1):
+                        total_cost += distance_matrix[current_route[i], current_route[i+1]]
+                    total_cost += distance_matrix[current_route[-1], 0]
+                    vehicle_routes.append(current_route)
+
+                else:
+                    is_feasible = False
+                    break
+
+                current_route = [node]
+                current_demand = demands[node]
+
+        # Handle the last vehicle route
+        if is_feasible:
+            if len(current_route) > 0:
+                total_cost += distance_matrix[0, current_route[0]]
+                for i in range(len(current_route) - 1):
+                    total_cost += distance_matrix[current_route[i], current_route[i + 1]]
+                total_cost += distance_matrix[current_route[-1], 0]
+                vehicle_routes.append(current_route)
+            feasible_routes.append((vehicle_routes, total_cost))
+
+
+    # Rank the routes by cost
+    feasible_routes.sort(key=lambda x: x[1])
+
+    # Update heuristics matrix based on the best routes
+    for vehicle_routes, total_cost in feasible_routes[:min(top_k, len(feasible_routes))]:  # Iterate through top k routes
+        num_vehicles = len(vehicle_routes)
+        score = (1 / total_cost) * (1 - alpha * (num_vehicles / n))
+        for route in vehicle_routes:
+            route_with_depot = [0] + route + [0]
+            for i in range(len(route_with_depot) - 1):
+                heuristics_matrix[route_with_depot[i], route_with_depot[i+1]] += score
+                heuristics_matrix[route_with_depot[i+1], route_with_depot[i]] += score
+
+    return heuristics_matrix

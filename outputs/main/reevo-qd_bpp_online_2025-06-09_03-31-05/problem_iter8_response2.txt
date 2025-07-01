@@ -1,0 +1,45 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    can_fit = bins_remain_cap >= item
+    
+    if np.any(can_fit):
+        remaining_space_after_fit = bins_remain_cap[can_fit] - item
+        
+        # Base priority: inverse of remaining space, with a small constant to avoid division by zero
+        priorities[can_fit] = 1.0 / (remaining_space_after_fit + 1e-9)
+        
+        # Reward almost full bins, scaling the reward by how full they are relative to the item size
+        almost_full = (bins_remain_cap[can_fit] < 2 * item)
+        priorities[can_fit][almost_full] *= (1.5 + (item / bins_remain_cap[can_fit][almost_full]))  # Higher reward if closer to full
+
+        # Significant boost for very tight fits.
+        very_tight = (bins_remain_cap[can_fit] - item) < 0.1
+        priorities[can_fit][very_tight] *= (5 + item) 
+
+        # Penalize large bins relative to the item size, but less aggressively
+        not_ideal_fit = (bins_remain_cap[can_fit] > 3 * item)
+        priorities[can_fit][not_ideal_fit] *= 0.7 # Reduced penalty
+
+        # Moderate penalty for bins that are just slightly larger than the item. Encourages fuller bins.
+        slightly_larger = (bins_remain_cap[can_fit] > item) & (bins_remain_cap[can_fit] <= 1.5 * item)
+        priorities[can_fit][slightly_larger] *= 1.1 # Give a slight preference
+
+    else:
+        # Huge negative priority if item doesn't fit in any bin
+        priorities[:] = -1e9
+        
+    return priorities
+```

@@ -1,0 +1,89 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a genetic algorithm approach to evolve a population of TSP paths, and the edge frequencies in the best paths of each generation are used to build the heuristics matrix.}"""
+    num_nodes = distance_matrix.shape[0]
+    population_size = 50
+    num_generations = 30
+    mutation_rate = 0.05
+
+    # Initialize population with random paths
+    population = [np.random.permutation(num_nodes) for _ in range(population_size)]
+
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    for _ in range(num_generations):
+        # Evaluate fitness of each path in the population
+        fitness_scores = np.array([calculate_path_length(path, distance_matrix) for path in population])
+
+        # Select the best paths for reproduction (tournament selection)
+        selected_indices = []
+        tournament_size = 5
+        for _ in range(population_size):
+            tournament_indices = np.random.choice(population_size, tournament_size, replace=False)
+            winner_index = tournament_indices[np.argmin(fitness_scores[tournament_indices])]
+            selected_indices.append(winner_index)
+
+        # Create a new population through crossover and mutation
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = population[selected_indices[i]]
+            parent2 = population[selected_indices[i+1 if i+1 < population_size else i]] # Handle odd population size
+
+            # Crossover (Order Crossover)
+            start_pos = np.random.randint(0, num_nodes - 1)
+            end_pos = np.random.randint(start_pos + 1, num_nodes)
+
+            child1 = np.zeros(num_nodes, dtype=int) - 1
+            child2 = np.zeros(num_nodes, dtype=int) - 1
+
+            child1[start_pos:end_pos] = parent1[start_pos:end_pos]
+            child2[start_pos:end_pos] = parent2[start_pos:end_pos]
+
+            child1_idx = end_pos
+            child2_idx = end_pos
+
+            for j in range(num_nodes):
+                gene1 = parent2[(end_pos + j) % num_nodes]
+                gene2 = parent1[(end_pos + j) % num_nodes]
+
+                if gene1 not in child1:
+                    child1[child1_idx % num_nodes] = gene1
+                    child1_idx += 1
+
+                if gene2 not in child2:
+                    child2[child2_idx % num_nodes] = gene2
+                    child2_idx += 1
+
+            # Mutation (swap mutation)
+            for j in range(num_nodes):
+                if np.random.rand() < mutation_rate:
+                    idx1, idx2 = np.random.choice(num_nodes, 2, replace=False)
+                    child1[idx1], child1[idx2] = child1[idx2], child1[idx1]
+                    child2[idx1], child2[idx2] = child2[idx2], child2[idx1]
+
+            new_population.append(child1)
+            new_population.append(child2)
+
+        population = new_population[:population_size] #Ensure the population size remains constant
+
+        # Update heuristics matrix based on the best path in the current generation
+        best_path = population[np.argmin(fitness_scores)]
+        for i in range(num_nodes - 1):
+            heuristics_matrix[best_path[i], best_path[i+1]] += 1
+            heuristics_matrix[best_path[i+1], best_path[i]] += 1
+        heuristics_matrix[best_path[-1], best_path[0]] += 1
+        heuristics_matrix[best_path[0], best_path[-1]] += 1
+
+    # Normalize heuristics matrix
+    heuristics_matrix /= (num_generations * 1.0)
+
+    return heuristics_matrix
+
+def calculate_path_length(path, distance_matrix):
+    """Calculates the total distance of a given path."""
+    path_length = 0
+    for i in range(len(path) - 1):
+        path_length += distance_matrix[path[i], path[i+1]]
+    path_length += distance_matrix[path[-1], path[0]]
+    return heuristics_matrix

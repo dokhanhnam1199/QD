@@ -1,0 +1,45 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins considering fullness, fragmentation, and item size."""
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    remaining_capacity = bins_remain_cap - item
+
+    # Infeasible bins get lowest priority
+    priorities[remaining_capacity < 0] = -np.inf
+    feasible_bins = remaining_capacity >= 0
+
+    if np.any(feasible_bins):
+        # 1. Base Priority: Bin Utilization (Fill Ratio)
+        utilization = item / bins_remain_cap[feasible_bins]
+        priorities[feasible_bins] += utilization
+
+        # Adaptive almost full threshold and bonus
+        almost_full_threshold = 0.1 + 0.05 * item
+        almost_full = feasible_bins & (remaining_capacity <= almost_full_threshold * bins_remain_cap[feasible_bins])
+        priorities[almost_full] += 1.2 #Boost for almost full
+
+        # Adaptive small remainder penalty
+        small_remainder_threshold = 0.2 - 0.03 * item
+        small_remainder_threshold = max(0.05, small_remainder_threshold)
+        small_remainder = feasible_bins & (remaining_capacity > 0) & (remaining_capacity <= small_remainder_threshold * bins_remain_cap[feasible_bins])
+        priorities[small_remainder] -= 0.8 #penalty for small remainder
+
+        # Exploration Bonus: Prioritize less-utilized bins.
+        exploration_factor = (bins_remain_cap[feasible_bins] / np.max(bins_remain_cap[feasible_bins]))
+        priorities[feasible_bins] += 0.3 * exploration_factor
+
+        # Gaussian boost based on capacity difference to prioritize bins that closely fit the item
+        capacity_difference = np.abs(bins_remain_cap[feasible_bins] - item)
+        priority_boost = np.exp(-capacity_difference / np.mean(bins_remain_cap[feasible_bins])) if len(bins_remain_cap[feasible_bins]) > 0 else 0
+        if isinstance(priority_boost, np.ndarray): # check if priority boost is an array
+           priorities[feasible_bins] += priority_boost * 0.15  # gaussian boost
+        else: # if the mean of bins_remain_cap[feasible_bins] is zero, and the priority_boost is a number
+           priorities[feasible_bins] += 0.15 # gaussian boost
+
+        # Random component for tie-breaking
+        priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * 0.01
+
+    return priorities
+```

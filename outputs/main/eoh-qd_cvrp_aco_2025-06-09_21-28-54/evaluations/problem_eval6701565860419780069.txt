@@ -1,0 +1,62 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs routes by iteratively adding the nearest feasible customer to the current route, probabilistically favoring edges used in previously successful routes, and updates a heuristic matrix based on edge usage.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 1000  # Number of iterations
+
+    for _ in range(num_iterations):
+        unvisited_customers = set(range(1, n))  # Customers excluding depot
+        routes = []
+        current_route = [0]
+        current_capacity = 0
+
+        while unvisited_customers:
+            current_node = current_route[-1]
+            feasible_customers = [c for c in unvisited_customers if current_capacity + demands[c] <= capacity]
+
+            if not feasible_customers:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0]
+                current_capacity = 0
+                continue
+            
+            # Probabilistic selection of next customer based on distance and heuristics
+            probabilities = []
+            total_prob = 0
+            for customer in feasible_customers:
+                # Combine distance and heuristic information. Favor shorter distances, edges from previous 'good' routes.
+                heuristic_val = heuristics_matrix[current_node, customer] + 1e-6 #avoid zero
+                distance = distance_matrix[current_node, customer]
+                probability = heuristic_val / distance  # Adjust weights as needed
+                probabilities.append(probability)
+                total_prob += probability
+
+            if total_prob == 0:
+                next_customer = random.choice(feasible_customers)
+            else:
+                probabilities = [p / total_prob for p in probabilities]
+                next_customer = random.choices(feasible_customers, weights=probabilities, k=1)[0]
+            
+
+            current_route.append(next_customer)
+            current_capacity += demands[next_customer]
+            unvisited_customers.remove(next_customer)
+
+        current_route.append(0)
+        routes.append(current_route)
+
+        # Update heuristics matrix based on route
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                heuristics_matrix[u, v] += 1
+                heuristics_matrix[v, u] += 1
+
+    return heuristics_matrix

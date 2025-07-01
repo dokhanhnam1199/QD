@@ -1,0 +1,63 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for CVRP based on distance, demand, and node proximity.
+
+    Args:
+        distance_matrix: Distance between nodes (n x n).
+        coordinates: Node coordinates (n x 2).
+        demands: Node demands (n,).  demands[0] == 0 (depot demand)
+        capacity: Vehicle capacity.
+
+    Returns:
+        Heuristic matrix (n x n) indicating edge desirability.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Avoid direct loops to depot (other than starting and ending)
+    depot_penalty = 10  # Adjust this parameter
+    for i in range(1, n):
+      heuristic_matrix[0, i] = 1 / (distance_matrix[0, i] * depot_penalty)
+      heuristic_matrix[i, 0] = 1 / (distance_matrix[i, 0] * depot_penalty)
+
+    for i in range(1,n):
+      for j in range(1,n):
+        if i == j:
+          continue
+        heuristic_matrix[i,j] = 1 / distance_matrix[i, j] # base heuristic
+
+    # Node Demand considerations (try not connecting high demand nodes)
+    demand_penalty_factor = 0.5
+    for i in range(1, n):
+      for j in range(1, n):
+            if i == j:
+              continue
+
+            demand_penalty = 1 + demand_penalty_factor * (demands[i] + demands[j]) / capacity  # Penalize edges connected to high-demand nodes
+
+            heuristic_matrix[i,j] /= demand_penalty # Applying demand penalty
+
+
+
+    # Scale for better numerical stability and exploration, avoid very small/large values.
+    heuristic_matrix = np.clip(heuristic_matrix, 1e-6, 1e6) # Clipping before scaling.
+    heuristic_matrix /= np.mean(heuristic_matrix)
+
+    # Normalize to 0-1 range.  Important for some sampling strategies.
+    min_val = np.min(heuristic_matrix)
+    max_val = np.max(heuristic_matrix)
+
+    heuristic_matrix = (heuristic_matrix - min_val) / (max_val - min_val)
+
+    # depot adjustments: make it preferrable to end at depot
+    depot_bonus_factor = 2
+    for i in range(1,n):
+      heuristic_matrix[i, 0] *= depot_bonus_factor  # Slightly more preference to return to the depot.
+
+
+
+    return heuristic_matrix
+```

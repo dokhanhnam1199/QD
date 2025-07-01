@@ -1,0 +1,85 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    This heuristic incorporates distance, demand, angle, and capacity considerations to guide the search.
+    It assigns higher probabilities to edges that are shorter, connect nodes with compatible demands,
+    and minimize sharp turns. Edges exceeding capacity limitations are penalized.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (shape: n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n x 2).
+        demands (np.ndarray): Vector of customer demands (shape: n). The depot is assumed to be the first node (index 0).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (same shape as distance_matrix).
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+
+    # Heuristic parameters (to be tuned)
+    distance_weight = 1.0
+    demand_compatibility_weight = 1.0
+    angle_weight = 0.5
+    capacity_penalty_weight = 2.0
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristics[i, j] = 0  # No self-loops
+                continue
+
+            # 1. Distance component: Inverse of distance (shorter distances are preferred)
+            distance_component = distance_weight / distance_matrix[i, j]
+
+            # 2. Demand compatibility: Favor edges connecting nodes with manageable demand (penalize exceeding capacity)
+            # Simple demand compatibilty.  Improvement needed.  Checks only the end node
+            demand_component = 0.0
+            if demands[j] <= capacity: # Ensure no vehicle goes only to a node bigger than capacity
+                demand_component = demand_compatibility_weight
+
+            # 3. Angle component: Penalize sharp turns (encourage smoother routes)
+            # Calculate angle between edges (i, j) and (j, k) for all k
+            angle_component = 0.0
+            if i != 0: #Not the starting depot
+                best_angle = -1.0
+                for k in range(n):
+                  if k == i or k == j:
+                    continue
+                  v1 = coordinates[i] - coordinates[j]
+                  v2 = coordinates[k] - coordinates[j]
+                  norm_v1 = np.linalg.norm(v1)
+                  norm_v2 = np.linalg.norm(v2)
+
+                  if norm_v1 > 0 and norm_v2 > 0: # To avoid dividing by zero
+                      dot_product = np.dot(v1, v2)
+                      cosine_angle = dot_product / (norm_v1 * norm_v2)
+                      angle = np.arccos(cosine_angle)
+                      if best_angle < 0 or angle < best_angle:
+                        best_angle = angle
+                if best_angle > 0:
+                  angle_component = angle_weight / (best_angle + 0.0001) #Smaller angle (smooth) is better
+
+            # 4. Capacity penalty (simple): If either i or j have high demands penalize (improvement potential)
+            capacity_penalty = 0.0
+            if demands[i] > capacity/2 or demands[j] > capacity/2:
+                 capacity_penalty = -capacity_penalty_weight * np.abs(demands[i] - demands[j])/(capacity + 0.0001)
+
+            # Combine components (weighted sum)
+            heuristics[i, j] = distance_component + demand_component + angle_component + capacity_penalty
+
+    # Normalize heuristics to be between 0 and 1 (optional but can improve performance)
+    min_val = np.min(heuristics)
+    max_val = np.max(heuristics)
+
+    if max_val > min_val:  #Avoid ZeroDivisionError when all values are equal
+        heuristics = (heuristics - min_val) / (max_val - min_val) #Scaling
+    else:
+        heuristics = np.ones_like(heuristics) # all edges are the same.
+
+    return heuristics
+```

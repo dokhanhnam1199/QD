@@ -1,0 +1,85 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a genetic algorithm approach to evolve good tours and scores edges based on their frequency in the evolved population.}"""
+    n = distance_matrix.shape[0]
+    population_size = 50
+    num_generations = 100
+    mutation_rate = 0.01
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Initialize population with random tours
+    population = [np.random.permutation(n) for _ in range(population_size)]
+
+    for _ in range(num_generations):
+        # Evaluate fitness of each tour (tour length)
+        fitness = np.zeros(population_size)
+        for i in range(population_size):
+            tour = population[i]
+            tour_length = 0
+            for j in range(n - 1):
+                tour_length += distance_matrix[tour[j], tour[j+1]]
+            tour_length += distance_matrix[tour[-1], tour[0]]
+            fitness[i] = tour_length
+
+        # Selection: Roulette wheel selection (lower fitness is better)
+        probabilities = 1 / (fitness + 1e-6)  # Avoid division by zero
+        probabilities /= np.sum(probabilities)
+        selected_indices = np.random.choice(population_size, size=population_size, replace=True, p=probabilities)
+        selected_population = [population[i] for i in selected_indices]
+
+        # Crossover: Order Crossover (OX1)
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = selected_population[i]
+            parent2 = selected_population[i+1 if i+1 < population_size else 0]
+
+            start = np.random.randint(n)
+            length = np.random.randint(1, n // 2 + 1)
+            end = (start + length) % n
+
+            child1 = np.zeros(n, dtype=int) - 1
+            child2 = np.zeros(n, dtype=int) - 1
+
+            child1[start:end] = parent1[start:end]
+            child2[start:end] = parent2[start:end]
+
+            parent2_idx = end
+            child1_idx = end
+            while np.any(child1 == -1):
+              if parent2[parent2_idx] not in child1:
+                child1[child1_idx] = parent2[parent2_idx]
+                child1_idx = (child1_idx + 1) % n
+              parent2_idx = (parent2_idx + 1) % n
+            
+            parent1_idx = end
+            child2_idx = end
+            while np.any(child2 == -1):
+              if parent1[parent1_idx] not in child2:
+                child2[child2_idx] = parent1[parent1_idx]
+                child2_idx = (child2_idx + 1) % n
+              parent1_idx = (parent1_idx + 1) % n
+
+            new_population.append(child1)
+            new_population.append(child2)
+
+        # Mutation: Swap mutation
+        for i in range(population_size):
+            if np.random.rand() < mutation_rate:
+                idx1, idx2 = np.random.choice(n, 2, replace=False)
+                new_population[i][idx1], new_population[i][idx2] = new_population[i][idx2], new_population[i][idx1]
+
+        population = new_population
+
+    # Score edges based on frequency in the final population
+    for tour in population:
+        for i in range(n - 1):
+            heuristics_matrix[tour[i], tour[i+1]] += 1
+            heuristics_matrix[tour[i+1], tour[i]] += 1
+        heuristics_matrix[tour[-1], tour[0]] += 1
+        heuristics_matrix[tour[0], tour[-1]] += 1
+
+    # Normalize the heuristics matrix
+    heuristics_matrix /= (population_size * num_generations)
+
+    return heuristics_matrix

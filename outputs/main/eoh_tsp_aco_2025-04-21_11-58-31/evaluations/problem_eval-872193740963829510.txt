@@ -1,0 +1,73 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm utilizes reinforcement learning (Q-learning) to learn edge selection probabilities based on iterative tour construction and cost evaluation.}"""
+    n = distance_matrix.shape[0]
+    q_table = np.zeros_like(distance_matrix, dtype=float)
+    learning_rate = 0.1
+    discount_factor = 0.9
+    exploration_rate = 0.1
+    num_episodes = 100
+
+    for episode in range(num_episodes):
+        start_node = np.random.randint(n)
+        current_node = start_node
+        unvisited_nodes = set(range(n))
+        unvisited_nodes.remove(current_node)
+        tour = [current_node]
+        total_reward = 0
+
+        while unvisited_nodes:
+            if np.random.rand() < exploration_rate:
+                # Explore: choose a random unvisited node
+                next_node = np.random.choice(list(unvisited_nodes))
+            else:
+                # Exploit: choose the node with the highest Q-value
+                q_values = q_table[current_node, :]
+                valid_actions = list(unvisited_nodes)
+                valid_q_values = q_values[valid_actions]
+                
+                if len(valid_q_values) == 0:
+                    next_node = np.random.choice(list(unvisited_nodes))
+                else:
+                    next_node = valid_actions[np.argmax(valid_q_values)]
+
+            reward = -distance_matrix[current_node, next_node]
+            tour.append(next_node)
+            unvisited_nodes.remove(next_node)
+
+            # Q-learning update
+            best_next_q = 0.0
+            if unvisited_nodes:
+                next_q_values = q_table[next_node, :]
+                valid_next_actions = list(unvisited_nodes)
+                if valid_next_actions:
+                    best_next_q = np.max(next_q_values[valid_next_actions])
+            
+            q_table[current_node, next_node] = (1 - learning_rate) * q_table[current_node, next_node] + \
+                                                learning_rate * (reward + discount_factor * best_next_q)
+            q_table[next_node, current_node] = q_table[current_node, next_node] #Symmetric
+                                                
+            total_reward += reward
+            current_node = next_node
+        
+        # Return to start node
+        tour.append(start_node)
+        reward = -distance_matrix[current_node, start_node]
+
+        q_table[current_node, start_node] = (1 - learning_rate) * q_table[current_node, start_node] + \
+                                            learning_rate * (reward + discount_factor * 0) #terminal state has value 0
+        q_table[start_node, current_node] = q_table[current_node, start_node]
+
+        total_reward += reward
+        
+    # Normalize Q-table to get edge probabilities
+    min_q = np.min(q_table)
+    max_q = np.max(q_table)
+
+    if max_q == min_q:
+        heuristics_matrix = np.ones_like(distance_matrix) # all edges equally likely
+    else:
+        heuristics_matrix = (q_table - min_q) / (max_q - min_q)
+
+    return heuristics_matrix

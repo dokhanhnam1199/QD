@@ -1,0 +1,49 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int, 
+                  demand_penalty_weight: float = 0.5875972463472912, coordinate_distance_weight: float = 0.5527256079944904, depot_proximity_weight: float = 0.394169916651485) -> np.ndarray:
+    """Improved heuristics for CVRP, combining distance, savings, demand, and coordinates."""
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix)
+
+    # Calculate savings based on Clarke-Wright algorithm
+    savings_matrix = np.zeros_like(distance_matrix)
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings_matrix[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings_matrix[j, i] = savings_matrix[i, j]
+
+    # Incorporate distance and savings
+    heuristic_matrix = (1 / distance_matrix + savings_matrix / np.max(savings_matrix)) #avoiding infs/NaNs
+
+    # Penalize edges connecting to nodes with high demand relative to capacity
+    demand_penalty = np.zeros(n)
+    for i in range(1, n):
+      demand_penalty[i] = demands[i] / capacity
+
+    for i in range(n):
+      for j in range(n):
+        if i == j:
+          heuristic_matrix[i, j] = 0 #ensure no loops
+        else:
+            heuristic_matrix[i,j] /= (1 + demand_penalty_weight * (demand_penalty[i] + demand_penalty[j])) #slightly penalize high demand nodes
+
+    #Prioritize connecting nodes that are close in coordinate space. This can help exploit locality.
+    coordinate_distances = np.zeros_like(distance_matrix)
+    for i in range(n):
+      for j in range(n):
+        coordinate_distances[i,j] = np.linalg.norm(coordinates[i] - coordinates[j])
+
+    heuristic_matrix += (coordinate_distance_weight/coordinate_distances) #prefer edges with small coordinate distance
+    heuristic_matrix[np.isinf(heuristic_matrix)] = 0  # Remove any potential infinities created by division by zero on diagonals.
+    heuristic_matrix[np.isnan(heuristic_matrix)] = 0 # Clean NaN values
+
+    #Add depot proximity component
+    depot_distances = distance_matrix[0, :]
+    max_depot_distance = np.max(depot_distances)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                depot_proximity_component = (1 - (depot_distances[i] + depot_distances[j]) / (2 * max_depot_distance))
+                heuristic_matrix[i, j] += depot_proximity_weight * depot_proximity_component
+    return heuristic_matrix

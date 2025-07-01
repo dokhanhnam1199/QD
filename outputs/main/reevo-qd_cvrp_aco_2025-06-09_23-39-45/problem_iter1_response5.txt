@@ -1,0 +1,48 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (shape: n by n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n by 2).
+        demands (np.ndarray): Vector of customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (shape: n by n).
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Calculate savings for each pair of nodes
+    savings_matrix = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                savings_matrix[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+
+    # Node proximity and demand considerations
+    proximity_factor = 1 / (distance_matrix + 1e-6)  # Adding a small constant to avoid division by zero
+    demand_factor = np.outer(demands, demands)
+    capacity_penalty = np.where(demand_factor > capacity**2, 0.1, 1) #reduce the chance to select edges from customers with very large demands
+
+    # Depot proximity factor
+    depot_proximity = np.zeros((n,n))
+    for i in range(1,n):
+        depot_proximity[0,i] = 1/(distance_matrix[0,i]+1e-6)
+        depot_proximity[i,0] = 1/(distance_matrix[i,0]+1e-6)
+
+    # Combine factors
+    heuristic_matrix = proximity_factor * savings_matrix * capacity_penalty + depot_proximity*0.1
+
+    # Sparsify the matrix (remove unpromising edges)
+    threshold = np.percentile(heuristic_matrix[heuristic_matrix > 0], 30)  # Remove bottom 30% edges
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+    np.fill_diagonal(heuristic_matrix, 0)
+
+    return heuristic_matrix
+```

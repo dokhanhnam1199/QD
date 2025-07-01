@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    Combines distance, demand, and angular considerations to estimate edge desirability.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (shape: n by n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n by 2).
+        demands (np.ndarray): Customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (same shape as distance_matrix).
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Inverse distance heuristic (shorter distances are better)
+    distance_heuristic = 1 / (distance_matrix + 1e-9)  # Adding a small constant to avoid division by zero
+
+    # Demand-based heuristic (penalize edges connecting high-demand nodes)
+    demand_heuristic = np.ones((n, n))
+    for i in range(n):
+        for j in range(n):
+            demand_heuristic[i, j] = 1 / (demands[i] + demands[j] + 1e-9)  #Combined demand
+
+    # Angular heuristic (encourages connections that don't cause sharp turns away from depot)
+    depot_x, depot_y = coordinates[0]
+    angular_heuristic = np.ones((n, n))
+    for i in range(1, n):
+        x1, y1 = coordinates[i]
+        angle1 = np.arctan2(y1 - depot_y, x1 - depot_x)
+
+        for j in range(1,n):
+            if i == j:
+                angular_heuristic[i,j] = 0
+                continue
+            x2, y2 = coordinates[j]
+            angle2 = np.arctan2(y2 - depot_y, x2 - depot_x)
+            angle_diff = np.abs(angle1 - angle2)
+            angular_heuristic[i, j] = 1 / (angle_diff + 0.1)
+
+    for i in range(n):
+        angular_heuristic[0,i]=1 # ensure to connect to the depot
+        angular_heuristic[i,0]=1 # ensure to connect to the depot
+
+
+    # Combine the heuristics (weighted sum)
+    heuristic_matrix = (0.6 * distance_heuristic + 0.2 * demand_heuristic + 0.2 * angular_heuristic)
+    #Heuristic value between the same node should be zero.
+    for i in range(n):
+      heuristic_matrix[i,i] = 0
+    return heuristic_matrix
+```

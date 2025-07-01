@@ -1,0 +1,83 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for CVRP based on distance, demand, and angular considerations.
+
+    This function calculates a heuristic matrix where each element represents the
+    "attractiveness" of including the corresponding edge in a CVRP solution.
+    It combines distance-based attraction with demand-based repulsion and an
+    angular penalty to encourage spatially coherent routes.
+
+    Args:
+        distance_matrix (np.ndarray): A square matrix representing the distances
+                                       between all nodes.
+        coordinates (np.ndarray): A matrix of node coordinates (x, y).
+        demands (np.ndarray): A vector of customer demands for each node.
+        capacity (int): The vehicle capacity.
+
+    Returns:
+        np.ndarray: A heuristic matrix of the same shape as distance_matrix,
+                    representing the attractiveness of each edge. Higher values
+                    indicate more attractive edges.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Parameters to control the influence of each factor
+    distance_weight = 1.0
+    demand_weight = 1.0
+    angle_weight = 0.5
+
+    depot_index = 0  # Index of the depot node
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+                continue
+
+            # Distance-based attraction: closer nodes are more attractive
+            distance_attraction = 1.0 / distance_matrix[i, j]
+
+            # Demand-based repulsion: edges connecting to high-demand nodes
+            # are penalized, especially for nodes exceeding capacity limits if served by single routes
+            demand_repulsion = 1.0 / (demands[i] + demands[j] + 1e-6)
+            if demands[i] + demands[j] > capacity:
+                  demand_repulsion *= 2 # More penalty
+
+            # Angular penalty: encourages routes that don't make sharp turns
+            # This penalizes edges that form acute angles with the line from
+            # the depot to the target node.
+            # Calculate angle between (depot -> i) and (i -> j)
+            depot_x, depot_y = coordinates[depot_index]
+            i_x, i_y = coordinates[i]
+            j_x, j_y = coordinates[j]
+
+            vector_depot_to_i = np.array([i_x - depot_x, i_y - depot_y])
+            vector_i_to_j = np.array([j_x - i_x, j_y - i_y])
+
+            # Normalize vectors to compute cosine of the angle
+            norm_depot_to_i = np.linalg.norm(vector_depot_to_i)
+            norm_i_to_j = np.linalg.norm(vector_i_to_j)
+
+            if norm_depot_to_i > 0 and norm_i_to_j > 0:
+                cos_angle = np.dot(vector_depot_to_i, vector_i_to_j) / (norm_depot_to_i * norm_i_to_j)
+                angle = np.arccos(np.clip(cos_angle, -1.0, 1.0)) # Clip for numerical stability
+
+                angle_penalty = np.abs(angle - np.pi/2) # closer to pi/2 is preferred, penalize angles far away.
+            else:
+                angle_penalty = 0.0
+
+            # Combine all factors
+            heuristic_matrix[i, j] = (
+                distance_weight * distance_attraction -
+                demand_weight * demand_repulsion -
+                angle_weight * angle_penalty
+            )
+            # making all values non-negative.
+            heuristic_matrix[i, j] = max(0.0, heuristic_matrix[i, j])
+
+    return heuristic_matrix
+```

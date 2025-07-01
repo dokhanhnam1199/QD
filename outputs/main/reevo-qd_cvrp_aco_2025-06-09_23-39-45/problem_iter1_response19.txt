@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    A heuristics function for Solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    CVRP requires finding the shortest path that visits all given nodes and returns to the starting node.
+    Each node has a demand and each vehicle has a capacity.
+    The total demand of the nodes visited by a vehicle cannot exceed the vehicle capacity.
+    When the total demand exceeds the vehicle capacity, the vehicle must return to the starting node.
+
+    The heuristics function takes as input a distance matrix (shape: n by n), Euclidean coordinates of nodes (shape: n by 2),
+    a vector of customer demands (shape: n), and the integer capacity of vehicle capacity.
+    It returns prior indicators of how promising it is to include each edge in a solution.
+    The return is of the same shape as the distance_matrix. The depot node is indexed by 0.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Parameters (tunable)
+    distance_weight = 1.0
+    demand_weight = 0.5
+    angle_weight = 0.2  # Weight for the angle heuristic
+
+    # Node potential based on demand (lower demand, higher potential)
+    node_potential = 1.0 / (demands + 1e-6)  # Add a small constant to avoid division by zero
+
+    # Calculate angle heuristic (favors edges that don't make sharp turns)
+    angle_matrix = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Calculate angle between edge (0, i) and (0, j)
+                vector_i = coordinates[i] - coordinates[0]
+                vector_j = coordinates[j] - coordinates[0]
+                norm_i = np.linalg.norm(vector_i)
+                norm_j = np.linalg.norm(vector_j)
+
+                if norm_i > 0 and norm_j > 0:
+                    dot_product = np.dot(vector_i, vector_j)
+                    cosine_angle = dot_product / (norm_i * norm_j)
+                    angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0)) # clip to avoid domain errors
+                    angle_matrix[i, j] = 1.0 - (angle / np.pi)  # Higher values for smaller angles
+                else:
+                    angle_matrix[i,j] = 0.0  # default to 0
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Distance heuristic (shorter distance, higher value)
+                distance_heuristic = 1.0 / (distance_matrix[i, j] + 1e-6)
+
+                # Demand heuristic (prioritize edges connecting to nodes with lower demand)
+                demand_heuristic = node_potential[i] * node_potential[j]
+
+                heuristic_matrix[i, j] = (
+                    distance_weight * distance_heuristic +
+                    demand_weight * demand_heuristic +
+                    angle_weight * angle_matrix[i, j]
+                )
+
+    # Sparsify the matrix (optional: keeps only top k edges for each node)
+    sparsity_threshold = 0.1 # Adjust this threshold to control sparsity
+
+    # Flatten the matrix and get the indices of sorted values
+    indices = np.argsort(heuristic_matrix.flatten())[::-1]
+
+    # Calculate the threshold value
+    threshold_value = np.percentile(heuristic_matrix[heuristic_matrix > 0], 100 * (1 - sparsity_threshold))
+
+    # Sparsify the matrix
+    heuristic_matrix[heuristic_matrix < threshold_value] = 0
+
+    return heuristic_matrix
+```

@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for solving the Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    This function calculates a prior indicator for each edge in the distance matrix, representing how promising
+    it is to include that edge in a solution. It combines distance, demand, and spatial dispersion considerations.
+    Edges deemed unlikely are sparsified to zero.
+
+    Args:
+        distance_matrix (np.ndarray): A distance matrix (shape: n by n) where n is the number of nodes.
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n by 2).
+        demands (np.ndarray): A vector of customer demands (shape: n).
+        capacity (int): The capacity of each vehicle. The depot node is indexed by 0.
+
+    Returns:
+        np.ndarray: A matrix (shape: n by n) of prior indicators for each edge. Higher values indicate more promising edges.
+                     Unpromising elements are set to zero to sparsify the search space.
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix, dtype=float)
+
+    # Parameters (Tuning these might significantly impact performance)
+    distance_weight = 1.0
+    demand_weight = 0.5
+    spatial_weight = 0.5
+    sparsification_threshold = 0.1  # Edges with values below this are set to 0
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristics[i, j] = 0  # No self-loops
+            else:
+                # Distance factor: Inverse of distance (shorter distances are better)
+                distance_factor = 1 / distance_matrix[i, j]
+
+                # Demand factor: Penalize edges that connect nodes with high combined demand if close to capacity
+                demand_factor = 1.0
+                if i != 0 and j != 0: # Skip the depot when calculating demand implications.
+                    combined_demand = demands[i] + demands[j]
+                    if combined_demand > capacity:
+                        demand_factor = 0.0  # Impossible to serve both directly.
+
+                    else:
+
+                         demand_factor = np.exp(-combined_demand / capacity) # Closer demand is to cap means, less desirable (exponential decay).
+                # Spatial Dispersion Factor: Encourage edges connecting nodes that are not spatially too close together, preventing clustering (can hinder exploration). Can be omitted or re-weighed.
+                spatial_dispersion = 1.0
+                euclidean_distance = np.linalg.norm(coordinates[i] - coordinates[j])
+                avg_distance_to_depot_i = np.mean(np.linalg.norm(coordinates[i] - coordinates[0]))
+                avg_distance_to_depot_j = np.mean(np.linalg.norm(coordinates[j] - coordinates[0]))
+
+                # Penalize short-range edges not connected to depot to push for tours of reasonable length.
+                if i != 0 and j != 0 and euclidean_distance < min(avg_distance_to_depot_i, avg_distance_to_depot_j) * 0.2: # penalize within radius 0.2 of the shortest of the average
+                    spatial_dispersion = 0.1
+
+                # Weighted combination of factors
+                heuristics[i, j] = (
+                    distance_weight * distance_factor +
+                    demand_weight * demand_factor +
+                    spatial_weight * spatial_dispersion
+                )
+
+    # Normalize the heuristics matrix (important for consistent stochastic sampling)
+    max_heuristic = np.max(heuristics)
+    if max_heuristic > 0: # only normalize if matrix is non-zero
+        heuristics = heuristics / max_heuristic
+
+    # Sparsify: Set unpromising edges to zero.  Keeps the best edges for exploration.
+    heuristics[heuristics < sparsification_threshold] = 0
+
+    return heuristics
+```

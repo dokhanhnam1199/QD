@@ -1,0 +1,72 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs a randomized nearest neighbor tour, applies a 2-opt local search with limited iterations, and uses the edges present in the locally optimized tour to generate the heuristics matrix.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+
+    # Construct randomized nearest neighbor tour
+    current_node = 0
+    unvisited_nodes = set(range(1, n))
+    tour = [0]
+    current_capacity = capacity
+
+    while unvisited_nodes:
+        feasible_nodes = {
+            node for node in unvisited_nodes if demands[node] <= current_capacity
+        }
+
+        if not feasible_nodes:
+            tour.append(0)
+            current_capacity = capacity
+            current_node = 0
+            feasible_nodes = {
+                node for node in unvisited_nodes if demands[node] <= current_capacity
+            }
+            if not feasible_nodes:
+                break
+
+        # Randomized selection of the next node
+        nearest_nodes = sorted(feasible_nodes, key=lambda node: distance_matrix[current_node][node])
+        k = min(3, len(nearest_nodes))  # Consider the top k nearest nodes
+        next_node = random.choice(nearest_nodes[:k])
+
+        tour.append(next_node)
+        unvisited_nodes.remove(next_node)
+        current_capacity -= demands[next_node]
+        current_node = next_node
+    tour.append(0)
+
+    # 2-opt local search with limited iterations
+    def two_opt_swap(route, i, k):
+        new_route = route[:i] + route[i:k+1][::-1] + route[k+1:]
+        return new_route
+
+    def calculate_route_distance(route):
+        total_distance = 0
+        for i in range(len(route) - 1):
+            total_distance += distance_matrix[route[i]][route[i+1]]
+        return total_distance
+    
+    num_iterations = 5  # Limit the number of iterations
+    for _ in range(num_iterations):
+        improved = False
+        for i in range(1, len(tour) - 2):
+            for k in range(i + 1, len(tour) - 1):
+                new_tour = two_opt_swap(tour, i, k)
+                if calculate_route_distance(new_tour) < calculate_route_distance(tour):
+                    tour = new_tour
+                    improved = True
+                    break
+            if improved:
+                break
+        if not improved:
+            break
+
+    # Update heuristics matrix
+    for i in range(len(tour) - 1):
+        heuristics_matrix[tour[i], tour[i+1]] = 1
+        heuristics_matrix[tour[i+1], tour[i]] = 1
+
+    return heuristics_matrix

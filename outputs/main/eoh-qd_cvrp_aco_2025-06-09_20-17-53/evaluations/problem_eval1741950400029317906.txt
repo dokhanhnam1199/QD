@@ -1,0 +1,74 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively refines routes by probabilistically swapping nodes between routes based on cost reduction and capacity feasibility, updating a heuristic matrix to favor edges present in improved solutions.}"""
+
+    n = len(demands)
+    heuristics_matrix = np.zeros((n, n))
+    num_iterations = 1000
+    num_routes = 5
+
+    # Initialize routes randomly
+    routes = []
+    customer_nodes = list(range(1, n))
+    random.shuffle(customer_nodes)
+    
+    # Initial route construction (similar to previous approaches)
+    chunk_size = len(customer_nodes) // num_routes
+    for i in range(num_routes):
+        start = i * chunk_size
+        end = (i + 1) * chunk_size if i < num_routes - 1 else len(customer_nodes)
+        route = [0] + customer_nodes[start:end] + [0]
+        routes.append(route)
+
+    # Iterative improvement
+    for _ in range(num_iterations):
+        # Select two random routes
+        route_index1, route_index2 = random.sample(range(len(routes)), 2)
+        route1, route2 = routes[route_index1], routes[route_index2]
+
+        # Select two random nodes within the routes (excluding the depot)
+        if len(route1) <= 2 or len(route2) <= 2:
+          continue
+        node_index1 = random.randint(1, len(route1) - 2)
+        node_index2 = random.randint(1, len(route2) - 2)
+        node1, node2 = route1[node_index1], route2[node_index2]
+
+        # Swap the nodes and evaluate feasibility and cost
+        new_route1 = route1[:node_index1] + [node2] + route1[node_index1+1:]
+        new_route2 = route2[:node_index2] + [node1] + route2[node_index2+1:]
+
+        # Check capacity constraints
+        load1 = sum(demands[node] for node in new_route1[1:-1])
+        load2 = sum(demands[node] for node in new_route2[1:-1])
+
+        if load1 <= capacity and load2 <= capacity:
+            # Calculate the cost of the new routes
+            def calculate_route_cost(route):
+                cost = 0
+                for i in range(len(route) - 1):
+                    cost += distance_matrix[route[i], route[i+1]]
+                return cost
+                
+            cost_old = calculate_route_cost(route1) + calculate_route_cost(route2)
+            cost_new = calculate_route_cost(new_route1) + calculate_route_cost(new_route2)
+
+            # Accept the swap with a probability based on cost reduction
+            if cost_new < cost_old:
+              routes[route_index1], routes[route_index2] = new_route1, new_route2
+
+              # Update the heuristics matrix
+              for route in [new_route1, new_route2]:
+                  for i in range(len(route) - 1):
+                      node1 = route[i]
+                      node2 = route[i+1]
+                      heuristics_matrix[node1, node2] += 1
+                      heuristics_matrix[node2, node1] += 1
+
+    # Normalize the heuristics matrix
+    total_edges = np.sum(heuristics_matrix)
+    if total_edges > 0:
+        heuristics_matrix = heuristics_matrix / total_edges
+
+    return heuristics_matrix

@@ -1,0 +1,132 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively constructs solutions by probabilistically selecting edges based on their frequency in elite solutions and perturbs them using a ruin-and-recreate strategy, updating edge frequencies to guide the search towards promising regions.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 500
+    elite_solutions = []
+    elite_threshold = 0.1
+
+    def calculate_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i]][route[i+1]]
+        return cost
+
+    def is_feasible(route, demands, capacity):
+        current_load = 0
+        for i in range(1, len(route) - 1):
+            current_load += demands[route[i]]
+        return current_load <= capacity
+
+    for iteration in range(num_iterations):
+        # 1. Solution Construction (Probabilistic Edge Selection)
+        routes = []
+        unvisited = set(range(1, n))
+        
+        while unvisited:
+            current_route = [0]
+            current_load = 0
+            
+            while unvisited:
+                possible_edges = []
+                for customer in unvisited:
+                    if current_load + demands[customer] <= capacity:
+                        possible_edges.append(customer)
+                
+                if not possible_edges:
+                    break
+
+                edge_probabilities = []
+                total_heuristic = 0
+                for customer in possible_edges:
+                    total_heuristic += heuristics_matrix[current_route[-1], customer] + 1e-6 # avoid zero probabilities
+                
+                for customer in possible_edges:
+                    edge_probabilities.append((heuristics_matrix[current_route[-1], customer] + 1e-6) / total_heuristic)
+                
+                chosen_customer = random.choices(possible_edges, weights=edge_probabilities, k=1)[0]
+
+                current_route.append(chosen_customer)
+                current_load += demands[chosen_customer]
+                unvisited.remove(chosen_customer)
+            
+            current_route.append(0)
+            routes.append(current_route)
+
+        # 2. Ruin and Recreate Perturbation
+        num_ruined_nodes = max(1, int(0.2 * (n - 1)))  # Ruin 20% of nodes, but at least 1
+        
+        all_nodes_in_routes = []
+        for route in routes:
+          all_nodes_in_routes.extend(route[1:-1])
+        
+        if len(all_nodes_in_routes) > num_ruined_nodes:
+            nodes_to_ruin = random.sample(all_nodes_in_routes, num_ruined_nodes)
+
+            new_routes = []
+            remaining_nodes = set(nodes_to_ruin)
+
+            # Remove ruined nodes from current routes
+            for route in routes:
+                new_route = [node for node in route if node not in nodes_to_ruin]
+                new_routes.append(new_route)
+
+            # Reinsert ruined nodes in existing routes or new routes
+            while remaining_nodes:
+                best_customer = None
+                best_route = None
+                best_insertion_cost = float('inf')
+
+                for customer in remaining_nodes:
+                    for route_idx, route in enumerate(new_routes):
+                        for insert_idx in range(1, len(route)):  #insert into an existing route at various positions
+
+                            temp_route = route[:]
+                            temp_route.insert(insert_idx, customer)
+                            
+                            if is_feasible(temp_route, demands, capacity):
+                                insertion_cost = distance_matrix[temp_route[insert_idx-1]][customer] + distance_matrix[customer][temp_route[insert_idx+1]] - distance_matrix[temp_route[insert_idx-1]][temp_route[insert_idx+1]]
+                                if insertion_cost < best_insertion_cost:
+                                    best_insertion_cost = insertion_cost
+                                    best_customer = customer
+                                    best_route = route_idx
+                
+                if best_customer is None:
+                  # create a new route for the remaining customer
+                  new_routes.append([0, best_customer, 0])
+                  remaining_nodes.remove(best_customer)
+
+                else:
+                    new_routes[best_route].insert(new_routes[best_route].index(0), best_customer)
+                    remaining_nodes.remove(best_customer)
+            
+            for route in new_routes:
+              if 0 not in route:
+                route.insert(0,0)
+              if route[-1] != 0:
+                route.append(0)
+
+            routes = new_routes
+
+        # 3. Update Elite Solutions
+        cost = sum(calculate_cost(route) for route in routes)
+        elite_solutions.append((routes, cost))
+        elite_solutions = sorted(elite_solutions, key=lambda x: x[1])
+        elite_solutions = elite_solutions[:max(1, int(elite_threshold * num_iterations))]
+
+        # 4. Update Heuristic Matrix
+        heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+        for elite_solution, _ in elite_solutions:
+            for route in elite_solution:
+                for i in range(len(route) - 1):
+                    node1 = route[i]
+                    node2 = route[i+1]
+                    heuristics_matrix[node1, node2] += 1
+                    heuristics_matrix[node2, node1] += 1
+    
+    return heuristics_matrix

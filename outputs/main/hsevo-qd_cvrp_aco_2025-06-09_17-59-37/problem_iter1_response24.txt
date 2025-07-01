@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    This version incorporates several factors to estimate the desirability of including an edge:
+    - Inverse distance: Shorter edges are generally preferred.
+    - Demand consideration: Penalizes edges connecting nodes that, if served together, 
+      would likely exceed vehicle capacity.  Also penalizes edges connected to large-demand nodes.
+    - Closeness to depot: Encourages connections to and from the depot, especially for
+      nodes with demands that make them suitable as last stops on a route.
+    - Node Density: Favors connections in sparser areas.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Vector of customer demands (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Parameters (tunable)
+    distance_weight = 1.0
+    demand_weight = 0.5
+    depot_weight = 0.7
+    density_weight = 0.3  # Weight for node density
+    large_demand_penalty = 2.0
+    # Calculate a measure of node density.  Higher values mean sparser.
+    # Consider the average distance to the k nearest neighbors.  Avoid self loops.
+
+    k_nearest = min(5, n-1)  # Consider at most 5 nearest neighbors.
+
+    node_densities = np.zeros(n)
+
+    for i in range(n):
+        distances = distance_matrix[i].copy()
+        distances[i] = np.inf # Avoid self-loops when finding nearest neighbors.
+        nearest_neighbors_indices = np.argsort(distances)[:k_nearest]
+        node_densities[i] = np.mean(distances[nearest_neighbors_indices]) # average distance
+
+    max_density = np.max(node_densities)
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+                continue
+
+            distance_factor = distance_weight / (distance_matrix[i, j] + 1e-9)  # Avoid division by zero
+
+            # Demand consideration: Penalize edges that would likely cause capacity issues
+            demand_factor = 1.0 - demand_weight * min(1.0, (demands[i] + demands[j]) / capacity)
+            if demands[i] > capacity/2 or demands[j] > capacity/2: # penalty for large demands
+                demand_factor /= large_demand_penalty # stronger penality for very large demands.
+
+            # Closeness to depot (node 0)
+            depot_factor = 1.0
+            if i == 0 or j == 0: # connects to the depot.
+                depot_factor = 1 + depot_weight * (1 - min(1.0, demands[i if i !=0 else j] / capacity)) #Favor smaller demands connecting to the depot.
+            elif demands[i] + demands[j] > capacity: #if this edge nearly saturates capacity it is favored.
+                 depot_factor *=1.0+0.5*depot_weight
+
+            # Node density consideration
+            density_factor = 1 + density_weight * (node_densities[i]/max_density+node_densities[j]/max_density)/2 #normalize density to max observed.
+
+            heuristic_matrix[i, j] = distance_factor * demand_factor * depot_factor * density_factor
+
+    return heuristic_matrix
+```

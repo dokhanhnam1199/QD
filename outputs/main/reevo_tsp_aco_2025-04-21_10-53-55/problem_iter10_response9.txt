@@ -1,0 +1,78 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+
+    """
+    Heuristic function for TSP using node ranking, centrality, adaptive sparsification,
+    and row-wise normalization. Geometric mean centrality is prioritized, and includes a penalty
+    for long edges. Addresses potential divide-by-zero errors and ensures connectivity.
+
+    Args:
+        distance_matrix (np.ndarray): A 2D numpy array representing the distance matrix.
+
+    Returns:
+        np.ndarray: A 2D numpy array of the same shape as distance_matrix,
+                     representing the heuristic values (prior indicators).
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Calculate nearest neighbors for each node.
+    nearest_neighbors = []
+    for i in range(n):
+        distances = distance_matrix[i].copy()
+        distances[i] = np.inf  # Exclude self-loop
+        nearest_neighbors.append(np.argsort(distances))
+
+    # Calculate geometric mean centrality. Add a small constant to avoid zero values.
+    centrality = np.zeros(n)
+    for i in range(n):
+        centrality[i] = np.exp(np.mean(np.log(1 / (distance_matrix[i, :] + 0.001))))
+    centrality = centrality / np.max(centrality) if np.max(centrality) > 0 else np.ones(n)/n # Normalize; avoid divide by zero. If all centrality values are zero, assign equal probabilities
+
+    # Inverse distance factor
+    inverse_distance = 1 / (distance_matrix + 1e-9)
+    inverse_distance = inverse_distance / np.max(inverse_distance) if np.max(inverse_distance) > 0 else np.ones_like(inverse_distance)/n  # Normalize; Avoid divide by zero
+
+    # Edge length penalty (longer edges are penalized more)
+    edge_penalty = np.exp(-distance_matrix / np.mean(distance_matrix))
+
+    # Combine factors: inverse distance, nearest neighbor rank, and centrality.
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Rank of j in i's nearest neighbors and vice versa
+                rank_i = np.where(nearest_neighbors[i] == j)[0][0]
+                rank_j = np.where(nearest_neighbors[j] == i)[0][0]
+                rank_factor = 1 / (rank_i + rank_j + 1)
+
+                # Prioritize Geometric Mean Centrality
+                centrality_factor = np.sqrt(centrality[i] * centrality[j])
+
+                heuristic_matrix[i, j] = inverse_distance[i, j] * rank_factor * centrality_factor * edge_penalty[i,j]
+
+    # Adaptive Sparsification - Adjusted Threshold
+    quantile_level = 0.7 # Reduced Sparsity compared to v1 to avoid unconnected components
+    positive_values = heuristic_matrix[heuristic_matrix > 0]
+    if positive_values.size > 0: # Avoid errors if heuristic_matrix is all zeros.
+        threshold = np.quantile(positive_values, quantile_level)
+        heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    # Row-wise normalization to avoid zero rows after sparsification
+    for i in range(n):
+        row_sum = np.sum(heuristic_matrix[i])
+        if row_sum > 0:
+            heuristic_matrix[i] = heuristic_matrix[i] / row_sum
+        else:
+            # If row is all zeros, connect to a few nearest neighbors to ensure connectivity
+            k = min(3, n-1) # Connect to top k nearest neighbours. Handles edge case where n=1.
+            top_k_indices = nearest_neighbors[i][:k]
+            for neighbor in top_k_indices:
+                heuristic_matrix[i, neighbor] = 0.01 #Assign small probability
+            row_sum = np.sum(heuristic_matrix[i]) #Recalculate
+            heuristic_matrix[i] = heuristic_matrix[i] / row_sum if row_sum > 0 else np.ones(n)/n # renormalize. Avoid division by zero when n = 1.
+
+    return heuristic_matrix
+```

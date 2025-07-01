@@ -1,0 +1,123 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs initial routes using a nearest neighbor approach, then iteratively improves them by randomly swapping nodes between routes and applying a Metropolis acceptance criterion.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 300
+    initial_temperature = 100
+    cooling_rate = 0.98
+
+    def calculate_route_load(route):
+        load = 0
+        for node in route[1:-1]:
+            load += demands[node]
+        return load
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+    
+    def calculate_total_cost(routes):
+      total_cost = 0
+      for route in routes:
+        total_cost += calculate_route_cost(route)
+      return total_cost
+
+    # Initial Solution Construction: Nearest Neighbor with Capacity Check
+    unassigned_nodes = set(range(1, n))
+    routes = []
+
+    while unassigned_nodes:
+        start_node = 0
+        current_route = [0]
+        current_load = 0
+        
+        while unassigned_nodes:
+            nearest_node = -1
+            min_distance = float('inf')
+            
+            for node in unassigned_nodes:
+                if current_load + demands[node] <= capacity:
+                    distance = distance_matrix[start_node, node]
+                    if distance < min_distance:
+                        min_distance = distance
+                        nearest_node = node
+
+            if nearest_node != -1:
+                current_route.append(nearest_node)
+                current_load += demands[nearest_node]
+                unassigned_nodes.remove(nearest_node)
+                start_node = nearest_node
+            else:
+                break
+        
+        current_route.append(0)
+        routes.append(current_route)
+
+    # Simulated Annealing with Route Swapping
+    best_routes = [route[:] for route in routes]
+    best_cost = calculate_total_cost(routes)
+    current_temperature = initial_temperature
+
+    for _ in range(num_iterations):
+        # Choose two random routes
+        route_index1 = random.randint(0, len(routes) - 1)
+        route_index2 = random.randint(0, len(routes) - 1)
+
+        # Ensure routes are not empty and distinct
+        if len(routes[route_index1]) <= 2 or len(routes[route_index2]) <= 2 or route_index1 == route_index2:
+            continue
+
+        # Choose a random node from each route (excluding depot)
+        node_index1 = random.randint(1, len(routes[route_index1]) - 2)
+        node_index2 = random.randint(1, len(routes[route_index2]) - 2)
+
+        # Swap nodes
+        node1 = routes[route_index1][node_index1]
+        node2 = routes[route_index2][node_index2]
+
+        original_routes = [route[:] for route in routes]
+
+        routes[route_index1][node_index1] = node2
+        routes[route_index2][node_index2] = node1
+
+        # Check capacity constraints
+        if calculate_route_load(routes[route_index1]) > capacity or calculate_route_load(routes[route_index2]) > capacity:
+           routes = [route[:] for route in original_routes]
+           continue
+
+
+        # Calculate cost change
+        current_cost = calculate_total_cost(routes)
+        delta_cost = current_cost - calculate_total_cost(original_routes)
+
+        # Metropolis acceptance criterion
+        if delta_cost < 0 or random.random() < np.exp(-delta_cost / current_temperature):
+            # Accept the swap
+            if current_cost < best_cost:
+                best_cost = current_cost
+                best_routes = [route[:] for route in routes]
+        else:
+            # Reject the swap - revert to original routes
+            routes = [route[:] for route in original_routes]
+
+        current_temperature *= cooling_rate
+
+    # Heuristic Matrix Update
+    for route in best_routes:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+            
+    #Normalize heuristic matrix
+    total_visits = np.sum(heuristics_matrix)
+    if total_visits > 0:
+      heuristics_matrix = heuristics_matrix / total_visits
+
+    return heuristics_matrix

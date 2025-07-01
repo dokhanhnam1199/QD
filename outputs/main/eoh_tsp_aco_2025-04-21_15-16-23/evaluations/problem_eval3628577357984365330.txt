@@ -1,0 +1,95 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm refines TSP tours by iteratively constructing them using a greedy approach guided by distance and pheromone trails, then improves them with local search, and updates pheromone levels based on tour quality to refine a heuristic matrix.}"""
+    n = distance_matrix.shape[0]
+    pheromone = np.ones_like(distance_matrix)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    alpha = 1
+    beta = 2
+    rho = 0.8
+    Q = 100
+    num_iterations = 50
+    local_search_iterations = 10
+
+    def tour_length(tour):
+        length = 0
+        for i in range(len(tour) - 1):
+            length += distance_matrix[tour[i], tour[i+1]]
+        return length
+
+    def two_opt_swap(tour, i, k):
+        new_tour = tour[:i] + tour[i:k+1][::-1] + tour[k+1:]
+        return new_tour
+
+    def local_search(tour):
+        best_tour = tour
+        best_length = tour_length(tour)
+
+        for _ in range(local_search_iterations):
+            for i in range(1, len(tour) - 2):
+                for k in range(i + 1, len(tour) - 1):
+                    new_tour = two_opt_swap(tour, i, k)
+                    new_length = tour_length(new_tour)
+
+                    if new_length < best_length:
+                        best_tour = new_tour
+                        best_length = new_length
+        return best_tour
+
+    for iteration in range(num_iterations):
+        tours = []
+        tour_lengths = []
+
+        for start_node in range(n):
+            current_node = start_node
+            unvisited = set(range(n))
+            unvisited.remove(current_node)
+            tour = [current_node]
+
+            while unvisited:
+                probabilities = np.zeros(n)
+                for neighbor in unvisited:
+                    probabilities[neighbor] = (pheromone[current_node, neighbor]**alpha) * ((1 / distance_matrix[current_node, neighbor])**beta)
+                
+                probabilities /= np.sum(probabilities)
+                next_node = np.random.choice(n, p=probabilities)
+
+                if next_node not in unvisited:
+                    available_nodes = list(unvisited)
+                    if len(available_nodes) > 0:
+                        next_node = np.random.choice(available_nodes)
+                    else:
+                        break
+
+                tour.append(next_node)
+                unvisited.remove(next_node)
+                current_node = next_node
+
+            tour.append(start_node)
+            
+            # Improve tour with local search
+            tour = local_search(tour)
+            
+            tours.append(tour)
+            tour_lengths.append(tour_length(tour))
+
+        # Update pheromones
+        delta_pheromone = np.zeros_like(distance_matrix)
+        for k in range(n):
+            tour = tours[k]
+            tour_length_val = tour_lengths[k]
+            for i in range(len(tour) - 1):
+                delta_pheromone[tour[i], tour[i+1]] += Q / tour_length_val
+                delta_pheromone[tour[i+1], tour[i]] += Q / tour_length_val
+
+        pheromone = (1 - rho) * pheromone + delta_pheromone
+
+        # Update heuristic matrix
+        for tour in tours:
+            for i in range(len(tour) - 1):
+                heuristics_matrix[tour[i], tour[i+1]] += 1
+                heuristics_matrix[tour[i+1], tour[i]] += 1
+
+    heuristics_matrix /= (num_iterations * n)
+    return heuristics_matrix

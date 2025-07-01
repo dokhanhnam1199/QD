@@ -1,0 +1,82 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int,
+                  demand_heuristic_depot_val: float = 0.13926670483854958,
+                  demand_heuristic_other_val: float = 0.09596265889351419,
+                  alpha_base: float = 0.006548592105590445,
+                  alpha_capacity_effect: float = 0.4180461744159255,
+                  gamma_base: float = 0.2509671392935535,
+                  gamma_capacity_effect: float = -0.03713286818571149,
+                  delta_base: float = 0.8029416212493755,
+                  delta_capacity_effect: float = -0.3364735353879196,
+                  k_nearest: int = 18.932931655840733,
+                  threshold_percentile: float = 27.750160454242824) -> np.ndarray:
+    """CVRP heuristic: Combines distance, demand, savings, and angle heuristics with adaptive weighting and sparsification."""
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros((n, n))
+    epsilon = 1e-6
+
+    # Distance component
+    distance_heuristic = 1 / (distance_matrix + epsilon)
+    distance_heuristic = (distance_heuristic - np.min(distance_heuristic)) / (np.max(distance_heuristic) - np.min(distance_heuristic) + epsilon)
+
+    # Demand Feasibility
+    demand_heuristic = np.ones((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                demand_heuristic[i, j] = 0
+            if demands[i] + demands[j] > capacity and (i == 0 or j == 0):
+                demand_heuristic[i, j] = demand_heuristic_depot_val
+            elif i != 0 and demands[i] > capacity or j != 0 and demands[j] > capacity:
+                demand_heuristic[i,j] = demand_heuristic_other_val
+
+    # Savings Heuristic
+    savings_heuristic = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings = distance_matrix[i, 0] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings_heuristic[i, j] = savings
+            savings_heuristic[j, i] = savings
+    savings_heuristic = (savings_heuristic - np.min(savings_heuristic)) / (np.max(savings_heuristic) - np.min(savings_heuristic) + epsilon)
+
+    # Angle-based Clustering
+    angle_heuristic = np.zeros((n, n))
+    depot_x, depot_y = coordinates[0]
+    for i in range(1, n):
+        angle_i = np.arctan2(coordinates[i, 1] - depot_y, coordinates[i, 0] - depot_x)
+        for j in range(i + 1, n):
+            angle_j = np.arctan2(coordinates[j, 1] - depot_y, coordinates[j, 0] - depot_x)
+            angle_diff = min(abs(angle_i - angle_j), 2 * np.pi - abs(angle_i - angle_j))
+            angle_preference = np.exp(-angle_diff)
+            angle_heuristic[i, j] = angle_preference
+            angle_heuristic[j, i] = angle_preference
+
+    angle_heuristic = (angle_heuristic - np.min(angle_heuristic)) / (np.max(angle_heuristic) - np.min(angle_heuristic) + epsilon)
+
+
+    # Adaptive Weighting - adjusted based on capacity ratio.
+    capacity_ratio = np.sum(demands[1:]) / (capacity * (n-1))
+    alpha = alpha_base + alpha_capacity_effect * capacity_ratio # Distance weight
+    beta = 0.0 # depot proximity is removed here
+    gamma = gamma_base + gamma_capacity_effect * capacity_ratio # Savings weight
+    delta = delta_base + delta_capacity_effect * capacity_ratio # angle heuristic
+
+    heuristics = alpha * distance_heuristic * demand_heuristic + gamma * savings_heuristic * demand_heuristic + delta * angle_heuristic * demand_heuristic
+
+    # Adaptive Sparsification based on percentile and k-NN
+    threshold = np.percentile(heuristics[heuristics > 0], threshold_percentile) # Adaptive threshold based on percentile
+
+    for i in range(n):
+        nearest_neighbors = np.argsort(distance_matrix[i, :])[1:k_nearest+1]
+        for j in range(n):
+            if heuristics[i, j] < threshold and j not in nearest_neighbors:
+                heuristics[i, j] = 0
+
+
+    # Normalize to be between 0 and 1
+    max_val = np.max(heuristics)
+    if max_val > 0:
+        heuristics = heuristics / max_val
+
+    return heuristics

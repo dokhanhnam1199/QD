@@ -1,0 +1,66 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm samples multiple random tours, applies a 2-opt local search to each, and then scores edges based on the reduction in tour length achieved by including them.}"""
+    num_nodes = distance_matrix.shape[0]
+    num_samples = 100
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    def calculate_tour_length(tour):
+        length = 0
+        for i in range(len(tour) - 1):
+            length += distance_matrix[tour[i], tour[i+1]]
+        length += distance_matrix[tour[-1], tour[0]]
+        return length
+
+    def two_opt_swap(tour, i, k):
+        new_tour = tour[:i] + tour[i:k+1][::-1] + tour[k+1:]
+        return new_tour
+    
+    def two_opt(tour):
+        best_tour = tour
+        improved = True
+        while improved:
+            improved = False
+            for i in range(1, len(tour) - 1):
+                for k in range(i + 1, len(tour)):
+                    new_tour = two_opt_swap(best_tour, i, k)
+                    if calculate_tour_length(new_tour) < calculate_tour_length(best_tour):
+                        best_tour = new_tour
+                        improved = True
+                        break
+                if improved:
+                    break
+        return best_tour
+
+
+    for _ in range(num_samples):
+        # Create a random tour
+        tour = np.random.permutation(num_nodes)
+
+        # Apply 2-opt local search
+        initial_tour = list(tour)
+        optimized_tour = two_opt(initial_tour)
+
+        initial_length = calculate_tour_length(initial_tour)
+        optimized_length = calculate_tour_length(optimized_tour)
+        improvement = initial_length - optimized_length
+
+        # Update the heuristics matrix based on improvement
+        for i in range(len(optimized_tour) - 1):
+            u = optimized_tour[i]
+            v = optimized_tour[i+1]
+            heuristics_matrix[u, v] += improvement
+            heuristics_matrix[v, u] += improvement
+        u = optimized_tour[-1]
+        v = optimized_tour[0]
+        heuristics_matrix[u, v] += improvement
+        heuristics_matrix[v, u] += improvement
+
+    # Normalize the heuristics matrix
+    total_improvement = np.sum(heuristics_matrix)
+    if total_improvement > 0:
+        heuristics_matrix /= total_improvement
+    else:
+        heuristics_matrix /= num_samples # Normalize by number of samples if no improvement is seen
+    return heuristics_matrix

@@ -1,5 +1,12 @@
 import numpy as np
+<<<<<<< HEAD
 
+=======
+import random
+import math
+import scipy
+import torch
+>>>>>>> f1e0b6db76eb2bad3f09f2289c560acdf40819be
 def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
     """Returns priority with which we want to add item to each bin.
 
@@ -10,6 +17,7 @@ def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
     Return:
         Array of same size as bins_remain_cap with priority score of each bin.
     """
+<<<<<<< HEAD
     # Calculate remaining capacity after adding the item.
     new_capacities = bins_remain_cap - item
 
@@ -82,4 +90,9 @@ def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
 
     # Combine the factors to create the priority score.  Experiment with weights.
     priorities[valid_bins] = adaptive_weight * fill_ratio + remaining_space_penalty + capacity_utilization + space_balance + 0.1 * capacity_diversity_penalty + fill_from_empty_penalty + 0.05 * fill_target_penalty + almost_full_penalty + median_proximity_bonus + small_space_penalty + lookahead_bonus
+=======
+    ratios = item / bins_remain_cap
+    log_ratios = np.log(ratios)
+    priorities = -log_ratios
+>>>>>>> f1e0b6db76eb2bad3f09f2289c560acdf40819be
     return priorities

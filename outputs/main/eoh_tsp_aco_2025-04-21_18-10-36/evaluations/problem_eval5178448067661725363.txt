@@ -1,0 +1,61 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a combination of shortest edge selection and pheromone update inspired by Ant Colony Optimization (ACO) to construct a heuristic matrix.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    pheromone_matrix = np.ones_like(distance_matrix, dtype=float) # Initial pheromone levels
+
+    alpha = 1  # Pheromone influence
+    beta = 2  # Distance influence
+    rho = 0.5  # Evaporation rate
+    Q = 100    # Pheromone deposit quantity
+    num_ants = n
+
+    for ant in range(num_ants):
+        start_node = ant % n
+        current_node = start_node
+        unvisited_nodes = set(range(n))
+        unvisited_nodes.remove(start_node)
+        tour = [start_node]
+
+        while unvisited_nodes:
+            probabilities = np.zeros(n)
+            for neighbor in range(n):
+                if neighbor in unvisited_nodes:
+                    probabilities[neighbor] = (pheromone_matrix[current_node, neighbor]**alpha) * ((1 / (distance_matrix[current_node, neighbor] + 1e-9))**beta) #avoid division by zero
+            
+            if np.sum(probabilities[list(unvisited_nodes)]) == 0:
+                next_node = np.random.choice(list(unvisited_nodes))
+            else:
+
+                probabilities /= np.sum(probabilities[list(unvisited_nodes)])
+                next_node = np.random.choice(range(n), p=probabilities)
+            
+            if next_node not in unvisited_nodes:
+              next_node = np.random.choice(list(unvisited_nodes))
+
+            tour.append(next_node)
+            unvisited_nodes.remove(next_node)
+            current_node = next_node
+        
+        tour.append(start_node)  # Complete the tour
+
+        tour_length = 0
+        for i in range(n):
+            tour_length += distance_matrix[tour[i], tour[i+1]]
+
+        # Update pheromones on the tour
+        for i in range(n):
+            pheromone_matrix[tour[i], tour[i+1]] += Q / tour_length
+            pheromone_matrix[tour[i+1], tour[i]] += Q / tour_length
+
+        # Evaporation
+        pheromone_matrix *= (1 - rho)
+        pheromone_matrix = np.clip(pheromone_matrix, 1e-9, np.inf) #prevent pheromone level from vanishing
+
+    # Normalize pheromone matrix for heuristic values
+    max_pheromone = np.max(pheromone_matrix)
+    heuristics_matrix = pheromone_matrix / max_pheromone
+
+    return heuristics_matrix

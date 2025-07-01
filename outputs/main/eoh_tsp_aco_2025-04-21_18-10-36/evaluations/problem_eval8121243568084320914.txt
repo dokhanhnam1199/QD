@@ -1,0 +1,68 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm combines inverse distance weighting with edge reinforcement based on short path segments identified through random walks.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    edge_counts = np.zeros_like(distance_matrix, dtype=int)
+    num_walks = 50
+    walk_length = n // 2
+
+    for _ in range(num_walks):
+        start_node = np.random.randint(n)
+        current_node = start_node
+        path = [current_node]
+
+        for _ in range(walk_length):
+            # Calculate probabilities based on inverse distance
+            probabilities = np.zeros(n)
+            for neighbor in range(n):
+                if neighbor != current_node:
+                    distance = distance_matrix[current_node, neighbor]
+                    if distance > 0:
+                        probabilities[neighbor] = 1.0 / (distance**2)
+                    else:
+                        probabilities[neighbor] = 0  # Avoid division by zero
+            
+            # Normalize probabilities
+            if np.sum(probabilities) > 0:
+                probabilities /= np.sum(probabilities)
+            else:
+                probabilities = np.ones(n) / n  # If all distances are zero
+
+            # Choose next node based on probabilities
+            next_node = np.random.choice(n, p=probabilities)
+            path.append(next_node)
+            
+            # Update edge counts
+            edge_counts[current_node, next_node] += 1
+            edge_counts[next_node, current_node] += 1
+            
+            current_node = next_node
+
+    # Initialize heuristics with inverse distance
+    for i in range(n):
+        for j in range(i + 1, n):
+            distance = distance_matrix[i, j]
+            if distance > 0:
+                heuristics_matrix[i, j] = 1.0 / (distance**2)
+                heuristics_matrix[j, i] = heuristics_matrix[i, j]
+            else:
+                heuristics_matrix[i, j] = 0
+                heuristics_matrix[j, i] = 0
+
+    # Reinforce based on edge counts
+    max_count = np.max(edge_counts)
+    if max_count > 0:
+        edge_counts_normalized = edge_counts / max_count
+    else:
+        edge_counts_normalized = np.zeros_like(edge_counts)
+
+    heuristics_matrix = heuristics_matrix + edge_counts_normalized
+
+    # Normalize to [0, 1]
+    max_heuristic = np.max(heuristics_matrix)
+    if max_heuristic > 0:
+        heuristics_matrix /= max_heuristic
+
+    return heuristics_matrix

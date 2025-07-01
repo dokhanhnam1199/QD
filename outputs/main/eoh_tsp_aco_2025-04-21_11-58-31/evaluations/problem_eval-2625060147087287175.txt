@@ -1,0 +1,65 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm iteratively refines edge probabilities by combining information from short sub-tours and global tour evaluations, encouraging exploration of promising edges while maintaining diversity.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones_like(distance_matrix)
+
+    num_iterations = 50
+    num_subtours = 20
+    subtour_length = n // 3
+
+    for _ in range(num_iterations):
+        for _ in range(num_subtours):
+            start_node = np.random.randint(n)
+            nodes = [start_node]
+            remaining_nodes = list(range(n))
+            remaining_nodes.remove(start_node)
+
+            # Construct a subtour greedily
+            current_node = start_node
+            for _ in range(min(subtour_length - 1, len(remaining_nodes))):
+                nearest_neighbor = -1
+                min_distance = np.inf
+                for neighbor in remaining_nodes:
+                    distance = distance_matrix[current_node, neighbor]
+                    if distance < min_distance:
+                        min_distance = distance
+                        nearest_neighbor = neighbor
+
+                if nearest_neighbor != -1:
+                    nodes.append(nearest_neighbor)
+                    remaining_nodes.remove(nearest_neighbor)
+                    current_node = nearest_neighbor
+                else:
+                    break
+                
+            # Evaluate the subtour length
+            subtour_length_val = 0
+            for i in range(len(nodes) - 1):
+                subtour_length_val += distance_matrix[nodes[i], nodes[i+1]]
+            if len(nodes) > 1:
+                subtour_length_val += distance_matrix[nodes[-1], nodes[0]]
+
+            # Update heuristics based on subtour length
+            if len(nodes) > 1:
+                for i in range(len(nodes) - 1):
+                    heuristics_matrix[nodes[i], nodes[i+1]] += 1 / (subtour_length_val + 1e-6)
+                    heuristics_matrix[nodes[i+1], nodes[i]] += 1 / (subtour_length_val + 1e-6)
+                heuristics_matrix[nodes[-1], nodes[0]] += 1 / (subtour_length_val + 1e-6)
+                heuristics_matrix[nodes[0], nodes[-1]] += 1 / (subtour_length_val + 1e-6)
+
+        # Global tour evaluation to regularize
+        tour = np.random.permutation(n)
+        tour_length = 0
+        for i in range(n - 1):
+            tour_length += distance_matrix[tour[i], tour[i+1]]
+        tour_length += distance_matrix[tour[-1], tour[0]]
+        
+        for i in range(n - 1):
+            heuristics_matrix[tour[i], tour[i+1]] += 0.1 / (tour_length + 1e-6)
+            heuristics_matrix[tour[i+1], tour[i]] += 0.1 / (tour_length + 1e-6)
+        heuristics_matrix[tour[-1], tour[0]] += 0.1 / (tour_length + 1e-6)
+        heuristics_matrix[tour[0], tour[-1]] += 0.1 / (tour_length + 1e-6)
+
+    return heuristics_matrix

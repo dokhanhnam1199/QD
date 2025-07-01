@@ -1,0 +1,63 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for CVRP based on distance, demand, and node proximity.
+
+    This heuristic aims to guide the stochastic sampling process by prioritizing:
+    1. Shorter edges (distance).
+    2. Edges connecting nodes with manageable demand relative to capacity.
+    3. Edges that connect nodes closer to the depot (encouraging return trips).
+    4. Avoid edges between two nodes that exceeds the vehicle capacity.
+
+    Args:
+        distance_matrix (np.ndarray): Distance between all pairs of nodes (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Demand of each node (n).  depot demand should be 0.
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators (probabilities) for each edge (n x n).
+    """
+
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros((n, n))
+
+    # Distance component: inversely proportional to distance
+    distance_component = 1 / (distance_matrix + 1e-6)  # Avoid division by zero
+
+    # Demand component: penalize edges that overload the vehicle
+    demand_component = np.ones((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != 0 and j != 0 and demands[i] + demands[j] > capacity:
+                demand_component[i, j] = 0.01  # Heavily penalize invalid edges
+
+    # Depot proximity component: favor connections to nodes closer to the depot
+    depot_distances = distance_matrix[0, :]  # Distances from depot to each node
+    depot_proximity_component = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            depot_proximity_component[i, j] = 1 / (depot_distances[i] + depot_distances[j] + 1e-6)
+
+
+    # Combine the components with weights
+    alpha = 0.6  # Weight for distance
+    beta = 0.2  # Weight for demand
+    gamma = 0.2  # Weight for depot proximity
+
+    heuristics = alpha * distance_component + beta * demand_component + gamma * depot_proximity_component
+
+    # Ensure depot connection is encouraged at the start
+    for i in range(1, n): #no connection to itself or with node 0, since 0 is the depot.
+         heuristics[0, i] = max(heuristics[0, i], np.mean(heuristics))  #Encourage connections between the depot and the other locations.
+         heuristics[i, 0] = max(heuristics[i, 0], np.mean(heuristics))  #Ensuring Symmetry and depot connectivity
+
+
+    # Zero out diagonal elements (no self-loops)
+    for i in range(n):
+        heuristics[i, i] = 0
+
+    return heuristics
+```

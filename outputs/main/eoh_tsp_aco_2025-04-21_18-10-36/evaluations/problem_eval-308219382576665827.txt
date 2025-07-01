@@ -1,0 +1,127 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm constructs tours by iteratively adding the shortest edges that don't create cycles or violate degree constraints, then refines the tour using 3-opt swaps, and biases edge selection based on their frequency in shorter tours.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 50
+
+    for _ in range(num_samples):
+        # Initialize tour construction
+        edges = []
+        degrees = [0] * n
+        tour_length = 0
+        nodes = list(range(n))
+        parent = list(range(n))
+
+        def find(i):
+            if parent[i] == i:
+                return i
+            parent[i] = find(parent[i])
+            return parent[i]
+
+        def union(i, j):
+            root_i = find(i)
+            root_j = find(j)
+            if root_i != root_j:
+                parent[root_i] = root_j
+                return True
+            return False
+
+        # Iteratively add shortest edges
+        available_edges = []
+        for i in range(n):
+            for j in range(i + 1, n):
+                available_edges.append((distance_matrix[i, j], i, j))
+        available_edges.sort()
+
+        for dist, u, v in available_edges:
+            if degrees[u] < 2 and degrees[v] < 2 and union(u, v):
+                edges.append((u, v))
+                degrees[u] += 1
+                degrees[v] += 1
+                tour_length += dist
+                if len(edges) == n:
+                  break
+
+        # If tour isn't complete, skip the refining step
+        if len(edges) != n:
+          continue
+                
+        # Convert edges to a tour representation
+        tour = [0]
+        current_node = 0
+        visited = {0}
+        for _ in range(n - 1):
+            for u, v in edges:
+                if u == current_node and v not in visited:
+                    tour.append(v)
+                    current_node = v
+                    visited.add(v)
+                    break
+                elif v == current_node and u not in visited:
+                    tour.append(u)
+                    current_node = u
+                    visited.add(u)
+                    break
+        tour.append(0)
+
+        # 3-opt refinement
+        improved = True
+        while improved:
+            improved = False
+            for i in range(n):
+                for j in range(i + 2, n):
+                    for k in range(j + 2, n + (i > 0)): #loop to beginning if i > 0
+                        
+                        a, b, c, d, e, f = tour[i], tour[i+1], tour[j], tour[j+1], tour[k], tour[(k+1)%n]
+                        
+                        d0 = distance_matrix[a,b] + distance_matrix[c,d] + distance_matrix[e,f]
+                        d1 = distance_matrix[a,c] + distance_matrix[b,d] + distance_matrix[e,f]
+                        d2 = distance_matrix[a,b] + distance_matrix[c,e] + distance_matrix[d,f]
+                        d3 = distance_matrix[a,c] + distance_matrix[b,e] + distance_matrix[d,f]
+                        d4 = distance_matrix[a,e] + distance_matrix[d,c] + distance_matrix[b,f]
+                        d5 = distance_matrix[a,e] + distance_matrix[d,b] + distance_matrix[c,f]
+                        
+                        if d1 < d0:
+                            tour[i+1:j+1] = reversed(tour[i+1:j+1])
+                            improved = True
+                            
+                        elif d2 < d0:
+                            tour[j+1:k+1] = reversed(tour[j+1:k+1])
+                            improved = True
+                            
+                        elif d3 < d0:
+                             tour[i+1:j+1] = reversed(tour[i+1:j+1])
+                             tour[j+1:k+1] = reversed(tour[j+1:k+1])
+                             improved = True
+                        
+                        elif d4 < d0:
+                            temp = tour[i+1:j+1]
+                            tour[i+1:i+1+k-j] = tour[j+1:k+1]
+                            tour[i+1+k-j:j+1+k-j] = temp
+                            improved = True
+
+                        elif d5 < d0:
+                            tour[j+1:k+1] = tour[j+1:k+1][::-1]
+                            temp = tour[i+1:j+1]
+                            tour[i+1:i+1+k-j] = tour[j+1:k+1]
+                            tour[i+1+k-j:j+1+k-j] = temp
+                            improved = True
+
+
+        # Update heuristics matrix
+        tour_length = 0
+        for i in range(n):
+            tour_length += distance_matrix[tour[i], tour[i+1]]
+        for i in range(n):
+            heuristics_matrix[tour[i], tour[i+1]] += 1 / tour_length
+            heuristics_matrix[tour[i+1], tour[i]] += 1 / tour_length
+
+    # Normalize
+    max_weight = np.max(heuristics_matrix)
+    if max_weight > 0:
+        heuristics_matrix /= max_weight
+    else:
+        heuristics_matrix = np.ones_like(distance_matrix) / n
+    return heuristics_matrix

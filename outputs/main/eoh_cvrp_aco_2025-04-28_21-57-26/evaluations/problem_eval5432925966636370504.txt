@@ -1,0 +1,89 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses a genetic algorithm to evolve a population of routes and uses edge frequencies from the best routes to build a heuristic matrix.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    population_size = 50
+    num_generations = 100
+    mutation_rate = 0.1
+    
+    def create_individual():
+        customer_indices = list(range(1, n))
+        random.shuffle(customer_indices)
+        routes = []
+        current_route = [0]
+        current_load = 0
+        for customer in customer_indices:
+            if current_load + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_load += demands[customer]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, customer]
+                current_load = demands[customer]
+        current_route.append(0)
+        routes.append(current_route)
+        return routes
+    
+    def calculate_cost(routes):
+        total_cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_cost += distance_matrix[route[i]][route[i+1]]
+        return total_cost
+    
+    def evaluate_fitness(individual):
+        return 1 / (calculate_cost(individual) + 1e-9)  # Avoid division by zero
+    
+    def crossover(parent1, parent2):
+        # Simple one-point crossover
+        crossover_point = random.randint(0, min(len(parent1), len(parent2)))
+        child1 = parent1[:crossover_point] + parent2[crossover_point:]
+        child2 = parent2[:crossover_point] + parent1[crossover_point:]
+        return child1, child2
+
+    def mutate(individual):
+        if random.random() < mutation_rate:
+            idx1 = random.randint(0, len(individual) - 1)
+            idx2 = random.randint(0, len(individual) - 1)
+            individual[idx1], individual[idx2] = individual[idx2], individual[idx1]
+        return individual
+    
+    # Initialize population
+    population = [create_individual() for _ in range(population_size)]
+    
+    for generation in range(num_generations):
+        # Evaluate fitness
+        fitness_scores = [evaluate_fitness(individual) for individual in population]
+        
+        # Select parents (roulette wheel selection)
+        probabilities = [score / sum(fitness_scores) for score in fitness_scores]
+        parents = random.choices(population, weights=probabilities, k=population_size)
+        
+        # Create new population (crossover and mutation)
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = parents[i]
+            parent2 = parents[i+1] if i+1 < population_size else parents[0]
+            child1, child2 = crossover(parent1, parent2)
+            new_population.append(mutate(child1))
+            new_population.append(mutate(child2))
+            
+        population = new_population
+    
+    # Find the best individual in the final population
+    best_individual = max(population, key=evaluate_fitness)
+
+    # Update the heuristics matrix based on the best individual
+    for route in best_individual:
+        for i in range(len(route) - 1):
+            u, v = route[i], route[i+1]
+            heuristics_matrix[u][v] += 1
+            heuristics_matrix[v][u] += 1  # Symmetry
+    
+    return heuristics_matrix

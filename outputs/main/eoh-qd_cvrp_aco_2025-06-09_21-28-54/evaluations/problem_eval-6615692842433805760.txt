@@ -1,0 +1,69 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively constructs routes by probabilistically adding customers based on a combination of distance and demand, and then updates a heuristic matrix based on the constructed routes.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_iterations = 1000
+
+    for _ in range(num_iterations):
+        # Initialize route construction
+        current_route = [0]
+        current_demand = 0
+        remaining_customers = set(range(1, n))
+        routes = []
+
+        while remaining_customers:
+            # Calculate probabilities for adding each customer
+            probabilities = {}
+            for customer in remaining_customers:
+                if current_demand + demands[customer] <= capacity:
+                    distance_factor = distance_matrix[current_route[-1], customer]
+                    demand_factor = demands[customer]
+                    probabilities[customer] = 1 / (distance_factor * demand_factor)  # Favor closer, smaller demand
+                else:
+                    probabilities[customer] = 0
+
+            # Normalize probabilities
+            total_probability = sum(probabilities.values())
+            if total_probability > 0:
+                normalized_probabilities = {c: p / total_probability for c, p in probabilities.items()}
+            else:
+                # If no customers can be added to the current route, end the route.
+                routes.append(current_route + [0])
+                current_route = [0]
+                current_demand = 0
+                continue
+                
+            # Choose a customer based on probabilities
+            chosen_customer = random.choices(list(normalized_probabilities.keys()), weights=list(normalized_probabilities.values()), k=1)[0]
+
+            # Add the chosen customer to the route
+            current_route.append(chosen_customer)
+            current_demand += demands[chosen_customer]
+            remaining_customers.remove(chosen_customer)
+
+            # If the route is full, close route and start a new route.
+            if not remaining_customers or all(current_demand + demands[c] > capacity for c in remaining_customers):
+                 current_route.append(0)
+                 routes.append(current_route)
+                 current_route = [0]
+                 current_demand = 0
+        
+        # Update heuristic matrix
+        for route in routes:
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                heuristics_matrix[node1, node2] += 1
+                heuristics_matrix[node2, node1] += 1
+
+    # Normalize by distance
+    for i in range(n):
+        for j in range(n):
+            if distance_matrix[i, j] > 0:
+                heuristics_matrix[i, j] /= distance_matrix[i, j]
+    return heuristics_matrix

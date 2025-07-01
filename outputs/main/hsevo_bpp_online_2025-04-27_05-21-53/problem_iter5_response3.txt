@@ -1,0 +1,40 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins based on fullness, exploration, and penalties.
+    Combines adaptive exploration with overflow management."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    remaining_capacity = bins_remain_cap - item
+    infeasible = remaining_capacity < 0
+    priorities[infeasible] = -np.inf
+
+    feasible = ~infeasible
+    if not np.any(feasible):
+        return priorities
+
+    # Fullness score + prevents divide by zero
+    fullness_scores = np.zeros_like(bins_remain_cap, dtype=float)
+    valid_bins = bins_remain_cap > 0
+    fullness_scores[valid_bins] = (bins_remain_cap[valid_bins] - item) / bins_remain_cap[valid_bins]
+    fullness_scores[~valid_bins] = 1.0 # assign to 1 when bins_remain_cap <=0
+    priorities[feasible] += (1.0 - fullness_scores[feasible]) #Fillness
+
+    # Exploration bonus, adaptive
+    exploration_factor = bins_remain_cap[feasible] / np.max(bins_remain_cap[feasible])
+    priorities[feasible] += 0.3 * exploration_factor
+
+    # Near-overflow penalty
+    overflow_margin = 0.05 * item
+    near_overflow = feasible & (remaining_capacity < overflow_margin)
+    overflow_penalty = np.exp(5 * (remaining_capacity[near_overflow] - overflow_margin) / overflow_margin)
+    priorities[near_overflow] -= overflow_penalty
+
+    # Perfect fit bonus: Increase the weight slightly.
+    perfect_fit_threshold = 0.001
+    perfect_fit = feasible & (remaining_capacity >= 0) & (remaining_capacity <= perfect_fit_threshold * bins_remain_cap)
+    priorities[perfect_fit] += 0.5
+
+    return priorities
+```

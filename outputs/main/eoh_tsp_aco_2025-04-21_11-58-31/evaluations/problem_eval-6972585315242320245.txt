@@ -1,0 +1,80 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm generates multiple tours using a nearest neighbor approach with random starting nodes and incorporates 3-opt swaps for local optimization, weighting edge frequencies by the exponential of negative tour lengths to construct a heuristic matrix.}"""
+    n = distance_matrix.shape[0]
+    num_samples = 100
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    tour_lengths = []
+    tours = []
+
+    for _ in range(num_samples):
+        # Generate a tour using nearest neighbor
+        start_node = np.random.randint(n)
+        unvisited = list(range(n))
+        tour = [start_node]
+        unvisited.remove(start_node)
+
+        while unvisited:
+            current_node = tour[-1]
+            nearest_neighbor = min(unvisited, key=lambda x: distance_matrix[current_node, x])
+            tour.append(nearest_neighbor)
+            unvisited.remove(nearest_neighbor)
+
+        tour.append(start_node)
+        tour = np.array(tour)
+
+        # Improve the tour using 3-opt swaps
+        improved = True
+        while improved:
+            improved = False
+            for i in range(1, n - 1):
+                for j in range(i + 1, n):
+                    for k in range(j + 1, n + 1):
+                        # Consider different 3-opt swap options
+                        segments = [tour[i:j], tour[j:k], tour[k:]]
+                        segment_starts = [tour[i-1], tour[j-1], tour[k-1]]
+                        
+                        # Original order
+                        cost_original = distance_matrix[segment_starts[0], segments[0][0]] + distance_matrix[segment_starts[1], segments[1][0]] + distance_matrix[segment_starts[2],segments[2][0] if len(segments[2])>0 else tour[0]]
+                        cost_original += distance_matrix[segments[0][-1],segments[1][0]] if len(segments[0])>0 and len(segments[1])>0 else 0
+                        cost_original += distance_matrix[segments[1][-1],segments[2][0]] if len(segments[1])>0 and len(segments[2])>0 else 0
+
+                        # Reverse segment 1
+                        segments_reversed_1 = [segments[0][::-1], segments[1], segments[2]]
+                        cost_reversed_1 = distance_matrix[segment_starts[0], segments_reversed_1[0][0]] + distance_matrix[segment_starts[1], segments_reversed_1[1][0]] + distance_matrix[segment_starts[2], segments_reversed_1[2][0] if len(segments_reversed_1[2])>0 else tour[0]]
+                        cost_reversed_1 += distance_matrix[segments_reversed_1[0][-1],segments_reversed_1[1][0]] if len(segments_reversed_1[0])>0 and len(segments_reversed_1[1])>0 else 0
+                        cost_reversed_1 += distance_matrix[segments_reversed_1[1][-1],segments_reversed_1[2][0]] if len(segments_reversed_1[1])>0 and len(segments_reversed_1[2])>0 else 0
+
+                        if cost_reversed_1 < cost_original:
+                            tour[i:j] = segments_reversed_1[0]
+                            improved = True
+
+        # Calculate tour length
+        tour_length = 0.0
+        for i in range(n):
+            tour_length += distance_matrix[tour[i], tour[i+1]]
+        
+        tour_lengths.append(tour_length)
+        tours.append(tour)
+
+    # Rank the tour lengths
+    #ranks = np.argsort(np.argsort(tour_lengths)) + 1
+
+    # Update heuristics matrix with weight based on tour length (exponential decay)
+    for idx in range(num_samples):
+        tour = tours[idx]
+        tour_length = tour_lengths[idx]
+        weight = np.exp(-tour_length)
+
+        for i in range(n):
+            node1 = tour[i]
+            node2 = tour[i+1]
+            heuristics_matrix[node1, node2] += weight
+            heuristics_matrix[node2, node1] += weight
+    
+    # Normalize heuristics matrix
+    total_weight = np.sum([np.exp(-length) for length in tour_lengths])
+    if total_weight > 0:
+        heuristics_matrix /= total_weight
+    return heuristics_matrix

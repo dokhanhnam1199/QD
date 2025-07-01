@@ -1,0 +1,50 @@
+```python
+import numpy as np
+import scipy.sparse
+from scipy.sparse.csgraph import dijkstra
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """TSP heuristic: Combines inverse distance, adaptive degree bias, shortest paths, and informed randomness with aggressive sparsification."""
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Inverse distance
+    inverse_distance = 1 / (distance_matrix + 1e-9)
+
+    # Shortest path estimate (Dijkstra)
+    graph = scipy.sparse.csr_matrix(distance_matrix)
+    shortest_paths = dijkstra(graph, directed=False, indices=range(n))
+
+    # Adaptive degree bias
+    degree_penalty = np.ones((n, n))
+    degrees = np.sum(inverse_distance, axis=1)
+    avg_degree = np.mean(degrees)
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                penalty_i = max(0.1, avg_degree / (degrees[i] + 1e-9))  # Lower bound penalty
+                penalty_j = max(0.1, avg_degree / (degrees[j] + 1e-9))  # Lower bound penalty
+                degree_penalty[i, j] = penalty_i * penalty_j
+            else:
+                degree_penalty[i, j] = 0
+
+    # Combine heuristics (emphasize shortest paths)
+    heuristic_matrix = inverse_distance * degree_penalty / (shortest_paths + 1e-9)
+
+    # Informed Randomness: Add noise proportional to inverse distance
+    randomness_factor = 0.05  # Adjust for desired exploration
+    random_noise = np.random.rand(n, n) * inverse_distance * randomness_factor
+    heuristic_matrix += random_noise
+
+    # Aggressive Sparsification (before normalization): Keep top edges
+    threshold = np.percentile(heuristic_matrix[heuristic_matrix > 0], 10) #Stronger sparsification
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    # Component Normalization: Normalize only non-zero values
+    max_heuristic = np.max(heuristic_matrix)
+    if max_heuristic > 0:
+        heuristic_matrix /= max_heuristic
+
+    return heuristic_matrix
+```

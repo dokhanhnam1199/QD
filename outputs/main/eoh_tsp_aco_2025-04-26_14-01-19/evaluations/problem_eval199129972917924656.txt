@@ -1,0 +1,75 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a nearest neighbor approach with perturbation and local search (3-opt) to generate tours and updates a heuristic matrix based on edge frequencies.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_iterations = 50
+    perturbation_factor = 0.1
+    local_search_iterations = 5
+
+    for iteration in range(num_iterations):
+        # Nearest neighbor tour construction with perturbation
+        start_node = np.random.randint(n)
+        tour = [start_node]
+        unvisited = set(range(n))
+        unvisited.remove(start_node)
+        current_node = start_node
+
+        while unvisited:
+            distances = np.array([distance_matrix[current_node, neighbor] for neighbor in unvisited])
+            probabilities = np.exp(-perturbation_factor * distances)
+            probabilities /= np.sum(probabilities)
+            
+            nearest_neighbor = np.random.choice(list(unvisited), p=probabilities)
+            tour.append(nearest_neighbor)
+            unvisited.remove(nearest_neighbor)
+            current_node = nearest_neighbor
+        tour.append(start_node)
+
+        # Local search (3-opt)
+        for _ in range(local_search_iterations):
+            improved = False
+            for i in range(1, n - 1):
+                for j in range(i + 1, n):
+                    for k in range(j + 1, n + 1):
+                        # Consider all 3-opt swap possibilities
+                        a, b, c, d, e, f = tour[i - 1], tour[i], tour[j - 1], tour[j], tour[k - 1], tour[k % n]
+
+                        original_cost = distance_matrix[a, b] + distance_matrix[c, d] + distance_matrix[e, f]
+
+                        # Possible 3-opt swaps
+                        options = [
+                            (distance_matrix[a, c] + distance_matrix[b, d] + distance_matrix[e, f], tour[:i] + tour[j-1:i-1:-1] + tour[k-1:j-1:-1] + tour[k:]), #2-opt
+                            (distance_matrix[a, b] + distance_matrix[c, e] + distance_matrix[d, f], tour[:i] + tour[i:j] + tour[k-1:j-1:-1] + tour[k:]), #2-opt
+                            (distance_matrix[a, c] + distance_matrix[b, e] + distance_matrix[d, f], tour[:i] + tour[j-1:i-1:-1] + tour[j:k] + tour[k:]),
+                            (distance_matrix[a, d] + distance_matrix[e, b] + distance_matrix[c, f], tour[:i] + tour[j:k] + tour[i:j] + tour[k:]),#2-opt
+                            (distance_matrix[a, d] + distance_matrix[e, c] + distance_matrix[b, f], tour[:i] + tour[j:k] + tour[j-1:i-1:-1] + tour[k:]),#2-opt
+                            (distance_matrix[a, e] + distance_matrix[d, c] + distance_matrix[b, f], tour[:i] + tour[k-1:j-1:-1] + tour[j:i:-1] + tour[k:]),
+                            (distance_matrix[a, e] + distance_matrix[d, b] + distance_matrix[c, f], tour[:i] + tour[k-1:j-1:-1] + tour[i:j] + tour[k:]),#2-opt
+                            (distance_matrix[a, f] + distance_matrix[e, d] + distance_matrix[c, b], tour[:i] + tour[k:j:-1] + tour[j:i:-1] + tour[k:]),#2-opt
+                            (distance_matrix[a, f] + distance_matrix[e, b] + distance_matrix[c, d], tour[:i] + tour[k:j:-1] + tour[i:j] + tour[k:]),#2-opt
+                        ]
+                        
+                        best_cost = original_cost
+                        best_tour = tour
+                        
+                        for new_cost, new_tour in options:
+                            if new_cost < best_cost:
+                                best_cost = new_cost
+                                best_tour = new_tour
+
+                        if best_cost < original_cost:
+                            tour = best_tour
+                            improved = True
+            if not improved:
+                break
+        # Update heuristic matrix
+        for i in range(n):
+            node1 = tour[i]
+            node2 = tour[(i + 1) % n]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+    heuristics_matrix /= num_iterations
+    return heuristics_matrix

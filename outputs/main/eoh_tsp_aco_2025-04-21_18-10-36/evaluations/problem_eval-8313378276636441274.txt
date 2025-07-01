@@ -1,0 +1,70 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm combines the edge frequency approach with simulated annealing to iteratively refine a heuristic matrix based on tour improvements.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones_like(distance_matrix, dtype=float)
+    temperature = 1.0
+    cooling_rate = 0.99
+    num_iterations = 100
+
+    for _ in range(num_iterations):
+        # Generate a tour based on the current heuristics
+        probabilities = heuristics_matrix / np.sum(heuristics_matrix)
+        start_node = np.random.randint(n)
+        current_node = start_node
+        unvisited_nodes = set(range(n))
+        unvisited_nodes.remove(start_node)
+        tour = [start_node]
+        tour_distance = 0.0
+
+        while unvisited_nodes:
+            
+            distances = distance_matrix[current_node, :]
+            
+            # Bias the probabilities based on the heuristic matrix
+            probabilities_subset = heuristics_matrix[current_node, list(unvisited_nodes)]
+            
+            # Normalize subset probabilites for random choice within unvisited nodes only
+            probabilities_subset = probabilities_subset / np.sum(probabilities_subset) if np.sum(probabilities_subset) > 0 else np.ones(len(probabilities_subset)) / len(probabilities_subset)
+            
+            next_node = np.random.choice(list(unvisited_nodes), p=probabilities_subset)
+            
+            tour_distance += distance_matrix[current_node, next_node]
+            tour.append(next_node)
+            unvisited_nodes.remove(next_node)
+            current_node = next_node
+        
+        tour.append(start_node)
+        tour_distance += distance_matrix[current_node, start_node]
+
+        # Generate a slightly modified tour
+        idx1, idx2 = np.random.choice(range(1, n), size=2, replace=False)
+        
+        if idx1 > idx2:
+            idx1, idx2 = idx2, idx1
+        
+        modified_tour = tour[:idx1] + tour[idx1:idx2+1][::-1] + tour[idx2+1:]
+        modified_tour_distance = 0.0
+        for i in range(n):
+            modified_tour_distance += distance_matrix[modified_tour[i], modified_tour[i+1]]
+        
+        # Accept the modified tour based on simulated annealing
+        if modified_tour_distance < tour_distance:
+            tour = modified_tour
+            tour_distance = modified_tour_distance
+        else:
+            delta = modified_tour_distance - tour_distance
+            if np.random.rand() < np.exp(-delta / temperature):
+                tour = modified_tour
+                tour_distance = modified_tour_distance
+        
+        # Update the heuristics matrix based on the tour
+        for i in range(n):
+            heuristics_matrix[tour[i], tour[i+1]] += 1
+            heuristics_matrix[tour[i+1], tour[i]] += 1
+
+        temperature *= cooling_rate
+
+    heuristics_matrix /= np.sum(heuristics_matrix)
+    return heuristics_matrix

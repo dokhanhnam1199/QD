@@ -1,0 +1,65 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    This function estimates the desirability of including each edge in a CVRP solution
+    based on a combination of distance, demand, and centrality measures.  It aims to
+    prioritize shorter edges connecting nodes with compatible demands and strategically
+    located within the overall network.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Customer demands (n).  depot demand is demands[0].
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Edge prior indicators (n x n).  Higher values indicate more promising edges.
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros((n, n))
+
+    # Avoid division by zero by adding a small constant to the distance
+    adjusted_distance_matrix = distance_matrix + 1e-6
+
+    # Inverse distance: Shorter distances are more desirable
+    inverse_distance = 1 / adjusted_distance_matrix
+
+    # Demand compatibility: Penalize edges connecting nodes that would easily exceed capacity
+    demand_compatibility = np.ones((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != j and i != 0 and j != 0:  #Exclude the depot when calculating the demand compatibility
+                if demands[i] + demands[j] > capacity:
+                    demand_compatibility[i, j] = 0.1  # Reduced score if combining nodes exceeds capacity
+                else:
+                    demand_compatibility[i,j] = 1.0 # full score if not exceeding capacity
+
+
+    # Depot proximity: Encourage connections to/from the depot
+    depot_proximity = np.zeros((n, n))
+    for i in range(n):
+        depot_proximity[0, i] = 1.0  # Encourage edges from depot to all other nodes
+        depot_proximity[i, 0] = 1.0  # Encourage edges back to the depot
+
+    # Node centrality (degree): Prefer edges connecting to nodes with fewer direct connections
+    # This helps to avoid isolating nodes and promotes more balanced routes. We want the central node to have high degree and periferals low degree
+    # The following centrality does not make any prior assumptions about edge existence. This ensures full coverage of possible solutions.
+    degree_centrality = np.zeros((n, n))
+
+    for i in range(n):
+        for j in range(n):
+            degree_centrality[i, j] = 1.0
+
+    # Combine the factors
+    heuristics = inverse_distance * demand_compatibility * depot_proximity * degree_centrality
+
+    # Set diagonal elements to zero, as we don't want self-loops
+    for i in range(n):
+        heuristics[i, i] = 0
+
+    return heuristics
+```

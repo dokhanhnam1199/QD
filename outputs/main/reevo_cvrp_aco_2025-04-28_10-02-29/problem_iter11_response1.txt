@@ -1,0 +1,118 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    Improves upon v1 with enhanced capacity and demand handling, angle calculation, and adaptive sparsification.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Vector of customer demands (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+
+    # Calculate savings matrix (Clarke-Wright Savings)
+    savings_matrix = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings_matrix[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings_matrix[j, i] = savings_matrix[i, j]
+
+    # Node proximity to depot
+    depot_proximity = np.zeros(n)
+    for i in range(1, n):
+        depot_proximity[i] = 1 / (distance_matrix[0, i] + 1e-6)
+
+    # Demand factor (geometric mean, capacity awareness, and slack utilization)
+    demand_factor = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                combined_demand = demands[i] + demands[j]
+                if combined_demand > capacity:
+                    demand_factor[i, j] = -1e9  # Heavily penalize exceeding capacity
+                else:
+                    geometric_mean_demand = np.sqrt(demands[i] * demands[j]) + 1e-6
+                    remaining_capacity = capacity - combined_demand
+                    remaining_capacity_ratio = remaining_capacity / capacity  # Normalized slack
+                    # Non-linear scaling of remaining capacity
+                    demand_factor[i, j] = (1 / (geometric_mean_demand + 1e-6)) * (remaining_capacity_ratio**0.5)
+
+
+    # Angle Factor (angle between nodes i and j w.r.t the depot) - improved angle calculation
+    angle_factor = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            vector_i = coordinates[i] - coordinates[0]
+            vector_j = coordinates[j] - coordinates[0]
+            norm_i = np.linalg.norm(vector_i)
+            norm_j = np.linalg.norm(vector_j)
+            if norm_i > 0 and norm_j > 0:
+                cos_angle = np.dot(vector_i, vector_j) / (norm_i * norm_j)
+                cos_angle = np.clip(cos_angle, -1.0, 1.0) # ensure value is within [-1, 1]
+                angle = np.arccos(cos_angle)  # Angle in radians
+                angle_factor[i, j] = np.exp(-2 * angle)  # Penalize large angles more
+                angle_factor[j, i] = angle_factor[i, j]
+
+
+    # Normalize factors
+    savings_matrix = (savings_matrix - np.min(savings_matrix)) / (np.max(savings_matrix) - np.min(savings_matrix) + 1e-6)
+    depot_proximity = (depot_proximity - np.min(depot_proximity)) / (np.max(depot_proximity) - np.min(depot_proximity) + 1e-6)
+    demand_factor = (demand_factor - np.min(demand_factor)) / (np.max(demand_factor) - np.min(demand_factor) + 1e-6)
+    angle_factor = (angle_factor - np.min(angle_factor)) / (np.max(angle_factor) - np.min(angle_factor) + 1e-6)
+
+
+    # Combine factors with weights and distance penalization
+    alpha = 0.4
+    beta = 0.15
+    gamma = 0.35
+    delta = 0.1
+    distance_penalty = 1.0
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                heuristics_matrix[i, j] = (
+                    alpha * savings_matrix[i, j]
+                    + beta * (depot_proximity[i] + depot_proximity[j])
+                    + gamma * demand_factor[i, j]
+                    + delta * angle_factor[i, j]
+                ) / ((distance_matrix[i, j]**distance_penalty) + 1e-6)
+                # Negative demand factor indicates capacity violation. Penalize more.
+                if demand_factor[i,j] < 0:
+                  heuristics_matrix[i, j] *= 0.1
+
+
+    # Prioritize depot connections, less aggressively
+    depot_boost = 1.2
+    for i in range(1, n):
+        heuristics_matrix[0, i] *= depot_boost  # Boost depot edges
+        heuristics_matrix[i, 0] *= depot_boost
+
+
+    # Adaptive Sparsification (adjust threshold based on instance characteristics)
+    non_zero_values = heuristics_matrix[heuristics_matrix > 0]
+    if non_zero_values.size > 0:
+        # Adjust sparsification percentile based on instance size
+        sparsification_percentile = min(70, 20 + int(np.log(n)))
+        threshold = np.percentile(non_zero_values, sparsification_percentile)
+        heuristics_matrix[heuristics_matrix < threshold] = 0
+    else:
+        # Ensure some edges are kept even if heuristics are poor
+        threshold = np.percentile(heuristics_matrix.flatten(), 10) # keep at least 10% of the edges.
+        heuristics_matrix[heuristics_matrix < threshold] = 0
+
+
+
+    # Set diagonal to zero
+    for i in range(n):
+        heuristics_matrix[i, i] = 0
+
+    return heuristics_matrix
+```

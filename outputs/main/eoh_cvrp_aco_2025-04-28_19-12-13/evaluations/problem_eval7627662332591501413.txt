@@ -1,0 +1,59 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm samples multiple stochastic routes by iteratively adding nodes based on distance and demand considerations, 
+     evaluates their feasibility and cost, and then constructs a heuristic matrix reflecting the frequency with which each edge appears in good solutions.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 100  # Number of stochastic routes to sample
+
+    for _ in range(num_samples):
+        # Start a new route from the depot
+        current_route = [0]
+        current_load = 0
+        remaining_nodes = set(range(1, n))  # Exclude depot
+        
+        while remaining_nodes:
+            # Find the nearest feasible node to the last node in the current route
+            last_node = current_route[-1]
+            
+            # Candidate nodes: exclude already visited ones, and depot if we need a new route.
+            candidate_nodes = [node for node in remaining_nodes if demands[node] + current_load <= capacity]
+           
+            if not candidate_nodes:  
+                # If no feasible node from the current depot, return to depot and start a new route
+                current_route.append(0)
+                current_load = 0
+                candidate_nodes = [node for node in remaining_nodes if demands[node] + current_load <= capacity]
+
+                if not candidate_nodes:  # Even from the depot no possible nodes, something is wrong.
+                    break
+
+
+            # Select the next node stochastically. Nodes closer in distance have more weight.
+            distances = np.array([distance_matrix[last_node, node] for node in candidate_nodes])
+            probabilities = np.exp(-distances) / np.sum(np.exp(-distances))  # Convert distances to probabilities
+
+            next_node = np.random.choice(candidate_nodes, p=probabilities)
+
+            # Add the next node to the current route and update load
+            current_route.append(next_node)
+            current_load += demands[next_node]
+            remaining_nodes.remove(next_node)
+
+        # Return to depot from last node
+        current_route.append(0)
+
+        # Update the heuristics matrix based on this route
+        for i in range(len(current_route) - 1):
+            node1 = current_route[i]
+            node2 = current_route[i+1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1  # Ensure symmetry
+
+    # Normalize the heuristics matrix by the number of samples
+    heuristics_matrix = heuristics_matrix / num_samples
+
+    return heuristics_matrix

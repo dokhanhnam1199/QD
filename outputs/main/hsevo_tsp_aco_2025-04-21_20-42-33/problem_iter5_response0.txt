@@ -1,0 +1,49 @@
+```python
+import numpy as np
+import scipy.sparse
+from scipy.sparse.csgraph import dijkstra
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """TSP heuristic: Combines inverse distance, shortest path, and adaptive degree bias."""
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Inverse distance
+    inverse_distance = 1 / (distance_matrix + 1e-9)
+
+    # 2. Shortest path estimate (Dijkstra)
+    graph = scipy.sparse.csr_matrix(distance_matrix)
+    shortest_paths = dijkstra(graph, directed=False, indices=range(n))
+
+    # 3. Adaptive Degree Bias
+    degree_penalty = np.ones_like(distance_matrix)
+
+    degrees = np.sum(inverse_distance, axis=1) - np.diag(inverse_distance).reshape(-1)
+    avg_degree = np.mean(degrees)
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                if degrees[i] > avg_degree:
+                    degree_penalty[i, j] *= max(0.1, avg_degree / (degrees[i] + 1e-9))
+                if degrees[j] > avg_degree:
+                    degree_penalty[i, j] *= max(0.1, avg_degree / (degrees[j] + 1e-9))
+
+    # 4. Combine heuristics: Favor short edges on short paths, penalized by degree
+    heuristic_matrix = inverse_distance * degree_penalty / (shortest_paths + 1e-9)
+
+    # 5. Sparsification: Remove weak edges
+    threshold = np.percentile(heuristic_matrix[heuristic_matrix > 0], 30)
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    # 6. Controlled randomness and ensure non-zero
+    heuristic_matrix = heuristic_matrix + np.random.rand(*heuristic_matrix.shape) * 0.01
+    heuristic_matrix = np.where(heuristic_matrix <= 0, 0.0001, heuristic_matrix)
+
+    # 7. Normalize
+    max_heuristic = np.max(heuristic_matrix)
+    if max_heuristic > 0:
+      heuristic_matrix /= max_heuristic
+
+    return heuristic_matrix
+```

@@ -1,0 +1,78 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm constructs a heuristic matrix by simulating a simplified genetic algorithm to evolve promising edges for the TSP.}"""
+    n = distance_matrix.shape[0]
+    population_size = 50
+    num_generations = 100
+    mutation_rate = 0.1
+    
+    # Initialize population of edge sets
+    population = []
+    for _ in range(population_size):
+        edges = np.random.choice([0, 1], size=(n, n), p=[0.9, 0.1]) # Sparsely initialize edges
+        edges = np.triu(edges, 1) # Ensure upper triangular to avoid duplicates
+        edges = edges + edges.T # Make symmetric
+        np.fill_diagonal(edges, 0)
+        population.append(edges)
+    
+    def calculate_fitness(edges):
+        # Fitness is based on how many unique nodes can be reached,
+        # with a small penalty for total edge weight.
+        
+        num_reachable_nodes = 0
+        
+        adj_matrix = edges
+        visited = [False] * n
+        
+        def dfs(node):
+          nonlocal num_reachable_nodes
+          visited[node] = True
+          num_reachable_nodes += 1
+
+          for neighbor in range(n):
+            if adj_matrix[node][neighbor] == 1 and not visited[neighbor]:
+              dfs(neighbor)
+        
+        dfs(0)  
+        
+        edge_weight_sum = np.sum(edges * distance_matrix)
+
+        return num_reachable_nodes - 0.01 * edge_weight_sum # Maximize reachable nodes, minimize total cost
+    
+    for generation in range(num_generations):
+        # Evaluate fitness
+        fitness_scores = [calculate_fitness(edges) for edges in population]
+        
+        # Selection (tournament selection)
+        selected_indices = np.random.choice(population_size, size=population_size, p=np.array(fitness_scores) / np.sum(fitness_scores))
+        selected_population = [population[i] for i in selected_indices]
+        
+        # Crossover (single-point crossover)
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = selected_population[i]
+            parent2 = selected_population[i+1 if i+1 < population_size else i]
+            
+            crossover_point = np.random.randint(1, n)
+            child1 = np.vstack((parent1[:crossover_point, :], parent2[crossover_point:, :]))
+            child2 = np.vstack((parent2[:crossover_point, :], parent1[crossover_point:, :]))
+            
+            new_population.append(child1)
+            new_population.append(child2)
+
+        # Mutation (flip edges with a small probability)
+        for edges in new_population:
+            for i in range(n):
+                for j in range(i+1, n):
+                    if np.random.rand() < mutation_rate:
+                        edges[i, j] = 1 - edges[i, j]
+                        edges[j, i] = edges[i, j]
+
+        population = new_population
+
+    # Construct heuristic matrix based on the best individual
+    best_index = np.argmax([calculate_fitness(edges) for edges in population])
+    heuristics_matrix = population[best_index]
+    
+    return heuristics_matrix

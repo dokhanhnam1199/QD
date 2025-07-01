@@ -1,0 +1,116 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses simulated annealing to iteratively improve routes and builds a heuristic matrix based on the frequency of edges in accepted solutions.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 1000
+    initial_temperature = 100
+    cooling_rate = 0.95
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i]][route[i + 1]]
+        return cost
+
+    def create_initial_solution():
+        customer_nodes = list(range(1, n))
+        random.shuffle(customer_nodes)
+        routes = []
+        current_route = [0]
+        current_load = 0
+        for node in customer_nodes:
+            if current_load + demands[node] <= capacity:
+                current_route.append(node)
+                current_load += demands[node]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, node]
+                current_load = demands[node]
+        current_route.append(0)
+        routes.append(current_route)
+        return routes
+    
+    def routes_to_edges(routes):
+        edges = []
+        for route in routes:
+            for i in range(len(route) - 1):
+                edges.append((route[i], route[i+1]))
+        return edges
+
+
+    def calculate_total_cost(routes):
+        total_cost = 0
+        for route in routes:
+            total_cost += calculate_route_cost(route)
+        return total_cost
+
+
+    def get_neighbors(routes):
+        all_neighbors = []
+        for i in range(len(routes)):
+          for j in range(len(routes[i])):
+            if routes[i][j] != 0:
+              customer_nodes = list(range(1, n))
+              neighbors = []
+              for k in range(len(customer_nodes)):
+                temp_routes = [route[:] for route in routes]
+                temp_routes[i][j] = customer_nodes[k]
+                neighbors.append(temp_routes)
+              all_neighbors.append(neighbors)
+        return all_neighbors
+    
+
+    def accept_solution(old_cost, new_cost, temperature):
+        if new_cost < old_cost:
+            return True
+        else:
+            probability = np.exp((old_cost - new_cost) / temperature)
+            return random.random() < probability
+    
+    current_routes = create_initial_solution()
+    best_routes = current_routes
+    current_cost = calculate_total_cost(current_routes)
+    best_cost = current_cost
+
+    temperature = initial_temperature
+
+    for _ in range(num_iterations):
+        
+        customer_nodes = list(range(1, n))
+        i = random.randint(0, len(current_routes)-1)
+        j = random.randint(1, len(current_routes[i])-1)
+
+        temp_routes = [route[:] for route in current_routes]
+        original_node = temp_routes[i][j]
+        
+        random_node = random.choice(customer_nodes)
+        temp_routes[i][j] = random_node
+        
+        new_cost = calculate_total_cost(temp_routes)
+        
+        if accept_solution(current_cost, new_cost, temperature):
+            current_routes = temp_routes
+            current_cost = new_cost
+            if current_cost < best_cost:
+                best_routes = current_routes
+                best_cost = current_cost
+
+        temperature *= cooling_rate
+    
+    
+    best_edges = routes_to_edges(best_routes)
+
+    for edge in best_edges:
+        heuristics_matrix[edge[0]][edge[1]] += 1
+        heuristics_matrix[edge[1]][edge[0]] += 1
+
+
+    total_edges = np.sum(heuristics_matrix)
+    if total_edges > 0:
+        heuristics_matrix = heuristics_matrix / total_edges
+
+    return heuristics_matrix

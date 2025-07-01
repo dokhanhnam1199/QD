@@ -1,0 +1,72 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm combines edge usage frequency from multiple simulated annealing runs with shortest path information to estimate edge importance.}"""
+    n = distance_matrix.shape[0]
+    num_samples = 50
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    shortest_path_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Calculate shortest path matrix (Dijkstra's algorithm)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                path_costs = np.full(n, np.inf)
+                path_costs[i] = 0
+                unvisited = set(range(n))
+
+                while unvisited:
+                    current_node = min(unvisited, key=lambda node: path_costs[node])
+                    if path_costs[current_node] == np.inf:
+                        break
+                    unvisited.remove(current_node)
+
+                    for neighbor in range(n):
+                        if distance_matrix[current_node, neighbor] != 0:
+                            new_cost = path_costs[current_node] + distance_matrix[current_node, neighbor]
+                            if new_cost < path_costs[neighbor]:
+                                path_costs[neighbor] = new_cost
+
+                shortest_path_matrix[i, j] = path_costs[j]
+
+    # Simulated Annealing-based edge sampling
+    for _ in range(num_samples):
+        current_path = np.random.permutation(n)
+        current_cost = calculate_path_cost(current_path, distance_matrix)
+        temperature = 1.0
+        cooling_rate = 0.95
+
+        for _ in range(100):
+            # Generate a neighbor by swapping two cities
+            i, j = np.random.choice(n, 2, replace=False)
+            neighbor_path = current_path.copy()
+            neighbor_path[i], neighbor_path[j] = neighbor_path[j], neighbor_path[i]
+            neighbor_cost = calculate_path_cost(neighbor_path, distance_matrix)
+
+            # Acceptance probability
+            delta_cost = neighbor_cost - current_cost
+            if delta_cost < 0 or np.random.rand() < np.exp(-delta_cost / temperature):
+                current_path = neighbor_path
+                current_cost = neighbor_cost
+
+            temperature *= cooling_rate
+
+        # Update heuristics matrix
+        for i in range(n):
+            node1 = current_path[i]
+            node2 = current_path[(i + 1) % n]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+    heuristics_matrix /= num_samples
+
+    # Combine edge frequency with shortest path information
+    heuristics_matrix = heuristics_matrix + (1 / (shortest_path_matrix + 1e-9))
+    return heuristics_matrix
+
+def calculate_path_cost(path, distance_matrix):
+    cost = 0
+    for i in range(len(path) - 1):
+        cost += distance_matrix[path[i], path[i+1]]
+    cost += distance_matrix[path[-1], path[0]]
+    return heuristics_matrix

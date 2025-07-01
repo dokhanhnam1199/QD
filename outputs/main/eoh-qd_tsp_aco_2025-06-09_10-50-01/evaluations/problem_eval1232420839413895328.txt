@@ -1,0 +1,91 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """
+    {This algorithm uses a genetic algorithm approach to evolve a population of tours, favoring edges that appear in the fittest individuals to create a heuristic matrix.}
+    """
+    n = distance_matrix.shape[0]
+    population_size = 50
+    num_generations = 50
+    mutation_rate = 0.05
+
+    # Initialize population with random tours
+    population = [np.random.permutation(n) for _ in range(population_size)]
+
+    def calculate_fitness(tour):
+        tour_length = 0
+        for i in range(n - 1):
+            tour_length += distance_matrix[tour[i], tour[i+1]]
+        tour_length += distance_matrix[tour[-1], tour[0]]
+        return 1 / tour_length  # Higher fitness for shorter tours
+
+    def crossover(parent1, parent2):
+        # Ordered Crossover (OX1)
+        start, end = sorted(np.random.choice(range(n), 2, replace=False))
+        child = np.zeros(n, dtype=int) - 1  # Initialize with -1
+        
+        # Copy a segment from parent1 to child
+        child[start:end+1] = parent1[start:end+1]
+        
+        # Fill in the remaining positions from parent2, avoiding duplicates
+        parent2_idx = end + 1
+        child_idx = end + 1
+        while -1 in child:
+            if parent2_idx >= n:
+                parent2_idx = 0
+            if child_idx >= n:
+                child_idx = 0
+            
+            if parent2[parent2_idx] not in child:
+                child[child_idx] = parent2[parent2_idx]
+                child_idx += 1
+            parent2_idx += 1
+        return child
+
+    def mutate(tour):
+        if np.random.rand() < mutation_rate:
+            i, j = np.random.choice(range(n), 2, replace=False)
+            tour[i], tour[j] = tour[j], tour[i]
+        return tour
+
+    # Evolve the population
+    for _ in range(num_generations):
+        # Calculate fitness for each tour
+        fitness_scores = [calculate_fitness(tour) for tour in population]
+
+        # Select parents based on fitness (roulette wheel selection)
+        probabilities = np.array(fitness_scores) / np.sum(fitness_scores)
+        parent_indices = np.random.choice(range(population_size), size=population_size, p=probabilities)
+        parents = [population[i] for i in parent_indices]
+        
+        # Create new population through crossover and mutation
+        new_population = []
+        for i in range(0, population_size, 2):
+            child1 = crossover(parents[i], parents[i+1])
+            child2 = crossover(parents[i+1], parents[i])
+            new_population.append(mutate(child1))
+            new_population.append(mutate(child2))
+        
+        population = new_population
+
+    # After evolution, analyze the best tours to build the heuristics matrix
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_best_tours = population_size // 5  # Consider top 20%
+
+    # Sort tours by fitness
+    fitness_scores = [calculate_fitness(tour) for tour in population]
+    sorted_indices = np.argsort(fitness_scores)[::-1]  # Indices of tours sorted by fitness (descending)
+    best_tours = [population[i] for i in sorted_indices[:num_best_tours]]
+
+    # Aggregate edge frequencies from best tours
+    for tour in best_tours:
+        for i in range(n - 1):
+            heuristics_matrix[tour[i], tour[i+1]] += 1
+            heuristics_matrix[tour[i+1], tour[i]] += 1
+        heuristics_matrix[tour[-1], tour[0]] += 1
+        heuristics_matrix[tour[0], tour[-1]] += 1
+
+    # Normalize the heuristic matrix
+    heuristics_matrix /= (num_best_tours)
+
+    return heuristics_matrix

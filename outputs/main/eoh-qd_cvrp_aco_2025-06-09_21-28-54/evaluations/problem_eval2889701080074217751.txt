@@ -1,0 +1,69 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm adaptively biases route construction based on the cost of previously sampled routes, focusing on edges present in lower-cost feasible solutions.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000
+    alpha = 0.1  # Learning rate for adjusting edge weights
+
+    edge_weights = np.ones_like(distance_matrix) # Initialize edge weights to 1
+
+    for _ in range(num_samples):
+        # Generate a random permutation of customers (excluding the depot)
+        customer_permutation = list(range(1, n))
+        random.shuffle(customer_permutation)
+        
+        # Construct routes based on capacity constraint
+        routes = []
+        current_route = [0]  # Start at the depot
+        current_capacity = 0
+        
+        for customer in customer_permutation:
+            if current_capacity + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_capacity += demands[customer]
+            else:
+                current_route.append(0)  # Return to depot
+                routes.append(current_route)
+                current_route = [0, customer]  # Start a new route
+                current_capacity = demands[customer]
+                
+        current_route.append(0)  # Close the last route
+        routes.append(current_route)
+        
+        # Check feasibility (all customers visited) - optional, but good practice
+        visited_customers = set()
+        for route in routes:
+            for customer in route:
+                if customer != 0:
+                    visited_customers.add(customer)
+        if len(visited_customers) != n - 1: #exclude depot
+           continue # if route not feasible, skip this round
+
+        # Calculate the cost of the current route
+        total_cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                total_cost += distance_matrix[u, v]
+
+        # Update edge weights based on route cost.  Lower cost routes give higher weights
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                edge_weights[u, v] += alpha * (1 / (1 + total_cost))  # Encourage edges in good routes
+                edge_weights[v, u] += alpha * (1 / (1 + total_cost))
+
+        #Update heuristics matrix based on updated edge weights
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                heuristics_matrix[u, v] += edge_weights[u, v]
+                heuristics_matrix[v, u] += edge_weights[v, u]
+    
+    return heuristics_matrix

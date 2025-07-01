@@ -1,0 +1,103 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses an adaptive large neighborhood search (ALNS) framework to iteratively improve routes by destroying and repairing them, focusing on edges that frequently appear in high-quality solutions.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 500
+    
+    # Initialize a random feasible solution
+    routes = []
+    unvisited = set(range(1, n))
+    while unvisited:
+        route = [0]
+        current_capacity = capacity
+        
+        while unvisited and current_capacity >= min(demands[node] for node in unvisited):
+            
+            possible_nodes = [node for node in unvisited if demands[node] <= current_capacity]
+            if not possible_nodes:
+                break
+            next_node = random.choice(possible_nodes)
+            route.append(next_node)
+            unvisited.remove(next_node)
+            current_capacity -= demands[next_node]
+        route.append(0)
+        routes.append(route)
+
+    best_routes = routes[:]
+    best_cost = sum(sum(distance_matrix[routes[i][j]][routes[i][j+1]] for j in range(len(routes[i])-1)) for i in range(len(routes)))
+    
+    # ALNS iterations
+    for iteration in range(num_iterations):
+        # Select a route to destroy and repair
+        route_index = random.randint(0, len(routes) - 1)
+        
+        # Destruction: Remove some nodes from the route
+        removed_nodes = set()
+        num_remove = random.randint(1, len(routes[route_index]) - 2)
+        
+        nodes_to_remove = random.sample(routes[route_index][1:-1], num_remove)
+        
+        
+        for node in nodes_to_remove:
+            removed_nodes.add(node)
+            routes[route_index].remove(node)
+            
+        
+        # Repair: Re-insert removed nodes into the routes (including potentially creating new routes)
+        unvisited = removed_nodes
+        
+        while unvisited:
+            
+            best_insert_cost = float('inf')
+            best_node_to_insert = None
+            best_route_index = None
+            best_insert_position = None
+            
+            for node_to_insert in unvisited:
+                for r_index in range(len(routes)):
+                    current_capacity = capacity
+                    route_demand = sum(demands[node] for node in routes[r_index][1:-1])
+                    if route_demand + demands[node_to_insert] > capacity:
+                        continue
+                    
+                    for insert_position in range(1, len(routes[r_index])):
+                        
+                        cost_increase = distance_matrix[routes[r_index][insert_position-1]][node_to_insert] + distance_matrix[node_to_insert][routes[r_index][insert_position]] - distance_matrix[routes[r_index][insert_position-1]][routes[r_index][insert_position]]
+                        
+                        if cost_increase < best_insert_cost:
+                            best_insert_cost = cost_increase
+                            best_node_to_insert = node_to_insert
+                            best_route_index = r_index
+                            best_insert_position = insert_position
+                            
+            if best_node_to_insert is None: #No feasible insertion point
+                #Create a new route
+                new_route = [0, best_node_to_insert, 0] if best_node_to_insert is not None else [0] #handles edge case
+                if best_node_to_insert is not None:
+                    routes.append(new_route)
+                    unvisited.remove(best_node_to_insert)
+                else:
+                    break
+            else:
+                routes[best_route_index].insert(best_insert_position, best_node_to_insert)
+                unvisited.remove(best_node_to_insert)
+            
+        #Evaluate solution
+        current_cost = sum(sum(distance_matrix[routes[i][j]][routes[i][j+1]] for j in range(len(routes[i])-1)) for i in range(len(routes)))
+        
+        #Acceptance Criterion (Simple Improvement)
+        if current_cost < best_cost:
+            best_cost = current_cost
+            best_routes = routes[:]
+
+        #Update Heuristics Matrix (Edge Frequency in Best Solution)
+        heuristics_matrix = np.zeros_like(distance_matrix)
+        for route in best_routes:
+            for i in range(len(route) - 1):
+                heuristics_matrix[route[i]][route[i+1]] += 1
+                heuristics_matrix[route[i+1]][route[i]] += 1
+
+    return heuristics_matrix

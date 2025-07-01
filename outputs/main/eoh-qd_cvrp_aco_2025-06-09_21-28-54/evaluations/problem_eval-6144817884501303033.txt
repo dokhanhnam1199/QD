@@ -1,0 +1,81 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively constructs solutions by probabilistically selecting edges based on a combination of distance, demand, and a pheromone-like intensification factor, updating edge scores based on the quality of the resulting routes.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone_matrix = np.ones_like(distance_matrix)  # Initialize pheromone levels
+    num_iterations = 100
+
+    for iteration in range(num_iterations):
+        routes = []
+        unvisited_customers = set(range(1, n))
+        current_route = [0]
+        current_capacity = 0
+        
+        while unvisited_customers:
+            # Determine feasible neighbors
+            feasible_neighbors = [c for c in unvisited_customers if current_capacity + demands[c] <= capacity]
+            
+            if not feasible_neighbors:
+                # Close route and return to depot
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0]
+                current_capacity = 0
+                feasible_neighbors = [c for c in unvisited_customers if current_capacity + demands[c] <= capacity]
+
+            if not feasible_neighbors:
+                break
+
+            # Calculate probabilities based on distance and pheromones
+            probabilities = []
+            total_probability = 0
+            alpha = 1  # Influence of pheromones
+            beta = 2   # Influence of distance
+
+            for neighbor in feasible_neighbors:
+                probability = (pheromone_matrix[current_route[-1], neighbor]**alpha) / (distance_matrix[current_route[-1], neighbor]**beta)
+                probabilities.append(probability)
+                total_probability += probability
+            
+            # Normalize probabilities
+            probabilities = [p / total_probability for p in probabilities]
+            
+            # Select next customer stochastically
+            try:
+                next_customer = random.choices(feasible_neighbors, weights=probabilities, k=1)[0]
+            except:
+                next_customer = feasible_neighbors[0]
+                
+            current_route.append(next_customer)
+            unvisited_customers.remove(next_customer)
+            current_capacity += demands[next_customer]
+            
+        # Close the last route
+        current_route.append(0)
+        routes.append(current_route)
+
+        # Calculate route length
+        total_distance = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_distance += distance_matrix[route[i], route[i+1]]
+
+        # Update pheromone levels (positive feedback for good routes)
+        delta_pheromone = 1 / total_distance  # Reward shorter routes
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                heuristics_matrix[u, v] += 1
+                heuristics_matrix[v, u] += 1  # Symmetric matrix
+                pheromone_matrix[u, v] += delta_pheromone
+                pheromone_matrix[v, u] += delta_pheromone
+        # Evaporation (optional, but can prevent premature convergence)
+        pheromone_matrix *= 0.95
+
+    return heuristics_matrix

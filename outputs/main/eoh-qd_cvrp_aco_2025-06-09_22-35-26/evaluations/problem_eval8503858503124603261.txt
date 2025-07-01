@@ -1,0 +1,126 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm adaptively explores the solution space by iteratively refining routes based on edge usage and solution quality, creating a probabilistic edge selection matrix.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 50
+    num_routes_per_iteration = 20
+    alpha = 0.1 
+
+    # Initialize routes randomly
+    routes = []
+    for _ in range(num_routes_per_iteration):
+        route = []
+        remaining_nodes = list(range(1, n))  # Exclude depot
+        current_load = 0
+        current_route = [0]  # Start from depot
+
+        while remaining_nodes:
+            # Select a random node from remaining nodes
+            next_node = random.choice(remaining_nodes)
+            
+            # Check capacity constraint
+            if current_load + demands[next_node] <= capacity:
+                current_route.append(next_node)
+                current_load += demands[next_node]
+                remaining_nodes.remove(next_node)
+            else:
+                # Return to depot
+                current_route.append(0)
+                route.append(current_route)
+                
+                # Start a new route
+                current_route = [0]
+                current_load = 0
+
+        # Add last route if not empty
+        if len(current_route) > 1:
+            current_route.append(0)
+            route.append(current_route)
+        routes.append(route)
+
+    for iteration in range(num_iterations):
+        # Evaluate routes and update heuristics
+        route_scores = []
+        for route in routes:
+            total_distance = 0
+            is_feasible = True
+            for r in route:
+                route_demand = sum(demands[i] for i in r)
+                if route_demand > capacity:
+                    is_feasible = False
+                    total_distance = float('inf')
+                    break
+                for i in range(len(r) - 1):
+                    total_distance += distance_matrix[r[i], r[i+1]]
+            if is_feasible:
+              route_scores.append(1 / (total_distance + 1e-6))
+            else:
+                route_scores.append(0)
+        
+        # Normalize scores
+        sum_scores = sum(route_scores)
+        if sum_scores > 0:
+            route_scores = [score / sum_scores for score in route_scores]
+
+            # Update heuristics based on route scores
+            for idx, route in enumerate(routes):
+                for r in route:
+                    for i in range(len(r) - 1):
+                        node1 = r[i]
+                        node2 = r[i+1]
+                        heuristics_matrix[node1, node2] = (1 - alpha) * heuristics_matrix[node1, node2] + alpha * route_scores[idx]
+                        heuristics_matrix[node2, node1] = (1 - alpha) * heuristics_matrix[node2, node1] + alpha * route_scores[idx]
+
+        # Generate new routes based on heuristics
+        new_routes = []
+        for _ in range(num_routes_per_iteration):
+            route = []
+            remaining_nodes = list(range(1, n))  # Exclude depot
+            current_load = 0
+            current_route = [0]  # Start from depot
+
+            while remaining_nodes:
+                # Select node based on heuristics and distance
+                probabilities = []
+                for node in remaining_nodes:
+                    prob = 0
+                    if current_route:
+                        last_node = current_route[-1]
+                        prob = heuristics_matrix[last_node, node] / (distance_matrix[last_node, node] + 1e-6) #Use edge probability and distance
+                    probabilities.append(prob)
+
+                # Normalize probabilities
+                sum_probs = sum(probabilities)
+                if sum_probs > 0:
+                    probabilities = [p / sum_probs for p in probabilities]
+                else:
+                    probabilities = [1 / len(remaining_nodes)] * len(remaining_nodes) # If all edges have zero heuristic values, pick random node
+
+                # Choose next node based on probabilities
+                next_node = random.choices(remaining_nodes, probabilities)[0]
+                
+                # Check capacity constraint
+                if current_load + demands[next_node] <= capacity:
+                    current_route.append(next_node)
+                    current_load += demands[next_node]
+                    remaining_nodes.remove(next_node)
+                else:
+                    # Return to depot
+                    current_route.append(0)
+                    route.append(current_route)
+                    
+                    # Start a new route
+                    current_route = [0]
+                    current_load = 0
+
+            # Add last route if not empty
+            if len(current_route) > 1:
+                current_route.append(0)
+                route.append(current_route)
+            new_routes.append(route)
+        routes = new_routes
+
+    return heuristics_matrix

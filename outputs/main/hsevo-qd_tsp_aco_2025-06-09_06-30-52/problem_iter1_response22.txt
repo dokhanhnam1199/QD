@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Newtonian Heuristics for Traveling Salesman Problem.
+
+    This function employs a combination of gravitational attraction and shortest-link
+    principles to guide the search for promising edges in the TSP. Edges connecting
+    closer nodes are preferred (inverse distance), and the heuristic also considers
+    the 'potential energy' landscape by assigning higher probabilities to edges that,
+    if removed, would significantly increase the minimum spanning tree weight of the
+    graph without that edge. This encourages connections that are structurally
+    important.
+
+    Args:
+        distance_matrix (np.ndarray): A square matrix representing the distances
+                                         between cities. distance_matrix[i, j] is the
+                                         distance between city i and city j.
+
+    Returns:
+        np.ndarray: A matrix of the same shape as distance_matrix, where each entry
+                      represents the desirability of including the corresponding edge
+                      in the TSP tour. Higher values indicate more promising edges.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Gravitational attraction: Inverse distance
+    heuristic_matrix = 1.0 / (distance_matrix + 1e-6)  # Avoid division by zero
+
+    # Minimum Spanning Tree Weight Change Heuristic
+
+    def mst_weight_without_edge(matrix, i, j):
+        """Calculates the MST weight of a graph without the edge (i, j)."""
+        temp_matrix = matrix.copy()
+        temp_matrix[i, j] = np.inf
+        temp_matrix[j, i] = np.inf
+
+        # Use Prim's algorithm (efficiently) for MST
+        visited = [False] * n
+        key = [np.inf] * n
+        parent = [None] * n
+        mst_weight = 0
+
+        key[0] = 0
+        for _ in range(n):
+            u = np.argmin(key)
+            visited[u] = True
+            mst_weight += key[u]
+            key[u] = np.inf  # Mark as visited
+
+            for v in range(n):
+                if temp_matrix[u, v] > 0 and visited[v] == False and temp_matrix[u, v] < key[v]:
+                    key[v] = temp_matrix[u, v]
+                    parent[v] = u
+        return mst_weight
+
+
+    original_mst_weight = mst_weight_without_edge(distance_matrix, -1, -1) #effectively computes mst weight of original graph
+
+    for i in range(n):
+        for j in range(i + 1, n):  # Iterate over upper triangle (symmetric matrix)
+            mst_weight_removed = mst_weight_without_edge(distance_matrix, i, j)
+            weight_change = mst_weight_removed - original_mst_weight
+            heuristic_matrix[i, j] += weight_change  # Favor edges that increase MST if removed. This term can be negative but is ok
+            heuristic_matrix[j, i] = heuristic_matrix[i, j]
+    heuristic_matrix = np.nan_to_num(heuristic_matrix, posinf=0, neginf=0) # replace inf with 0 in case the weights where too high
+
+    #Normalize the heuristics to prevent overflow/underflow issues
+    heuristic_matrix = (heuristic_matrix - np.min(heuristic_matrix)) / (np.max(heuristic_matrix) - np.min(heuristic_matrix) + 1e-9)
+
+    return heuristic_matrix
+```

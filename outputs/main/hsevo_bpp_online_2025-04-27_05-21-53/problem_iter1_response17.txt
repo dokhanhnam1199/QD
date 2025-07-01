@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This priority function incorporates a few heuristics:
+
+    1.  **Feasibility:**  It strongly penalizes bins that are too small to hold the item.
+        This avoids wasting time calculating priorities for impossible placements.
+
+    2.  **Capacity Utilization:**  Bins closer to being full (after placing the item)
+        are preferred.  This encourages filling bins completely.  We use a scaled
+        exponential function to capture this effect - small changes near full
+        capacity yield large priority changes.
+
+    3.  **Fragmentation Avoidance:** Bins that have too much remaining capacity
+        after adding the item are also penalized to avoid highly fragmented bins.
+        The penalty scales with the amount of wasted space.
+        We only apply this if a "reasonable" number of feasible bins exist.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Feasibility Check and Initial Penalty
+    feasible = bins_remain_cap >= item
+    priorities[~feasible] = -np.inf  # Very low priority if not feasible
+
+    feasible_bins_count = np.sum(feasible)
+
+    if feasible_bins_count > 0:  # Only compute if there are feasible bins
+
+        remaining_after_placement = bins_remain_cap[feasible] - item
+
+        # Capacity Utilization - Exponentially Prefer Near-Full Bins
+        capacity_utilization = np.exp(-5 * remaining_after_placement / np.max(bins_remain_cap)) # Scale the penalty
+
+        priorities[feasible] = capacity_utilization
+
+
+        # Fragmentation Avoidance (applied only if enough choices exist to avoid being stuck)
+        if feasible_bins_count > 2 :  # Threshold adjusted for different size datasets
+            waste_penalty = np.zeros_like(remaining_after_placement)
+            large_waste = remaining_after_placement > 0.5 * np.max(bins_remain_cap)
+            waste_penalty[large_waste] = -0.1 * remaining_after_placement[large_waste] # Penalize large waste
+
+            priorities[feasible] += waste_penalty
+
+    return priorities
+```

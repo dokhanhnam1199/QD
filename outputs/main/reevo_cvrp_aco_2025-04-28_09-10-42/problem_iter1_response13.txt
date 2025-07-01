@@ -1,0 +1,80 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for the Capacitated Vehicle Routing Problem (CVRP)
+    based on a combination of distance, demand, and angle considerations,
+    with sparsification of the resulting matrix.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes.
+        coordinates (np.ndarray): Euclidean coordinates of nodes.
+        demands (np.ndarray): Demand of each node.
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge
+                   in a solution (same shape as distance_matrix).
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Parameters (can be tuned)
+    distance_weight = 1.0
+    demand_weight = 0.5
+    angle_weight = 0.5
+    capacity_threshold = 0.9  # threshold for demand relative to capacity. used to sparsify based on demand.
+
+    # Calculate angle cost (relative to depot)
+    depot_x, depot_y = coordinates[0]
+    angle_matrix = np.zeros((n, n))
+    for i in range(1, n): # Exclude depot from angle calc.
+        x_i, y_i = coordinates[i]
+        angle_i = np.arctan2(y_i - depot_y, x_i - depot_x)
+        for j in range(1, n): # Exclude depot from angle calc.
+            if i == j:
+                continue
+            x_j, y_j = coordinates[j]
+            angle_j = np.arctan2(y_j - depot_y, x_j - depot_x)
+            angle_diff = np.abs(angle_i - angle_j)
+            angle_diff = np.minimum(angle_diff, 2 * np.pi - angle_diff)  # Ensure diff is in [0, pi]
+            angle_matrix[i, j] = angle_diff
+
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+                continue
+
+            # Distance component (inverse of distance)
+            distance_cost = 1 / (distance_matrix[i, j] + 1e-6) #Adding small constant for numerical stability
+
+            # Demand component (discourage edges connecting nodes with large demands)
+            demand_cost = 1 - np.minimum((demands[i] + demands[j]) / (2 * capacity), 1)
+
+
+            # Angle component (prefer nodes closer in angle to the depot). The lower the diff, the higher the cost.
+            angle_cost = 1/(angle_matrix[i, j] + 1e-6) if (i>0 and j>0) else 0  #avoid angle computation at the depot (handled next). small number ensures not divided by 0.
+
+            # Heuristic as a weighted sum
+            heuristic_matrix[i, j] = (distance_weight * distance_cost +
+                                      demand_weight * demand_cost +
+                                      angle_weight * angle_cost)
+            
+            # Handling edges connected to the depot
+            if i == 0 or j == 0:
+                heuristic_matrix[i,j] = distance_cost * demand_cost #Prioritize shorter distances for depot.
+
+    # Sparsify: zero out unpromising edges
+    # Strategy 1: remove edges where combined demand exceeds a capacity threshold.
+
+    for i in range(n):
+        for j in range(n):
+            if demands[i] + demands[j] > capacity_threshold * capacity:
+                heuristic_matrix[i, j] = 0
+
+    return heuristic_matrix
+```

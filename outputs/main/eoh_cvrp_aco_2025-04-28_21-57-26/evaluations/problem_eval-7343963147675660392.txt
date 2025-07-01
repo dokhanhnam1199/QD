@@ -1,0 +1,78 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively constructs solutions by greedily adding the best edge based on a pheromone matrix (initialized with inverse distances) and demand feasibility, then updates the pheromone matrix based on the best solution found so far.}"""
+    n = len(demands)
+    pheromone_matrix = 1 / (distance_matrix + np.eye(n)) # Initialize pheromone with inverse distances
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    alpha = 1  # Pheromone influence
+    beta = 2   # Distance influence
+    rho = 0.5   # Evaporation rate
+    num_iterations = 100
+
+    best_solution = None
+    best_cost = float('inf')
+
+    for iteration in range(num_iterations):
+        routes = []
+        unvisited = set(range(1, n))
+        current_route = [0]
+        current_load = 0
+
+        while unvisited:
+            # Choose the next node based on pheromone, distance, and capacity
+            probabilities = {}
+            for node in unvisited:
+                if current_load + demands[node] <= capacity:
+                    pheromone = pheromone_matrix[current_route[-1], node]
+                    distance = distance_matrix[current_route[-1], node]
+                    probabilities[node] = (pheromone**alpha) / (distance**beta)
+                else:
+                    probabilities[node] = 0 #Make infeasible nodes impossible to choose
+
+            if not any(probabilities.values()): #no feasible node
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0]
+                current_load = 0
+                continue
+
+            total_prob = sum(probabilities.values())
+            normalized_probabilities = {node: prob / total_prob for node, prob in probabilities.items()}
+            next_node = random.choices(list(normalized_probabilities.keys()), weights=list(normalized_probabilities.values()), k=1)[0]
+
+            current_route.append(next_node)
+            current_load += demands[next_node]
+            unvisited.remove(next_node)
+
+            if not unvisited and current_route[-1]!=0:
+                current_route.append(0) #Return to depot
+
+        routes.append(current_route)
+
+        # Calculate cost of current solution
+        total_cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_cost += distance_matrix[route[i]][route[i+1]]
+        
+        # Update best solution
+        if total_cost < best_cost:
+            best_cost = total_cost
+            best_solution = routes
+
+        # Update pheromone matrix
+        pheromone_matrix *= (1 - rho)  # Evaporation
+
+        # Deposit pheromone on best solution
+        if best_solution:
+            for route in best_solution:
+                for i in range(len(route) - 1):
+                    pheromone_matrix[route[i], route[i+1]] += (1 / best_cost)
+                    pheromone_matrix[route[i+1], route[i]] += (1 / best_cost)
+                    
+    # Construct the heuristic matrix based on final pheromone values
+    heuristics_matrix = pheromone_matrix
+    
+    return heuristics_matrix

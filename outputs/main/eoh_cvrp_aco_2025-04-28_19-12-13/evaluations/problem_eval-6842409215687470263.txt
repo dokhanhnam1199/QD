@@ -1,0 +1,62 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm estimates edge inclusion probabilities by repeatedly constructing feasible CVRP solutions using a randomized nearest neighbor approach, biased by distance and demand, and then averaging the edge frequencies across multiple solutions.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 100 # Number of sample solutions to generate
+
+    for _ in range(num_samples):
+        routes = []
+        remaining_nodes = set(range(1, n))  # Exclude depot
+        while remaining_nodes:
+            route = [0]  # Start at the depot
+            current_capacity = capacity
+            last_node = 0
+            
+            while True:
+                # Find feasible neighbors
+                feasible_neighbors = [
+                    node for node in remaining_nodes
+                    if demands[node] <= current_capacity
+                ]
+                
+                if not feasible_neighbors:
+                    break  # No more feasible nodes to add
+
+                # Randomized Nearest Neighbor Selection
+                probabilities = []
+                total_distance = 0
+                for neighbor in feasible_neighbors:
+                    total_distance += distance_matrix[last_node][neighbor]
+                
+                if total_distance > 0:
+                    for neighbor in feasible_neighbors:
+                        probabilities.append( (1 / distance_matrix[last_node][neighbor]) / total_distance) 
+                else:
+                     probabilities = [1/len(feasible_neighbors)] * len(feasible_neighbors)
+
+                # Choose the next node based on probability
+                next_node = random.choices(feasible_neighbors, probabilities)[0]
+                
+                route.append(next_node)
+                current_capacity -= demands[next_node]
+                remaining_nodes.remove(next_node)
+                last_node = next_node
+            
+            route.append(0)  # Return to depot
+            routes.append(route)
+
+        # Update heuristics matrix
+        for route in routes:
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                heuristics_matrix[node1, node2] += 1
+                heuristics_matrix[node2, node1] += 1
+    
+    heuristics_matrix /= num_samples  # Normalize to get edge frequencies
+    return heuristics_matrix

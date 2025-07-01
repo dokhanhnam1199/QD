@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # 1. Feasibility: Rule out bins that can't fit the item
+    infeasible_mask = bins_remain_cap < item
+    priorities[infeasible_mask] = -np.inf  # Very low priority
+    
+    # 2. First-Fit Decreasing heuristic component: Use the almost-full bins first.
+    # bins_remain_cap closest to item size get the highest priority.
+    feasible_mask = ~infeasible_mask
+    
+    if np.any(feasible_mask): #check if there is any feasible bins.
+
+        diff = np.abs(bins_remain_cap[feasible_mask] - item)
+        priorities[feasible_mask] = -diff # Closer difference imply higher priority
+    
+        # 3. Capacity utilization component: Higher is better, but penalize near-full bins a bit to avoid fragmentation.
+        # The intent is to utilize space efficiently, but without over-packing a single bin at the expense of others.
+        # Adjust the capacity utilzation to emphasize bins which have higher difference.
+
+        capacity_utilization = (item / bins_remain_cap[feasible_mask]) 
+        priorities[feasible_mask] = priorities[feasible_mask] + capacity_utilization
+        
+        # 4. Avoid near-empty bins after placing the current item: Reduce priority for bins which result in VERY LOW occupancy after the item is added.
+        # Very small bins are avoided as the very small amount of item left would cause more issues when more items arrive.
+
+        remaining_after_pack = bins_remain_cap[feasible_mask] - item
+
+        nearly_empty_mask = (remaining_after_pack / np.max(bins_remain_cap)) > 0.75 # remaining capacity is more than 75 percent of largest bin available.
+        priorities[feasible_mask][nearly_empty_mask] = priorities[feasible_mask][nearly_empty_mask] - 0.5
+        
+        # 5. Break ties randomly or via sorting based on bins_remain_cap size or index - adds randomness to the alg.
+        # Implement random tie break mechanism if desired. e.g.
+        # priorities[feasible_mask] += np.random.rand(np.sum(feasible_mask)) * 0.0001 # Add small random number
+
+    return priorities
+```

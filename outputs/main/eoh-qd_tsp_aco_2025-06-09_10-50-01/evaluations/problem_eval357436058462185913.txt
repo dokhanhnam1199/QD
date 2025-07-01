@@ -1,0 +1,80 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a genetic algorithm approach, evolving a population of candidate TSP solutions and updating edge scores based on the frequency and quality of edges in the best-performing solutions over generations.}"""
+    n = distance_matrix.shape[0]
+    population_size = 50
+    num_generations = 100
+    mutation_rate = 0.01
+
+    # Initialize population of random tours
+    population = []
+    for _ in range(population_size):
+        tour = np.random.permutation(n)
+        population.append(tour)
+
+    heuristics_matrix = np.zeros_like(distance_matrix)
+
+    for generation in range(num_generations):
+        # Evaluate fitness of each tour (total distance)
+        fitness = np.zeros(population_size)
+        for i in range(population_size):
+            tour = population[i]
+            tour_distance = 0
+            for j in range(n - 1):
+                tour_distance += distance_matrix[tour[j], tour[j + 1]]
+            tour_distance += distance_matrix[tour[n - 1], tour[0]]
+            fitness[i] = tour_distance
+
+        # Select best tours (tournament selection)
+        selected_indices = []
+        tournament_size = 5
+        for _ in range(population_size):
+            tournament = np.random.choice(population_size, tournament_size, replace=False)
+            winner = tournament[np.argmin(fitness[tournament])]
+            selected_indices.append(winner)
+
+        # Create new population through crossover and mutation
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = population[selected_indices[i]]
+            parent2 = population[selected_indices[i + 1 if i + 1 < population_size else i]]
+
+            # Crossover (order crossover)
+            start = np.random.randint(n)
+            length = np.random.randint(1, n - 1)
+            child = -np.ones(n, dtype=int)
+            child[start:start+length] = parent1[start:start+length]
+
+            current_index = (start + length) % n
+            parent2_index = (start + length) % n
+            while -1 in child:
+                if parent2[parent2_index] not in child:
+                    child[current_index] = parent2[parent2_index]
+                    current_index = (current_index + 1) % n
+                parent2_index = (parent2_index + 1) % n
+
+            # Mutation (swap mutation)
+            for j in range(n):
+                if np.random.rand() < mutation_rate:
+                    swap_index = np.random.randint(n)
+                    child[j], child[swap_index] = child[swap_index], child[j]
+
+            new_population.append(child)
+
+        population = new_population
+
+        # Update heuristics matrix based on best tours
+        best_tour = population[np.argmin(fitness)]
+        for i in range(n):
+            u = best_tour[i]
+            v = best_tour[(i + 1) % n]
+            heuristics_matrix[u, v] += 1
+            heuristics_matrix[v, u] += 1
+
+    # Normalize heuristics matrix
+    max_value = np.max(heuristics_matrix)
+    if max_value > 0:
+        heuristics_matrix /= max_value
+    
+    return heuristics_matrix

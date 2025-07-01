@@ -1,0 +1,139 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm initializes routes randomly, then iteratively improves them using a combination of node insertion, swapping, and edge frequency updates based on route cost and feasibility.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 50
+    num_routes = 5
+
+    # Initial route construction (Random)
+    routes = []
+    for _ in range(num_routes):
+        unvisited = list(range(1, n))
+        random.shuffle(unvisited)
+        route = [0]
+        current_load = 0
+        
+        while unvisited:
+            node = unvisited.pop(0)
+            if current_load + demands[node] <= capacity:
+                route.append(node)
+                current_load += demands[node]
+            else:
+                route.append(0)
+                routes.append(route)
+                route = [0, node]
+                current_load = demands[node]
+                
+        route.append(0)
+        routes.append(route)
+
+    # Iterative Improvement (Node Insertion and Swapping)
+    for _ in range(num_iterations):
+        for route_index in range(len(routes)):
+            route = routes[route_index]
+            
+            #Node Insertion
+            for i in range(1, len(route) - 1):
+                node_to_insert = route[i]
+
+                best_route_index = route_index
+                best_insert_pos = i
+                best_cost_change = 0
+
+                for other_route_index in range(len(routes)):
+                    if other_route_index == route_index:
+                        continue
+                    
+                    other_route = routes[other_route_index]
+                    
+                    #check capacity constraint
+                    other_route_load = 0
+                    for node in other_route[1:-1]:
+                        other_route_load += demands[node]
+                    if other_route_load + demands[node_to_insert] > capacity:
+                        continue
+
+                    for j in range(1, len(other_route)):
+                        
+                        temp_route = other_route[:j] + [node_to_insert] + other_route[j:]
+                        cost_change = 0
+                        cost_change += distance_matrix[other_route[j-1], node_to_insert] + distance_matrix[node_to_insert, other_route[j]]
+                        cost_change -= distance_matrix[other_route[j-1], other_route[j]]
+                        cost_change -= distance_matrix[route[i-1], route[i]] + distance_matrix[route[i], route[i+1]]
+                        cost_change += distance_matrix[route[i-1], route[i+1]]
+                        
+                        if cost_change < best_cost_change:
+                            best_cost_change = cost_change
+                            best_route_index = other_route_index
+                            best_insert_pos = j
+                
+                if best_route_index != route_index:
+                    #insert
+                    routes[route_index].pop(i)
+                    routes[best_route_index].insert(best_insert_pos, node_to_insert)
+
+            #Node Swapping
+            for i in range(1, len(route) - 1):
+                node_to_swap = route[i]
+
+                best_route_index = route_index
+                best_swap_pos = i
+                best_cost_change = 0
+
+                for other_route_index in range(len(routes)):
+                    if other_route_index == route_index:
+                        continue
+                    
+                    other_route = routes[other_route_index]
+                    for j in range(1, len(other_route)-1):
+                        
+                        #check capacity constraint
+                        other_route_load = 0
+                        for node in other_route[1:-1]:
+                            if node != other_route[j]:
+                                other_route_load += demands[node]
+                        other_route_load += demands[node_to_swap]
+
+                        route_load = 0
+                        for node in route[1:-1]:
+                            if node != node_to_swap:
+                                route_load += demands[node]
+                        route_load += demands[other_route[j]]
+                        
+                        if other_route_load > capacity or route_load > capacity:
+                            continue
+                        
+                        cost_change = 0
+                        cost_change -= distance_matrix[route[i-1], route[i]] + distance_matrix[route[i], route[i+1]]
+                        cost_change -= distance_matrix[other_route[j-1], other_route[j]] + distance_matrix[other_route[j], other_route[j+1]]
+                        cost_change += distance_matrix[route[i-1], other_route[j]] + distance_matrix[other_route[j], route[i+1]]
+                        cost_change += distance_matrix[other_route[j-1], route[i]] + distance_matrix[route[i], other_route[j+1]]
+                        
+                        if cost_change < best_cost_change:
+                            best_cost_change = cost_change
+                            best_route_index = other_route_index
+                            best_swap_pos = j
+
+                if best_route_index != route_index:
+                    #swap
+                    temp = routes[route_index][i]
+                    routes[route_index][i] = routes[best_route_index][best_swap_pos]
+                    routes[best_route_index][best_swap_pos] = temp
+
+    # Update heuristics matrix
+    for route in routes:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+            
+    #Normalize heuristic matrix
+    total_visits = np.sum(heuristics_matrix)
+    if total_visits > 0:
+      heuristics_matrix = heuristics_matrix / total_visits
+
+    return heuristics_matrix

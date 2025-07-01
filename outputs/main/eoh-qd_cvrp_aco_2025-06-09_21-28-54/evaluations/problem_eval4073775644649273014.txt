@@ -1,0 +1,97 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively refines routes by stochastically swapping customers between routes and accepting changes that improve the overall cost, using a simulated annealing approach to explore the solution space.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 1000
+    temperature = 100.0
+    cooling_rate = 0.95
+
+    # Initialize a random solution
+    unassigned_customers = list(range(1, n))
+    routes = []
+    while unassigned_customers:
+        route = [0]
+        current_load = 0
+        while unassigned_customers:
+            best_customer = -1
+            best_increase = float('inf')
+            for customer in unassigned_customers:
+                if current_load + demands[customer] <= capacity:
+                    increase = distance_matrix[route[-1], customer]
+                    if increase < best_increase:
+                        best_increase = increase
+                        best_customer = customer
+            if best_customer != -1:
+                route.append(best_customer)
+                current_load += demands[best_customer]
+                unassigned_customers.remove(best_customer)
+            else:
+                break
+        route.append(0)
+        routes.append(route)
+
+    def calculate_cost(routes):
+        total_cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_cost += distance_matrix[route[i], route[i+1]]
+        return total_cost
+
+    current_cost = calculate_cost(routes)
+
+    for _ in range(num_iterations):
+        # Choose two routes randomly
+        if len(routes) < 2:
+            continue #cannot swap
+        route_index1, route_index2 = random.sample(range(len(routes)), 2)
+        route1 = routes[route_index1]
+        route2 = routes[route_index2]
+
+        # Choose a customer from each route randomly (excluding depot)
+        if len(route1) <= 2 or len(route2) <= 2:
+            continue
+        customer_index1 = random.randint(1, len(route1) - 2)
+        customer_index2 = random.randint(1, len(route2) - 2)
+        customer1 = route1[customer_index1]
+        customer2 = route2[customer_index2]
+
+        # Swap the customers
+        route1[customer_index1] = customer2
+        route2[customer_index2] = customer1
+
+        # Check capacity constraints
+        load1 = sum(demands[c] for c in route1[1:-1])
+        load2 = sum(demands[c] for c in route2[1:-1])
+        if load1 > capacity or load2 > capacity:
+            # Undo the swap
+            route1[customer_index1] = customer1
+            route2[customer_index2] = customer2
+        else:
+            # Calculate the new cost
+            new_cost = calculate_cost(routes)
+
+            # Accept the change based on simulated annealing criterion
+            if new_cost < current_cost:
+                current_cost = new_cost
+            else:
+                acceptance_probability = np.exp((current_cost - new_cost) / temperature)
+                if random.random() < acceptance_probability:
+                    current_cost = new_cost
+                else:
+                    # Undo the swap
+                    route1[customer_index1] = customer1
+                    route2[customer_index2] = customer2
+        temperature *= cooling_rate
+
+    # Update heuristics matrix based on the final solution
+    for route in routes:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+
+    return heuristics_matrix

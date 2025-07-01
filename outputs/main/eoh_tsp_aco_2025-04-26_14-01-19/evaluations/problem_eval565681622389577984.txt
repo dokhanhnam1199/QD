@@ -1,0 +1,63 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm iteratively refines a probability distribution over edges by sampling tours, updating probabilities based on tour quality and edge usage, and favoring edges present in shorter tours.}"""
+    
+    n = distance_matrix.shape[0]
+    edge_probabilities = np.ones((n, n)) / (n * (n - 1))  # Initialize probabilities uniformly
+    heuristics_matrix = np.zeros((n, n))
+    num_iterations = 50
+    num_samples = n // 2
+    learning_rate = 0.1
+
+    def sample_tour(probabilities):
+        current_node = np.random.randint(n)
+        visited = [False] * n
+        visited[current_node] = True
+        path = [current_node]
+        path_length = 0.0
+
+        while len(path) < n:
+            neighbors = [i for i in range(n) if not visited[i]]
+            neighbor_probabilities = [probabilities[current_node, neighbor] for neighbor in neighbors]
+            
+            if np.sum(neighbor_probabilities) == 0:
+                next_node = np.random.choice(neighbors)
+            else:
+                neighbor_probabilities /= np.sum(neighbor_probabilities)
+                next_node = neighbors[np.random.choice(len(neighbors), p=neighbor_probabilities)]
+
+            path.append(next_node)
+            path_length += distance_matrix[current_node, next_node]
+            visited[next_node] = True
+            current_node = next_node
+
+        path_length += distance_matrix[path[-1], path[0]]
+        return path, path_length
+
+    for iteration in range(num_iterations):
+        tours = []
+        tour_lengths = []
+        for _ in range(num_samples):
+            tour, tour_length = sample_tour(edge_probabilities)
+            tours.append(tour)
+            tour_lengths.append(tour_length)
+
+        best_tour_index = np.argmin(tour_lengths)
+        best_tour = tours[best_tour_index]
+        best_tour_length = tour_lengths[best_tour_index]
+
+        # Update edge probabilities based on tour quality
+        for i in range(n):
+            u = best_tour[i]
+            v = best_tour[(i + 1) % n]
+            edge_probabilities[u, v] += learning_rate / best_tour_length
+            edge_probabilities[v, u] += learning_rate / best_tour_length
+
+        # Normalize probabilities
+        edge_probabilities /= np.sum(edge_probabilities)
+
+        # Update heuristics matrix
+        heuristics_matrix += edge_probabilities / distance_matrix
+        
+    return heuristics_matrix

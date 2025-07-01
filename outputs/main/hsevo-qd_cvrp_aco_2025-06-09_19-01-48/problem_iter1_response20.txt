@@ -1,0 +1,68 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for Capacitated Vehicle Routing Problem (CVRP) using stochastic solution sampling ideas.
+
+    This version incorporates several factors: distance, demand, depot proximity, and node centrality.
+
+    Args:
+        distance_matrix: Distance matrix between nodes (n x n).
+        coordinates: Euclidean coordinates of nodes (n x 2).
+        demands: Demand of each node (n).  demands[0] = 0 (depot).
+        capacity: Vehicle capacity.
+
+    Returns:
+        A matrix of heuristic values (n x n) indicating the desirability of each edge.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Parameters (adjust these based on problem characteristics)
+    distance_weight = 1.0
+    demand_weight = 0.5
+    depot_proximity_weight = 0.7
+    centrality_weight = 0.3
+    capacity_penalty = 2.0
+
+    # Normalize demands to be between 0 and 1
+    normalized_demands = demands / np.max(demands)
+
+    # Calculate depot proximity for each node (inverse distance to depot)
+    depot_proximities = 1.0 / (distance_matrix[0, :] + 1e-6)  # Avoid division by zero
+    depot_proximities[0] = 0  # Depot proximity to itself is 0
+
+    # Calculate a simple centrality measure (sum of inverse distances to other nodes)
+    node_centralities = np.sum(1.0 / (distance_matrix + np.eye(n)), axis=1)
+    node_centralities = node_centralities / np.max(node_centralities) # Normalize to be between 0 and 1
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+                continue
+
+            # Base heuristic: inverse distance
+            heuristic_value = distance_weight / (distance_matrix[i, j] + 1e-6)
+
+            # Incorporate demand: Penalize edges connecting nodes with high demand
+            heuristic_value -= demand_weight * (normalized_demands[i] + normalized_demands[j])
+
+            # Incorporate depot proximity: Reward edges closer to the depot
+            heuristic_value += depot_proximity_weight * (depot_proximities[i] + depot_proximities[j])
+
+            # Incorporate node centrality: Reward edges connecting more central nodes
+            heuristic_value += centrality_weight * (node_centralities[i] + node_centralities[j])
+
+
+            # Incorporate capacity penalty: if demand i + demand j is approaching capacity, penalize.
+            # NOTE: This only looks at pairwise demand.  More advanced logic would consider routes.
+            if demands[i] + demands[j] > capacity:
+                  heuristic_value /= capacity_penalty
+
+
+            heuristic_matrix[i, j] = heuristic_value
+
+    return heuristic_matrix
+```

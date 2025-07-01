@@ -1,0 +1,113 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs initial routes using a greedy insertion approach, then refines these routes using a combination of 2-opt and node relocation within routes, and updates edge frequencies based on the improved solutions, prioritizing routes with higher savings.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 50
+
+    # Initial route construction (Greedy Insertion)
+    routes = []
+    unvisited = set(range(1, n))
+    while unvisited:
+        route = [0, 0]
+        current_load = 0
+        
+        # Find the nearest unvisited node
+        nearest_node = -1
+        min_dist = float('inf')
+        for node in unvisited:
+            if distance_matrix[0, node] < min_dist:
+                min_dist = distance_matrix[0, node]
+                nearest_node = node
+
+        if nearest_node == -1:
+            break
+        
+        route.insert(1,nearest_node)
+        current_load += demands[nearest_node]
+        unvisited.remove(nearest_node)
+        
+        #Greedy insertion based on distance
+        while True:
+            best_insertion_node = -1
+            best_insertion_cost = float('inf')
+            best_insertion_index = -1
+
+            for node in unvisited:
+                if current_load + demands[node] <= capacity:
+                    for i in range(1, len(route)):
+                        cost = distance_matrix[route[i-1], node] + distance_matrix[node, route[i]] - distance_matrix[route[i-1], route[i]]
+                        if cost < best_insertion_cost:
+                            best_insertion_cost = cost
+                            best_insertion_node = node
+                            best_insertion_index = i
+
+            if best_insertion_node != -1:
+                route.insert(best_insertion_index, best_insertion_node)
+                current_load += demands[best_insertion_node]
+                unvisited.remove(best_insertion_node)
+            else:
+                routes.append(route)
+                break
+
+    # Iterative Improvement (Local Search)
+    for _ in range(num_iterations):
+        for route in routes:
+            if len(route) <= 3:
+                continue
+            
+            # 2-opt within routes
+            for i in range(1, len(route) - 2):
+                for k in range(i + 1, len(route) - 1):
+                    new_route = route[:i] + route[i:k+1][::-1] + route[k+1:]
+                    
+                    current_cost = 0
+                    for j in range(len(route) - 1):
+                        current_cost += distance_matrix[route[j], route[j+1]]
+                    
+                    new_cost = 0
+                    for j in range(len(new_route) - 1):
+                        new_cost += distance_matrix[new_route[j], new_route[j+1]]
+
+                    if new_cost < current_cost:
+                        route[:] = new_route
+            
+            # Node relocation within routes
+            for i in range(1, len(route)-1):
+                node_to_relocate = route[i]
+                
+                #Try relocating to all other positions.
+                for j in range(1, len(route)):
+                    if j == i:
+                        continue
+
+                    temp_route = route[:]
+                    temp_route.pop(i)
+                    temp_route.insert(j, node_to_relocate)
+                    
+                    current_cost = 0
+                    for k in range(len(route) - 1):
+                        current_cost += distance_matrix[route[k], route[k+1]]
+                    
+                    new_cost = 0
+                    for k in range(len(temp_route) - 1):
+                        new_cost += distance_matrix[temp_route[k], temp_route[k+1]]
+
+                    if new_cost < current_cost:
+                        route[:] = temp_route
+
+    # Update heuristics matrix
+    for route in routes:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+    
+    #Normalize heuristic matrix
+    total_visits = np.sum(heuristics_matrix)
+    if total_visits > 0:
+      heuristics_matrix = heuristics_matrix / total_visits
+    return heuristics_matrix

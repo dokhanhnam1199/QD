@@ -1,0 +1,69 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+
+    """
+    Heuristics function for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    This version prioritizes savings and inverse distance, simplifies depot proximity, and adjusts the sparsification threshold.
+    It also incorporates adaptive sparsification based on percentile cutoffs. And normalizes the heuristic matrix.
+    Refinements include combined distance/demand penalties, enhanced sparsification using distance thresholds and percentile-based filtering,
+    emphasis on depot proximity, and balanced savings calculations with demand ratios. Tuned factor weights.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (shape: n by n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n by 2).
+        demands (np.ndarray): Customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (shape: n by n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+
+    # Savings matrix (Clarke-Wright Savings Algorithm)
+    savings_matrix = np.zeros_like(distance_matrix)
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings_matrix[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings_matrix[j, i] = savings_matrix[i, j]
+
+    # Demand factor (normalized to capacity)
+    demand_factor = demands / capacity
+    demand_factor = np.clip(demand_factor, 0, 1)  # Clip to [0, 1]
+
+    # Depot proximity factor (penalize edges far from depot)
+    depot_proximity = np.zeros_like(distance_matrix)
+    for i in range(1, n):
+        for j in range(1, n):
+             depot_proximity[i, j] = 1 / (distance_matrix[0, i] + distance_matrix[0, j] + 1e-9)  # Avoid division by zero
+
+    # Combined heuristic calculation
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Savings, inverse distance, demand, and depot proximity
+                heuristics_matrix[i, j] = (
+                    savings_matrix[i, j] / (distance_matrix[i, j] + 1e-9) * # Avoid division by zero
+                    (1 - 0.5*(demand_factor[i] + demand_factor[j])) * # Combined demand penalty
+                    (0.5 + depot_proximity[i, j]) # Depot Proximity
+                )
+
+    # Adaptive Sparsification (Percentile-based)
+    heuristic_values = heuristics_matrix[np.triu_indices_from(heuristics_matrix, k=1)]
+    cutoff_percentile = 40 # Tuned percentile
+    cutoff_value = np.percentile(heuristic_values, cutoff_percentile)
+    heuristics_matrix[heuristics_matrix < cutoff_value] = 0.0
+
+    # Distance-based Sparsification
+    distance_threshold = np.mean(distance_matrix) * 1.2  # Tuned threshold
+    heuristics_matrix[distance_matrix > distance_threshold] = 0.0
+
+    # Normalize the heuristics matrix
+    max_heuristic = np.max(heuristics_matrix)
+    if max_heuristic > 0:
+        heuristics_matrix = heuristics_matrix / max_heuristic
+
+    return heuristics_matrix
+```

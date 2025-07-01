@@ -1,0 +1,45 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+
+    # Feasibility check: assign -inf priority to bins that cannot fit the item.
+    infeasible_mask = bins_remain_cap < item
+    priorities[infeasible_mask] = -np.inf
+
+    # For feasible bins:
+    feasible_mask = ~infeasible_mask
+    feasible_caps = bins_remain_cap[feasible_mask]
+
+    # 1. Fill-level based priority: Higher fill level is better (minimize wasted space)
+    fill_levels = (item / feasible_caps)
+    priorities[feasible_mask] = fill_levels
+
+    # 2. Bonus for bins that will be completely filled (avoid small wasted spaces). Add to existing priority.
+    almost_full_mask = (feasible_caps - item) < 0.1  # Tolerate small error/wasted space. Adjust the threshold.
+    priorities[feasible_mask][almost_full_mask] += 1  # Significant bonus
+
+    # 3. Penalty for bins that become almost empty after placing the item (creating many almost-empty bins is bad). Subtract from existing priority
+    almost_empty_mask = (feasible_caps - item) > (np.max(bins_remain_cap) / 2)  # if remaining space is > half of maximum cap, then it is relatively empty
+    priorities[feasible_mask][almost_empty_mask] -= 0.5 # Penalty. Adjust the strength of penalty
+
+    # Normalize. Scale such that the minimum is 0 and max is 1. Helps numerical stability and avoids extreme values.
+    if np.any(np.isfinite(priorities)):
+        finite_priorities = priorities[np.isfinite(priorities)]
+        min_priority = np.min(finite_priorities)
+        max_priority = np.max(finite_priorities)
+        if max_priority > min_priority:
+            priorities[np.isfinite(priorities)] = (priorities[np.isfinite(priorities)] - min_priority) / (max_priority - min_priority)
+
+    return priorities
+```

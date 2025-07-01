@@ -1,0 +1,139 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for TSP using a combination of factors, adaptive sparsification,
+    edge combination strategies, and cycle prevention.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix representing the TSP instance.
+
+    Returns:
+        np.ndarray: Prior indicators (probabilities) of edge inclusion.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Inverse Distance Heuristic
+    inverse_distance = 1.0 / (distance_matrix + 1e-9)
+
+    # Nearest Neighbor Heuristic (adjusted for better scaling with n)
+    nearest_neighbors = np.zeros((n, n), dtype=float)
+    for i in range(n):
+        distances = distance_matrix[i].copy()
+        distances[i] = np.inf
+        num_neighbors = min(max(3, int(np.log(n) * 1.5)), n - 1)  # Adjusted log scaling
+        nearest_neighbor_indices = np.argsort(distances)[:num_neighbors]
+        for neighbor_index in nearest_neighbor_indices:
+            nearest_neighbors[i, neighbor_index] = 1.0
+
+    # Savings Heuristic (refined)
+    savings_heuristic = np.zeros_like(distance_matrix, dtype=float)
+    avg_distance = np.mean(distance_matrix)
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                savings = (avg_distance*0.5 + distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j])
+                savings_heuristic[i, j] = savings
+
+
+    # MST Heuristic (Kruskal's approximation) - improved performance for larger n
+    mst_heuristic = np.zeros_like(distance_matrix, dtype=float)
+    edges = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            edges.append((i, j, distance_matrix[i, j]))
+    edges.sort(key=lambda x: x[2])  # Sort edges by weight
+
+    parent = list(range(n))
+
+    def find(i):
+        if parent[i] == i:
+            return i
+        parent[i] = find(parent[i])
+        return parent[i]
+
+    def union(i, j):
+        root_i = find(i)
+        root_j = find(j)
+        if root_i != root_j:
+            parent[root_i] = root_j
+            return True
+        return False
+
+    mst_edges = 0
+    for i, j, _ in edges:
+        if union(i, j):
+            mst_heuristic[i, j] = 1.0
+            mst_heuristic[j, i] = 1.0
+            mst_edges += 1
+        if mst_edges == n - 1:
+            break
+
+
+    # Degree Heuristic (enhanced)
+    degree_heuristic = np.zeros_like(distance_matrix, dtype=float)
+    avg_degree = 2  # Aim for degree 2 (TSP solution)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                degree_i = np.sum(heuristic_matrix[i, :] > 0)  # Estimated current degree
+                degree_j = np.sum(heuristic_matrix[:, j] > 0)
+
+                degree_penalty = np.exp(-0.5 * ((degree_i - avg_degree)**2 + (degree_j - avg_degree)**2))  # Gaussian penalty
+                degree_heuristic[i, j] = degree_penalty
+
+    # Combine Heuristics with adaptive weights
+    alpha = 0.3
+    beta = 0.25
+    gamma = 0.15
+    delta = 0.15
+    epsilon = 0.15
+
+    heuristic_matrix = (alpha * inverse_distance +
+                        beta * nearest_neighbors +
+                        gamma * mst_heuristic +
+                        delta * savings_heuristic +
+                        epsilon * degree_heuristic)
+
+    # Adaptive Sparsification (more aggressive)
+    k = min(max(2, int(np.sqrt(n) * 0.8)), n - 1)
+    for i in range(n):
+        row = heuristic_matrix[i].copy()
+        indices_to_keep = np.argsort(row)[-k:]
+        mask = np.zeros(n, dtype=bool)
+        mask[indices_to_keep] = True
+        heuristic_matrix[i, ~mask] = 0
+        heuristic_matrix[i,i] = 0 # Remove self loops
+
+
+    # Add noise (reduced)
+    noise = np.random.rand(n, n) * 0.005
+    heuristic_matrix = (heuristic_matrix + noise)
+    heuristic_matrix = (heuristic_matrix + heuristic_matrix.T)/2 #ensure Symmetry
+
+
+    # Cycle Prevention Heuristic (more robust)
+    cycle_heuristic = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                for k in range(n):
+                    if k != i and k != j:
+                        cycle_penalty = (heuristic_matrix[i, k] * heuristic_matrix[k, j])  # Product of probabilities
+                        cycle_heuristic[i, j] += cycle_penalty
+    cycle_heuristic = cycle_heuristic / (np.max(cycle_heuristic) + 1e-9) #Normalize
+    heuristic_matrix = heuristic_matrix - 0.1 * cycle_heuristic #reduce cycles, increased factor.
+
+    heuristic_matrix = np.clip(heuristic_matrix, 0, 1)
+
+
+    # Normalization
+    row_sums = heuristic_matrix.sum(axis=1, keepdims=True)
+    heuristic_matrix = np.nan_to_num(heuristic_matrix / (row_sums + 1e-9))
+
+
+    return heuristic_matrix
+```

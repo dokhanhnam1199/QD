@@ -1,0 +1,54 @@
+```python
+import numpy as np
+import scipy.sparse
+from scipy.sparse.csgraph import dijkstra
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """TSP heuristic: shortest paths + degree bias + controlled randomness."""
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Inverse distance
+    inverse_distance = 1 / (distance_matrix + 1e-9)
+
+    # 2. Shortest path estimate (Dijkstra)
+    graph = scipy.sparse.csr_matrix(distance_matrix)
+    shortest_paths = dijkstra(graph, directed=False, indices=range(n))
+
+    # 3. Degree bias (adaptive penalty)
+    degree_penalty = np.ones((n, n))  # Initialize to 1, no penalty by default
+    avg_degree = 0
+    for i in range(n):
+        degree_i = np.sum(inverse_distance[i, :]) - inverse_distance[i, i]
+        avg_degree += degree_i
+    avg_degree /= n
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                degree_i = np.sum(inverse_distance[i, :]) - inverse_distance[i, i]
+                degree_j = np.sum(inverse_distance[j, :]) - inverse_distance[j, j]
+                # Adaptive degree penalty: only penalize if degree > avg
+                if degree_i > avg_degree or degree_j > avg_degree:
+                    penalty_i = max(0.5, avg_degree / (degree_i + 1e-9)) # Reduced min value to 0.5
+                    penalty_j = max(0.5, avg_degree / (degree_j + 1e-9)) # Reduced min value to 0.5
+                    degree_penalty[i, j] = penalty_i * penalty_j
+            else:
+                degree_penalty[i, j] = 0
+
+    # 4. Combine heuristics
+    heuristic_matrix = inverse_distance * degree_penalty / (shortest_paths + 1e-9)
+
+    # 5. Controlled Randomness (only add if shortest path is long)
+    randomness_factor = 0.01 # Reduced randomness
+    for i in range(n):
+        for j in range(n):
+            if shortest_paths[i, j] > np.mean(shortest_paths): #Add randomness only if the shortest path between i and j is longer than average
+                heuristic_matrix[i, j] += randomness_factor * np.random.rand()
+    
+    # 6. Normalize
+    max_heuristic = np.max(heuristic_matrix)
+    heuristic_matrix /= max_heuristic
+
+    return heuristic_matrix
+```

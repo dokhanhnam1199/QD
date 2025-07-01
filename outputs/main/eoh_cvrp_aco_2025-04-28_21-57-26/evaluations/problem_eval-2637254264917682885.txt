@@ -1,0 +1,117 @@
+import numpy as np
+import random
+from collections import defaultdict
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses simulated annealing with a novel neighborhood structure based on swapping segments of routes and guided by a combination of distance and demand considerations.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    def generate_initial_solution():
+        unvisited = list(range(1, n))
+        routes = []
+        current_route = [0]
+        current_load = 0
+        while unvisited:
+            node = random.choice(unvisited)
+            if current_load + demands[node] <= capacity:
+                current_route.append(node)
+                current_load += demands[node]
+                unvisited.remove(node)
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0]
+                current_load = 0
+        current_route.append(0)
+        routes.append(current_route)
+        return routes
+
+    def solution_to_edges(solution):
+        edges = set()
+        for route in solution:
+            for i in range(len(route) - 1):
+                edges.add(tuple(sorted((route[i], route[i+1]))))
+        return edges
+
+    def cost_of_solution(solution):
+        total_cost = 0
+        for route in solution:
+            total_cost += calculate_route_cost(route)
+        return total_cost
+
+    def neighbor(solution):
+        #swap segments between two routes
+        if len(solution) < 2:
+            return solution
+        route1_index = random.randint(0, len(solution) - 1)
+        route2_index = random.randint(0, len(solution) - 1)
+        if route1_index == route2_index:
+          return solution
+
+        route1 = solution[route1_index]
+        route2 = solution[route2_index]
+
+        if len(route1) <= 2 or len(route2) <= 2:
+          return solution
+
+        start1 = random.randint(1, len(route1) - 2)
+        end1 = random.randint(start1 + 1, len(route1) - 1)
+        segment1 = route1[start1:end1]
+
+        start2 = random.randint(1, len(route2) - 2)
+        end2 = random.randint(start2 + 1, len(route2) - 1)
+        segment2 = route2[start2:end2]
+        
+        new_route1 = route1[:start1] + segment2 + route1[end1:]
+        new_route2 = route2[:start2] + segment1 + route2[end2:]
+
+        # Check Capacity Constraints
+        load1 = sum(demands[node] for node in new_route1 if node != 0)
+        load2 = sum(demands[node] for node in new_route2 if node != 0)
+
+        if load1 > capacity or load2 > capacity:
+           return solution #Return original solution if capacity is violated
+
+        new_solution = solution[:]
+        new_solution[route1_index] = new_route1
+        new_solution[route2_index] = new_route2
+        return new_solution
+    
+    #Simulated Annealing Parameters
+    temperature = 100
+    cooling_rate = 0.95
+    num_iterations = 500
+
+    #Initial Solution
+    current_solution = generate_initial_solution()
+    best_solution = current_solution
+    best_cost = cost_of_solution(current_solution)
+
+    for _ in range(num_iterations):
+        new_solution = neighbor(current_solution)
+        new_cost = cost_of_solution(new_solution)
+        cost_diff = new_cost - cost_of_solution(current_solution)
+        
+        if cost_diff < 0 or random.random() < np.exp(-cost_diff / temperature):
+            current_solution = new_solution
+            if new_cost < best_cost:
+                best_solution = new_solution
+                best_cost = new_cost
+
+        temperature *= cooling_rate
+
+    best_edges = solution_to_edges(best_solution)
+    for i in range(n):
+        for j in range(i + 1, n):
+            if (i, j) in best_edges:
+                heuristics_matrix[i, j] = 1
+                heuristics_matrix[j, i] = 1
+
+    return heuristics_matrix

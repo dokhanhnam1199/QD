@@ -1,0 +1,72 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm builds a pheromone matrix based on iteratively constructing savings-based routes and evaporating pheromones.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.ones((n, n))  # Initialize pheromone matrix
+    evaporation_rate = 0.1
+    deposit_amount = 1.0
+    num_iterations = 1000
+
+    for _ in range(num_iterations):
+        savings = np.zeros((n, n))
+        for i in range(1, n):
+            for j in range(i + 1, n):
+                savings[i, j] = distance_matrix[i, 0] + distance_matrix[0, j] - distance_matrix[i, j]
+
+        routes = {}
+        node_route = {}
+
+        # Initialize routes for each node
+        for i in range(1, n):
+            if i not in node_route:
+                route_id = i
+                routes[route_id] = [0, i, 0]
+                node_route[i] = route_id
+
+        # Iterate through savings in descending order
+        sorted_savings = np.argsort(savings.flatten())[::-1]
+        for k in sorted_savings:
+            i, j = np.unravel_index(k, savings.shape)
+            if i == 0 or j == 0 or i == j:
+                continue
+            
+            if i not in node_route or j not in node_route or node_route[i] == node_route[j]:
+                continue
+
+            route_i_id = node_route[i]
+            route_j_id = node_route[j]
+
+            route_i = routes[route_i_id]
+            route_j = routes[route_j_id]
+
+            if route_i[-1] == 0 and route_j[0] == 0:
+                total_demand = 0
+                nodes = route_i[1:-1] + route_j[1:-1]
+                for node in nodes:
+                    total_demand += demands[node]
+                
+                if total_demand <= capacity:
+                    new_route = route_i[:-1] + route_j[1:]
+                    routes[route_i_id] = new_route
+                    del routes[route_j_id]
+                    for node in route_j[1:-1]:
+                        node_route[node] = route_i_id
+
+        # Deposit pheromones on used edges
+        for route_id in routes:
+            route = routes[route_id]
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                heuristics_matrix[node1, node2] += deposit_amount
+                heuristics_matrix[node2, node1] += deposit_amount
+
+        # Evaporate pheromones
+        heuristics_matrix *= (1 - evaporation_rate)
+        heuristics_matrix = np.maximum(heuristics_matrix, 1e-6) #Prevent from vanishing
+
+    return heuristics_matrix

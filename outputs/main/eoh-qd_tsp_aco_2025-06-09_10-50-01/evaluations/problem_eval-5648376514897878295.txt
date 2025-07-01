@@ -1,0 +1,56 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm adaptively learns edge importance by iteratively refining edge weights based on the performance of tours constructed using those weights.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones_like(distance_matrix, dtype=float)  # Initialize with equal probabilities
+    num_iterations = 100
+    num_tours_per_iteration = 10
+
+    for iteration in range(num_iterations):
+        tours = []
+        tour_lengths = []
+
+        for _ in range(num_tours_per_iteration):
+            # Construct tour greedily based on heuristics_matrix
+            unvisited = list(range(n))
+            start_node = np.random.choice(unvisited)
+            current_node = start_node
+            tour = [current_node]
+            unvisited.remove(current_node)
+
+            while unvisited:
+                next_node = min(unvisited, key=lambda x: distance_matrix[current_node, x] / heuristics_matrix[current_node, x])
+                tour.append(next_node)
+                unvisited.remove(next_node)
+                current_node = next_node
+
+            tour_length = 0
+            for i in range(n - 1):
+                tour_length += distance_matrix[tour[i], tour[i+1]]
+            tour_length += distance_matrix[tour[-1], tour[0]]
+            
+            tours.append(tour)
+            tour_lengths.append(tour_length)
+            
+        best_tour_index = np.argmin(tour_lengths)
+        best_tour = tours[best_tour_index]
+        best_tour_length = tour_lengths[best_tour_index]
+
+        # Update heuristics_matrix: increase weights for edges in the best tour, decrease for others
+        for i in range(n - 1):
+            heuristics_matrix[best_tour[i], best_tour[i+1]] *= 1.1  # Increase weight
+            heuristics_matrix[best_tour[i+1], best_tour[i]] *= 1.1  # Ensure symmetry
+        heuristics_matrix[best_tour[-1], best_tour[0]] *= 1.1
+        heuristics_matrix[best_tour[0], best_tour[-1]] *= 1.1
+
+        # Optionally, decrease weights for edges NOT in the best tour (carefully)
+        for i in range(n):
+            for j in range(i + 1, n):
+                edge = (i, j)
+                if not any((best_tour[k] == i and best_tour[k+1] == j) or (best_tour[k] == j and best_tour[k+1] == i) for k in range(n-1)) and \
+                   not ((best_tour[-1] == i and best_tour[0] == j) or (best_tour[-1] == j and best_tour[0] == i)):
+                    heuristics_matrix[i, j] *= 0.95 # Decrease weight (gentle)
+                    heuristics_matrix[j, i] *= 0.95 # Ensure symmetry
+
+    return heuristics_matrix

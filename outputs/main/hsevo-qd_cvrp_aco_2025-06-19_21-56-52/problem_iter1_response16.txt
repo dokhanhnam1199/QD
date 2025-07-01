@@ -1,0 +1,70 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Implements a more sophisticated heuristics function for CVRP.
+    Combines distance, demand, and spatial considerations to estimate
+    the desirability of including each edge in a solution.
+
+    Args:
+        distance_matrix: (n x n) matrix of distances between nodes.
+        coordinates: (n x 2) array of node coordinates.
+        demands: (n) array of customer demands.
+        capacity: Vehicle capacity.
+
+    Returns:
+        (n x n) matrix of heuristic values for each edge. Higher values
+        indicate a more promising edge.
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+
+    # Parameters to control the influence of each factor.  Experimentation
+    # is needed to tune these for optimal performance.
+    distance_weight = 1.0  # Emphasize shorter distances.
+    demand_weight = 0.5  # Penalize edges connecting nodes with high combined demand.
+    angle_weight = 0.2  # Encourage edges that don't cause sharp turns.
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristics[i, j] = 0  # No self-loops.
+                continue
+
+            # 1. Distance factor: Inverse of distance.
+            distance_factor = distance_weight / distance_matrix[i, j]
+
+            # 2. Demand factor: Penalize edges with high demand (relative to capacity).
+            #    Try to account for potential overload by considering demands of
+            #    both nodes connected by the edge.  This is a simplistic approximation
+            #    of route-level demand, of course.
+            demand_factor = 1.0 - demand_weight * (demands[i] + demands[j]) / (2.0 * capacity)
+            demand_factor = max(0.0, demand_factor)  # Ensure non-negative.
+
+            # 3. Angle factor: Favor edges that don't require sharp turns.  A sharp turn
+            #    can lead to longer overall routes. We look at angles formed by i-j and
+            #    other points k. Only penalize if the points j, k aren't zero.
+            angle_factor = 1.0
+            for k in range(n):
+                if k != i and k != j and (j!=0 and k!=0): #added zero checks
+                    v1 = coordinates[j] - coordinates[i]
+                    v2 = coordinates[k] - coordinates[j]
+                    norm_v1 = np.linalg.norm(v1)
+                    norm_v2 = np.linalg.norm(v2)
+
+                    if norm_v1 > 0 and norm_v2 > 0:  # Avoid division by zero.
+                      dot_product = np.dot(v1, v2)
+                      cosine_angle = dot_product / (norm_v1 * norm_v2)
+                      cosine_angle = np.clip(cosine_angle, -1.0, 1.0) #prevent domain errors
+
+                      angle = np.arccos(cosine_angle)
+                      angle_penalty = angle_weight * (np.pi - abs(angle))/np.pi #penalize if the angle is sharp (close to zero)
+                      angle_factor -= angle_penalty
+                      angle_factor = max(0.0, angle_factor)
+
+            # Combine the factors.
+            heuristics[i, j] = distance_factor * demand_factor * angle_factor
+
+    return heuristics
+```

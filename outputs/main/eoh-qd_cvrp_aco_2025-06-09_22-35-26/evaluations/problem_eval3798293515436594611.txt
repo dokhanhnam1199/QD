@@ -1,0 +1,57 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively refines a heuristic matrix by probabilistically selecting edges based on their current heuristic values and penalizing edges that lead to infeasible routes.}"""
+    n = len(demands)
+    heuristics_matrix = np.ones_like(distance_matrix)
+    alpha = 0.1 # Learning rate for updating heuristics
+    beta = 0.5 # Exploration factor
+    num_iterations = 100
+
+    for _ in range(num_iterations):
+        route = [0] # Start at the depot
+        current_capacity = 0
+        unvisited = set(range(1, n))
+
+        while unvisited:
+            # Probabilistic selection of next node
+            probabilities = []
+            for node in range(1, n):
+                if node in unvisited:
+                    heuristic_value = heuristics_matrix[route[-1], node]
+                    distance_value = distance_matrix[route[-1], node]
+                    probabilities.append((heuristic_value**beta)/(distance_value+1e-6))
+                else:
+                    probabilities.append(0)
+            probabilities = np.array(probabilities)
+            probabilities = probabilities / np.sum(probabilities)
+            
+            next_node = np.random.choice(range(1, n), p=probabilities)
+
+            if next_node not in unvisited:
+                continue
+
+            if current_capacity + demands[next_node] <= capacity:
+                route.append(next_node)
+                current_capacity += demands[next_node]
+                unvisited.remove(next_node)
+            else:
+                route.append(0)
+                current_capacity = 0
+
+        route.append(0)  # Return to depot
+
+        # Calculate route cost
+        total_distance = 0
+        for i in range(len(route) - 1):
+            total_distance += distance_matrix[route[i], route[i+1]]
+
+        # Update heuristics based on route
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            heuristics_matrix[node1, node2] = (1 - alpha) * heuristics_matrix[node1, node2] + alpha
+            heuristics_matrix[node2, node1] = (1 - alpha) * heuristics_matrix[node2, node1] + alpha
+
+    return heuristics_matrix

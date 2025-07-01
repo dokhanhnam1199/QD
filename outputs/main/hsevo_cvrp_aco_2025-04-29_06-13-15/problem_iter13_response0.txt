@@ -1,0 +1,134 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int,
+                  violation_penalty_depot: float = 0.006807879652286611, violation_penalty_other: float = 0.007377651382740079, violation_penalty_strong: float = 0.0009650898553081513,
+                  isolation_threshold_multiplier: float = 1.265006722222756, depot_preference_exponent: float = 0.19576039930731687,
+                  alpha_connectivity_factor: float = 0.6097836206047273, beta_connectivity_factor: float = 0.1776212323120978, gamma_connectivity_factor: float = 0.1059672028481598, eta_connectivity_factor: float = 0.03990355588137913,
+                  k_nearest: int = 6.275542408877859, percentile_threshold: float = 69.78959143388481, epsilon: float = 5.489791947651783e-06) -> np.ndarray:
+    """
+    Heuristics for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    This version focuses on a refined combination of factors, dynamic parameter adaptation,
+    and more aggressive sparsification.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (shape: n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n x 2).
+        demands (np.ndarray): Vector of customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+        violation_penalty_depot (float): Penalty for immediate capacity violations at the depot. Default is 0.01.
+        violation_penalty_other (float): Penalty for capacity violations at other nodes. Default is 0.005
+        violation_penalty_strong (float): Very strong penalty for exceeding remaining capacity
+        isolation_threshold_multiplier (float): Multiplier for the isolation threshold. Default is 1.0.
+        depot_preference_exponent (float): Exponent for the depot preference calculation. Default is 0.5.
+        alpha_connectivity_factor (float): Factor for distance importance. Default is 0.4.
+        beta_connectivity_factor (float): Factor for depot proximity importance. Default is 0.1.
+        gamma_connectivity_factor (float): Factor for savings importance. Default is 0.4.
+        eta_connectivity_factor (float): Factor for similarity importance. Default is 0.1
+        k_nearest (int): Number of nearest neighbors to keep. Default is 8.
+        percentile_threshold (float): Percentile threshold for sparsification. Default is 50.0.
+        epsilon (float): small value added to distance to avoid divide by zero. Default is 1e-6
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (shape: n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros((n, n))
+
+    # 1. Distance Component (Enhanced)
+    #   - Inverse square distance emphasizes shorter edges more strongly.
+    distance_heuristic = 1 / (distance_matrix**2 + epsilon)
+
+    # 2. Demand Feasibility (Refined)
+    #   - Stricter penalty for immediate capacity violations.
+    #   - Considers the remaining capacity of the current route (simulated).
+    demand_heuristic = np.ones((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                demand_heuristic[i, j] = 0
+            if demands[i] + demands[j] > capacity and i == 0:
+                demand_heuristic[i, j] = violation_penalty_depot  # Stronger penalty for depot-initiated violation
+            elif demands[i] + demands[j] > capacity and j == 0:
+                demand_heuristic[i, j] = violation_penalty_depot  # Stronger penalty for depot-initiated violation
+            elif i != 0 and demands[i] > capacity or j != 0 and demands[j] > capacity:
+                demand_heuristic[i,j] = violation_penalty_other
+
+            # Simulate a simple route: depot -> i -> j
+            remaining_capacity = capacity - demands[i] if i != 0 else capacity
+            if i != 0 and j!= 0 and remaining_capacity < demands[j]:
+                 demand_heuristic[i,j] = violation_penalty_strong #Very strong penalty
+
+
+    # 3. Depot Proximity (Contextualized)
+    #   - Only apply depot preference to nodes that are "isolated" (far from most others).
+    #   - Adjust preference strength based on demand.
+    depot_heuristic = np.zeros((n, n))
+    isolation_threshold = np.mean(distance_matrix) * isolation_threshold_multiplier  # Node is "isolated" if its avg dist is above this
+    for i in range(1, n):
+        avg_distance = np.sum(distance_matrix[i, 1:]) / (n - 2) if n > 2 else distance_matrix[i,0]
+        if avg_distance > isolation_threshold:
+            depot_preference = (avg_distance / np.max(distance_matrix)) * (demands[i] / capacity)**depot_preference_exponent # sqrt makes demands less impact
+            depot_heuristic[i, 0] = depot_preference
+            depot_heuristic[0, i] = depot_preference
+
+
+    # 4. Savings Heuristic (Aggressive)
+    #   - Prioritize high-saving merges very aggressively.
+    savings_heuristic = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings = distance_matrix[i, 0] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings_heuristic[i, j] = savings**2  # Emphasize high savings
+            savings_heuristic[j, i] = savings**2
+
+    # 5. Node Similarity (Demand-Distance Tradeoff)
+    # Encourage edges between nodes with similar demand/distance profiles
+    similarity_heuristic = np.zeros((n, n))
+    demand_normalized = demands / np.max(demands)
+    distance_to_depot_normalized = distance_matrix[:, 0] / np.max(distance_matrix[:, 0])
+
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            demand_diff = abs(demand_normalized[i] - demand_normalized[j])
+            distance_diff = abs(distance_to_depot_normalized[i] - distance_to_depot_normalized[j])
+            similarity_heuristic[i, j] = 1 - (demand_diff + distance_diff) / 2 #High score when demand diff and distance_to_depot_diff are small
+            similarity_heuristic[j, i] = similarity_heuristic[i, j]
+
+    # 6. Adaptive Weighting (Mechanism-Driven)
+    #   - Dynamically adjust weights based on network connectivity.
+    #   - High connectivity -> emphasize savings. Low connectivity -> emphasize distance.
+    connectivity = np.sum(distance_matrix < np.mean(distance_matrix)) / (n * n)  # Ratio of "close" edges
+    alpha = alpha_connectivity_factor * (1 - connectivity)  # Distance importance (inversely proportional to connectivity)
+    beta = beta_connectivity_factor * (1-connectivity) # Depot proximity
+    gamma = gamma_connectivity_factor * connectivity  # Savings importance (proportional to connectivity)
+    eta = eta_connectivity_factor * connectivity #Similarity heuristic
+
+    heuristics = alpha * distance_heuristic * demand_heuristic + beta * depot_heuristic + gamma * savings_heuristic + eta * similarity_heuristic
+
+    # 7. Sparsification (Aggressive and Dynamic)
+    #   - Remove edges below a percentile threshold AND those that violate "triangle inequality".
+    #   - Only keep k-nearest neighbors.
+
+    threshold = np.percentile(heuristics[heuristics > 0], percentile_threshold)  # Aggressive sparsification
+
+    for i in range(n):
+        nearest_neighbors = np.argsort(distance_matrix[i, :])[1:k_nearest+1]
+
+        for j in range(n):
+            if heuristics[i, j] < threshold and j not in nearest_neighbors:
+                heuristics[i, j] = 0
+            #Triangle inequality check
+            for k in range(n):
+              if distance_matrix[i,j] > distance_matrix[i,k] + distance_matrix[k,j]:
+                heuristics[i,j] = 0
+                break
+
+
+
+    # Normalize
+    max_val = np.max(heuristics)
+    if max_val > 0:
+        heuristics = heuristics / max_val
+
+    return heuristics

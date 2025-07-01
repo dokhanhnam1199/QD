@@ -102,7 +102,7 @@ def chat_completion(n: int, messages: list[dict], model: str, temperature: float
     """
     Generate n responses using OpenAI Chat Completions API
     """
-
+    response_cur = None
     for attempt in range(30):
         try:
             response_cur = completion(model=model, messages=messages, temperature=temperature, n=n)

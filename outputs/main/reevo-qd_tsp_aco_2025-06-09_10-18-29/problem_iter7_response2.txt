@@ -1,0 +1,63 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for the Traveling Salesman Problem (TSP) that combines
+    multiple factors to determine the likelihood of including an edge in a solution.
+    This version emphasizes simplicity, direct neighbor bonuses/penalties, and aggressive sparsification.
+
+    Args:
+        distance_matrix (np.ndarray): A 2D numpy array representing the distance
+            matrix between cities.  distance_matrix[i][j] is the distance
+            between city i and city j.
+
+    Returns:
+        np.ndarray: A 2D numpy array of the same shape as distance_matrix,
+            where each element represents the prior probability or desirability
+            of including the corresponding edge in a TSP tour.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Heuristic 1: Inverse distance (shorter distances are more desirable)
+    inverse_distance = 1.0 / (distance_matrix + 1e-9)  # Add a small constant to avoid division by zero
+
+    # Heuristic 2: Nearest neighbor bonus (only immediate neighbors)
+    nearest_neighbors = np.argsort(distance_matrix, axis=1)
+    nearest_neighbor_bonus = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        neighbor_index = nearest_neighbors[i, 1]  # immediate neighbor
+        nearest_neighbor_bonus[i, neighbor_index] = 0.75 # direct neighbor bonus
+
+    # Heuristic 3: Farthest neighbor penalty (immediate neighbors)
+    farthest_neighbors = np.argsort(distance_matrix, axis=1)[:, ::-1]
+    farthest_neighbor_penalty = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        neighbor_index = farthest_neighbors[i, 0]
+        farthest_neighbor_penalty[i, neighbor_index] = -0.25  # direct neighbor penalty
+
+    # Combine heuristics with equal weights
+    heuristic_matrix = inverse_distance + nearest_neighbor_bonus + farthest_neighbor_penalty
+
+    # Aggressive sparsification: Keep only top 2 edges per row
+    for i in range(n):
+        row = heuristic_matrix[i, :]
+        top_indices = np.argsort(row)[-2:] # indices of the top 2 values
+        mask = np.ones_like(row, dtype=bool)
+        mask[top_indices] = False
+        heuristic_matrix[i, mask] = 0.0 # zero out everything else
+
+    # Robust normalization using softmax
+    for i in range(n):
+        row = heuristic_matrix[i, :]
+        row_exp = np.exp(row - np.max(row))  # Subtract max for numerical stability
+        row_sum = np.sum(row_exp)
+        if row_sum > 0:
+            heuristic_matrix[i, :] = row_exp / row_sum
+        else:
+            heuristic_matrix[i, :] = 1.0 / n  # if all values are -inf
+
+    return heuristic_matrix
+```

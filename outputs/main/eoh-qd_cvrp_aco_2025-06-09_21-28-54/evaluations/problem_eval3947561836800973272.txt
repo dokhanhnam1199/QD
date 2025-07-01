@@ -1,0 +1,70 @@
+import numpy as np
+import random
+from collections import defaultdict
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a clustering-first, routing-second approach, clustering nodes based on proximity and demand, then evaluating edges within and between clusters.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros((n, n))
+    num_clusters = int(np.sqrt(n)) # Heuristic choice for number of clusters
+    
+    # 1. Clustering: Group nodes based on proximity and demand
+    clusters = defaultdict(list)
+    cluster_capacities = defaultdict(int)
+    
+    # Initialize clusters randomly
+    for i in range(1, n):
+        cluster_id = random.randint(0, num_clusters - 1)
+        clusters[cluster_id].append(i)
+        cluster_capacities[cluster_id] += demands[i]
+
+    # Assign remaining nodes greedily to the nearest cluster that can accommodate their demand
+    unassigned_nodes = list(range(1, n))
+    
+    while unassigned_nodes:
+        node = unassigned_nodes.pop(0) # Process in arbitrary order
+        best_cluster = -1
+        min_dist = float('inf')
+        
+        for cluster_id in range(num_clusters):
+            if cluster_capacities[cluster_id] + demands[node] <= capacity:
+                # Calculate distance to cluster centroid (simplified: average coordinate)
+                cluster_nodes = clusters[cluster_id]
+                if cluster_nodes:
+                    cluster_centroid = np.mean([coordinates[i] for i in cluster_nodes], axis=0)
+                    dist = np.linalg.norm(coordinates[node] - cluster_centroid)
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_cluster = cluster_id
+                else:
+                    best_cluster = cluster_id
+                    min_dist = 0
+                    break
+
+        if best_cluster != -1:
+            clusters[best_cluster].append(node)
+            cluster_capacities[best_cluster] += demands[node]
+        else:
+            # If node cannot be added to any existing cluster, create a new cluster
+            num_clusters += 1
+            clusters[num_clusters-1].append(node)
+            cluster_capacities[num_clusters-1] += demands[node]
+
+    # 2. Evaluate Edges: Prioritize edges within clusters and edges connecting to the depot
+    for cluster_id in range(num_clusters):
+        cluster_nodes = clusters[cluster_id]
+        for i in range(len(cluster_nodes)):
+            for j in range(i + 1, len(cluster_nodes)):
+                node1 = cluster_nodes[i]
+                node2 = cluster_nodes[j]
+                heuristics_matrix[node1, node2] += 1 # Prioritize edges within the same cluster
+                heuristics_matrix[node2, node1] += 1
+            heuristics_matrix[0, cluster_nodes[i]] += 0.5  # Give medium priority to edges connecting cluster nodes to depot
+            heuristics_matrix[cluster_nodes[i], 0] += 0.5
+
+    # Normalize the heuristics matrix
+    total_edges = np.sum(heuristics_matrix)
+    if total_edges > 0:
+        heuristics_matrix = heuristics_matrix / total_edges
+
+    return heuristics_matrix

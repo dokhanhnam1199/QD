@@ -1,0 +1,52 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Combines inverse distance, node degree penalty, and sparsification
+    with normalization to create a heuristic for the TSP.
+    """
+    # Avoid division by zero
+    distance_matrix = np.where(distance_matrix == 0, np.inf, distance_matrix)
+
+    # 1. Inverse distance
+    heuristic_matrix = 1 / distance_matrix
+
+    # 2. Node degree penalty
+    num_nodes = distance_matrix.shape[0]
+    degree_penalty = np.zeros_like(distance_matrix)
+    node_strengths = np.sum(heuristic_matrix, axis=0)
+
+    for i in range(num_nodes):
+        for j in range(num_nodes):
+            if i != j:
+                degree_penalty[i, j] = 1 / (node_strengths[i] + node_strengths[j])
+
+    # Combine inverse distance and node degree penalty
+    heuristic_matrix = heuristic_matrix * degree_penalty
+
+    # 3. Sparsification and edge sharpening. Focus search.
+    node_mean_strengths = np.mean(heuristic_matrix, axis=1, keepdims=True)
+    sparsification_threshold = 0.5  # adaptive? f(problem size)?
+    heuristic_matrix = np.where(heuristic_matrix < sparsification_threshold * node_mean_strengths, 0, heuristic_matrix)
+    heuristic_matrix = heuristic_matrix**2 # Edge sharpening
+
+    # 4. Normalization using variance across each edges
+    row_sum = np.sum(heuristic_matrix, axis=1, keepdims=True)
+    col_sum = np.sum(heuristic_matrix, axis=0, keepdims=True)
+
+    row_sum = np.where(row_sum == 0, 1e-6, row_sum)
+    col_sum = np.where(col_sum == 0, 1e-6, col_sum)
+    
+    row_normalized = heuristic_matrix / row_sum
+    col_normalized = heuristic_matrix / col_sum
+    
+    final_heuristic_matrix = row_normalized * col_normalized
+
+    #Zero out diagonals (no self-loops)
+    np.fill_diagonal(final_heuristic_matrix, 0)
+
+    final_heuristic_matrix = np.nan_to_num(final_heuristic_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+
+    return final_heuristic_matrix
+```

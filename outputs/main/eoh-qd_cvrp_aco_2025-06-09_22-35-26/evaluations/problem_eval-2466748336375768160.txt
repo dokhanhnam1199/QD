@@ -1,0 +1,71 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a biased random walk to construct routes, favoring edges with shorter distances and penalizing routes that violate capacity constraints, then builds a heuristic matrix based on edge frequency in the better routes.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_samples = 1000
+    alpha = 1.0  # Controls the exploration-exploitation balance for distance
+    beta = 2.0   # Controls the penalty for capacity violation
+
+    for _ in range(num_samples):
+        routes = []
+        current_route = [0]
+        current_capacity = 0
+        unvisited_nodes = set(range(1, n))
+        
+        while unvisited_nodes:
+            current_node = current_route[-1]
+            
+            # Calculate probabilities for each unvisited node based on distance and capacity
+            probabilities = []
+            for next_node in unvisited_nodes:
+                distance = distance_matrix[current_node, next_node]
+                potential_capacity = current_capacity + demands[next_node]
+                
+                # Favor shorter distances and penalize routes exceeding capacity
+                if potential_capacity <= capacity:
+                    probability = np.exp(-alpha * distance)
+                else:
+                    probability = np.exp(-alpha * distance - beta * (potential_capacity - capacity)) #Significant penalty
+                probabilities.append(probability)
+            
+            # Normalize probabilities
+            if sum(probabilities) == 0:
+                probabilities = [1/len(unvisited_nodes)]*len(unvisited_nodes) #Assign equal probability if all are infeasible
+            else:
+                probabilities = [p / sum(probabilities) for p in probabilities]
+            
+            # Choose the next node based on the probabilities
+            next_node = random.choices(list(unvisited_nodes), probabilities)[0]
+            
+            # Update the current route and capacity
+            if current_capacity + demands[next_node] <= capacity:
+                  current_route.append(next_node)
+                  current_capacity += demands[next_node]
+                  unvisited_nodes.remove(next_node)
+            else:
+                current_route.append(0) #Return to Depot
+                routes.append(current_route)
+                current_route = [0]
+                current_capacity = 0
+        
+        #Close the last route
+        current_route.append(0)
+        routes.append(current_route)
+
+        # Update heuristics matrix
+        for route in routes:
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                heuristics_matrix[node1, node2] += 1
+                heuristics_matrix[node2, node1] += 1  # Symmetric
+                
+    # Normalize heuristics matrix
+    max_val = np.max(heuristics_matrix)
+    if max_val > 0:
+        heuristics_matrix = heuristics_matrix / max_val
+
+    return heuristics_matrix

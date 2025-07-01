@@ -1,0 +1,65 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively refines edge inclusion probabilities by generating initial random routes, penalizing edges in infeasible routes, rewarding edges in shorter feasible routes, and updating the edge importance matrix based on a weighted average of these observations.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_samples = 1000
+    alpha = 0.1  # Learning rate
+    beta = 0.5 #Penalty Factor
+
+    for _ in range(num_samples):
+        # Generate a random permutation of customers (excluding the depot)
+        customer_indices = list(range(1, n))
+        random.shuffle(customer_indices)
+
+        routes = []
+        current_route = [0]
+        current_capacity = 0
+
+        for customer in customer_indices:
+            if current_capacity + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_capacity += demands[customer]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, customer]
+                current_capacity = demands[customer]
+
+        current_route.append(0)
+        routes.append(current_route)
+
+        is_feasible = True
+        total_distance = 0
+        for route in routes:
+            route_demand = sum(demands[i] for i in route)
+            if route_demand > capacity:
+                is_feasible = False
+                break
+            for i in range(len(route) - 1):
+                total_distance += distance_matrix[route[i], route[i+1]]
+
+        for route in routes:
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                if is_feasible:
+                    heuristics_matrix[node1, node2] += alpha / (total_distance + 1e-6) # Reward feasible routes with shorter distances
+                    heuristics_matrix[node2, node1] += alpha / (total_distance + 1e-6)
+                else:
+                    heuristics_matrix[node1, node2] -= beta*alpha # Penalize edges in infeasible routes
+                    heuristics_matrix[node2, node1] -= beta*alpha
+
+    #Normalize
+    max_val = np.max(heuristics_matrix)
+    min_val = np.min(heuristics_matrix)
+
+    if max_val > min_val:
+        heuristics_matrix = (heuristics_matrix - min_val) / (max_val - min_val)
+    elif max_val > 0:
+        heuristics_matrix = heuristics_matrix / max_val
+
+
+    return heuristics_matrix

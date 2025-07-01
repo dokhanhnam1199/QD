@@ -1,0 +1,125 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses stochastic solution sampling with a savings heuristic to estimate the probability of each edge being in a good CVRP solution, using these probabilities as heuristics.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        # Calculate savings for all pairs of customers
+        savings = np.zeros((n, n))
+        for i in range(1, n):
+            for j in range(1, n):
+                if i != j:
+                    savings[i, j] = distance_matrix[i, 0] + distance_matrix[0, j] - distance_matrix[i, j]
+
+        # Sort savings in descending order
+        sorted_savings = np.argsort(savings.flatten())[::-1]
+        
+        # Initialize data structures
+        routes = []
+        customer_route = {}
+        remaining_demand = np.copy(demands)
+        
+        # Build routes based on savings
+        for index in sorted_savings:
+            i = index // n
+            j = index % n
+            
+            if i == 0 or j == 0:
+                continue
+                
+            # Check if both customers are unrouted
+            if i not in customer_route and j not in customer_route:
+                if remaining_demand[i] + remaining_demand[j] <= capacity:
+                    routes.append([i, j])
+                    customer_route[i] = len(routes) - 1
+                    customer_route[j] = len(routes) - 1
+                    remaining_demand[i] = 0
+                    remaining_demand[j] = 0
+            
+            # Check if i is unrouted and j is in a route
+            elif i not in customer_route and j in customer_route:
+                route_index = customer_route[j]
+                route = routes[route_index]
+                
+                if remaining_demand[i] + sum(demands[node] for node in route) <= capacity:
+                    # Check if j is the first or last node in the route
+                    if route[0] == j:
+                        routes[route_index] = [i] + route
+                        customer_route[i] = route_index
+                        remaining_demand[i] = 0
+                        
+                    elif route[-1] == j:
+                        routes[route_index] = route + [i]
+                        customer_route[i] = route_index
+                        remaining_demand[i] = 0
+                        
+            # Check if j is unrouted and i is in a route
+            elif j not in customer_route and i in customer_route:
+                route_index = customer_route[i]
+                route = routes[route_index]
+                
+                if remaining_demand[j] + sum(demands[node] for node in route) <= capacity:
+                    # Check if i is the first or last node in the route
+                    if route[0] == i:
+                        routes[route_index] = [j] + route
+                        customer_route[j] = route_index
+                        remaining_demand[j] = 0
+                    elif route[-1] == i:
+                        routes[route_index] = route + [j]
+                        customer_route[j] = route_index
+                        remaining_demand[j] = 0
+            
+            # Check if i and j are in different routes
+            elif i in customer_route and j in customer_route and customer_route[i] != customer_route[j]:
+                route_index_i = customer_route[i]
+                route_index_j = customer_route[j]
+                route_i = routes[route_index_i]
+                route_j = routes[route_index_j]
+                
+                if sum(demands[node] for node in route_i) + sum(demands[node] for node in route_j) <= capacity:
+                    # Check if the routes can be merged
+                    if route_i[-1] == i and route_j[0] == j:
+                        merged_route = route_i + route_j
+                        
+                        for node in route_j:
+                            customer_route[node] = route_index_i
+                        
+                        routes[route_index_i] = merged_route
+                        routes[route_index_j] = []
+                        
+                    elif route_i[0] == i and route_j[-1] == j:
+                        merged_route = route_j + route_i
+                        
+                        for node in route_i:
+                            customer_route[node] = route_index_j
+                        
+                        routes[route_index_j] = merged_route
+                        routes[route_index_i] = []
+        
+        # Add unrouted customers as single-customer routes
+        for customer in range(1, n):
+            if customer not in customer_route:
+                routes.append([customer])
+                customer_route[customer] = len(routes) - 1
+        
+        # Construct the tour by adding depot visits
+        tour = []
+        for route in routes:
+            if len(route) > 0:
+                tour.append(0)
+                tour.extend(route)
+                tour.append(0)
+
+        # Update heuristics based on edges in the tour
+        for i in range(len(tour) - 1):
+            heuristics_matrix[tour[i], tour[i+1]] += 1
+            heuristics_matrix[tour[i+1], tour[i]] += 1
+
+    heuristics_matrix /= num_samples
+
+    return heuristics_matrix

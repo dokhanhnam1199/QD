@@ -1,0 +1,67 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """
+    {This algorithm constructs a heuristic matrix by prioritizing shorter distances, discouraging short cycles, and accounting for node connectivity through iterative edge weighting based on sampled tours.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Initialize heuristics with inverse of distance
+    heuristics_matrix = 1 / (distance_matrix + 1e-6)  # Avoid division by zero
+
+    num_samples = 100
+    for _ in range(num_samples):
+        # Sample a random tour using the current heuristics
+        current_node = np.random.randint(n)
+        tour = [current_node]
+        unvisited_nodes = set(range(n))
+        unvisited_nodes.remove(current_node)
+
+        while unvisited_nodes:
+            probabilities = heuristics_matrix[current_node, :]
+            probabilities[list(tour)] = 0  # Avoid revisiting nodes
+
+            # Normalize probabilities
+            if np.sum(probabilities) > 0:
+                probabilities /= np.sum(probabilities)
+            else:
+                # If all probabilities are zero, choose a random unvisited node
+                next_node = np.random.choice(list(unvisited_nodes))
+                tour.append(next_node)
+                unvisited_nodes.remove(next_node)
+                current_node = next_node
+                continue
+
+            next_node = np.random.choice(n, p=probabilities)
+            if next_node not in unvisited_nodes:
+                # Handle case where chosen node was already visited due to numerical issues
+                available_nodes = list(unvisited_nodes)
+                if available_nodes:
+                    next_node = np.random.choice(available_nodes)
+                else:
+                    break
+
+
+            tour.append(next_node)
+            unvisited_nodes.remove(next_node)
+            current_node = next_node
+            
+
+        if len(tour) == n:
+            tour.append(tour[0]) # Complete cycle
+            # Update heuristics based on the tour
+            for i in range(n):
+                node1 = tour[i]
+                node2 = tour[i+1]
+                heuristics_matrix[node1, node2] += 0.1
+                heuristics_matrix[node2, node1] += 0.1  # Ensure symmetry
+            #Penalize edges not in tour
+            for i in range(n):
+                for j in range(i+1,n):
+                    if not ((i in tour and j in tour) or (j in tour and i in tour)):
+                        heuristics_matrix[i, j] -= 0.05
+                        heuristics_matrix[j, i] -= 0.05
+
+
+    return heuristics_matrix

@@ -1,0 +1,66 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively constructs routes by probabilistically adding nodes based on a combination of distance and demand, favoring closer nodes with lower demand while ensuring capacity constraints are met.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 1000
+    alpha = 0.7  # Weight for distance
+    beta = 0.3   # Weight for demand
+
+    for _ in range(num_iterations):
+        current_route = [0]
+        current_demand = 0
+        remaining_nodes = set(range(1, n))
+
+        while remaining_nodes:
+            # Calculate probabilities for each remaining node
+            probabilities = []
+            for node in remaining_nodes:
+                distance = distance_matrix[current_route[-1], node]
+                demand = demands[node]
+                score = (alpha * (1 / (distance + 1e-6))) + (beta * (1 / (demand + 1e-6))) # Avoid divide by zero
+                probabilities.append((node, score))
+
+            # Filter nodes that exceed capacity
+            feasible_nodes = [(node, score) for node, score in probabilities if current_demand + demands[node] <= capacity]
+
+            if not feasible_nodes:
+                # If no feasible nodes, return to depot and start new route
+                current_route.append(0)
+                for i in range(len(current_route) - 1):
+                    heuristics_matrix[current_route[i], current_route[i+1]] += 1
+                    heuristics_matrix[current_route[i+1], current_route[i]] += 1
+
+                current_route = [0]
+                current_demand = 0
+                continue
+
+            # Normalize probabilities
+            total_score = sum(score for _, score in feasible_nodes)
+            if total_score == 0: #Avoid potential divide by zero
+              normalized_probabilities = [(node, 1 / len(feasible_nodes)) for node, _ in feasible_nodes]
+            else:
+              normalized_probabilities = [(node, score / total_score) for node, score in feasible_nodes]
+            
+
+            # Choose next node probabilistically
+            chosen_node = random.choices([node for node, _ in normalized_probabilities], weights=[score for _, score in normalized_probabilities], k=1)[0]
+
+            # Add chosen node to route
+            current_route.append(chosen_node)
+            current_demand += demands[chosen_node]
+            remaining_nodes.remove(chosen_node)
+
+        # Close the route
+        current_route.append(0)
+
+        # Update heuristics matrix
+        for i in range(len(current_route) - 1):
+            heuristics_matrix[current_route[i], current_route[i+1]] += 1
+            heuristics_matrix[current_route[i+1], current_route[i]] += 1
+
+    return heuristics_matrix

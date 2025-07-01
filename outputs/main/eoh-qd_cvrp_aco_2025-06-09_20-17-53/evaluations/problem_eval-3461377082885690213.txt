@@ -1,0 +1,68 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm generates random routes, evaluates them using a combination of cost and capacity slack, and biases the heuristic matrix towards edges in routes with low cost and high capacity slack.}
+    """
+    n = len(demands)
+    num_samples = 1000
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    route_costs = []
+    routes = []
+
+    for _ in range(num_samples):
+        # Generate a random route
+        unvisited = list(range(1, n))
+        current_route = [0]
+        current_capacity = capacity
+        route = []
+        while unvisited:
+            next_node = random.choice(unvisited)
+            if demands[next_node] <= current_capacity:
+                current_route.append(next_node)
+                current_capacity -= demands[next_node]
+                unvisited.remove(next_node)
+            else:
+                current_route.append(0)
+                route.append(current_route)
+                current_route = [0, next_node]
+                current_capacity = capacity - demands[next_node]
+                unvisited.remove(next_node)
+        current_route.append(0)
+        route.append(current_route)
+
+        # Calculate the cost of the route
+        cost = 0
+        total_slack = 0
+        for r in route:
+            for i in range(len(r) - 1):
+                cost += distance_matrix[r[i]][r[i+1]]
+            current_cap = capacity
+            for node in r[1:-1]:
+                current_cap -= demands[node]
+            total_slack += current_cap
+        
+        route_costs.append((cost, total_slack))
+        routes.append(route)
+
+    # Normalize route costs (lower is better) and slack (higher is better)
+    costs = np.array([x[0] for x in route_costs])
+    slacks = np.array([x[1] for x in route_costs])
+    
+    # Calculate the median route cost and slack
+    median_cost = np.median(costs)
+    median_slack = np.median(slacks)
+    
+    # Identify good routes (those with cost <= median AND slack >= median)
+    good_route_indices = np.where((costs <= median_cost) & (slacks >= median_slack))[0]
+    
+    # Update heuristics matrix based on good routes
+    for index in good_route_indices:
+        route = routes[index]
+        for r in route:
+             for i in range(len(r) - 1):
+                heuristics_matrix[r[i]][r[i+1]] += 1
+                heuristics_matrix[r[i+1]][r[i]] += 1  # Symmetry
+
+    return heuristics_matrix

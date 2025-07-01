@@ -1,0 +1,72 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs solutions by iteratively adding the nearest feasible node to the current route, favoring edges to nodes that appear frequently in shorter routes, using a weighted probability to balance distance and edge frequency.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 100
+
+    for _ in range(num_samples):
+        routes = []
+        remaining_nodes = list(range(1, n))
+        current_route = [0]
+        current_load = 0
+
+        while remaining_nodes:
+            # Calculate weighted probabilities for each remaining node
+            probabilities = []
+            for node in remaining_nodes:
+                if current_load + demands[node] <= capacity:
+                    distance = distance_matrix[current_route[-1]][node]
+                    
+                    # Calculate frequency in previously 'good' routes (using heuristic matrix as proxy)
+                    edge_frequency = heuristics_matrix[current_route[-1]][node]
+
+                    # Combine distance and frequency with weights
+                    weight = (1.0 / distance) + (0.1 * edge_frequency)  # Adjust weights as needed
+                    probabilities.append(weight)
+                else:
+                    probabilities.append(0)
+
+            # Normalize probabilities
+            total_probability = sum(probabilities)
+            if total_probability > 0:
+                probabilities = [p / total_probability for p in probabilities]
+            else:
+                # If all probabilities are zero, choose a random node
+                probabilities = [1.0 / len(remaining_nodes)] * len(remaining_nodes)
+
+
+            # Select next node based on probabilities
+            next_node = random.choices(remaining_nodes, weights=probabilities, k=1)[0]
+            
+            if current_load + demands[next_node] <= capacity:
+                current_route.append(next_node)
+                current_load += demands[next_node]
+                remaining_nodes.remove(next_node)
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0]
+                current_load = 0
+
+        if len(current_route) > 1:
+            current_route.append(0)
+            routes.append(current_route)
+
+        # Update heuristics matrix
+        total_distance = 0
+        for route in routes:
+          for i in range(len(route)-1):
+            total_distance += distance_matrix[route[i]][route[i+1]]
+            
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                heuristics_matrix[u][v] += 1.0/total_distance
+
+    return heuristics_matrix

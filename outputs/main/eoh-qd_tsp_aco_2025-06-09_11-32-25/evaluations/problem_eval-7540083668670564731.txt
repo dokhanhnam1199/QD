@@ -1,0 +1,72 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a genetic algorithm approach to evolve a population of TSP solutions, using edge appearance frequency from the best solutions to inform the heuristics matrix.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    population_size = 50
+    num_generations = 50
+    mutation_rate = 0.05
+
+    # Initialize population with random tours
+    population = [np.random.permutation(n) for _ in range(population_size)]
+
+    for _ in range(num_generations):
+        # Evaluate fitness of each tour (tour length)
+        fitness = np.array([calculate_tour_length(tour, distance_matrix) for tour in population])
+
+        # Select the best tours (lower tour length is better)
+        # Using tournament selection: randomly select 2 tours and choose the better one
+        selected_indices = []
+        for _ in range(population_size):
+            idx1 = np.random.randint(population_size)
+            idx2 = np.random.randint(population_size)
+            if fitness[idx1] < fitness[idx2]:
+                selected_indices.append(idx1)
+            else:
+                selected_indices.append(idx2)
+        selected_tours = [population[i] for i in selected_indices]
+
+        # Crossover (combine segments of selected tours)
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = selected_tours[i % len(selected_tours)]
+            parent2 = selected_tours[(i + 1) % len(selected_tours)]
+            
+            # Single point crossover
+            crossover_point = np.random.randint(1, n)
+            child1 = np.concatenate((parent1[:crossover_point], [node for node in parent2 if node not in parent1[:crossover_point]]))
+            child2 = np.concatenate((parent2[:crossover_point], [node for node in parent1 if node not in parent2[:crossover_point]]))
+            
+            new_population.append(child1)
+            new_population.append(child2)
+
+        # Mutation (swap two cities in a tour)
+        for i in range(population_size):
+            if np.random.rand() < mutation_rate:
+                idx1 = np.random.randint(n)
+                idx2 = np.random.randint(n)
+                new_population[i][idx1], new_population[i][idx2] = new_population[i][idx2], new_population[i][idx1]
+
+        population = new_population
+
+    # After evolution, analyze the best tours and update the heuristics matrix
+    best_fitness_idx = np.argmin([calculate_tour_length(tour, distance_matrix) for tour in population])
+    best_tour = population[best_fitness_idx]
+    
+    for i in range(n - 1):
+        heuristics_matrix[best_tour[i], best_tour[i+1]] += 1
+        heuristics_matrix[best_tour[i+1], best_tour[i]] += 1
+    heuristics_matrix[best_tour[-1], best_tour[0]] += 1
+    heuristics_matrix[best_tour[0], best_tour[-1]] += 1
+
+    return heuristics_matrix
+
+def calculate_tour_length(tour, distance_matrix):
+    """Calculates the total length of a given TSP tour."""
+    n = len(tour)
+    tour_length = 0
+    for i in range(n - 1):
+        tour_length += distance_matrix[tour[i], tour[i+1]]
+    tour_length += distance_matrix[tour[-1], tour[0]]
+    return heuristics_matrix

@@ -1,0 +1,85 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses an ant colony optimization approach to iteratively construct routes, updating pheromone levels based on route quality and feasibility, to estimate edge inclusion probabilities.}
+    """
+    n = distance_matrix.shape[0]
+    pheromone_matrix = np.ones_like(distance_matrix)  # Initialize pheromone levels
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    alpha = 1.0  # Pheromone influence
+    beta = 2.0   # Distance influence
+    rho = 0.5    # Evaporation rate
+    Q = 100.0    # Pheromone deposit constant
+    num_ants = 20
+    num_iterations = 100
+
+    for iteration in range(num_iterations):
+        all_routes = []
+        all_costs = []
+        for ant in range(num_ants):
+            route = [0]  # Start at the depot
+            current_load = 0
+            unvisited = set(range(1, n))
+
+            while unvisited:
+                probabilities = []
+                for customer in unvisited:
+                    pheromone = pheromone_matrix[route[-1], customer] ** alpha
+                    heuristic = (1.0 / distance_matrix[route[-1], customer]) ** beta
+                    if current_load + demands[customer] <= capacity:
+                      probabilities.append((customer, pheromone * heuristic))
+                    else:
+                      probabilities.append((customer,0))
+                        
+                total_prob = sum([prob for cust, prob in probabilities])
+                if total_prob == 0:
+                  route.append(0)
+                  current_load = 0
+                  continue
+
+                probabilities = [(cust, prob / total_prob) for cust, prob in probabilities]
+                
+                customers, probs = zip(*probabilities)
+                next_customer = random.choices(customers, weights=probs, k=1)[0]
+
+
+                if current_load + demands[next_customer] <= capacity:
+                    route.append(next_customer)
+                    current_load += demands[next_customer]
+                    unvisited.remove(next_customer)
+                else:
+                    route.append(0)  # Return to depot
+                    current_load = 0
+                    
+            route.append(0)  # Return to depot
+
+            # Calculate route cost
+            route_cost = 0
+            for i in range(len(route) - 1):
+                route_cost += distance_matrix[route[i], route[i+1]]
+
+            all_routes.append(route)
+            all_costs.append(route_cost)
+        
+        # Update pheromone levels
+        for i in range(n):
+            for j in range(n):
+                pheromone_matrix[i, j] *= (1 - rho)  # Evaporation
+
+        for route, cost in zip(all_routes, all_costs):
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                pheromone_matrix[u, v] += Q / cost  # Pheromone deposit
+        
+        # Update heuristics matrix based on pheromone levels
+        heuristics_matrix = pheromone_matrix
+
+    # Normalize the heuristics matrix
+    max_pheromone = np.max(heuristics_matrix)
+    if max_pheromone > 0:
+        heuristics_matrix = heuristics_matrix / max_pheromone
+
+    return heuristics_matrix

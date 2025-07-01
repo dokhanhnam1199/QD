@@ -1,0 +1,75 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a genetic algorithm approach to evolve a population of tours, using crossover and mutation to create new generations and selecting the best tours based on their total distance.}"""
+    n = distance_matrix.shape[0]
+    num_samples = 100
+    population_size = 50
+    mutation_rate = 0.01
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Initialize population
+    population = [np.random.permutation(n) for _ in range(population_size)]
+
+    def calculate_fitness(tour):
+        cost = 0
+        for i in range(n - 1):
+            cost += distance_matrix[tour[i], tour[i+1]]
+        cost += distance_matrix[tour[-1], tour[0]]
+        return -cost  # Minimize cost, maximize fitness
+
+    def crossover(parent1, parent2):
+        start = np.random.randint(n)
+        end = np.random.randint(start + 1, n + 1) if start < n-1 else n
+        
+        child1 = np.concatenate((parent1[:start], [item for item in parent2 if item not in parent1[:start]], parent1[end:]))
+        
+        return child1
+    
+
+    def mutate(tour):
+        if np.random.rand() < mutation_rate:
+            i, j = np.random.choice(n, 2, replace=False)
+            tour[i], tour[j] = tour[j], tour[i]
+        return tour
+
+    # Evolve population
+    for _ in range(num_samples):
+        # Calculate fitness for each tour
+        fitnesses = [calculate_fitness(tour) for tour in population]
+
+        # Select parents based on fitness (roulette wheel selection)
+        probabilities = np.array(fitnesses) - np.min(fitnesses)
+        probabilities = probabilities / np.sum(probabilities) if np.sum(probabilities) > 0 else np.ones(len(fitnesses))/len(fitnesses)
+        
+        parents_indices = np.random.choice(population_size, size=population_size, replace=True, p=probabilities)
+        parents = [population[i] for i in parents_indices]
+
+        # Create new population through crossover and mutation
+        new_population = []
+        for i in range(0, population_size, 2):
+            child1 = crossover(parents[i], parents[i+1])
+            child1 = mutate(child1)
+            new_population.append(child1)
+            if i + 1 < population_size:
+                child2 = crossover(parents[i+1], parents[i])
+                child2 = mutate(child2)
+                new_population.append(child2)
+        
+        if len(new_population) > population_size:
+            new_population = new_population[:population_size]
+        elif len(new_population) < population_size:
+            new_population.extend(np.random.choice(population, population_size-len(new_population), replace = True).tolist())
+        population = new_population
+    
+    best_tour = population[np.argmax([calculate_fitness(tour) for tour in population])]
+    best_tour = np.append(best_tour, best_tour[0])
+
+    # Update heuristics matrix based on best tour
+    for i in range(n):
+        node1 = best_tour[i]
+        node2 = best_tour[i+1]
+        heuristics_matrix[node1, node2] += 1
+        heuristics_matrix[node2, node1] += 1
+
+    return heuristics_matrix

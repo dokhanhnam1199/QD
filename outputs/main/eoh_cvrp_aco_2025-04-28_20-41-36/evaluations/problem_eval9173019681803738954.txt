@@ -1,0 +1,139 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs initial routes using a greedy approach, then iteratively refines them by relocating customers between routes based on cost reduction and feasibility, guided by a tabu list to avoid cycling and demand similarity to enhance route coherence.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_vehicles = 5
+    num_iterations = 100
+    tabu_list = []
+    tabu_length = 10
+    alpha = 0.7
+
+    def create_initial_routes():
+        unassigned_customers = set(range(1, n))
+        routes = []
+        for _ in range(num_vehicles):
+            route = [0]
+            current_load = 0
+            while unassigned_customers:
+                best_customer = None
+                best_cost = float('inf')
+                for c in unassigned_customers:
+                    if current_load + demands[c] <= capacity:
+                        cost = distance_matrix[route[-1], c]
+                        if cost < best_cost:
+                            best_cost = cost
+                            best_customer = c
+
+                if best_customer is None:
+                    break
+
+                route.append(best_customer)
+                current_load += demands[best_customer]
+                unassigned_customers.remove(best_customer)
+            route.append(0)
+            routes.append(route)
+        
+        remaining_customers = list(unassigned_customers)
+        idx = 0
+        while remaining_customers:
+            routes[idx % num_vehicles].insert(len(routes[idx % num_vehicles]) - 1, remaining_customers.pop(0))
+            idx += 1
+        return routes
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    def calculate_total_cost(routes):
+        total_cost = 0
+        for route in routes:
+            total_cost += calculate_route_cost(route)
+        return total_cost
+
+    def demand_similarity(i, j):
+        return 1 / (1 + abs(demands[i] - demands[j]))
+    
+    def route_coherence(route, i, j):
+        if i in route and j in route:
+            i_idx = route.index(i)
+            j_idx = route.index(j)
+            if abs(i_idx - j_idx) <= 2:
+                return 1
+        return 0
+
+    def is_tabu(move):
+        return move in tabu_list
+
+    def add_to_tabu(move):
+        tabu_list.append(move)
+        if len(tabu_list) > tabu_length:
+            tabu_list.pop(0)
+
+
+    current_routes = create_initial_routes()
+    best_routes = [route[:] for route in current_routes]
+    best_cost = calculate_total_cost(current_routes)
+
+    for _ in range(num_iterations):
+        best_move = None
+        best_move_cost_diff = 0
+
+        for route_index in range(len(current_routes)):
+            route = current_routes[route_index]
+            for customer_index in range(1, len(route) - 1):
+                customer = route[customer_index]
+                
+                for other_route_index in range(len(current_routes)):
+                    if other_route_index == route_index:
+                        continue
+                    
+                    other_route = current_routes[other_route_index]
+                    for insert_index in range(1, len(other_route)):
+                        
+                        # Check capacity constraint
+                        if sum(demands[c] for c in other_route[1:-1]) + demands[customer] <= capacity:
+                            
+                            # Calculate cost difference
+                            cost_diff = distance_matrix[route[customer_index-1], route[customer_index+1]] - distance_matrix[route[customer_index-1], customer] - distance_matrix[customer, route[customer_index+1]] + distance_matrix[other_route[insert_index-1], customer] + distance_matrix[customer, other_route[insert_index]] - distance_matrix[other_route[insert_index-1], other_route[insert_index]]
+                            
+                            move = (route_index, customer_index, other_route_index, insert_index)
+                            if not is_tabu(move) and cost_diff < best_move_cost_diff:
+                                best_move = move
+                                best_move_cost_diff = cost_diff
+        
+        if best_move:
+            route_index, customer_index, other_route_index, insert_index = best_move
+            customer = current_routes[route_index][customer_index]
+            
+            # Remove customer from original route
+            del current_routes[route_index][customer_index]
+
+            # Insert customer into new route
+            current_routes[other_route_index].insert(insert_index, customer)
+            
+            
+            add_to_tabu((route_index, customer_index, other_route_index, insert_index))
+            
+            current_cost = calculate_total_cost(current_routes)
+            if current_cost < best_cost:
+                best_cost = current_cost
+                best_routes = [route[:] for route in current_routes]
+
+    for route in best_routes:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+
+    # Incorporate demand similarity
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            similarity = demand_similarity(i, j)
+            heuristics_matrix[i, j] += alpha * similarity
+            heuristics_matrix[j, i] += alpha * similarity
+
+    return heuristics_matrix

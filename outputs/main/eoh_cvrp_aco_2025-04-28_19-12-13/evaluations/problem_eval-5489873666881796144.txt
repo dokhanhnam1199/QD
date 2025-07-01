@@ -1,0 +1,69 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm initializes edge probabilities uniformly, then iteratively constructs solutions using biased random selection favoring edges with higher probability, and updates probabilities based on the solution cost and feasibility.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones((n, n)) / (n * n)  # Initialize uniformly
+
+    num_iterations = 500
+    learning_rate = 0.1
+
+    for _ in range(num_iterations):
+        current_node = 0
+        route = [0]
+        remaining_nodes = list(range(1, n))
+        vehicle_load = 0
+        current_route_cost = 0
+
+        while remaining_nodes:
+            # Biased random selection based on heuristics_matrix
+            probabilities = heuristics_matrix[current_node, :]
+            probabilities[0] = 0 # do not come back to the depot
+            probabilities[route[-1]] = 0 # avoid the latest node
+            
+            candidates = []
+            probs = []
+            for i in remaining_nodes:
+              if vehicle_load + demands[i] <= capacity:
+                candidates.append(i)
+                probs.append(probabilities[i])
+
+            if len(candidates) == 0:
+              next_node = 0
+            else:
+              probs = np.array(probs)
+              probs = probs[np.array(candidates)]
+              probs = probs / np.sum(probs)
+              next_node = np.random.choice(candidates, p=probs)
+            
+
+            if next_node == 0: # go back to the depot
+              route.append(0)
+              current_route_cost += distance_matrix[current_node, 0]
+              break
+            else:
+              route.append(next_node)
+              current_route_cost += distance_matrix[current_node, next_node]
+              vehicle_load += demands[next_node]
+              remaining_nodes.remove(next_node)
+              current_node = next_node
+        #Finalize the route
+        route.append(0)
+        current_route_cost += distance_matrix[current_node, 0]
+        
+        # Update heuristics_matrix based on route cost
+        for i in range(len(route) - 1):
+            u = route[i]
+            v = route[i+1]
+            heuristics_matrix[u, v] *= (1 - learning_rate + learning_rate * (1 / (1 + current_route_cost)))
+            heuristics_matrix[v, u] *= (1 - learning_rate + learning_rate * (1 / (1 + current_route_cost)))
+            
+        # Normalize heuristics_matrix
+        row_sums = heuristics_matrix.sum(axis=1, keepdims=True)
+        heuristics_matrix = heuristics_matrix / row_sums
+        heuristics_matrix = np.nan_to_num(heuristics_matrix) # remove potential NaN from division by zero
+
+    return heuristics_matrix

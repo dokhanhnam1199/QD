@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Enhanced heuristic for CVRP, incorporating distance, demand, and angular considerations.
+
+    Args:
+        distance_matrix: Distance between each pair of nodes.
+        coordinates: Euclidean coordinates of each node.
+        demands: Demand of each node.
+        capacity: Vehicle capacity.
+
+    Returns:
+        A matrix of heuristic values, indicating the desirability of including each edge.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Inverse distance, penalizing large distances.
+    inverse_distance = 1 / (distance_matrix + 1e-9)  # Adding a small value to avoid division by zero
+
+    # Demand factor, penalizing edges leading to over-capacity. We avoid modifying demands[0]
+    demand_factor = np.ones((n, n))
+    for i in range(n):
+      for j in range(n):
+          if i != j: # Prevent self-loops affecting calculation
+              potential_load = demands[j]
+              if potential_load > capacity: #Handling edge case
+                  demand_factor[i,j] = 0.001 #Effectively blocking infeasible edge for large demand
+
+    # Angular component: prefer nodes that are closer in angle.
+    depot_x, depot_y = coordinates[0]
+    angles = np.arctan2(coordinates[:, 1] - depot_y, coordinates[:, 0] - depot_x)
+    angular_difference = np.abs(angles[:, None] - angles[None, :])
+    angular_factor = 1 / (angular_difference + 0.1) # small positive constant to avoid zero
+    #Heavily penalize sharp turns by scaling the penalty inverse proportionally to squared angular difference.
+
+    #Combine factors
+    heuristic_matrix = inverse_distance * demand_factor * angular_factor
+
+    #Zero out diagonal elements and depot-depot edge: not useful for the tour
+    for i in range(n):
+        heuristic_matrix[i, i] = 0
+    heuristic_matrix[0, 0] = 0
+    # Ensure that the depot has some outgoing paths
+    for j in range(1,n):
+      heuristic_matrix[0,j] = max(heuristic_matrix[0,j], np.mean(heuristic_matrix))
+      heuristic_matrix[j,0] = max(heuristic_matrix[j,0], np.mean(heuristic_matrix)) #symmetry
+
+    return heuristic_matrix
+```

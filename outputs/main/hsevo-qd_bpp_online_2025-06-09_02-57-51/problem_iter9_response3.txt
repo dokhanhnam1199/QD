@@ -1,0 +1,70 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This version prioritizes a balance between bin utilization, fragmentation avoidance,
+    and item fit, with adaptive adjustments based on item size and remaining capacities.
+    It incorporates a ranking-based approach to normalize scores and a more nuanced
+    fragmentation penalty.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    remaining_after_add = bins_remain_cap - item
+    valid_bins = remaining_after_add >= 0
+
+    if np.any(valid_bins):
+        # 1. Base Priority: How well the item fits (smaller waste is better).
+        space_diff = bins_remain_cap[valid_bins] - item
+        fit_priority = 1.0 / (space_diff + 1e-9)
+
+        # 2. Bin Utilization: Favor bins that are already relatively full.  Rank-based.
+        bin_utilization = (np.max(bins_remain_cap) - bins_remain_cap[valid_bins]) / np.max(bins_remain_cap)
+        utilization_priority = bin_utilization
+
+        # 3. Item Size Consideration: Adjust based on item size relative to average bin capacity.
+        item_ratio = item / np.mean(bins_remain_cap) # Item size relative to average bin size
+        item_size_priority = (1 - item_ratio)
+
+        # 4. Adaptive Fragmentation Penalty:  Penalize small remaining spaces more heavily, adaptively.
+        #    The penalty is higher for smaller items (more sensitive to fragmentation).
+        fragmentation_penalty = np.exp(-15 * (space_diff / np.max(bins_remain_cap))**2) * (0.5 + item_ratio/2) # Adapting penalty
+
+        # Combine priorities using a weighted sum.  Weights could be tuned.
+        combined_priority = (
+            2*fit_priority +
+            1*utilization_priority -
+            1*fragmentation_penalty +
+            0.5*item_size_priority
+        )
+        priorities[valid_bins] = combined_priority
+
+        # Rank-based normalization to avoid domination by any single factor.
+        ranked_priorities = np.argsort(priorities[valid_bins])
+        normalized_priorities = np.zeros_like(ranked_priorities, dtype=float)
+        normalized_priorities[ranked_priorities] = np.linspace(0.1, 1, len(ranked_priorities)) # Spread values from 0.1 to 1
+
+        priorities[valid_bins] = normalized_priorities
+
+    else:
+        # Fallback: Prioritize bins where adding the item results in the *least* overflow.
+        priorities = 1 / (np.abs(remaining_after_add) + 1e-9)
+        # Scale fallback priorities to be lower than regular priorities if possible.
+        if np.any(valid_bins):
+            priorities = priorities / (np.max(priorities) + 1e-9) * 0.1
+        else:
+            ranked_priorities = np.argsort(priorities)
+            normalized_priorities = np.zeros_like(ranked_priorities, dtype=float)
+            normalized_priorities[ranked_priorities] = np.linspace(0.1, 1, len(ranked_priorities))
+            priorities = normalized_priorities
+
+
+    return priorities
+```

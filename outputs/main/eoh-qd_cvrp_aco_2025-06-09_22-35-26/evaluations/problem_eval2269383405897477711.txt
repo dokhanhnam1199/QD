@@ -1,0 +1,91 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm generates multiple random routes by iteratively inserting customers into routes based on a regret-2 insertion heuristic, and then updates a heuristic matrix based on the quality of these routes.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        routes = [[0]]  # Start with a route containing only the depot
+        unrouted_customers = list(range(1, n))
+        
+        while unrouted_customers:
+            best_customer = -1
+            best_route_index = -1
+            best_insertion_cost = float('inf')
+
+            for customer in unrouted_customers:
+                for route_index, route in enumerate(routes):
+                    # Check capacity constraint
+                    if sum(demands[c] for c in route) + demands[customer] <= capacity:
+                        
+                        # Find the best insertion position in the current route
+                        best_position = -1
+                        min_insertion_cost = float('inf')
+                        for i in range(1, len(route)): # Insert before the 'i'th customer on the route
+                            insertion_cost = distance_matrix[route[i-1]][customer] + distance_matrix[customer][route[i]] - distance_matrix[route[i-1]][route[i]]
+                            if insertion_cost < min_insertion_cost:
+                                min_insertion_cost = insertion_cost
+                                best_position = i
+                                
+                        if best_position != -1: # Customer can be inserted in current route
+
+                            # Regret-2 insertion: Calculate the cost of inserting the customer in the best route, and the second-best route.
+                            
+                            # Find the second best route
+                            second_best_insertion_cost = float('inf')
+                            for other_route_index, other_route in enumerate(routes):
+                                if other_route_index != route_index:
+                                    
+                                    # Check capacity constraint
+                                    if sum(demands[c] for c in other_route) + demands[customer] <= capacity:
+                                        other_best_position = -1
+                                        other_min_insertion_cost = float('inf')
+                                        for i in range(1, len(other_route)):
+                                            insertion_cost = distance_matrix[other_route[i - 1]][customer] + distance_matrix[customer][other_route[i]] - \
+                                                               distance_matrix[other_route[i - 1]][other_route[i]]
+                                            if insertion_cost < other_min_insertion_cost:
+                                                other_min_insertion_cost = insertion_cost
+                                                other_best_position = i
+
+                                        if other_best_position != -1 and other_min_insertion_cost < second_best_insertion_cost:
+                                            second_best_insertion_cost = other_min_insertion_cost
+
+                            #Update the best route if the insertion into the best_route is better than regret-2 insertion criteria
+                            regret = second_best_insertion_cost - min_insertion_cost
+
+                            if min_insertion_cost < best_insertion_cost:
+                                best_customer = customer
+                                best_route_index = route_index
+                                best_insertion_cost = min_insertion_cost
+                                best_insert_pos = best_position
+            
+            if best_customer != -1:
+                routes[best_route_index].insert(best_insert_pos, best_customer)
+                unrouted_customers.remove(best_customer)
+            else:
+                # Start a new route if no customer can be added to existing routes
+                
+                if len(unrouted_customers) > 0:
+                    customer = unrouted_customers.pop(0)
+                    routes.append([0, customer])
+
+        # Calculate total distance
+        total_distance = 0
+        for route in routes:
+            route.append(0)
+            for i in range(len(route) - 1):
+                total_distance += distance_matrix[route[i]][route[i+1]]
+
+        # Update the heuristics matrix
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                heuristics_matrix[u][v] += 1.0 / total_distance
+
+    return heuristics_matrix

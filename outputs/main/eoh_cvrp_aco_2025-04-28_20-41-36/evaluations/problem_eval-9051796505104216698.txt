@@ -1,0 +1,70 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses an Ant Colony Optimization (ACO) approach to construct a heuristic matrix based on pheromone trails and heuristic information derived from distance and demand.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone_matrix = np.ones_like(distance_matrix) * 0.1  # Initialize pheromone levels
+    alpha = 1  # Pheromone influence
+    beta = 2  # Heuristic information influence
+    rho = 0.5  # Evaporation rate
+    Q = 100  # Pheromone deposit constant
+    num_ants = 10
+    num_iterations = 50
+
+    for iteration in range(num_iterations):
+        all_paths = []
+        all_costs = []
+
+        for ant in range(num_ants):
+            path = [0]
+            remaining_nodes = set(range(1, n))
+            current_capacity = capacity
+
+            while remaining_nodes:
+                feasible_nodes = {
+                    node for node in remaining_nodes if demands[node] <= current_capacity
+                }
+
+                if not feasible_nodes:
+                    path.append(0)
+                    current_capacity = capacity
+                    feasible_nodes = {
+                        node for node in remaining_nodes if demands[node] <= current_capacity
+                    }
+                    if not feasible_nodes:
+                        break
+
+                probabilities = np.zeros(n)
+                for node in feasible_nodes:
+                    heuristic = (pheromone_matrix[path[-1], node]**alpha) * ((1 / distance_matrix[path[-1], node])**beta)
+                    probabilities[node] = heuristic
+
+                probabilities = probabilities / np.sum(probabilities)
+
+                next_node = random.choices(range(n), weights=probabilities)[0]
+
+                path.append(next_node)
+                remaining_nodes.remove(next_node)
+                current_capacity -= demands[next_node]
+
+            path.append(0)
+            all_paths.append(path)
+            cost = 0
+            for i in range(len(path) - 1):
+                cost += distance_matrix[path[i], path[i+1]]
+            all_costs.append(cost)
+
+        # Update pheromone levels
+        pheromone_matrix *= (1 - rho)
+        for k in range(num_ants):
+            path = all_paths[k]
+            cost = all_costs[k]
+            for i in range(len(path) - 1):
+                pheromone_matrix[path[i], path[i+1]] += Q / cost
+                pheromone_matrix[path[i+1], path[i]] += Q / cost
+
+    heuristics_matrix = pheromone_matrix # Pheromone matrix as heuristic
+
+    return heuristics_matrix

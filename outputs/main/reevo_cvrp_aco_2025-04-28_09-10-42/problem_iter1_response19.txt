@@ -1,0 +1,58 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for CVRP using a combination of distance, demand,
+    and depot proximity to guide stochastic solution sampling.
+
+    Args:
+        distance_matrix: (n, n) distance matrix between nodes.
+        coordinates: (n, 2) Euclidean coordinates of nodes.
+        demands: (n,) vector of customer demands.
+        capacity: Vehicle capacity.
+
+    Returns:
+        (n, n) matrix of heuristic values indicating the
+        promisingness of including each edge in a solution.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Heuristic 1: Inverse distance (similar to v1)
+    heuristic_matrix = 1 / (distance_matrix + 1e-9)  # Adding a small value to avoid division by zero
+
+    # Heuristic 2: Demand factor - discourage edges that quickly lead to capacity overflow
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0
+                continue
+
+            # Estimate demand accumulation.  A simple proxy: Average demand of nodes i and j.
+            estimated_demand = (demands[i] + demands[j]) / 2.0
+
+            # Scale inversely with average demand *squared*. Penalize larger demands strongly.
+            heuristic_matrix[i, j] /= (estimated_demand**2 + 1e-9)  # penalize high demand more. Adding small value for numeric stability
+
+    # Heuristic 3: Depot proximity.  Encourage returns to depot more often when demand is high in routes.
+
+    depot_distances = distance_matrix[0, :]  # Distances from depot to all nodes.
+    for i in range(n):
+        # Reduce probability if connecting to the depot, but penalize less the closer we are.
+        # Aim: when demands are high, encourage paths to the depot for capacity management.
+        heuristic_matrix[0, i] *= (1 + np.tanh(demands[i] / (capacity / 4))) * (1 / (depot_distances[i] + 1)) # scale by proximity of i to the depot.
+        heuristic_matrix[i, 0] *= (1 + np.tanh(demands[i] / (capacity / 4))) * (1 / (depot_distances[i] + 1))
+
+
+    # Sparsify the matrix - remove very low probability edges
+    threshold = np.percentile(heuristic_matrix[heuristic_matrix > 0], 20)  # Keep top 80% edges.  Adjust this % for varying problem sizes.
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    # Normalize to ensure values are between 0 and 1 (optional, but often helpful).  Important after thresholding.
+    max_val = np.max(heuristic_matrix)
+    if max_val > 0:  #Avoid potential nan problems
+        heuristic_matrix /= max_val
+
+    return heuristic_matrix
+```

@@ -1,0 +1,63 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for CVRP using a combination of distance, demand, and spatial dispersion.
+    The goal is to guide stochastic solution sampling by indicating promising edges.
+
+    Args:
+        distance_matrix (np.ndarray): Distance between all pairs of nodes.
+        coordinates (np.ndarray): Euclidean coordinates of nodes.
+        demands (np.ndarray): Demand of each node.
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of edge inclusion (same shape as distance_matrix).
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix)
+
+    # Adjust for zero division (distances of zero between the same node)
+    distance_matrix = np.where(distance_matrix == 0, np.inf, distance_matrix)
+
+    # Heuristic 1: Inverse Distance - Favor shorter edges
+    inverse_distance = 1 / distance_matrix
+
+    # Heuristic 2: Demand Compatibility - Penalize edges connecting nodes that would overload a vehicle easily
+    demand_compatibility = np.zeros_like(distance_matrix)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                demand_compatibility[i, j] = np.exp(- (demands[i] + demands[j]) / (capacity * 0.5))  # Exponential decay based on combined demand
+
+    # Heuristic 3: Depot proximity. Favor traveling to or from the depot.
+    depot_proximity = np.zeros_like(distance_matrix)
+    for i in range(n):
+        depot_proximity[0, i] = 1 / distance_matrix[0, i]
+        depot_proximity[i, 0] = 1 / distance_matrix[i, 0]
+
+    # Heuristic 4: Spatial Clustering - Encourage connections within local clusters
+    # Use euclidean distance to nodes and try to connect spatially clustered nodes
+
+    cluster_incentive = np.zeros_like(distance_matrix)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                euclidean_distance = np.linalg.norm(coordinates[i] - coordinates[j])
+                cluster_incentive[i,j] = np.exp(- euclidean_distance/ (np.mean(distance_matrix) * 0.25)) # Exponential decay, encouraging close connections
+
+    # Combine heuristics (weighted sum)
+    heuristic_matrix = (0.4 * inverse_distance +
+                         0.25 * demand_compatibility +
+                         0.15 * depot_proximity +
+                         0.2 * cluster_incentive
+                         )
+
+    # Ensure depot connections are prioritized after combining other heuristics.
+    for i in range(n):
+        heuristic_matrix[0, i] = max(heuristic_matrix[0,i], 0.8 * np.max(heuristic_matrix)) # Boost depot connection probability
+        heuristic_matrix[i, 0] = max(heuristic_matrix[i,0], 0.8 * np.max(heuristic_matrix))
+
+    return heuristic_matrix
+```

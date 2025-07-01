@@ -1,0 +1,72 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs a heuristic matrix by iteratively improving routes. It starts with random routes, evaluates them based on total distance and capacity constraints, and then refines the routes using local search by swapping nodes between routes.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_iterations = 500
+    num_routes = 5 # fix the number of routes
+
+    for iteration in range(num_iterations):
+        # Initialize routes randomly
+        routes = [[] for _ in range(num_routes)]
+        customer_indices = list(range(1, n))
+        np.random.shuffle(customer_indices)
+
+        # Assign customers to initial routes
+        route_index = 0
+        for customer in customer_indices:
+            routes[route_index].append(customer)
+            route_index = (route_index + 1) % num_routes
+        
+        # Add depot to start and end of each route
+        for i in range(num_routes):
+            routes[i] = [0] + routes[i] + [0]
+
+        # Local search: Swap nodes between routes
+        for _ in range(10):
+            route1_idx = np.random.randint(0, num_routes)
+            route2_idx = np.random.randint(0, num_routes)
+            if route1_idx == route2_idx:
+                continue
+
+            if len(routes[route1_idx]) <= 2 or len(routes[route2_idx]) <= 2:
+                continue
+
+            node1_idx = np.random.randint(1, len(routes[route1_idx]) - 1)
+            node2_idx = np.random.randint(1, len(routes[route2_idx]) - 1)
+            node1 = routes[route1_idx][node1_idx]
+            node2 = routes[route2_idx][node2_idx]
+            
+            # Check feasibility before swapping
+            route1_demand = sum(demands[i] for i in routes[route1_idx][1:-1] if i !=0) - demands[node1] + demands[node2]
+            route2_demand = sum(demands[i] for i in routes[route2_idx][1:-1] if i != 0) - demands[node2] + demands[node1]
+
+            if route1_demand <= capacity and route2_demand <= capacity:
+                # Swap nodes
+                routes[route1_idx][node1_idx] = node2
+                routes[route2_idx][node2_idx] = node1
+
+        # Evaluate and update heuristics matrix
+        total_distance = 0
+        valid_routes = True
+        for route in routes:
+            route_demand = sum(demands[i] for i in route if i != 0)
+            if route_demand > capacity:
+                valid_routes = False
+                break
+
+            for i in range(len(route) - 1):
+                total_distance += distance_matrix[route[i], route[i+1]]
+
+        if valid_routes:
+            for route in routes:
+                for i in range(len(route) - 1):
+                    node1 = route[i]
+                    node2 = route[i+1]
+                    heuristics_matrix[node1, node2] += 1.0 / (total_distance + 1e-6)
+                    heuristics_matrix[node2, node1] += 1.0 / (total_distance + 1e-6)
+
+    return heuristics_matrix

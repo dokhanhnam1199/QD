@@ -1,0 +1,61 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm biases the random route generation towards shorter edges and penalizes routes exceeding capacity by reducing their edge occurrence counts.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        # Generate a random permutation of customers (excluding depot)
+        customer_indices = list(range(1, n))
+        random.shuffle(customer_indices)
+
+        # Assign customers to routes based on capacity
+        routes = []
+        current_route = [0]  # Start at the depot
+        current_load = 0
+
+        for customer in customer_indices:
+            if current_load + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_load += demands[customer]
+            else:
+                current_route.append(0)  # Return to depot
+                routes.append(current_route)
+                current_route = [0, customer]  # Start a new route from depot
+                current_load = demands[customer]
+
+        current_route.append(0) # final return to depot
+        routes.append(current_route)
+        
+        # Penalize infeasible routes by a factor
+        penalty = 1.0
+        total_demand = 0
+        num_vehicles = 0
+        for route in routes:
+          num_vehicles += 1
+          route_demand = 0
+          for node in route:
+            total_demand += demands[node]
+            route_demand += demands[node]
+
+        if total_demand > capacity * num_vehicles:
+          penalty = 0.1  # Reduce weight for infeasible solutions
+
+        # Update heuristics matrix
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                # Bias towards shorter edges:
+                weight = penalty / (distance_matrix[u, v] + 1e-6) # avoid division by zero
+                heuristics_matrix[u, v] += weight
+                heuristics_matrix[v, u] += weight  # Assuming symmetric distance matrix
+
+    # Normalize the matrix to get a probability-like heuristic
+    heuristics_matrix = heuristics_matrix / np.sum(heuristics_matrix)
+    return heuristics_matrix

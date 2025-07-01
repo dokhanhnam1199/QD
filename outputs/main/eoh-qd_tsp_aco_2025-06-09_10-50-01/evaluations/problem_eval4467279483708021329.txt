@@ -1,0 +1,68 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """
+    {This algorithm initializes heuristics based on inverse distance, then iteratively samples solutions using these heuristics, and updates the heuristics based on edge frequency in sampled solutions, enhanced with a combined score based on solution rank and edge closeness in good solutions.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = 1.0 / (distance_matrix + np.eye(n))
+    
+    num_iterations = 100
+    num_samples = 50
+    temperature = 1.0
+
+    for _ in range(num_iterations):
+        solutions = []
+        solution_costs = []
+        
+        # Sample solutions based on current heuristics
+        for _ in range(num_samples):
+            current_node = np.random.randint(n)
+            unvisited_nodes = list(range(n))
+            unvisited_nodes.remove(current_node)
+            
+            solution = [current_node]
+            solution_cost = 0
+            
+            while unvisited_nodes:
+                probabilities = heuristics_matrix[current_node, unvisited_nodes]
+                probabilities = np.exp(probabilities / temperature) / np.sum(np.exp(probabilities / temperature))
+                
+                next_node_index = np.random.choice(len(unvisited_nodes), p=probabilities)
+                next_node = unvisited_nodes[next_node_index]
+                
+                solution.append(next_node)
+                solution_cost += distance_matrix[current_node, next_node]
+                
+                current_node = next_node
+                unvisited_nodes.remove(next_node)
+            
+            solution_cost += distance_matrix[solution[-1], solution[0]]
+            solutions.append(solution)
+            solution_costs.append(solution_cost)
+        
+        # Update heuristics based on sampled solutions
+        edge_counts = np.zeros_like(distance_matrix)
+        
+        # Prioritize top solutions
+        ranked_solutions = np.argsort(solution_costs)
+        for rank, solution_index in enumerate(ranked_solutions):
+            solution = solutions[solution_index]
+            solution_score = (num_samples - rank) / num_samples  # Linear rank-based score
+            
+            for i in range(n):
+                u = solution[i]
+                v = solution[(i + 1) % n]
+                edge_closeness = 1.0 / (distance_matrix[u, v] + 1e-6)  # Edge closeness score
+                combined_score = solution_score * edge_closeness
+                
+                edge_counts[u, v] += combined_score
+                edge_counts[v, u] += combined_score
+
+        # Normalize edge counts
+        edge_counts /= np.max(edge_counts) if np.max(edge_counts) > 0 else 1
+
+        heuristics_matrix = 0.9 * heuristics_matrix + 0.1 * edge_counts
+        temperature *= 0.95 
+
+    return heuristics_matrix

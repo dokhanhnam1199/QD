@@ -1,0 +1,56 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm learns edge selection probabilities through a reinforcement learning approach, rewarding edges included in feasible routes and penalizing those in infeasible ones, to gradually refine the heuristic matrix.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones((n, n)) * 0.5  # Initialize with equal probability
+    learning_rate = 0.1
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        # Generate a random permutation of customers (excluding depot)
+        customer_indices = np.random.permutation(range(1, n))
+        
+        # Construct routes based on capacity
+        routes = []
+        current_route = [0]
+        current_load = 0
+        
+        for customer in customer_indices:
+            if current_load + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_load += demands[customer]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, customer]
+                current_load = demands[customer]
+        
+        current_route.append(0)
+        routes.append(current_route)
+        
+        # Evaluate routes and update heuristics matrix
+        feasible = True
+        for route in routes:
+            total_demand = sum(demands[c] for c in route[1:-1])
+            if total_demand > capacity:
+                feasible = False
+                break
+        
+        # Update heuristics based on route feasibility
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                if feasible:
+                    heuristics_matrix[u, v] += learning_rate * (1 - heuristics_matrix[u, v])
+                    heuristics_matrix[v, u] = heuristics_matrix[u, v]
+                else:
+                    heuristics_matrix[u, v] -= learning_rate * heuristics_matrix[u, v]
+                    heuristics_matrix[v, u] = heuristics_matrix[u, v]
+                
+                heuristics_matrix[u, v] = np.clip(heuristics_matrix[u, v], 0.01, 0.99) # Avoid probabilities reaching 0 or 1
+                heuristics_matrix[v, u] = np.clip(heuristics_matrix[v, u], 0.01, 0.99)
+                
+    return heuristics_matrix

@@ -1,0 +1,56 @@
+```python
+import numpy as np
+import scipy.sparse
+from scipy.sparse.csgraph import dijkstra
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """TSP heuristic: Combines inverse distance, adaptive degree bias, shortest paths, and node potential with sparsification."""
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Inverse distance
+    inverse_distance = 1 / (distance_matrix + 1e-9)
+
+    # Shortest path estimate (Dijkstra)
+    graph = scipy.sparse.csr_matrix(distance_matrix)
+    shortest_paths = dijkstra(graph, directed=False, indices=range(n))
+
+    # Adaptive degree bias
+    degree_penalty = np.ones((n, n))
+    degrees = np.sum(inverse_distance, axis=1)
+    avg_degree = np.mean(degrees)
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                penalty_i = max(0.1, avg_degree / (degrees[i] + 1e-9)) # Ensure penalty is never zero to avoid division by zero later
+                penalty_j = max(0.1, avg_degree / (degrees[j] + 1e-9))
+                degree_penalty[i, j] = penalty_i * penalty_j
+            else:
+                degree_penalty[i, j] = 0
+
+    # Node potential (a global heuristic - closeness centrality approximation)
+    total_distance = np.sum(distance_matrix, axis=1)
+    node_potential = np.mean(total_distance) / (total_distance + 1e-9)
+    potential_matrix = np.outer(node_potential, node_potential)
+
+    # Combination strategy: weighted geometric mean
+    alpha = 0.6
+    beta = 0.3
+    gamma = 0.1 #weights
+
+    heuristic_matrix = (inverse_distance**alpha) * (degree_penalty**beta) * (potential_matrix**(gamma)) / (shortest_paths + 1e-9)
+
+
+    # Sparsification (adaptive threshold)
+    threshold = np.percentile(heuristic_matrix[heuristic_matrix > 0], 30) # Adjusted percentile
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+
+    # Post-Normalization
+    max_heuristic = np.max(heuristic_matrix)
+    if max_heuristic > 0:
+        heuristic_matrix /= max_heuristic
+
+    return heuristic_matrix
+```

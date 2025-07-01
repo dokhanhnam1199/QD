@@ -1,0 +1,71 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for the Traveling Salesman Problem (TSP) based on stochastic solution sampling with further improvements.
+
+    This function builds upon v1 by incorporating more sophisticated node proximity measures, adaptive edge diversity penalties,
+    dynamically adjusted shortest path bonuses using Dijkstra approximation, and a refined sparsification strategy with simulated annealing-inspired noise.
+
+    Args:
+        distance_matrix (np.ndarray): A square matrix representing the distances between cities.
+                                         distance_matrix[i][j] is the distance between city i and city j.
+
+    Returns:
+        np.ndarray: A matrix of the same shape as distance_matrix, where each element represents the
+                      promise of including the corresponding edge in the TSP solution.
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Enhanced Node Proximity (Combination of Measures)
+    inverse_distance = 1 / (distance_matrix + 1e-6)
+    mean_distance = np.mean(distance_matrix)
+    proximity_factor = mean_distance / (distance_matrix + 1e-6)
+    # Introduce a secondary proximity based on overall connectivity
+    connectivity_proximity = np.zeros_like(distance_matrix)
+    for i in range(n):
+        for j in range(n):
+            connectivity_proximity[i, j] = np.exp(-np.sum(distance_matrix[i, :]) / (n * mean_distance)) * np.exp(-np.sum(distance_matrix[j, :]) / (n * mean_distance))
+    node_proximity = inverse_distance * proximity_factor * connectivity_proximity
+
+    # 2. Adaptive Edge Diversity (Penalize High-Degree Nodes - Refined)
+    degree_penalty = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                threshold_i = np.median(distance_matrix[i, :])  # Robust median
+                threshold_j = np.median(distance_matrix[j, :])
+                degree_i = np.sum(distance_matrix[i, :] < threshold_i)
+                degree_j = np.sum(distance_matrix[j, :] < threshold_j)
+                # Adaptive penalty scaling with a hyperparameter
+                degree_penalty[i, j] = 1.0 / (np.sqrt(degree_i * degree_j) + 1e-6) * (1 + np.exp(-np.abs(degree_i - degree_j)))  # Penalize large degree differences
+
+    # 3. Shortest Path Consideration (Dijkstra Approximation & Dynamic Temperature)
+    shortest_path_bonus = np.zeros_like(distance_matrix, dtype=float)
+    temperature = mean_distance / 3.0  # More aggressive initial temperature
+    # Approximate shortest path via neighbors
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                shortest_path_bonus[i, j] = np.exp(-distance_matrix[i, j] / temperature)
+
+    # Combine factors
+    heuristics_matrix = node_proximity * degree_penalty * shortest_path_bonus
+
+    # 4. Sparsification & Simulated Annealing-Inspired Noise
+    threshold = np.percentile(heuristics_matrix[heuristics_matrix > 0], 50)  # More aggressive sparsification initially
+    heuristics_matrix[heuristics_matrix < threshold] = 0
+
+    # Add diminishing noise (Simulated Annealing-Inspired)
+    # Gradually reduce the noise level over "iterations"
+    current_iteration = 1 #iteration variable
+    initial_noise_level = 0.01 * np.mean(heuristics_matrix[heuristics_matrix > 0])
+    noise_level = initial_noise_level * np.exp(-current_iteration / 100.0)  # Exponential decay
+    noise = np.random.normal(0, noise_level, size=heuristics_matrix.shape)
+    heuristics_matrix = heuristics_matrix + noise
+    heuristics_matrix[heuristics_matrix < 0] = 0  # Ensure positivity
+
+    return heuristics_matrix
+```

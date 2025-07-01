@@ -1,0 +1,91 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses an ant colony optimization approach, where ants probabilistically construct routes based on pheromone trails and heuristic information (distance), iteratively updating pheromone levels based on route quality and feasibility.}
+    """
+    n = len(demands)
+    pheromone_matrix = np.ones_like(distance_matrix)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    alpha = 1.0
+    beta = 2.0
+    rho = 0.5
+    Q = 100.0
+    num_ants = 20
+    num_iterations = 100
+
+    for iteration in range(num_iterations):
+        ant_routes = []
+        for ant in range(num_ants):
+            unvisited = set(range(1, n))
+            current_node = 0
+            current_route = []
+            vehicle_routes = []
+            current_demand = 0
+            is_feasible = True
+
+            while unvisited:
+                probabilities = np.zeros(n)
+                for node in unvisited:
+                    if current_demand + demands[node] <= capacity:
+                        probabilities[node] = (pheromone_matrix[current_node, node]**alpha) * ((1.0 / distance_matrix[current_node, node])**beta)
+                    else:
+                        probabilities[node] = 0
+                
+                if np.sum(probabilities) == 0:
+                    current_route.append(0)
+                    vehicle_routes.append(current_route)
+                    current_node = 0
+                    current_route = []
+                    current_demand = 0
+                    for node in unvisited:
+                      if current_demand + demands[node] <= capacity:
+                        probabilities[node] = (pheromone_matrix[current_node, node]**alpha) * ((1.0 / distance_matrix[current_node, node])**beta)
+                      else:
+                        probabilities[node] = 0
+                
+                probabilities = probabilities / np.sum(probabilities)
+                
+                next_node = np.random.choice(n, p=probabilities)
+                
+                if current_demand + demands[next_node] <= capacity:
+                    current_route.append(next_node)
+                    current_demand += demands[next_node]
+                    current_node = next_node
+                    unvisited.remove(next_node)
+                else:
+                    current_route.append(0)
+                    vehicle_routes.append(current_route)
+                    current_node = 0
+                    current_route = []
+                    current_demand = 0
+
+            current_route.append(0)
+            vehicle_routes.append(current_route)
+            
+            ant_routes.append(vehicle_routes)
+
+        # Calculate route costs
+        route_costs = []
+        for routes in ant_routes:
+            total_cost = 0
+            for route in routes:
+                for i in range(len(route) - 1):
+                    total_cost += distance_matrix[route[i], route[i+1]]
+            route_costs.append(total_cost)
+        
+        # Update pheromone trails
+        for i in range(n):
+            for j in range(n):
+                pheromone_matrix[i, j] *= (1 - rho)
+
+        for k, routes in enumerate(ant_routes):
+            delta_pheromone = Q / route_costs[k]
+            for route in routes:
+                for i in range(len(route) - 1):
+                    pheromone_matrix[route[i], route[i+1]] += delta_pheromone
+                    pheromone_matrix[route[i+1], route[i]] += delta_pheromone
+    
+    heuristics_matrix = pheromone_matrix
+    return heuristics_matrix

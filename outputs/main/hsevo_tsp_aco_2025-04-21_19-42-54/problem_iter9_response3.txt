@@ -1,0 +1,118 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Enhanced Adaptive Heuristics for TSP Edge Prioritization:
+
+    This version incorporates dynamic calibration of heuristic components based on
+    solution progress, contextual awareness through cycle detection, and an improved
+    exploration-exploitation balance mechanism.  It also includes sparsification.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix representing the TSP instance.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution.
+                     Higher values suggest higher priority. Sparsified.
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+
+    epsilon: float = 1e-7
+    initial_temperature: float = 1.0
+    sparsification_percentile: float = 40.0
+    high_variance_threshold: float = 0.1
+    cooling_high_variance: float = 0.99
+    cooling_low_variance: float = 0.999
+    min_temperature: float = 0.01
+    desirability_weight: float = 0.6  # Weight for node desirability
+    attraction_weight: float = 0.4  # Weight for edge attraction
+    cycle_penalty: float = 0.75 # Penalize edges that cause early cycles
+
+    # 1. Node Desirability Scores (Normalized inverse distance sum)
+    node_desirability = np.zeros(n)
+    for i in range(n):
+        node_desirability[i] = np.sum(1.0 / (distance_matrix[i, :] + epsilon))
+    node_desirability /= np.max(node_desirability)
+
+    # 2. Edge Attraction (Inverse square distance, normalized)
+    edge_attraction = np.zeros_like(distance_matrix)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                edge_attraction[i, j] = (1.0 / (distance_matrix[i, j]**2 + epsilon))
+            else:
+                edge_attraction[i, j] = 0.0
+
+    edge_attraction = edge_attraction / np.max(edge_attraction)
+
+    # 3. Adaptive Temperature
+    temperature = initial_temperature
+
+    # 4. Cycle Detection and Penalty (Simulated Partial Solution)
+    def check_cycle(edge, partial_solution):
+        """Checks if adding 'edge' creates a cycle in 'partial_solution'."""
+        new_solution = partial_solution + [edge]
+        graph = {}
+        for u, v in new_solution:
+            if u not in graph:
+                graph[u] = []
+            if v not in graph:
+                graph[v] = []
+            graph[u].append(v)
+            graph[v].append(u)
+
+        start_node = new_solution[0][0] if new_solution else None
+        if not start_node: return False
+
+        visited = set()
+        stack = [start_node]
+        while stack:
+            node = stack.pop()
+            if node in visited:
+                return True
+            visited.add(node)
+            if node in graph:
+                stack.extend(neighbor for neighbor in graph[node] if neighbor not in visited)
+        return False #False, not a cycle
+
+
+    # Initial partial solution
+    partial_solution = []
+
+    # Combine all factors, sparsify, and adapt temperature
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Main Heuristic Combination
+                heuristics[i, j] = (desirability_weight * (node_desirability[i] + node_desirability[j]) +
+                                     attraction_weight * edge_attraction[i, j]) * temperature
+
+                #Cycle penalty:
+                if check_cycle((i,j), partial_solution):
+                    heuristics[i, j] *= cycle_penalty
+
+            else:
+                heuristics[i, j] = 0.0
+
+    # Sparsification
+    threshold = np.percentile(heuristics[heuristics > 0], sparsification_percentile)
+    heuristics[heuristics < threshold] = 0.0
+
+    #Adaptive Cooling
+    edge_values = heuristics[heuristics > 0]
+    if len(edge_values) > 0:
+        edge_variance = np.var(edge_values)
+    else:
+        edge_variance = 0.0
+
+    if edge_variance > high_variance_threshold:
+        temperature *= cooling_high_variance
+    else:
+        temperature *= cooling_low_variance
+
+    temperature = max(temperature, min_temperature)
+
+    return heuristics
+```

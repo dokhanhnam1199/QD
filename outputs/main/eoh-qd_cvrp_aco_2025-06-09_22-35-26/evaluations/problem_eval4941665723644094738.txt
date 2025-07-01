@@ -1,0 +1,77 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm adaptively adjusts the sampling probability of edges based on their frequency in previously found good routes, iteratively refining the edge desirability estimation.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    edge_probabilities = np.ones_like(distance_matrix) / n  # Initialize edge probabilities
+    num_iterations = 10
+    samples_per_iteration = 100
+
+    for iteration in range(num_iterations):
+        sampled_routes = []
+        for _ in range(samples_per_iteration):
+            # Generate a route based on edge probabilities
+            route = []
+            current_node = 0
+            unvisited_nodes = list(range(1, n))
+            
+            while unvisited_nodes:
+                probabilities = edge_probabilities[current_node, unvisited_nodes]
+                probabilities /= np.sum(probabilities) # Normalize
+                
+                next_node = np.random.choice(unvisited_nodes, p=probabilities)
+                route.append(next_node)
+                unvisited_nodes.remove(next_node)
+                current_node = next_node
+                
+            # Split route into feasible vehicle routes
+            vehicle_routes = []
+            current_route = []
+            current_demand = 0
+            
+            for node in route:
+                if current_demand + demands[node] <= capacity:
+                    current_route.append(node)
+                    current_demand += demands[node]
+                else:
+                    vehicle_routes.append(current_route)
+                    current_route = [node]
+                    current_demand = demands[node]
+                    
+            if current_route:
+                vehicle_routes.append(current_route)
+            
+            # Calculate total route length
+            total_length = 0
+            full_route = [0]  # Start from depot
+            for vr in vehicle_routes:
+                full_route += vr + [0] # depot to vr and back to depot
+
+            for i in range(len(full_route)-1):
+                total_length += distance_matrix[full_route[i], full_route[i+1]]
+                
+            sampled_routes.append((full_route, total_length))
+            
+        # Select top routes
+        sampled_routes.sort(key=lambda x: x[1])
+        top_routes = sampled_routes[:min(10, len(sampled_routes))]
+        
+        # Update edge probabilities based on top routes
+        for route, _ in top_routes:
+            for i in range(len(route) - 1):
+                edge_probabilities[route[i], route[i+1]] *= 1.1  # Increase probability
+                edge_probabilities[route[i+1], route[i]] *= 1.1
+                
+        # Normalize edge probabilities
+        edge_probabilities /= np.sum(edge_probabilities)
+                
+    # Construct heuristics matrix from edge probabilities
+    for i in range(n):
+        for j in range(n):
+            heuristics_matrix[i, j] = edge_probabilities[i, j]
+
+    return heuristics_matrix

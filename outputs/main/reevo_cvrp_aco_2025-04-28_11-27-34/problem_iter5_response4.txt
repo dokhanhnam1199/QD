@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for Capacitated Vehicle Routing Problem (CVRP) using a multiplicative combination of factors
+    and adaptive sparsification.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Demand of each customer (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (n x n).
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # 1. Distance Factor (Inverse Distance)
+    distance_factor = 1 / (distance_matrix + 1e-6)
+
+    # 2. Depot Proximity Factor
+    depot_proximity_factor = np.zeros((n, n))
+    for i in range(1, n):  # Iterate through customers (excluding depot)
+        for j in range(1, n):
+            if i != j:
+                depot_proximity_factor[i, j] = np.exp(-0.5 * (distance_matrix[0, i] + distance_matrix[0, j]) / np.mean(distance_matrix[0, 1:]))
+
+    # 3. Angle Factor
+    angle_factor = np.ones((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                vector1 = coordinates[i] - coordinates[0]
+                vector2 = coordinates[j] - coordinates[i]
+
+                norm1 = np.linalg.norm(vector1)
+                norm2 = np.linalg.norm(vector2)
+
+                if norm1 > 0 and norm2 > 0:
+                    vector1 = vector1 / norm1
+                    vector2 = vector2 / norm2
+                    dot_product = np.dot(vector1, vector2)
+                    angle = np.arccos(np.clip(dot_product, -1.0, 1.0))
+                    angle_factor[i, j] = 1 - (angle / np.pi)
+
+    # 4. Demand-Capacity Scaling Factor (Gaussian-like)
+    demand_factor = np.ones((n, n))
+    for i in range(1, n):  # Customers only
+        for j in range(1, n):  # Customers only
+            if i != j:
+                combined_demand = demands[i] + demands[j]
+                demand_factor[i, j] = np.exp(-0.5 * ((combined_demand / capacity) - 1)**2)  # Gaussian around capacity
+
+    # 5. Randomness Factor (Optional)
+    randomness_factor = np.random.uniform(0.9, 1.1, size=(n, n))  # Small random perturbation
+
+    # Combine factors multiplicatively
+    heuristic_matrix = distance_factor * depot_proximity_factor * angle_factor * demand_factor * randomness_factor
+
+    # Adaptive Sparsification
+    max_heuristic_value = np.max(heuristic_matrix)
+    sparsification_threshold = np.quantile(heuristic_matrix[heuristic_matrix > 0], 0.25) # Keep top 75% edges
+
+    heuristic_matrix[heuristic_matrix < sparsification_threshold] = 0
+    np.fill_diagonal(heuristic_matrix, 0)  # Ensure depot->depot edge is excluded
+
+    # Normalization
+    if max_heuristic_value > 0:
+        heuristic_matrix = heuristic_matrix / max_heuristic_value
+
+    return heuristic_matrix
+```

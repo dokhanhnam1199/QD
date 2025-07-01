@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for TSP using stochastic solution sampling with improved node degree prioritization,
+    shortest edges consideration, and dynamic sparsification.
+
+    Args:
+        distance_matrix: A numpy ndarray representing the distance matrix.
+
+    Returns:
+        A numpy ndarray of the same shape as distance_matrix, representing the
+        heuristic scores for each edge. Higher score indicates a more promising edge.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Inverse distance
+    inverse_distance = 1 / (distance_matrix + 1e-9)
+
+    # 2. Node degree preference - prioritize edges connecting to less connected nodes
+    degree_preference = np.zeros_like(distance_matrix, dtype=float)
+    neighbor_counts = np.sum(inverse_distance > 0, axis=1)  # Count neighbors based on inverse distance presence
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                degree_preference[i, j] = 1 / (neighbor_counts[i] + neighbor_counts[j] + 1e-9)  # Penalize high degree nodes
+
+    # 3. Global shortest edges
+    shortest_edges_bonus = np.zeros_like(distance_matrix, dtype=float)
+    k = int(n * 1.5)  # Number of top edges to consider, scaled by n
+    flattened_distance = distance_matrix.flatten()
+    top_k_edges_indices = np.argpartition(flattened_distance, k)[:k]  # Get indices of k smallest elements
+    for index in top_k_edges_indices:
+        row = index // n
+        col = index % n
+        shortest_edges_bonus[row, col] = 1
+
+    # Combine the heuristics
+    heuristic_matrix = 0.5 * inverse_distance + 0.3 * degree_preference + 0.2 * shortest_edges_bonus
+
+    # 4. Dynamic Sparsification based on distance
+    threshold = np.quantile(distance_matrix[np.isfinite(distance_matrix)], 0.75)
+    heuristic_matrix[distance_matrix > threshold] = 0
+
+    # Ensure diagonal elements are 0
+    for i in range(n):
+        heuristic_matrix[i, i] = 0
+
+    return heuristic_matrix
+```

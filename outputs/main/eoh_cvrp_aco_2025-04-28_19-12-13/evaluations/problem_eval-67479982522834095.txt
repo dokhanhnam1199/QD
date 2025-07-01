@@ -1,0 +1,82 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs multiple solution samples using a greedy nearest neighbor approach with capacity constraints and probabilistic acceptance based on cost, then updates a heuristic matrix based on edge frequency weighted by solution quality.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 500
+    temperature = 100.0
+
+    def calculate_route_load(route):
+        load = 0
+        for node in route[1:-1]:
+            load += demands[node]
+        return load
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    def acceptance_probability(old_cost, new_cost, temperature):
+        if new_cost < old_cost:
+            return 1.0
+        else:
+            return np.exp((old_cost - new_cost) / temperature)
+
+    for _ in range(num_samples):
+        routes = []
+        unassigned_nodes = set(range(1, n))
+
+        while unassigned_nodes:
+            # Initialize a new route
+            route = [0, 0]
+            current_load = 0
+            current_node = 0
+
+            while True:
+                # Find nearest neighbors that fit within capacity
+                possible_neighbors = []
+                for neighbor in unassigned_nodes:
+                    if current_load + demands[neighbor] <= capacity:
+                        possible_neighbors.append(neighbor)
+                
+                if not possible_neighbors:
+                    break
+
+                #Sort neighbors by distance
+                possible_neighbors.sort(key=lambda x: distance_matrix[current_node, x])
+
+                #Select the nearest neighbor
+                next_node = possible_neighbors[0]
+                
+                #Add the nearest neighbor to the route
+                route.insert(-1, next_node)
+                current_load += demands[next_node]
+                unassigned_nodes.remove(next_node)
+                current_node = next_node
+                
+
+            routes.append(route)
+
+        # Update heuristic matrix
+        total_cost = sum(calculate_route_cost(route) for route in routes)
+        
+        for route in routes:
+            route_cost = calculate_route_cost(route)
+            quality = np.exp(-route_cost / temperature) #Weight routes based on cost
+
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                heuristics_matrix[node1, node2] += quality #Weighting by solution cost
+                heuristics_matrix[node2, node1] += quality
+    
+    # Normalize the heuristic matrix
+    total_edge_visits = np.sum(heuristics_matrix)
+    if total_edge_visits > 0:
+        heuristics_matrix = heuristics_matrix / total_edge_visits
+        
+    return heuristics_matrix

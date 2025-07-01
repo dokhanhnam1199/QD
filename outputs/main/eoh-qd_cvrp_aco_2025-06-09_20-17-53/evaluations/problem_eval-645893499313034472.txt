@@ -1,0 +1,67 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively constructs routes by probabilistically selecting nodes based on distance and demand, penalizing edge selections that lead to capacity violations, and rewarding edges that appear in shorter feasible routes, thereby constructing a heuristic matrix that reflects both proximity and route efficiency.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_iterations = 1000
+
+    for _ in range(num_iterations):
+        current_node = 0
+        current_route = [0]
+        current_load = 0
+        unvisited_nodes = set(range(1, n))
+        route_length = 0
+        
+        while unvisited_nodes:
+            # Calculate selection probabilities based on distance and demand
+            probabilities = np.zeros(n)
+            for node in unvisited_nodes:
+                if current_load + demands[node] <= capacity:
+                    probabilities[node] = (1 / distance_matrix[current_node, node]) * (1 / demands[node])
+                else:
+                    probabilities[node] = 0  # Cannot visit due to capacity
+
+            # Normalize probabilities
+            if np.sum(probabilities) > 0:
+                probabilities = probabilities / np.sum(probabilities)
+            else:
+                # If no node can be visited from current node, return to depot
+                current_route.append(0)
+                route_length += distance_matrix[current_node, 0]
+                current_node = 0
+                current_load = 0
+                probabilities = np.zeros(n)
+                for node in unvisited_nodes:
+                    if current_load + demands[node] <= capacity:
+                        probabilities[node] = (1 / distance_matrix[current_node, node]) * (1 / demands[node])
+                if np.sum(probabilities) > 0:
+                    probabilities = probabilities / np.sum(probabilities)
+                else:
+                    break  # No more nodes can be visited
+
+            # Select next node probabilistically
+            next_node = np.random.choice(n, p=probabilities)
+
+            # Update route and load
+            current_route.append(next_node)
+            route_length += distance_matrix[current_node, next_node]
+            current_load += demands[next_node]
+            unvisited_nodes.remove(next_node)
+            current_node = next_node
+
+        # Return to depot
+        current_route.append(0)
+        route_length += distance_matrix[current_node, 0]
+
+        # Update heuristic matrix based on route length
+        for i in range(len(current_route) - 1):
+            node1 = current_route[i]
+            node2 = current_route[i+1]
+            heuristics_matrix[node1, node2] += 1 / route_length
+            heuristics_matrix[node2, node1] += 1 / route_length  # Ensure symmetry
+    
+    return heuristics_matrix

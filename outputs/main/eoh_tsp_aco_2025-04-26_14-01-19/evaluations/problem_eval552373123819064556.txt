@@ -1,0 +1,78 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm combines elements of Ant Colony Optimization and Simulated Annealing by probabilistically constructing tours based on pheromone and distance, then iteratively refining them using a Metropolis-like acceptance criterion based on tour length and temperature, updating pheromone trails based on accepted solutions.}"""
+    n = distance_matrix.shape[0]
+    pheromone = np.ones((n, n)) / n  # Initialize pheromone trails
+    temperature = 1.0
+    cooling_rate = 0.98
+    alpha = 1.0
+    beta = 2.0
+    evaporation_rate = 0.1
+    num_iterations = 100
+
+    heuristics_matrix = np.zeros_like(distance_matrix)
+
+    def calculate_tour_length(tour):
+        length = 0
+        for i in range(len(tour) - 1):
+            length += distance_matrix[tour[i], tour[i+1]]
+        length += distance_matrix[tour[-1], tour[0]]
+        return length
+
+    def generate_tour(start_node):
+        tour = [start_node]
+        unvisited = set(range(n))
+        unvisited.remove(start_node)
+        current_node = start_node
+
+        while unvisited:
+            probabilities = np.zeros(n)
+            for i in unvisited:
+                probabilities[i] = (pheromone[current_node, i]**alpha) / (distance_matrix[current_node, i]**beta + 1e-9)
+            probabilities /= np.sum(probabilities)
+            next_node = np.random.choice(list(range(n)), p=probabilities)
+            if next_node not in unvisited:
+                continue
+
+            tour.append(next_node)
+            unvisited.remove(next_node)
+            current_node = next_node
+        tour.append(start_node)
+        return tour
+
+    for iteration in range(num_iterations):
+        start_node = np.random.randint(n)
+        current_tour = generate_tour(start_node)
+        current_length = calculate_tour_length(current_tour)
+
+        # Perturb the tour (2-opt swap)
+        i = np.random.randint(1, n - 1)
+        j = np.random.randint(i + 1, n)
+        new_tour = current_tour[:i] + current_tour[i:j+1][::-1] + current_tour[j+1:]
+        new_length = calculate_tour_length(new_tour)
+
+        # Metropolis acceptance criterion
+        if new_length < current_length:
+            accept = True
+        else:
+            acceptance_probability = np.exp((current_length - new_length) / temperature)
+            accept = np.random.rand() < acceptance_probability
+
+        if accept:
+            current_tour = new_tour
+            current_length = new_length
+
+        # Update pheromone trails
+        pheromone *= (1 - evaporation_rate)
+        for i in range(n):
+            pheromone[current_tour[i], current_tour[i+1]] += 1.0 / current_length
+            pheromone[current_tour[i+1], current_tour[i]] += 1.0 / current_length
+
+        temperature *= cooling_rate
+
+    for i in range(n):
+        for j in range(n):
+            heuristics_matrix[i, j] = pheromone[i, j] / (distance_matrix[i, j] + 1e-9)
+
+    return heuristics_matrix

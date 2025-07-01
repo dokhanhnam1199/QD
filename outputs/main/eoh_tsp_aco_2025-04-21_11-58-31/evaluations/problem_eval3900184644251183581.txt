@@ -1,0 +1,66 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm estimates edge importance by iteratively constructing tours using a weighted combination of shortest edge selection and a Metropolis-Hastings-inspired acceptance criterion, favoring edges that consistently lead to shorter overall tour lengths while incorporating a local search component to refine tours.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 50
+    temperature = 10.0  # Initial temperature for Metropolis-Hastings
+    alpha = 0.7 #Weight for distance vs heuristic
+
+    for _ in range(num_samples):
+        start_node = np.random.randint(n)
+        current_node = start_node
+        unvisited_nodes = set(range(n))
+        unvisited_nodes.remove(current_node)
+        tour = [current_node]
+
+        while unvisited_nodes:
+            # Calculate probabilities based on inverse distance and temperature
+            probabilities = np.zeros(n)
+            for neighbor in unvisited_nodes:
+                distance_term = np.exp(-distance_matrix[current_node, neighbor] / temperature)
+                heuristic_term = 1.0
+                if np.sum(heuristics_matrix[current_node, :]) > 0 :
+                    heuristic_term = np.exp(heuristics_matrix[current_node, neighbor])
+
+                probabilities[neighbor] = (alpha * distance_term) + ((1 - alpha) * heuristic_term)
+
+            probabilities /= np.sum(probabilities)  # Normalize
+
+            # Select the next node using the Metropolis-Hastings-inspired probabilities
+            next_node = np.random.choice(range(n), p=probabilities)
+            if next_node not in unvisited_nodes:
+               valid_neighbors = list(unvisited_nodes)
+               next_node = valid_neighbors[np.argmin([distance_matrix[current_node,neighbor] for neighbor in valid_neighbors])]
+
+            tour.append(next_node)
+            unvisited_nodes.remove(next_node)
+            current_node = next_node
+
+        tour.append(start_node)  # Return to starting node
+
+        # 2-opt local search
+        for i in range(1, n):
+            for j in range(i + 1, n + 1):
+                new_tour = tour[:i] + tour[i:j][::-1] + tour[j:]
+                current_length = sum(distance_matrix[new_tour[k], new_tour[k+1]] for k in range(n))
+                original_length = sum(distance_matrix[tour[k], tour[k+1]] for k in range(n))
+                if current_length < original_length:
+                    tour = new_tour
+                    
+        # Update heuristics matrix based on tour edges
+        tour_length = 0
+        for i in range(n):
+            node1 = tour[i]
+            node2 = tour[i+1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+            tour_length += distance_matrix[node1, node2]
+
+        # Anneal the temperature (reduce it over time)
+        temperature *= 0.95
+
+    # Normalize heuristics matrix
+    heuristics_matrix /= num_samples
+    return heuristics_matrix

@@ -1,0 +1,49 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm refines edge probabilities through iterative sampling and reinforcement learning, favoring edges present in shorter tours while penalizing edges from longer ones.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones_like(distance_matrix) * 0.5  # Initialize probabilities
+    alpha = 0.1  # Learning rate
+    num_iterations = 50
+    num_samples = 50
+
+    for _ in range(num_iterations):
+        tour_lengths = []
+        tours = []
+        for _ in range(num_samples):
+            # Probabilistic tour construction
+            tour = [np.random.choice(n, p=heuristics_matrix[0, :] / np.sum(heuristics_matrix[0, :]))]
+            for _ in range(n - 1):
+                current_node = tour[-1]
+                probabilities = heuristics_matrix[current_node, :] * (1 - np.isin(np.arange(n), tour))
+                if np.sum(probabilities) == 0:  # Handle disconnected graph
+                    remaining_nodes = np.setdiff1d(np.arange(n), tour)
+                    next_node = np.random.choice(remaining_nodes)
+                else:
+                    probabilities /= np.sum(probabilities)
+                    next_node = np.random.choice(n, p=probabilities)
+                tour.append(next_node)
+
+            tours.append(tour)
+            tour_length = 0
+            for i in range(n - 1):
+                tour_length += distance_matrix[tour[i], tour[i + 1]]
+            tour_length += distance_matrix[tour[-1], tour[0]]
+            tour_lengths.append(tour_length)
+
+        # Reinforcement learning update
+        avg_tour_length = np.mean(tour_lengths)
+        for tour, tour_length in zip(tours, tour_lengths):
+            reward = (avg_tour_length - tour_length) / avg_tour_length
+            for i in range(n - 1):
+                heuristics_matrix[tour[i], tour[i + 1]] *= np.exp(alpha * reward)
+                heuristics_matrix[tour[i + 1], tour[i]] *= np.exp(alpha * reward)
+            heuristics_matrix[tour[-1], tour[0]] *= np.exp(alpha * reward)
+            heuristics_matrix[tour[0], tour[-1]] *= np.exp(alpha * reward)
+
+        # Normalize the heuristics matrix to maintain probabilities
+        for i in range(n):
+            heuristics_matrix[i, :] /= np.sum(heuristics_matrix[i, :])
+
+    return heuristics_matrix

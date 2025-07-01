@@ -1,0 +1,75 @@
+import numpy as np
+
+def priority_v2(item: float,
+                bins_remain_cap: np.ndarray,
+                almost_full_threshold: float = 0.4233983316815403,
+                balance_threshold_low: float = 0.5109281978175745,
+                balance_threshold_high: float = 0.2282440454777349,
+                small_item_threshold_fraction: float = 0.2563388027305413,
+                almost_full_boost: float = 0.3108990802150934,
+                balanced_bin_boost: float = 0.8789600527350917,
+                small_item_boost: float = 0.4874875926125829,
+                random_factor: float = 0.05384239072460944,
+                does_not_fit_penalty: float = -2633521460.3857975) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+        almost_full_threshold: what fraction of full is "almost full"?
+        balance_threshold_low: lower bound of "balanced" fill level
+        balance_threshold_high: upper bound of "balanced" fill level
+        small_item_threshold_fraction: fraction of bin size to consider an item small
+        almost_full_boost: priority boost for almost full bins
+        balanced_bin_boost: priority boost for balanced bins
+        small_item_boost: priority boost for small items in bins with small remainder
+        random_factor: magnitude of random factor
+        does_not_fit_penalty: penalty when item does not fit into bin
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Heuristic 1: First Fit Decreasing (FFD) inspired - prefer bins with enough space, penalized by wasted space.
+    # Bins that cannot fit the item get a very low priority.
+
+    for i, cap in enumerate(bins_remain_cap):
+        if cap >= item:
+            # Calculate the wasted space. Aim to minimize wasted space
+            wasted_space = cap - item
+            priorities[i] = 1.0 / (1.0 + wasted_space)  # Higher priority for less wasted space
+        else:
+            priorities[i] = does_not_fit_penalty  # Very low priority if item doesn't fit.
+
+    # Heuristic 2: Address potential fragmentation by occasionally filling bins that are almost full.
+    # This helps consolidate existing items and prevents creation of many small empty bins.
+
+    is_almost_full = bins_remain_cap / np.max(bins_remain_cap) < (1 - almost_full_threshold)
+
+    for i, is_full in enumerate(is_almost_full):
+        if is_full and bins_remain_cap[i] >= item:
+            priorities[i] += almost_full_boost  # Boost priority for filling up almost full bins
+
+    # Heuristic 3: Introduce a "balance" heuristic. Prefer bins that are neither too full nor too empty.
+    # This can prevent creating very small residual bins while also avoiding excessive wasted space early on.
+
+    bin_fill_levels = (np.max(bins_remain_cap) - bins_remain_cap) / np.max(bins_remain_cap) #Calculate current fill level
+
+    is_balanced = (bin_fill_levels >= balance_threshold_low) & (bin_fill_levels <= balance_threshold_high)
+
+    for i, is_bal in enumerate(is_balanced):
+        if is_bal and bins_remain_cap[i] >= item:
+            priorities[i] += balanced_bin_boost  # Give a moderate boost to balanced bins
+
+    # Heuristic 4: Small items should prefer bins that would leave a small, but non-zero, remainder.
+    small_item_threshold = small_item_threshold_fraction * np.max(bins_remain_cap)  # Define "small" relative to bin size
+    if item < small_item_threshold:
+      for i, cap in enumerate(bins_remain_cap):
+        remainder = cap - item
+        if 0 < remainder < small_item_threshold: #If remainder is small and positive
+          priorities[i] += small_item_boost
+
+    # Heuristic 5: Add a small random factor to break ties and encourage exploration of different bin assignments.
+    priorities += np.random.rand(len(bins_remain_cap)) * random_factor
+    return priorities

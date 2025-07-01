@@ -1,0 +1,63 @@
+import numpy as np
+import random
+from scipy.spatial.distance import cdist
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs routes using a combination of nearest neighbor and probabilistic selection based on distance and demand, then updates a heuristic matrix based on route quality and edge frequency.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        unvisited_customers = set(range(1, n))
+        routes = []
+        current_route = [0]
+        current_load = 0
+
+        while unvisited_customers:
+            current_node = current_route[-1]
+            
+            # Find nearest neighbors among unvisited customers that satisfy capacity constraint
+            feasible_neighbors = [(neighbor, distance_matrix[current_node][neighbor]) 
+                                 for neighbor in unvisited_customers 
+                                 if current_load + demands[neighbor] <= capacity]
+            
+            if not feasible_neighbors:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0]
+                current_load = 0
+                continue
+            
+            # Probabilistic selection based on inverse distance
+            distances = [dist for _, dist in feasible_neighbors]
+            probabilities = [1.0 / (dist + 1e-6) for dist in distances]  # Avoid division by zero
+            probabilities /= np.sum(probabilities)
+            
+            chosen_customer = random.choices([neighbor for neighbor, _ in feasible_neighbors], weights=probabilities, k=1)[0]
+            
+            current_route.append(chosen_customer)
+            current_load += demands[chosen_customer]
+            unvisited_customers.remove(chosen_customer)
+        
+        current_route.append(0)
+        routes.append(current_route)
+
+        total_distance = sum(distance_matrix[route[i]][route[i+1]] for route in routes for i in range(len(route) - 1))
+
+        # Update heuristics matrix
+        if total_distance > 0:
+            score = 1.0 / total_distance
+            for route in routes:
+                for i in range(len(route) - 1):
+                    u = route[i]
+                    v = route[i+1]
+                    heuristics_matrix[u][v] += score
+                    heuristics_matrix[v][u] += score
+
+    # Normalize the heuristic matrix
+    max_val = np.max(heuristics_matrix)
+    if max_val > 0:
+        heuristics_matrix /= max_val
+
+    return heuristics_matrix

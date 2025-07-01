@@ -1,0 +1,70 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for the Capacitated Vehicle Routing Problem (CVRP) based on
+    stochastic solution sampling, considering distance, demand, and angle.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Customer demands (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge
+                   in a solution (n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+
+    # Heuristic 1: Inverse distance
+    distance_heuristic = 1 / (distance_matrix + 1e-6)  # Adding a small constant to avoid division by zero
+
+    # Heuristic 2: Demand-based penalty
+    demand_penalty = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                demand_penalty[i, j] = demands[j] / capacity
+
+    # Heuristic 3: Angle penalty (encourage less sharp turns)
+    angle_penalty = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Find a suitable k for angle calculation, skipping 'i' and 'j'
+                 k_candidates = [k for k in range(n) if k != i and k != j]
+                 if k_candidates:
+                    k = k_candidates[0]
+
+                    vector_ij = coordinates[j] - coordinates[i]
+                    vector_jk = coordinates[k] - coordinates[j]
+
+                    # Normalize vectors to calculate angle correctly
+                    vector_ij = vector_ij / (np.linalg.norm(vector_ij) + 1e-6) #avoid zero norm division
+                    vector_jk = vector_jk / (np.linalg.norm(vector_jk) + 1e-6) #avoid zero norm division
+
+                    dot_product = np.dot(vector_ij, vector_jk)
+                    angle = np.arccos(np.clip(dot_product, -1.0, 1.0))  # Clip to avoid domain errors
+                    angle_penalty[i, j] = angle / np.pi # Normalize to [0,1]
+
+    # Combine heuristics
+    heuristics_matrix = distance_heuristic * (1 - demand_penalty) * (1 - angle_penalty)
+
+    # Sparsify the matrix (set unpromising elements to zero)
+    threshold = np.percentile(heuristics_matrix[heuristics_matrix > 0], 25) #Consider only non-zero elements for percentile calculation
+    heuristics_matrix[heuristics_matrix < threshold] = 0
+
+    # Ensure that depot connections are more heavily favored.
+    for i in range(1, n):
+        heuristics_matrix[0, i] *= 2.0
+        heuristics_matrix[i, 0] *= 2.0
+
+    # Remove self loops
+    for i in range(n):
+        heuristics_matrix[i, i] = 0
+
+    return heuristics_matrix
+```

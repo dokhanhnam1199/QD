@@ -1,0 +1,86 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a sweep-based clustering approach followed by an improvement heuristic for routing within each cluster and combines the routes, incorporating a penalty for capacity violations during cluster construction.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    
+    # 1. Sweep-based Clustering
+    angles = np.arctan2(coordinates[1:, 1] - coordinates[0, 1], coordinates[1:, 0] - coordinates[0, 0])
+    nodes_by_angle = sorted(range(1, n), key=lambda i: angles[i-1])
+    
+    clusters = []
+    current_cluster = []
+    current_demand = 0
+    
+    for node in nodes_by_angle:
+        if current_demand + demands[node] <= capacity:
+            current_cluster.append(node)
+            current_demand += demands[node]
+        else:
+            clusters.append(current_cluster)
+            current_cluster = [node]
+            current_demand = demands[node]
+    clusters.append(current_cluster)
+    
+    # 2. Route Generation within Clusters (Nearest Neighbor + 2-opt Improvement)
+    cluster_routes = []
+    for cluster in clusters:
+        if not cluster:
+            cluster_routes.append([0,0])
+            continue
+            
+        # Nearest Neighbor Initial Route
+        current_node = 0
+        current_route = [0]
+        remaining_nodes = set(cluster)
+        
+        while remaining_nodes:
+            nearest_node = None
+            min_dist = float('inf')
+            
+            for node in remaining_nodes:
+                dist = distance_matrix[current_node, node]
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest_node = node
+            
+            current_route.append(nearest_node)
+            current_node = nearest_node
+            remaining_nodes.remove(nearest_node)
+        
+        current_route.append(0)
+        
+        # 2-opt Improvement
+        improved = True
+        while improved:
+            improved = False
+            for i in range(1, len(current_route) - 2):
+                for k in range(i + 1, len(current_route) - 1):
+                    node_i = current_route[i]
+                    node_ip1 = current_route[i+1]
+                    node_k = current_route[k]
+                    node_kp1 = current_route[k+1]
+                    
+                    if distance_matrix[node_i, node_ip1] + distance_matrix[node_k, node_kp1] > distance_matrix[node_i, node_k] + distance_matrix[node_ip1, node_kp1]:
+                        current_route[i+1:k+1] = reversed(current_route[i+1:k+1])
+                        improved = True
+        
+        cluster_routes.append(current_route)
+    
+    # 3. Combine Routes and Construct Heuristic Matrix
+    for route in cluster_routes:
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+    
+    # Normalize heuristic matrix by distance
+    for i in range(n):
+        for j in range(n):
+            if heuristics_matrix[i, j] > 0:
+                heuristics_matrix[i, j] /= distance_matrix[i, j]
+    
+    return heuristics_matrix

@@ -1,0 +1,52 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    CVRP heuristic: Combines distance, demand, depot proximity, and angle from depot.
+    Sparsifies and uses adaptive thresholding based on node degree.
+    """
+    n_nodes = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix)
+
+    # Node Proximity to Depot (normalized)
+    depot_distances = distance_matrix[0, :]
+    max_depot_distance = np.max(depot_distances)
+    normalized_depot_distances = depot_distances / max_depot_distance if max_depot_distance > 0 else np.zeros_like(depot_distances)
+
+    # Demand Considerations (normalized)
+    normalized_demands = demands / capacity
+
+    # Angle from Depot (using coordinates)
+    depot_x, depot_y = coordinates[0]
+    angles = np.arctan2(coordinates[:, 1] - depot_y, coordinates[:, 0] - depot_x)
+    normalized_angles = (angles + np.pi) / (2 * np.pi)  # Normalize to [0, 1]
+
+    for i in range(n_nodes):
+        for j in range(n_nodes):
+            if i == j:
+                continue
+
+            distance = distance_matrix[i, j]
+            if distance == 0:
+                continue
+
+            # Heuristic value combining various factors
+            heuristic_value = (1 / distance) * \
+                              (1 - normalized_demands[j]) * \
+                              (1 - normalized_depot_distances[j]) * \
+                              (1 - np.abs(normalized_angles[i] - normalized_angles[j]))  #Angle difference discourages edges between very disparate angles
+
+            heuristic_matrix[i, j] = heuristic_value
+
+    # Adaptive Sparsification based on node degree and a global threshold
+    degree = np.sum(heuristic_matrix > 0, axis=1)  # Count non-zero entries per row (node degree)
+    mean_heuristic = np.mean(heuristic_matrix[heuristic_matrix > 0]) if np.any(heuristic_matrix > 0) else 0
+    
+    for i in range(n_nodes):
+        #Adjust threshold for each node based on degree. The lower the degree, the bigger the threshold.
+        threshold = mean_heuristic * (0.1 + 0.4 * (1 - (degree[i] / (n_nodes -1)))) # Dynamic threshold
+        heuristic_matrix[i, heuristic_matrix[i, :] < threshold] = 0  # Set low-probability edges to 0
+
+    return heuristic_matrix
+```

@@ -1,0 +1,55 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    A more sophisticated heuristics for the Traveling Salesman Problem.
+    This version considers a combination of inverse distance and node degree.
+
+    Args:
+        distance_matrix: A numpy array representing the distance between cities.
+
+    Returns:
+        A numpy array of the same shape as distance_matrix, representing the
+        prior indicators of how promising it is to include each edge in a solution.
+    """
+    n = distance_matrix.shape[0]
+
+    # 1. Inverse Distance: Closer cities are more attractive.  Avoid divide by zero.
+    inverse_distance = 1.0 / (distance_matrix + np.eye(n))  # Add identity to avoid div by zero for self-loops
+    inverse_distance[np.diag_indices_from(inverse_distance)] = 0.0  # Ensure diagonal is zero
+
+    # 2. Nearest Neighbor Consideration: Promote edges connecting to nodes with few close neighbors.
+    #    This encourages visiting sparsely connected areas early.  A low degree
+    #    implies that connecting to this node is crucial, whereas a high-degree
+    #    is that this node will surely be linked with a lot of nodes.
+
+    # Sort distances from each city and find the indices of the k nearest neighbors
+    k = min(5, n - 1)  # Consider the k nearest neighbors, at most 5 or n-1.
+    nearest_neighbors = np.argsort(distance_matrix, axis=1)[:, 1:k + 1] # Exclude the city itself
+
+    # Calculate the sum of the inverse distances to the k nearest neighbors for each city.
+    # Higher sum implies the city has close neighbors.
+    neighbor_attractiveness = np.zeros((n, n))
+    for i in range(n):
+        total_neighbor_distance = np.sum(1.0 / distance_matrix[i, nearest_neighbors[i]])
+        for j in range(n):
+            if i != j:
+                neighbor_attractiveness[i,j] = total_neighbor_distance
+            else:
+                neighbor_attractiveness[i, j] = 0
+
+    # Normalize the neighbour attractiveness so the scaling factor would not overwhelm
+    # the inverse distance
+    neighbor_attractiveness_normalized = (neighbor_attractiveness - np.min(neighbor_attractiveness)) / (np.max(neighbor_attractiveness) - np.min(neighbor_attractiveness)) if np.max(neighbor_attractiveness) != np.min(neighbor_attractiveness) else np.zeros((n,n))
+
+    neighbor_attractiveness_scaled = 1 - neighbor_attractiveness_normalized  # Inverted to make smaller neighbour attractive values higher
+
+    # 3. Combine heuristics:  Inverse distance is primary, adjust with neighbor consideration.
+    # Consider a weighted average or multiplication of the two.  Multiplication
+    # appears more suitable in this context.
+
+    heuristics = inverse_distance * (1+neighbor_attractiveness_scaled) # Amplifying the effect of neighbour attractivness
+
+    return heuristics
+```

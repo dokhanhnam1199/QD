@@ -1,0 +1,84 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a simulated annealing approach to explore the solution space, favoring edges that lead to lower total route costs while respecting capacity constraints, and constructs a heuristic matrix based on the acceptance rate of edges during the annealing process.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 1000
+    temperature = 100.0
+    cooling_rate = 0.99
+
+    for iteration in range(num_iterations):
+        # Generate a random initial solution (permutation of customers)
+        customer_indices = np.random.permutation(range(1, n))
+
+        # Build routes based on capacity constraints
+        routes = []
+        current_route = [0]
+        current_demand = 0
+
+        for customer in customer_indices:
+            if current_demand + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_demand += demands[customer]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, customer]
+                current_demand = demands[customer]
+
+        current_route.append(0)
+        routes.append(current_route)
+
+        # Calculate the cost of the initial solution
+        current_cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                current_cost += distance_matrix[route[i], route[i+1]]
+
+        # Generate a neighboring solution by swapping two customers
+        idx1, idx2 = np.random.choice(range(1, n), 2, replace=False)
+        neighbor_indices = customer_indices.copy()
+        neighbor_indices[np.where(customer_indices == idx1)[0][0]], neighbor_indices[np.where(customer_indices == idx2)[0][0]] = idx2, idx1
+
+        # Build routes for the neighboring solution
+        neighbor_routes = []
+        current_route = [0]
+        current_demand = 0
+
+        for customer in neighbor_indices:
+            if current_demand + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_demand += demands[customer]
+            else:
+                current_route.append(0)
+                neighbor_routes.append(current_route)
+                current_route = [0, customer]
+                current_demand = demands[customer]
+
+        current_route.append(0)
+        neighbor_routes.append(current_route)
+        
+        # Calculate the cost of the neighboring solution
+        neighbor_cost = 0
+        for route in neighbor_routes:
+            for i in range(len(route) - 1):
+                neighbor_cost += distance_matrix[route[i], route[i+1]]
+
+        # Accept the neighbor if it's better or with a probability
+        delta = neighbor_cost - current_cost
+        if delta < 0 or np.random.rand() < np.exp(-delta / temperature):
+            customer_indices = neighbor_indices
+            routes = neighbor_routes
+            current_cost = neighbor_cost
+
+            # Update heuristics matrix
+            for route in routes:
+                for i in range(len(route) - 1):
+                    heuristics_matrix[route[i], route[i+1]] += 1
+                    heuristics_matrix[route[i+1], route[i]] += 1
+
+        # Cool down the temperature
+        temperature *= cooling_rate
+
+    return heuristics_matrix

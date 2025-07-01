@@ -1,0 +1,104 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs routes randomly, evaluates their cost, and iteratively improves them using local search with acceptance based on simulated annealing.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros((n, n))
+    temperature = 100.0
+    cooling_rate = 0.995
+    num_iterations = 1000
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        cost += distance_matrix[route[-1], 0]  # Return to depot
+        return cost
+
+    def generate_initial_solution():
+        unvisited_customers = list(range(1, n))
+        routes = []
+        current_route = [0]
+        current_capacity = 0
+
+        while unvisited_customers:
+            customer = random.choice(unvisited_customers)
+            if current_capacity + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_capacity += demands[customer]
+                unvisited_customers.remove(customer)
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0]
+                current_capacity = 0
+        current_route.append(0)
+        routes.append(current_route)
+        return routes
+
+    def local_search(routes):
+        # Swap nodes between routes
+        route1_idx = random.randint(0, len(routes) - 1)
+        route2_idx = random.randint(0, len(routes) - 1)
+        if route1_idx == route2_idx:
+            return routes
+
+        route1 = routes[route1_idx]
+        route2 = routes[route2_idx]
+
+        if len(route1) <= 2 or len(route2) <= 2: #routes just containing depot
+            return routes
+
+        node1_idx = random.randint(1, len(route1) - 2) #avoid swapping depot
+        node2_idx = random.randint(1, len(route2) - 2)
+        node1 = route1[node1_idx]
+        node2 = route2[node2_idx]
+
+        #Check if swap is feasible regarding capacity
+        route1_demand = sum(demands[node] for node in route1 if node !=0)
+        route2_demand = sum(demands[node] for node in route2 if node !=0)
+        
+        new_route1_demand = route1_demand - demands[node1] + demands[node2]
+        new_route2_demand = route2_demand - demands[node2] + demands[node1]
+        
+        if new_route1_demand > capacity or new_route2_demand > capacity:
+            return routes
+
+        new_routes = routes[:]  # Create a copy
+        new_route1 = route1[:]
+        new_route2 = route2[:]
+        new_route1[node1_idx] = node2
+        new_route2[node2_idx] = node1
+        new_routes[route1_idx] = new_route1
+        new_routes[route2_idx] = new_route2
+        
+        return new_routes
+
+    best_solution = generate_initial_solution()
+    best_cost = sum(calculate_route_cost(route) for route in best_solution)
+
+    for _ in range(num_iterations):
+        new_solution = local_search(best_solution)
+        new_cost = sum(calculate_route_cost(route) for route in new_solution)
+
+        if new_cost < best_cost:
+            best_solution = new_solution
+            best_cost = new_cost
+        else:
+            # Simulated annealing acceptance criterion
+            delta = new_cost - best_cost
+            probability = np.exp(-delta / temperature)
+            if random.random() < probability:
+                best_solution = new_solution
+                best_cost = new_cost
+
+        temperature *= cooling_rate
+
+    # Update heuristics matrix based on best solution
+    for route in best_solution:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+
+    return heuristics_matrix

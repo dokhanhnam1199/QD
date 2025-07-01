@@ -1,0 +1,73 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm combines stochastic sampling with adaptive weight adjustment and a modified score function based on edge usage and solution quality to estimate edge importance.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    edge_weights = np.ones_like(distance_matrix)  # Initialize edge weights
+
+    num_samples = 500
+    alpha = 0.7  # Weight decay factor
+    beta = 0.3  # Reward increment factor
+    gamma = 0.5 # Demand weight factor
+
+    for _ in range(num_samples):
+        current_node = 0
+        route = [0]
+        remaining_nodes = set(range(1, n))
+        current_capacity = capacity
+
+        while remaining_nodes:
+            probabilities = {}
+            for node in remaining_nodes:
+                if current_capacity >= demands[node]:
+                    distance_heuristic = 1 / (distance_matrix[current_node, node] + 1e-6)
+                    demand_heuristic = (current_capacity - demands[node]) / capacity
+                    # Modified Score function
+                    probabilities[node] = distance_heuristic * (gamma * demand_heuristic + (1-gamma) * 0.1) * edge_weights[current_node, node] #Consider weight
+
+            if not probabilities:
+                break
+
+            total_prob = sum(probabilities.values())
+            if total_prob == 0:
+                next_node = remaining_nodes.pop()
+            else:
+                normalized_probabilities = {node: prob / total_prob for node, prob in probabilities.items()}
+                next_node = np.random.choice(list(normalized_probabilities.keys()), p=list(normalized_probabilities.values()))
+                
+            if current_capacity >= demands[next_node]:
+                route.append(next_node)
+                current_capacity -= demands[next_node]
+                remaining_nodes.remove(next_node)
+                heuristics_matrix[current_node, next_node] += 1
+                heuristics_matrix[next_node, current_node] += 1
+                
+                # Reward the selected edge
+                edge_weights[current_node, next_node] += beta
+                edge_weights[next_node, current_node] += beta
+                
+                current_node = next_node
+            else:
+                route.append(0)
+                heuristics_matrix[current_node, 0] += 1
+                heuristics_matrix[0, current_node] += 1
+
+                # Penalize returning to depot
+                edge_weights[current_node, 0] *= alpha
+                edge_weights[0, current_node] *= alpha
+                
+                current_node = 0
+                current_capacity = capacity
+                
+        if current_node != 0:
+            heuristics_matrix[current_node, 0] += 1
+            heuristics_matrix[0, current_node] += 1
+    
+    for i in range(n):
+        for j in range(n):
+            if heuristics_matrix[i, j] > 0:
+               heuristics_matrix[i, j] /= (distance_matrix[i, j] + 1e-6)
+            
+    return heuristics_matrix

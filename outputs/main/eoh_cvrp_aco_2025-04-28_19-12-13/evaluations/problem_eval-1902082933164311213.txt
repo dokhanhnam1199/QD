@@ -1,0 +1,126 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs an initial solution using a greedy insertion heuristic, then refines the solution using a large neighborhood search with a probability-based acceptance criterion, and aggregates edge frequencies from accepted solutions to build a heuristic matrix.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 500
+    neighborhood_size = 5
+    acceptance_probability = 0.75
+
+    # 1. Initial Solution (Greedy Insertion Heuristic)
+    unvisited_nodes = set(range(1, n))
+    routes = []
+    current_route = [0]
+    current_capacity = capacity
+
+    while unvisited_nodes:
+        best_node = None
+        best_cost = float('inf')
+
+        for node in unvisited_nodes:
+            if demands[node] <= current_capacity:
+                cost = distance_matrix[current_route[-1]][node]
+                if cost < best_cost:
+                    best_cost = cost
+                    best_node = node
+
+        if best_node is not None:
+            current_route.append(best_node)
+            current_capacity -= demands[best_node]
+            unvisited_nodes.remove(best_node)
+        else:
+            current_route.append(0)
+            routes.append(current_route)
+            current_route = [0]
+            current_capacity = capacity
+
+    if current_route != [0]:
+        current_route.append(0)
+        routes.append(current_route)
+
+    def calculate_cost(routes):
+        cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                cost += distance_matrix[route[i]][route[i+1]]
+        return cost
+
+    best_routes = [route[:] for route in routes]
+    best_cost = calculate_cost(routes)
+
+    # 2. Large Neighborhood Search
+    for _ in range(num_iterations):
+        # a. Destroy: Remove nodes from current solution
+        removed_nodes = []
+        temp_routes = [route[:] for route in routes]
+        num_to_remove = min(neighborhood_size, sum(len(route) - 2 for route in temp_routes)) #Avoid infinite loop
+
+        available_nodes = []
+        for r_idx, route in enumerate(temp_routes):
+            for n_idx in range(1, len(route) - 1):
+                available_nodes.append((r_idx, n_idx))
+
+        if not available_nodes:
+            continue
+
+        removed_nodes_info = random.sample(available_nodes, min(num_to_remove, len(available_nodes)))
+        
+        for r_idx, n_idx in sorted(removed_nodes_info, reverse=True):
+            removed_node = temp_routes[r_idx].pop(n_idx)
+            removed_nodes.append(removed_node)
+            if len(temp_routes[r_idx]) == 2:
+                del temp_routes[r_idx]
+
+        # b. Repair: Re-insert removed nodes using greedy insertion
+        for node in removed_nodes:
+            best_insertion_cost = float('inf')
+            best_insertion_route = None
+            best_insertion_index = None
+
+            for r_idx, route in enumerate(temp_routes):
+                for i in range(1, len(route)):
+                    if sum(demands[n] for n in route[1:i] + [node]) <= capacity:
+                        cost_increase = distance_matrix[route[i-1]][node] + distance_matrix[node][route[i]] - distance_matrix[route[i-1]][route[i]]
+                        if cost_increase < best_insertion_cost:
+                            best_insertion_cost = cost_increase
+                            best_insertion_route = r_idx
+                            best_insertion_index = i
+
+            #Insert at the end if possible.
+            best_insertion_cost_end = float('inf')
+            best_insertion_route_end = None
+            if not temp_routes:
+                temp_routes = [[0,0]]
+            for r_idx, route in enumerate(temp_routes):
+                if sum(demands[n] for n in route[1:] + [node]) <= capacity:
+                        cost_increase = distance_matrix[route[-1]][node] + distance_matrix[node][0] - distance_matrix[route[-1]][0]
+                        if cost_increase < best_insertion_cost_end:
+                            best_insertion_cost_end = cost_increase
+                            best_insertion_route_end = r_idx
+
+            if best_insertion_route is not None and best_insertion_cost < best_insertion_cost_end:
+                temp_routes[best_insertion_route].insert(best_insertion_index, node)
+            elif best_insertion_route_end is not None and len(temp_routes)>0:
+
+                temp_routes[best_insertion_route_end].insert(len(temp_routes[best_insertion_route_end])-1, node)
+            else: #If not possible, create a new route.
+                temp_routes.append([0,node,0])
+
+        # c. Acceptance Criterion (Probability-based)
+        new_cost = calculate_cost(temp_routes)
+        if new_cost < best_cost or random.random() < acceptance_probability:
+            routes = [route[:] for route in temp_routes]
+            best_cost = new_cost
+            best_routes = [route[:] for route in routes]
+
+    # 3. Heuristic Matrix Construction
+    for route in best_routes:
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+    return heuristics_matrix

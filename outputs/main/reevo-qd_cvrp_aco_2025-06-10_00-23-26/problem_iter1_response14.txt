@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (shape: n by n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n by 2).
+        demands (np.ndarray): Vector of customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (shape: n by n).
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Calculate savings for each edge
+    savings_matrix = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings_matrix[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings_matrix[j, i] = savings_matrix[i, j]
+
+    # Normalize demands and distances
+    normalized_demands = demands / np.max(demands)
+    normalized_distances = distance_matrix / np.max(distance_matrix)
+
+    # Combine factors to create the heuristic matrix
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Factor 1: Distance (shorter distances are better)
+                distance_factor = 1 / (normalized_distances[i, j] + 1e-6)  # Adding a small constant to avoid division by zero
+
+                # Factor 2: Savings (higher savings are better)
+                savings_factor = savings_matrix[i, j]
+
+                # Factor 3: Demand (edges connecting nodes with smaller combined demand are better) - penalize edges connecting high demand nodes.  depot (node 0) demand does not matter for this calculation.
+                if i == 0 or j == 0:
+                    demand_factor = 1.0 #don't penalize connection to the depot.
+                else:
+                   demand_factor = 1 / (normalized_demands[i] + normalized_demands[j] + 1e-6)  # Adding a small constant to avoid division by zero
+
+                heuristic_matrix[i, j] = distance_factor * (0.4)  + savings_factor * (0.4)  + demand_factor * (0.2)  #Weighted average of all factors.
+
+    #Sparsify the matrix. Keep only the top k connections to each node based on their heuristic scores.
+    k = int(np.sqrt(n)) # parameter that controls how sparse the matrix is.
+
+    for i in range(n):
+        # Get indices of top k values in each row, excluding the diagonal
+        row = heuristic_matrix[i, :]
+        row_without_self = np.copy(row)
+        row_without_self[i] = -np.inf # effectively remove the node 'i' from selection
+        ind = np.argpartition(row_without_self, -k)[-k:]
+        # Zero out all elements in the row except for the top k
+        heuristic_matrix[i, :] = 0
+        heuristic_matrix[i, ind] = row[ind]
+
+    return heuristic_matrix
+```

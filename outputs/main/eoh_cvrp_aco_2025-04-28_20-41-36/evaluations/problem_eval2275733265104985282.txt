@@ -1,0 +1,62 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm adaptively adjusts edge sampling probabilities based on route feasibility and solution cost, promoting edges in low-cost, feasible routes while penalizing those in infeasible or high-cost ones.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    edge_penalties = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 1000
+    alpha = 0.1 
+
+    for _ in range(num_samples):
+        unvisited = set(range(1, n))
+        current_route = [0]
+        current_load = 0
+        all_routes = []
+        route_cost = 0
+
+        while unvisited:
+            feasible_nodes = [node for node in unvisited if current_load + demands[node] <= capacity]
+
+            if not feasible_nodes:
+                current_route.append(0)
+                all_routes.append(current_route)
+                route_cost += distance_matrix[current_route[-2],0]
+                current_route = [0]
+                current_load = 0
+                feasible_nodes = [node for node in unvisited if current_load + demands[node] <= capacity]
+                if not feasible_nodes:
+                    route_cost = float('inf')
+                    break
+
+            probabilities = []
+            for node in feasible_nodes:
+                prob = 1.0 / (distance_matrix[current_route[-1], node] + edge_penalties[current_route[-1], node])
+                probabilities.append(prob)
+                
+            probabilities = np.array(probabilities)
+            probabilities /= np.sum(probabilities)
+
+            next_node = np.random.choice(feasible_nodes, p=probabilities)
+            
+            route_cost += distance_matrix[current_route[-1], next_node]
+            current_route.append(next_node)
+            current_load += demands[next_node]
+            unvisited.remove(next_node)
+
+        current_route.append(0)
+        all_routes.append(current_route)
+        route_cost += distance_matrix[current_route[-1],0]
+        
+        if route_cost != float('inf'):
+          for route in all_routes:
+              for i in range(len(route) - 1):
+                  heuristics_matrix[route[i], route[i+1]] += 1/route_cost
+                  heuristics_matrix[route[i+1], route[i]] += 1/route_cost
+        else:
+           for route in all_routes:
+              for i in range(len(route) - 1):
+                  edge_penalties[route[i], route[i+1]] += alpha*distance_matrix[route[i], route[i+1]]
+                  edge_penalties[route[i+1], route[i]] += alpha*distance_matrix[route[i+1], route[i]]          
+    heuristics_matrix /= num_samples
+    return heuristics_matrix

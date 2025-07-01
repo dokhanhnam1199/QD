@@ -1,0 +1,65 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs routes by iteratively adding the closest feasible customer, using a probabilistic acceptance based on route cost and distance to diversify the search.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 1000
+    temperature = 1.0  # Controls exploration vs. exploitation
+
+    for _ in range(num_samples):
+        current_node = 0
+        current_route = [0]
+        vehicle_load = 0
+        unvisited_nodes = set(range(1, n))
+        total_cost = 0
+        routes = []
+
+        while unvisited_nodes:
+            # Find feasible neighbors
+            feasible_neighbors = [node for node in unvisited_nodes if vehicle_load + demands[node] <= capacity]
+
+            if not feasible_neighbors:
+                # Return to depot if no feasible neighbors
+                total_cost += distance_matrix[current_node, 0]
+                current_route.append(0)
+                routes.append(current_route)
+                current_node = 0
+                current_route = [0]
+                vehicle_load = 0
+                feasible_neighbors = [node for node in unvisited_nodes if vehicle_load + demands[node] <= capacity]
+                if not feasible_neighbors:
+                  break
+
+            # Calculate probabilities based on distance and temperature
+            distances = np.array([distance_matrix[current_node, node] for node in feasible_neighbors])
+            probabilities = np.exp(-distances / temperature)
+            probabilities /= np.sum(probabilities)
+
+            # Choose next node probabilistically
+            next_node = random.choices(feasible_neighbors, probabilities)[0]
+
+            # Update route information
+            total_cost += distance_matrix[current_node, next_node]
+            current_route.append(next_node)
+            vehicle_load += demands[next_node]
+            unvisited_nodes.remove(next_node)
+            
+            # Update heuristic matrix
+            heuristics_matrix[current_node, next_node] += 1
+            heuristics_matrix[next_node, current_node] += 1
+
+            current_node = next_node
+
+        # Return to depot
+        total_cost += distance_matrix[current_node, 0]
+        current_route.append(0)
+        routes.append(current_route)
+        heuristics_matrix[current_node, 0] += 1
+        heuristics_matrix[0, current_node] += 1
+        
+
+    return heuristics_matrix

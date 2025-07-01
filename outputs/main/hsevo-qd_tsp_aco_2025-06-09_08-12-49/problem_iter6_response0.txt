@@ -1,0 +1,48 @@
+```python
+import numpy as np
+
+epsilon = 1e-6
+attraction_weight = 0.6
+inverse_distance_weight = 0.4
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Combines Newtonian attraction, inverse distance, and node degree for TSP edge prioritization,
+    with sparsification.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+    safe_distance_matrix = distance_matrix + epsilon
+
+    # Newtonian attraction component
+    attraction = 1 / (safe_distance_matrix**2)
+    mass = np.sum(1 / safe_distance_matrix, axis=1)
+    M = np.outer(mass, mass)
+    potential_energy = safe_distance_matrix / np.mean(safe_distance_matrix)
+    newtonian = (attraction * M) / potential_energy
+
+    # Inverse distance component
+    inverse_distance = 1 / safe_distance_matrix
+
+    # Node degree component (prioritize edges connecting low-degree nodes)
+    degree = np.sum(distance_matrix > 0, axis=1)  # Count neighbors (excluding self-loops which should be zero or inf)
+    degree_matrix = np.outer(degree, degree)
+    degree_heuristic = 1 / (degree_matrix + epsilon)
+
+    # Combine the components
+    heuristics = (attraction_weight * newtonian +
+                  inverse_distance_weight * inverse_distance +
+                  0.1 * degree_heuristic)  # Reduced weight for degree
+
+    # Normalize
+    min_heuristic = np.min(heuristics)
+    max_heuristic = np.max(heuristics)
+    heuristics = (heuristics - min_heuristic) / (max_heuristic - min_heuristic)
+
+    # Sparsification: zero out edges with low heuristic values to reduce search space
+    threshold = np.quantile(heuristics, 0.2)  # Keep top 80% of edges
+    heuristics[heuristics < threshold] = 0.0
+
+    return heuristics
+```

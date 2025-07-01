@@ -1,0 +1,113 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a simulated annealing approach to iteratively improve a randomly generated route, considering both distance and capacity constraints, and returns an edge-frequency based heuristic matrix.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    
+    T = 1.0
+    T_min = 0.00001
+    alpha = 0.9
+    
+    max_iterations = 500
+
+    # Initial solution: random assignment of customers to vehicles
+    def create_initial_solution():
+        unassigned_customers = list(range(1, n))
+        routes = []
+        current_route = [0]
+        current_capacity = capacity
+        
+        random.shuffle(unassigned_customers)
+
+        for customer in unassigned_customers:
+            if demands[customer] <= current_capacity:
+                current_route.append(customer)
+                current_capacity -= demands[customer]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, customer]
+                current_capacity = capacity - demands[customer]
+        current_route.append(0)
+        routes.append(current_route)
+        return routes
+    
+    def calculate_cost(routes):
+        total_distance = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_distance += distance_matrix[route[i], route[i+1]]
+        return total_distance
+
+    def neighbor(routes):
+        # Swap two customers between routes or within a route
+        new_routes = [route[:] for route in routes]
+        
+        if len(new_routes) == 1: #Only one route
+            route_idx = 0
+            if len(new_routes[route_idx]) <= 3:
+                return new_routes
+            idx1 = random.randint(1, len(new_routes[route_idx]) - 2)
+            idx2 = random.randint(1, len(new_routes[route_idx]) - 2)
+            
+            new_routes[route_idx][idx1], new_routes[route_idx][idx2] = new_routes[route_idx][idx2], new_routes[route_idx][idx1]
+            return new_routes
+            
+        route_idx1 = random.randint(0, len(new_routes) - 1)
+        route_idx2 = random.randint(0, len(new_routes) - 1)
+        
+        while len(new_routes[route_idx1]) <= 2 and len(new_routes) > 1:
+              route_idx1 = random.randint(0, len(new_routes) - 1)
+        while len(new_routes[route_idx2]) <= 2 and len(new_routes) > 1:
+              route_idx2 = random.randint(0, len(new_routes) - 1)
+            
+        idx1 = random.randint(1, len(new_routes[route_idx1]) - 2)
+        idx2 = random.randint(1, len(new_routes[route_idx2]) - 2) #Ensure not to swap depot
+        
+        customer1 = new_routes[route_idx1][idx1]
+        customer2 = new_routes[route_idx2][idx2]
+        
+        new_routes[route_idx1][idx1] = customer2
+        new_routes[route_idx2][idx2] = customer1
+            
+        return new_routes
+
+    
+    current_solution = create_initial_solution()
+    best_solution = current_solution
+    current_cost = calculate_cost(current_solution)
+    best_cost = current_cost
+    
+    for i in range(max_iterations):
+        new_solution = neighbor(current_solution)
+        new_cost = calculate_cost(new_solution)
+        
+        if new_cost < current_cost:
+            current_solution = new_solution
+            current_cost = new_cost
+            
+            if new_cost < best_cost:
+                best_solution = new_solution
+                best_cost = new_cost
+        else:
+            # Metropolis acceptance criterion
+            delta = new_cost - current_cost
+            acceptance_prob = np.exp(-delta / T)
+            
+            if random.random() < acceptance_prob:
+                current_solution = new_solution
+                current_cost = new_cost
+                
+        T = T * alpha
+        if T <= T_min:
+            break
+            
+    # Update heuristics matrix based on best solution
+    for route in best_solution:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+            
+    return heuristics_matrix

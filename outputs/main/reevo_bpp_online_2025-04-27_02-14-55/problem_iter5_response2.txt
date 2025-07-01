@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Highest priority: Exact fit
+    exact_fit = (bins_remain_cap == item)
+    priorities[exact_fit] = 1000.0
+
+    # High priority: Near fit (remaining space is small relative to bin size)
+    near_fit = (bins_remain_cap >= item) & (bins_remain_cap <= (item + 0.1 * np.max(bins_remain_cap)))
+    priorities[near_fit] = 750.0
+
+    # Reward for using existing bins proportionally to their fill level
+    non_empty = bins_remain_cap < np.max(bins_remain_cap)
+    fill_level = 1 - (bins_remain_cap[non_empty] / np.max(bins_remain_cap))
+    priorities[non_empty] += fill_level * 200  # Scale reward
+
+    # Adaptively prioritize based on capacity ratios (Gaussian reward)
+    can_accommodate = (bins_remain_cap >= item)
+    if np.any(can_accommodate):
+        capacity_ratio = item / bins_remain_cap[can_accommodate]
+        # Gaussian reward centered around optimal ratio (e.g., 0.8)
+        optimal_ratio = 0.8
+        reward = 500 * np.exp(-0.5 * ((capacity_ratio - optimal_ratio) / 0.2)**2)
+        priorities[can_accommodate] += reward
+    else:
+        # Strong penalty for bins that cannot accommodate the item
+        priorities[bins_remain_cap < item] = -1000.0
+
+    # Penalize bins close to full but can't accommodate
+    almost_full = (bins_remain_cap < item) & (bins_remain_cap >= 0.8 * item)
+    priorities[almost_full] = -750.0
+
+    # Item size consideration - slightly prefer to place smaller items in fuller bins
+    priorities[non_empty] += (item / np.max(bins_remain_cap)) * 50
+
+    return priorities
+```

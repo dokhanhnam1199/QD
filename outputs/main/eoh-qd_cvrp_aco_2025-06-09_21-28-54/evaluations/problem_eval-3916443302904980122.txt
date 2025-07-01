@@ -1,0 +1,71 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs routes through iteratively adding nodes based on a weighted probability distribution influenced by distance and demand, favoring closer and less demanding nodes while respecting capacity constraints, and updates edge inclusion probabilities accordingly.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros((n, n))
+    num_samples = 1000
+    tau = 1.0  # Temperature parameter for controlling exploration vs. exploitation
+
+    for _ in range(num_samples):
+        # Initialize route and load
+        route = [0]
+        current_load = 0
+        unvisited = set(range(1, n))
+
+        while unvisited:
+            # Calculate probabilities for each unvisited node
+            probabilities = []
+            for node in unvisited:
+                if current_load + demands[node] <= capacity:
+                    distance = distance_matrix[route[-1], node]
+                    # Probability inversely proportional to distance and demand
+                    probability = np.exp(-distance / tau - demands[node]/ capacity)
+                    probabilities.append((node, probability))
+                else:
+                    probabilities.append((node, 0)) # probability zero for exceeding capacity
+            
+            # Normalize probabilities
+            total_probability = sum(p for _, p in probabilities)
+            if total_probability > 0:
+                probabilities = [(node, p / total_probability) for node, p in probabilities]
+            else:
+                #If no nodes can be added due to capacity reset to depot
+                route.append(0)
+                current_load = 0
+                unvisited.add(node)
+                continue
+           
+            # Choose next node based on probabilities (roulette wheel selection)
+            rand = random.random()
+            cumulative_probability = 0.0
+            chosen_node = None
+            for node, probability in probabilities:
+                cumulative_probability += probability
+                if rand < cumulative_probability:
+                    chosen_node = node
+                    break
+
+            # Add chosen node to route
+            if chosen_node is not None:
+                route.append(chosen_node)
+                current_load += demands[chosen_node]
+                unvisited.remove(chosen_node)
+            else:
+                break # Break if no node was selected
+
+        # Complete route by returning to depot
+        route.append(0)
+
+        # Update heuristics matrix
+        for i in range(len(route) - 1):
+            u = route[i]
+            v = route[i+1]
+            heuristics_matrix[u, v] += 1
+            heuristics_matrix[v, u] += 1
+
+    # Normalize heuristics matrix
+    heuristics_matrix = heuristics_matrix / num_samples
+
+    return heuristics_matrix

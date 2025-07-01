@@ -1,0 +1,71 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm combines edge frequency estimation from sampled solutions with an adaptive adjustment mechanism based on solution quality to refine edge inclusion probabilities.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 50
+    alpha = 0.1  # Learning rate for adaptive adjustment
+
+    best_tour = None
+    best_tour_length = np.inf
+
+    for _ in range(num_samples):
+        start_node = np.random.randint(n)
+        current_node = start_node
+        unvisited = set(range(n))
+        unvisited.remove(current_node)
+        path = [current_node]
+        path_length = 0
+
+        while unvisited:
+            nearest_neighbor = -1
+            min_distance = np.inf
+            for neighbor in unvisited:
+                distance = distance_matrix[current_node, neighbor]
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest_neighbor = neighbor
+
+            path.append(nearest_neighbor)
+            path_length += min_distance
+            unvisited.remove(nearest_neighbor)
+            current_node = nearest_neighbor
+
+        path.append(start_node)
+        path_length += distance_matrix[current_node, start_node]
+
+        # Accumulate edge frequencies for this sample
+        for i in range(n):
+            node1 = path[i]
+            node2 = path[i+1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+        # Adaptive adjustment based on solution quality
+        if path_length < best_tour_length:
+            if best_tour is not None:
+                # Decrease probabilities of edges in the previous best tour
+                for i in range(n):
+                    node1 = best_tour[i]
+                    node2 = best_tour[i+1]
+                    heuristics_matrix[node1, node2] *= (1 - alpha)
+                    heuristics_matrix[node2, node1] *= (1 - alpha)
+
+            best_tour = path
+            best_tour_length = path_length
+
+            # Increase probabilities of edges in the current best tour
+            for i in range(n):
+                node1 = path[i]
+                node2 = path[i+1]
+                heuristics_matrix[node1, node2] *= (1 + alpha)
+                heuristics_matrix[node2, node1] *= (1 + alpha)
+    
+    # Normalize the heuristics matrix
+    for i in range(n):
+        row_sum = np.sum(heuristics_matrix[i, :])
+        if row_sum > 0:
+            heuristics_matrix[i, :] /= row_sum
+
+    return heuristics_matrix

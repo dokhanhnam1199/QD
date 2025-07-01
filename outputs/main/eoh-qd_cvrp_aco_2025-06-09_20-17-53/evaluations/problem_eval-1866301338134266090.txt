@@ -1,0 +1,67 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm estimates edge importance by sampling random routes, penalizing infeasible routes and rewarding feasible low-cost routes based on a score derived from feasibility and total distance, and then averaging the edge frequencies observed in the weighted routes.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000
+    alpha = 0.5 #Weight for distance
+
+    for _ in range(num_samples):
+        # Generate a random permutation of customers (excluding the depot)
+        customer_indices = list(range(1, n))
+        random.shuffle(customer_indices)
+
+        # Build routes based on capacity constraints
+        routes = []
+        current_route = [0]  # Start at the depot
+        current_capacity = 0
+        is_feasible = True #Flag for feasible routes
+
+        for customer in customer_indices:
+            if current_capacity + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_capacity += demands[customer]
+            else:
+                current_route.append(0)  # Return to depot
+                routes.append(current_route)
+                current_route = [0, customer]  # Start new route at depot
+                current_capacity = demands[customer]
+
+        current_route.append(0) # Close the final route
+        routes.append(current_route)
+        
+        # Calculate total distance of routes
+        total_distance = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_distance += distance_matrix[route[i]][route[i+1]]
+        
+        #Feasibility Check: check for any route exceeding capacity
+        total_demand = 0
+        for route in routes:
+            route_demand = 0
+            for node in route:
+                route_demand += demands[node]
+            if route_demand > capacity:
+                is_feasible = False
+                break
+
+
+        #Calculate a score for the route
+        if is_feasible:
+            score = np.exp(-alpha * total_distance / np.mean(distance_matrix)) #Reward feasible routes with lower distance
+        else:
+            score = 0.1 #Penalize infeasible routes
+
+        # Update heuristics matrix based on the score
+        for route in routes:
+            for i in range(len(route) - 1):
+                heuristics_matrix[route[i]][route[i+1]] += score
+                heuristics_matrix[route[i+1]][route[i]] += score  # Assuming symmetry
+    
+    #Normalize the heuristics matrix
+    heuristics_matrix = heuristics_matrix / num_samples
+
+    return heuristics_matrix

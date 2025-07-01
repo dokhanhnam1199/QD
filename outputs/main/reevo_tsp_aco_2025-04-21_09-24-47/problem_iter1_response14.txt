@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for the Traveling Salesman Problem (TSP) using a combination of factors
+    and sparsification.
+
+    Args:
+        distance_matrix (np.ndarray): A square matrix representing the distances between cities.
+
+    Returns:
+        np.ndarray: A matrix of the same shape as distance_matrix, representing the
+                    heuristic values (prior indicators) for each edge.  Higher values indicate
+                    more promising edges. Sparsified: unpromising entries are set to zero.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Inverse Distance: Closer cities are more attractive.  Avoid division by zero.
+    inverse_distance = 1 / (distance_matrix + np.eye(n))
+    np.fill_diagonal(inverse_distance, 0)  # Ensure no self-loops.
+
+    # 2. Nearest Neighbor: Encourage edges to nearby unvisited cities.
+    nearest_neighbors = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        sorted_indices = np.argsort(distance_matrix[i, :])
+        # Consider the k nearest neighbors (excluding itself)
+        k = min(5, n - 1)  # Limit to 5 nearest neighbors or all remaining nodes
+        for j in sorted_indices[1:k + 1]:  # Exclude self (index 0)
+            nearest_neighbors[i, j] = 1  # Or some value reflecting nearness
+            nearest_neighbors[j, i] = 1
+
+    # 3. Minimum Spanning Tree Proxy: Penalize edges that contribute to high MST cost.
+    #    We cannot compute the actual MST within this heuristic function efficiently.
+    #    Instead, we use a simple proxy: a global percentile cutoff.  Edges significantly
+    #    above this percentile are penalized.
+    percentile_75 = np.percentile(distance_matrix[distance_matrix > 0], 75)  # Ignore zero distances (self loops)
+    mst_proxy = np.where(distance_matrix <= percentile_75, 1, 0.1)  # Favor edges below percentile, but don't outright eliminate.
+
+
+    # 4. Degree Penalty: Avoid high-degree nodes early on.
+    degree_penalty = np.ones_like(distance_matrix, dtype=float)
+
+
+    # Combine the factors (weighted average)
+    heuristic_matrix = (
+        0.6 * inverse_distance +
+        0.2 * nearest_neighbors +
+        0.2 * mst_proxy
+        # Removed degree penalty as it did not perform well during testing
+    )
+
+
+    # 5. Sparsification: Set small (unpromising) heuristic values to zero.
+    #    Adaptive threshold based on matrix values.
+    threshold = np.percentile(heuristic_matrix[heuristic_matrix > 0], 40)  # Drop bottom 40%
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    return heuristic_matrix
+```

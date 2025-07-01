@@ -1,0 +1,47 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm adaptively adjusts edge weights based on the frequency of their appearance in short paths found by a simplified local search, emphasizing edges that consistently contribute to good solutions, and incorporates a recency bias by exponentially decaying the edge counts from previous iterations.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    edge_counts = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 50
+    neighborhood_size = 10
+    decay_factor = 0.9  # Adjust this value to control the recency bias
+
+    for _ in range(num_samples):
+        # Generate a random initial tour
+        nodes = list(range(n))
+        np.random.shuffle(nodes)
+        tour = nodes + [nodes[0]]
+
+        # Simplified 2-opt local search
+        improved = True
+        while improved:
+            improved = False
+            for i in range(1, n - 1):
+                for j in range(i + 2, n + 1):
+                    if j - i == 1: continue # ensures edges are distinct
+                    current_distance = distance_matrix[tour[i-1], tour[i]] + distance_matrix[tour[j-1], tour[j]]
+                    new_distance = distance_matrix[tour[i-1], tour[j-1]] + distance_matrix[tour[i], tour[j]]
+                    if new_distance < current_distance:
+                        tour[i:j] = reversed(tour[i:j])
+                        improved = True
+
+        # Update edge counts based on the improved tour
+        tour_length = 0
+        for i in range(n):
+            node1 = tour[i]
+            node2 = tour[i+1]
+            edge_counts[node1, node2] = decay_factor * edge_counts[node1, node2] + 1
+            edge_counts[node2, node1] = decay_factor * edge_counts[node2, node1] + 1
+            tour_length += distance_matrix[node1, node2]
+
+    # Normalize edge counts to create the heuristics matrix
+    max_count = np.max(edge_counts)
+    if max_count > 0:
+        heuristics_matrix = edge_counts / max_count
+    else:
+        heuristics_matrix = np.ones_like(distance_matrix) / n # Avoid division by zero
+
+    return heuristics_matrix

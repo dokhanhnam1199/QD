@@ -1,0 +1,85 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics function for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    This version incorporates several factors to determine the desirability of including an edge in a solution:
+        - Distance: Shorter distances are generally preferred.
+        - Demand compatibility: Edges connecting nodes with small combined demands are favored.
+        - Angle relative to the depot: Edges that steer away from the depot quickly are discouraged.
+        - Sparsification: Unpromising edges (high cost) are set to zero to reduce the search space.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Vector of customer demands (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+
+    # Parameters (adjust these to fine-tune the heuristic)
+    distance_weight = 1.0
+    demand_weight = 0.5
+    angle_weight = 0.2
+    sparsification_threshold = np.percentile(distance_matrix[distance_matrix > 0], 75) #remove top 25% edges
+    depot_penalty = 10 # large value makes edges connecting two customer nodes close to the depot less likely
+    # Depot Index
+    depot_index = 0
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristics_matrix[i, j] = 0  # No self-loops
+                continue
+
+            if distance_matrix[i, j] == 0:
+                heuristics_matrix[i,j] = 0
+                continue
+
+            # Distance factor (inversely proportional)
+            distance_factor = distance_weight / distance_matrix[i, j]
+
+            # Demand factor (favor edges connecting nodes with combined demands that are easily satisfied
+            demand_factor = demand_weight * min(1.0, (capacity - demands[i] - demands[j]) / capacity) # high capacity vehicle available
+
+            # Angle factor (discourage edges that point away from the depot early)
+            # Angle is calculated relative to the vector from the current node to the depot
+            depot_x, depot_y = coordinates[0] #x,y location of the depot
+            node_i_x, node_i_y = coordinates[i]
+            node_j_x, node_j_y = coordinates[j]
+
+            # vectors from depot to node i and node j
+            vector_i = np.array([node_i_x - depot_x, node_i_y - depot_y])
+            vector_j = np.array([node_j_x - depot_x, node_j_y - depot_y])
+            if np.linalg.norm(vector_i) == 0 or np.linalg.norm(vector_j) == 0:
+                angle = 0
+            else:
+                cos_angle = np.dot(vector_i, vector_j) / (np.linalg.norm(vector_i) * np.linalg.norm(vector_j))
+                cos_angle = np.clip(cos_angle, -1, 1)
+                angle = np.arccos(cos_angle) # angle between two vectors
+
+
+            angle_factor = angle_weight * (1- np.degrees(angle)/180) # Prefer small angles (edges to neighboring nodes)
+
+            # If near the depot connecting two customers penalize this to avoid very short routes.
+            depot_penalty_factor = 1.0
+            if i != depot_index and j != depot_index:
+                 # Distance threshold, you may want to change the hard coded value (e.g., 50)
+                if distance_matrix[i, depot_index] < 50 and distance_matrix[j, depot_index] < 50: #if close to the depot
+                    depot_penalty_factor = 1/depot_penalty # discourage
+
+            # Combine the factors
+            heuristics_matrix[i, j] = depot_penalty_factor * distance_factor + demand_factor + angle_factor
+
+    # Sparsification: Set unpromising edges to zero
+    heuristics_matrix[distance_matrix > sparsification_threshold] = 0
+
+
+    return heuristics_matrix
+```

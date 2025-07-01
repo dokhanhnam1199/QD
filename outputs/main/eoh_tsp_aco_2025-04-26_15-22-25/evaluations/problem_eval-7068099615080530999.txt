@@ -1,0 +1,66 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+  """{This algorithm estimates edge importance by iteratively refining probabilities based on edge distances and the consistency of edges appearing in sampled tours, favoring edges that consistently contribute to shorter tours.}"""
+  num_nodes = distance_matrix.shape[0]
+  num_samples = 100
+  initial_probability = np.ones_like(distance_matrix) / distance_matrix.mean()  # Initialize with inverse distance
+  alpha = 0.8 # Adjusts impact of initial probability vs. sampled tours
+  beta = 2  # Adjusts weight of distance in tour construction
+  gamma = 1 # Influence of tour length
+
+  heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+  edge_counts = np.zeros_like(distance_matrix, dtype=int)
+
+  for _ in range(num_samples):
+    current_probability = initial_probability.copy()
+    start_node = np.random.randint(num_nodes)
+    current_node = start_node
+    unvisited = set(range(num_nodes))
+    unvisited.remove(start_node)
+    tour = [start_node]
+    tour_length = 0
+
+    while unvisited:
+      probabilities = np.zeros(num_nodes)
+      for neighbor in unvisited:
+        probabilities[neighbor] = (current_probability[current_node, neighbor]**alpha) / (distance_matrix[current_node, neighbor]**beta)
+      probabilities /= np.sum(probabilities)
+
+      next_node = np.random.choice(num_nodes, p=probabilities)
+      if next_node not in unvisited:
+          candidates = list(unvisited)
+          next_node = candidates[0]
+          min_dist = distance_matrix[current_node, next_node]
+          for candidate in candidates[1:]:
+              if distance_matrix[current_node, candidate] < min_dist:
+                  next_node = candidate
+                  min_dist = distance_matrix[current_node, candidate]
+
+      tour.append(next_node)
+      tour_length += distance_matrix[current_node, next_node]
+      unvisited.remove(next_node)
+      current_node = next_node
+
+    tour.append(start_node)
+    tour_length += distance_matrix[current_node, start_node]
+
+    # Update edge counts based on tour membership
+    for i in range(num_nodes):
+        j = (i + 1) % num_nodes
+        node1 = tour[i]
+        node2 = tour[j]
+        edge_counts[node1, node2] += 1
+        edge_counts[node2, node1] += 1
+    
+    # Accumulate heuristics, giving preference to shorter tours
+    inverse_tour_length = 1 / tour_length
+    for i in range(num_nodes):
+        for j in range(i+1, num_nodes):
+          if (i in tour) and (j in tour):
+            heuristics_matrix[i, j] += inverse_tour_length * (1/distance_matrix[i,j]**gamma)
+            heuristics_matrix[j, i] += inverse_tour_length * (1/distance_matrix[i,j]**gamma)
+
+  heuristics_matrix /= num_samples
+
+  return heuristics_matrix

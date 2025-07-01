@@ -1,0 +1,77 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm estimates edge desirability for TSP by iteratively constructing tours using a greedy nearest neighbor approach, probabilistically accepting worse solutions based on simulated annealing principles, and averaging the inclusion frequency of each edge across multiple runs.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_trials = 50
+    initial_temperature = 100
+    cooling_rate = 0.95
+
+    def calculate_tour_length(tour):
+        length = 0
+        for i in range(n):
+            length += distance_matrix[tour[i], tour[(i + 1) % n]]
+        return length
+
+    def two_opt_swap(tour, i, k):
+        new_tour = tour[:i] + tour[i:k+1][::-1] + tour[k+1:]
+        return new_tour
+
+    def nearest_neighbor_tour(start_node):
+        tour = [start_node]
+        unvisited_nodes = set(range(n))
+        unvisited_nodes.remove(start_node)
+        current_node = start_node
+
+        while unvisited_nodes:
+            distances = {node: distance_matrix[current_node, node] for node in unvisited_nodes}
+            nearest_node = min(distances, key=distances.get)
+            tour.append(nearest_node)
+            unvisited_nodes.remove(nearest_node)
+            current_node = nearest_node
+        tour.append(start_node)
+        tour = tour[:-1]
+        return tour
+
+    def simulated_annealing(tour, initial_temperature, cooling_rate):
+        best_tour = tour
+        best_length = calculate_tour_length(tour)
+        current_tour = tour
+        current_length = calculate_tour_length(tour)
+        temperature = initial_temperature
+
+        while temperature > 1:
+            for i in range(1, n - 1):
+                for k in range(i + 1, n):
+                    new_tour = two_opt_swap(current_tour, i, k)
+                    new_length = calculate_tour_length(new_tour)
+
+                    if new_length < current_length:
+                        current_tour = new_tour
+                        current_length = new_length
+
+                        if new_length < best_length:
+                            best_tour = new_tour
+                            best_length = new_length
+                    else:
+                        acceptance_probability = np.exp((current_length - new_length) / temperature)
+                        if np.random.rand() < acceptance_probability:
+                            current_tour = new_tour
+                            current_length = new_length
+            temperature *= cooling_rate
+        return best_tour, best_length
+
+    for _ in range(num_trials):
+        start_node = np.random.randint(0, n)
+        initial_tour = nearest_neighbor_tour(start_node)
+        best_tour, best_length = simulated_annealing(initial_tour, initial_temperature, cooling_rate)
+
+        for i in range(n):
+            node1 = best_tour[i]
+            node2 = best_tour[(i + 1) % n]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+    heuristics_matrix /= num_trials
+    return heuristics_matrix

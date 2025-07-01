@@ -1,0 +1,57 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs routes using a savings-based approach combined with a stochastic element, iteratively merging routes to maximize savings while respecting capacity constraints and updating a heuristic matrix based on the frequency of edge usage in accepted merges.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 1000
+
+    # Initialize routes: each customer has its own route from depot and back
+    routes = [[0, i, 0] for i in range(1, n)]
+
+    for _ in range(num_iterations):
+        # Randomly select two routes
+        if len(routes) < 2:
+            break  # Not enough routes to merge
+
+        idx1, idx2 = random.sample(range(len(routes)), 2)
+        route1 = routes[idx1]
+        route2 = routes[idx2]
+
+        # Calculate savings by merging the two routes (savings = distance(i, 0) + distance(0, j) - distance(i, j))
+        i = route1[-2]  # Last customer in route1
+        j = route2[1]   # First customer in route2
+
+        savings = distance_matrix[i, 0] + distance_matrix[0, j] - distance_matrix[i, j]
+
+        # Check capacity constraint after merging
+        total_demand = sum(demands[node] for node in route1[1:-1] + route2[1:-1])
+
+        if total_demand <= capacity:
+            # Accept the merge with a probability proportional to the savings
+            probability = min(1.0, savings / np.mean(distance_matrix))  # Normalize savings
+
+            if random.random() < probability:
+                # Merge the routes
+                new_route = route1[:-1] + route2[1:]
+                routes.pop(idx2)  # Remove route2 first to avoid index issues
+                routes.pop(min(idx1, idx2))  # Remove route1
+                routes.append(new_route)
+
+                # Update heuristics matrix
+                for k in range(len(new_route) - 1):
+                    u = new_route[k]
+                    v = new_route[k + 1]
+                    heuristics_matrix[u, v] += 1
+                    heuristics_matrix[v, u] += 1
+
+    # Normalize the heuristics matrix
+    max_val = np.max(heuristics_matrix)
+    if max_val > 0:
+        heuristics_matrix /= max_val
+    
+
+    return heuristics_matrix

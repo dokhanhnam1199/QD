@@ -1,0 +1,46 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+    Employs a more sophisticated approach favoring bins that are "almost full"
+    after packing the item, while also penalizing bins that are too small or too large.
+    A "sweet spot" of remaining capacity is desired.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    remaining_after = bins_remain_cap - item
+
+    # Give a very low priority to bins that are too small (item doesn't fit)
+    priority = np.where(remaining_after < 0, -np.inf, 0)
+
+    # Calculate "fullness": how close the bin is to being full AFTER adding the item.
+    fullness = (1 - (remaining_after / 1.0)) # Assuming bin capacity is 1.0
+
+    # Give higher priority to bins with higher fullness (almost full is good). A higher constant increases the magnitude.
+    priority = np.where(remaining_after >=0 , priority + 5*fullness, priority)
+
+    # Penalize bins that are *too* full (too little space left)
+    # Gaussian-like penalty based on remaining capacity.  Target remaining around 0.2-0.3 seems reasonable.
+    penalty_center = 0.25  # Optimal remaining capacity
+    penalty_width = 0.15 # determines the breadth of optimal capacities.
+    gaussian_penalty = -np.exp(-((remaining_after - penalty_center)**2) / (2 * penalty_width**2))
+
+    # Combined priority score
+    priority = np.where(remaining_after >= 0, priority + gaussian_penalty, priority) # ensures we only apply the penalty where possible.
+
+    # A further small nudge to bins that were nearly filled previously but couldn't quite hold.
+
+    almost_full_threshold = 0.9 # A bin is considered almost full if greater than this fraction has been used before adding this item.
+
+    before_fullness = 1 - (bins_remain_cap / 1.0)
+    nudge = np.where((before_fullness > almost_full_threshold) & (remaining_after >=0) , 0.1, 0) # slight boost if the bin was >0.9 full. and can accomodate the item.
+    priority = priority + nudge
+
+    return priority
+```

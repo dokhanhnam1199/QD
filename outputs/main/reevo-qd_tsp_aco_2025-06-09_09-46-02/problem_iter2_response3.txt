@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for the Traveling Salesman Problem (TSP) based on stochastic solution sampling.
+
+    This function combines multiple factors to determine the promise of including each edge in a solution.
+    It considers:
+        1. Inverse distance: Shorter distances are preferred.
+        2. Node degree: Edges connected to nodes with fewer connections are favored (encourages exploration).
+        3. Global shortest path consideration: An approximation of whether the edge lies on several shortest paths.
+        4. Sparsification: Sets less promising edges to zero.
+        5. Adaptive thresholding: Dynamically adjusts the sparsification threshold.
+        6. Enhanced degree penalty: Considers both in-degree and out-degree for a more balanced exploration.
+    Args:
+        distance_matrix (np.ndarray): A square matrix representing the distances between cities.
+                                         distance_matrix[i][j] is the distance between city i and city j.
+
+    Returns:
+        np.ndarray: A matrix of the same shape as distance_matrix, where each element represents the
+                      promise of including the corresponding edge in the TSP solution.
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Inverse distance (basic desirability)
+    inverse_distance = 1 / (distance_matrix + 1e-6)  # Adding a small constant to avoid division by zero
+
+    # 2. Node degree (encourage exploration from sparsely connected nodes)
+    degree_penalty = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Enhanced degree penalty considering both in-degree and out-degree
+                out_degree_i = np.sum(distance_matrix[i, :] > 0)  # Number of outgoing edges from node i
+                in_degree_j = np.sum(distance_matrix[:, j] > 0)  # Number of incoming edges to node j
+                degree_penalty[i, j] = 1.0 / (out_degree_i * in_degree_j + 1e-6)
+
+
+    # 3. Shortest Path Consideration
+    shortest_path_bonus = np.zeros_like(distance_matrix, dtype=float)
+    mean_distance = np.mean(distance_matrix[distance_matrix > 0]) #Consider only valid distances
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                shortest_path_bonus[i, j] = np.exp(-distance_matrix[i, j] / mean_distance)  # Favors edges with shorter distances
+
+
+    # Combine the factors
+    heuristics_matrix = inverse_distance * degree_penalty * shortest_path_bonus
+
+    # 4. Sparsification (set less promising edges to zero)
+    # Adaptive thresholding based on the distribution of heuristic values
+    flattened_heuristics = heuristics_matrix[heuristics_matrix > 0].flatten()
+    if len(flattened_heuristics) > 0: #Make sure heuristics is not all 0
+        threshold = np.percentile(flattened_heuristics, 25)
+        heuristics_matrix[heuristics_matrix < threshold] = 0
+
+    return heuristics_matrix
+```

@@ -1,0 +1,65 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic for CVRP using a combination of distance, demand, and angular considerations.
+
+    Args:
+        distance_matrix: Distance between nodes (n x n).
+        coordinates: Node coordinates (n x 2).
+        demands: Node demands (n).
+        capacity: Vehicle capacity.
+
+    Returns:
+        A matrix of heuristic values (n x n), indicating the desirability of each edge.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Parameters to control the influence of each factor. Adjust these as needed.
+    distance_weight = 1.0
+    demand_weight = 0.5
+    angle_weight = 0.2  # Consider the angle relative to the depot.
+
+    depot_x, depot_y = coordinates[0]
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+                continue
+
+            distance_factor = 1 / distance_matrix[i, j]
+
+            # Consider both demand at the target and if going to this new target might cause the vehicle to require visiting the depot early
+            demand_factor = (1 / (demands[j] + 1e-9))  # Avoid division by zero. Larger demands imply lesser desirability.
+            if (demands[i] + demands[j] > capacity) : # avoid links that will necessarily result in route failure
+                 demand_factor = 0
+            if i==0:
+                demand_factor = 1/ (demands[j] + 1e-9)
+
+
+            # Angle consideration: prefer nodes "in the same general direction" from the depot.
+            angle_i = np.arctan2(coordinates[i, 1] - depot_y, coordinates[i, 0] - depot_x) if i!=0 else 0.0
+            angle_j = np.arctan2(coordinates[j, 1] - depot_y, coordinates[j, 0] - depot_x)
+            angle_diff = np.abs(angle_i - angle_j)
+            angle_diff = min(angle_diff, 2 * np.pi - angle_diff)  # Ensure smaller angle difference is used.
+            angle_factor = 1 / (angle_diff + 0.1)  # Smaller angle difference = better. Small constant added for stability.
+
+
+            heuristic_matrix[i, j] = (
+                distance_weight * distance_factor +
+                demand_weight * demand_factor +
+                angle_weight * angle_factor
+            )
+
+    # Normalize heuristic values to [0, 1] for easier sampling.
+    max_heuristic = np.max(heuristic_matrix)
+    min_heuristic = np.min(heuristic_matrix)
+    if max_heuristic > min_heuristic:
+        heuristic_matrix = (heuristic_matrix - min_heuristic) / (max_heuristic - min_heuristic)
+
+    return heuristic_matrix
+```

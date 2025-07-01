@@ -1,0 +1,64 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively constructs routes by probabilistically selecting the next node based on a weighted combination of distance, demand, and a dynamically updated pheromone-like trail intensity, inspired by Ant Colony Optimization.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone = np.ones_like(distance_matrix)  # Initialize pheromone trails
+
+    for _ in range(n * 2):  # Iterate to build edges, scale with problem size
+        current_route = [0]
+        remaining_nodes = set(range(1, n))
+        current_capacity = capacity
+
+        while remaining_nodes:
+            probabilities = []
+            for node in remaining_nodes:
+                if demands[node] <= current_capacity:
+                    distance = distance_matrix[current_route[-1], node]
+                    trail = pheromone[current_route[-1], node]
+                    # Probabilistic selection based on distance, demand, and pheromone
+                    prob = (trail**0.5) / (distance**2 * (demands[node]/capacity + 0.1))
+                    probabilities.append((node, prob))
+                else:
+                    probabilities.append((node, 0))
+
+            total_prob = sum(p for _, p in probabilities)
+            if total_prob > 0:
+                probabilities = [(node, p / total_prob) for node, p in probabilities]
+                # Select the next node probabilistically
+                next_node = random.choices([node for node, _ in probabilities], [p for _, p in probabilities], k=1)[0]
+
+                current_route.append(next_node)
+                current_capacity -= demands[next_node]
+                remaining_nodes.remove(next_node)
+                # Update pheromone trail for the selected edge
+                pheromone[current_route[-2], current_route[-1]] *= 1.1
+                pheromone[current_route[-1], current_route[-2]] *= 1.1
+            else:
+                # Return to depot if no feasible node is found
+                current_route.append(0)
+                current_capacity = capacity
+                if len(current_route) > 1:
+                    pheromone[current_route[-2],0] *= 0.9 # Reduce pheromone on this return edge.
+                    pheromone[0, current_route[-2]] *= 0.9
+        current_route.append(0)
+
+        # Populate the heuristic matrix based on the constructed route
+        for i in range(len(current_route) - 1):
+            node1 = current_route[i]
+            node2 = current_route[i + 1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+        # Evaporate pheromone to avoid stagnation
+        pheromone *= 0.99
+
+    # Normalize heuristic matrix by distance
+    for i in range(n):
+        for j in range(n):
+            if heuristics_matrix[i, j] > 0:
+                heuristics_matrix[i, j] /= distance_matrix[i, j]
+
+    return heuristics_matrix

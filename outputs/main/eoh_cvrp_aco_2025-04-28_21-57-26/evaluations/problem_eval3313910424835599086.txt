@@ -1,0 +1,96 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm combines stochastic sampling with an ant colony optimization approach, using pheromone levels and a heuristic function based on distance and demand similarity to guide route construction, while also incorporating a local search to improve solutions.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone_matrix = np.ones_like(distance_matrix)  # Initialize pheromone levels
+
+    num_ants = 50
+    num_iterations = 10
+    alpha = 1  # Pheromone influence
+    beta = 2  # Heuristic influence
+    rho = 0.5  # Evaporation rate
+    Q = 100  # Pheromone deposit constant
+
+    def calculate_tour_length(tour):
+        length = 0
+        for i in range(len(tour) - 1):
+            length += distance_matrix[tour[i], tour[i+1]]
+        return length
+
+    def local_search(tour):
+        # Implement a simple 2-opt local search
+        best_tour = tour[:]
+        best_length = calculate_tour_length(tour)
+        for i in range(1, len(tour) - 1):
+            for j in range(i + 1, len(tour)):
+                new_tour = tour[:i] + tour[i:j+1][::-1] + tour[j+1:]
+                new_length = calculate_tour_length(new_tour)
+                if new_length < best_length:
+                    best_length = new_length
+                    best_tour = new_tour[:]
+        return best_tour
+
+    for iteration in range(num_iterations):
+        all_tours = []
+        all_tour_lengths = []
+
+        for ant in range(num_ants):
+            current_node = 0
+            tour = [0]
+            remaining_nodes = set(range(1, n))
+            current_capacity = capacity
+
+            while remaining_nodes:
+                probabilities = {}
+                for node in remaining_nodes:
+                    if current_capacity >= demands[node]:
+                        distance_heuristic = 1 / (distance_matrix[current_node, node] + 1e-6)
+                        demand_similarity = 1 - abs(demands[current_node] - demands[node]) / capacity
+                        probabilities[node] = (pheromone_matrix[current_node, node]**alpha) * (distance_heuristic * (demand_similarity + 0.1)**beta)
+
+                if not probabilities:
+                    break
+
+                total_prob = sum(probabilities.values())
+                if total_prob == 0:
+                    next_node = remaining_nodes.pop()
+                else:
+                    normalized_probabilities = {node: prob / total_prob for node, prob in probabilities.items()}
+                    next_node = np.random.choice(list(normalized_probabilities.keys()), p=list(normalized_probabilities.values()))
+
+                if current_capacity >= demands[next_node]:
+                    tour.append(next_node)
+                    current_capacity -= demands[next_node]
+                    remaining_nodes.remove(next_node)
+                    current_node = next_node
+                else:
+                    tour.append(0)
+                    current_node = 0
+                    current_capacity = capacity
+
+            if current_node != 0:
+                tour.append(0)
+            
+            tour = local_search(tour)  # Apply local search to improve the tour
+
+            tour_length = calculate_tour_length(tour)
+            all_tours.append(tour)
+            all_tour_lengths.append(tour_length)
+
+        # Update pheromone levels
+        pheromone_matrix *= (1 - rho)  # Evaporation
+        for k in range(num_ants):
+            tour = all_tours[k]
+            tour_length = all_tour_lengths[k]
+            for i in range(len(tour) - 1):
+                pheromone_matrix[tour[i], tour[i+1]] += Q / tour_length
+                pheromone_matrix[tour[i+1], tour[i]] += Q / tour_length
+    
+    for i in range(n):
+        for j in range(n):
+            heuristics_matrix[i, j] = pheromone_matrix[i,j]
+
+    return heuristics_matrix

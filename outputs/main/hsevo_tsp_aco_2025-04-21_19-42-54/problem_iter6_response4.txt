@@ -1,0 +1,103 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray,
+                  epsilon: float = 2.5408635945870555e-07,
+                  initial_temperature: float = 3.301010802589493,
+                  sparsification_percentile: float = 49.22462731911484,
+                  high_variance_threshold: float = 0.46775928005587575,
+                  cooling_high_variance: float = 0.9952012128425347,
+                  cooling_low_variance: float = 0.9959702645502414,
+                  min_temperature: float = 0.056679815478619666,
+                  local_search_radius: int = 5) -> np.ndarray:
+    """
+    Adaptive Heuristics for TSP Edge Prioritization - Version 2:
+    Combines gravitational attraction, node-based desirability scores, adaptive temperature,
+    local search influence, and dynamic sparsification.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix representing the TSP instance.
+        epsilon (float): Small value to avoid division by zero.
+        initial_temperature (float): Initial temperature for exploration.
+        sparsification_percentile (float): Percentile for sparsification.
+        high_variance_threshold (float): Threshold for high variance.
+        cooling_high_variance (float): Cooling factor when variance is high.
+        cooling_low_variance (float): Cooling factor when variance is low.
+        min_temperature (float): Minimum temperature.
+        local_search_radius (int): Radius for local search influence.
+
+    Returns:
+        np.ndarray: Prior indicators of edge promise.
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+
+    # 1. Node Desirability Scores: Normalized inverse distance sums.
+    node_desirability = np.zeros(n)
+    for i in range(n):
+        node_desirability[i] = np.sum(1.0 / (distance_matrix[i, :] + epsilon))
+    node_desirability /= np.max(node_desirability)
+
+    # 2. Edge Attraction: Inverse squared distance, normalized.
+    edge_attraction = np.zeros_like(distance_matrix)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                edge_attraction[i, j] = (1.0 / (distance_matrix[i, j]**2 + epsilon))
+            else:
+                edge_attraction[i, j] = 0.0
+    edge_attraction = edge_attraction / np.max(edge_attraction)
+
+    # 3. Local Search Influence: Favor edges that connect to "promising" neighbors.
+    local_influence = np.zeros_like(distance_matrix)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                local_score_i = 0.0
+                local_score_j = 0.0
+
+                # Check neighbors within the radius
+                for k in range(max(0, i - local_search_radius), min(n, i + local_search_radius + 1)):
+                    if k != i:
+                        local_score_i += node_desirability[k] / (distance_matrix[i, k] + epsilon)
+                for k in range(max(0, j - local_search_radius), min(n, j + local_search_radius + 1)):
+                    if k != j:
+                        local_score_j += node_desirability[k] / (distance_matrix[j, k] + epsilon)
+
+                local_influence[i, j] = (local_score_i + local_score_j)
+    local_influence /= np.max(local_influence + epsilon)
+
+    # 4. Adaptive Temperature and Combination:
+    temperature = initial_temperature
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                heuristics[i, j] = (edge_attraction[i, j] *
+                                     (node_desirability[i] + node_desirability[j]) *
+                                     local_influence[i, j] *
+                                     temperature)
+            else:
+                heuristics[i, j] = 0.0
+
+    # 5. Dynamic Sparsification: Adapt threshold based on temperature.
+    sparsification_threshold = np.percentile(heuristics[heuristics > 0], sparsification_percentile * (1 + temperature)) # Lower temperature, more sparsification.
+    heuristics[heuristics < sparsification_threshold] = 0.0
+
+    # 6. Adaptive Cooling: Adjust temperature based on variance.
+    edge_values = heuristics[heuristics > 0]
+
+    if len(edge_values) > 0:
+        edge_variance = np.var(edge_values)
+    else:
+        edge_variance = 0.0
+
+    if edge_variance > high_variance_threshold:
+        temperature *= cooling_high_variance
+    else:
+        temperature *= cooling_low_variance
+
+    temperature = max(temperature, min_temperature)
+
+    return heuristics
+```

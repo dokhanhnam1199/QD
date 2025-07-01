@@ -1,0 +1,60 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm initializes heuristics based on inverse distance, then iteratively samples solutions using a guided random walk, and updates the heuristics based on the average edge usage in the best solutions found so far, with a slight bias towards shorter edges.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = 1.0 / (distance_matrix + np.eye(n))
+    best_solution = None
+    best_cost = float('inf')
+    
+    num_iterations = 100
+    num_samples = 50
+    alpha = 0.1 #Weight for shortest distance
+
+    for _ in range(num_iterations):
+        solutions = []
+        solution_costs = []
+        
+        for _ in range(num_samples):
+            current_node = np.random.randint(n)
+            unvisited_nodes = list(range(n))
+            unvisited_nodes.remove(current_node)
+            
+            solution = [current_node]
+            solution_cost = 0
+            
+            while unvisited_nodes:
+                # Guided random walk using heuristics
+                probabilities = heuristics_matrix[current_node, [node for node in unvisited_nodes]]
+                probabilities /= np.sum(probabilities)
+                next_node_index = np.random.choice(len(unvisited_nodes), p=probabilities)
+                next_node = unvisited_nodes[next_node_index]
+                
+                solution.append(next_node)
+                solution_cost += distance_matrix[current_node, next_node]
+                
+                current_node = next_node
+                unvisited_nodes.remove(next_node)
+            
+            solution_cost += distance_matrix[solution[-1], solution[0]]
+            solutions.append(solution)
+            solution_costs.append(solution_cost)
+        
+        #Update best solution
+        min_cost_index = np.argmin(solution_costs)
+        if solution_costs[min_cost_index] < best_cost:
+            best_cost = solution_costs[min_cost_index]
+            best_solution = solutions[min_cost_index]
+        
+        # Update heuristics based on best solution found so far
+        edge_counts = np.zeros_like(distance_matrix)
+        if best_solution:
+            for i in range(n):
+                u = best_solution[i]
+                v = best_solution[(i + 1) % n]
+                edge_counts[u, v] = 1
+                edge_counts[v, u] = 1
+                
+        heuristics_matrix = (1-alpha) * heuristics_matrix + alpha * edge_counts * (1.0 / (distance_matrix + np.eye(n)))
+
+    return heuristics_matrix

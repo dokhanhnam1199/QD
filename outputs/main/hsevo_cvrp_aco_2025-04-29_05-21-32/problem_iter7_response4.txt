@@ -1,0 +1,96 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int,
+                  depot_boost_weight: float = 0.04026991380763867, detour_penalty_weight: float = 0.10630745734515828,
+                  demand_capacity_threshold: float = 0.3241111180040912, angle_reward_weight: float = 0.5965928807743692,
+                  sparsification_threshold_factor: float = 0.07173929660581539, inverse_distance_epsilon: float = 4.287227236547701e-07,
+                  mean_depot_distance_epsilon: float = 8.752897161164679e-07) -> np.ndarray:
+    """
+    Heuristics function for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    This version incorporates demand, distance, depot proximity and angle considerations with adaptive sparsification and simplified components.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (shape: n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n x 2).
+        demands (np.ndarray): Vector of customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+        depot_boost_weight (float): Weight for boosting edges from the depot. Default is 0.3.
+        detour_penalty_weight (float): Weight for penalizing detours from the direct depot route. Default is 0.05.
+        demand_capacity_threshold (float): Threshold for pruning based on demand and capacity. Default is 1/3.
+        angle_reward_weight (float): Weight for rewarding edges with similar angles from the depot. Default is 0.1.
+        sparsification_threshold_factor (float): Factor for determining the sparsification threshold. Default is 0.01.
+        inverse_distance_epsilon (float): Epsilon value to avoid division by zero in inverse distance calculation. Default is 1e-9.
+        mean_depot_distance_epsilon (float): Epsilon value to avoid division by zero when calculating detour penalty. Default is 1e-9.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (shape: n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+    depot_index = 0
+
+    # Heuristic 1: Basic inverse distance
+    heuristics = 1 / (distance_matrix + inverse_distance_epsilon)
+
+    # Heuristic 2: Demand and Capacity consideration
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristics[i, j] = 0
+                continue
+
+            if i == depot_index and j != depot_index:
+                if demands[j] > capacity: # Directly prune edges that violate capacity constraint.
+                    heuristics[i, j] = 0
+                else:
+                    heuristics[i,j] += depot_boost_weight #Depot boost
+
+    # Heuristic 3: Depot proximity with adaptive pruning
+    depot_distances = distance_matrix[:, depot_index]
+    mean_depot_distance = np.mean(depot_distances)
+
+    for i in range(n):
+        for j in range(n):
+            if i != depot_index and j == depot_index:
+                heuristics[i, j] = 0  # Remove edges to depot (except from depot)
+            elif i != depot_index and j != depot_index:
+                # Penalize edges based on detour from direct depot route.  Simpler calculation.
+                detour_penalty = (depot_distances[i] + depot_distances[j]) / (2*mean_depot_distance + mean_depot_distance_epsilon)
+                heuristics[i, j] -= detour_penalty_weight * detour_penalty # Reduced weight
+
+                # Adaptive pruning based on demand and distance.  Less aggressive than v1.
+                if distance_matrix[i, j] > np.mean(distance_matrix) and demands[i] + demands[j] > capacity*demand_capacity_threshold: #Only prune if nodes have considerable demand compared to vehicle capacity.
+                    heuristics[i,j] = 0
+
+
+    # Heuristic 4: Angle from Depot (less computational intensive angle heuristic)
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                # Dot product to find the cosine of the angle between vectors
+                vector_i = coordinates[i] - coordinates[depot_index]
+                vector_j = coordinates[j] - coordinates[depot_index]
+
+                norm_i = np.linalg.norm(vector_i)
+                norm_j = np.linalg.norm(vector_j)
+
+                if norm_i > 0 and norm_j > 0:
+                    cos_angle = np.dot(vector_i, vector_j) / (norm_i * norm_j)
+                    # Convert cosine to angle in radians
+                    angle = np.arccos(np.clip(cos_angle, -1.0, 1.0)) #Ensure within valid range
+
+                    # Prefer edges where nodes are in similar direction from depot. Smaller angle -> higher heuristic value
+                    heuristics[i,j] += angle_reward_weight * (1 - angle / np.pi) # Normalized angle reward, reduced weight
+
+
+    # Heuristic 5: Sparsification: zero out small heuristic values
+    threshold = sparsification_threshold_factor * np.mean(heuristics) # Adaptive threshold
+    heuristics[heuristics < threshold] = 0
+
+
+    # Normalize
+    max_heuristic = np.max(heuristics)
+    if max_heuristic > 0:
+        heuristics = heuristics / max_heuristic
+
+    return heuristics

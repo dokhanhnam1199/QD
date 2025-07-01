@@ -1,0 +1,72 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively constructs routes by probabilistically selecting the next node based on a combination of distance and demand, favoring closer and less demanding nodes while respecting capacity constraints, and updates a heuristic matrix based on the edges used in the constructed routes.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_iterations = 1000
+
+    for _ in range(num_iterations):
+        unvisited = set(range(1, n))
+        current_node = 0
+        current_route = [0]
+        current_demand = 0
+        routes = []
+
+        while unvisited:
+            # Calculate probabilities for unvisited nodes
+            probabilities = []
+            for neighbor in unvisited:
+                if current_demand + demands[neighbor] <= capacity:
+                    distance = distance_matrix[current_node, neighbor]
+                    #Avoid division by zero
+                    if distance == 0:
+                        distance = 0.0000001
+                    probability = (1 / distance) * (1 / demands[neighbor])  # Favor closer and less demanding nodes
+                    probabilities.append((neighbor, probability))
+                else:
+                    probabilities.append((neighbor, 0)) #impossible to add
+
+            # Normalize probabilities
+            total_probability = sum(p for _, p in probabilities)
+            if total_probability > 0:
+                probabilities = [(node, p / total_probability) for node, p in probabilities]
+            else:
+                # If no nodes can be added to the current route, force return to depot
+                routes.append(current_route + [0])
+                current_route = [0]
+                current_demand = 0
+                current_node = 0
+                continue
+            
+            # Select next node probabilistically
+            nodes, probs = zip(*probabilities)
+            next_node = random.choices(nodes, weights=probs, k=1)[0]
+
+            current_route.append(next_node)
+            current_demand += demands[next_node]
+            current_node = next_node
+            unvisited.remove(next_node)
+            
+        # Close the last route
+        current_route.append(0)
+        routes.append(current_route)
+
+        # Update heuristics matrix
+        for route in routes:
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                heuristics_matrix[node1, node2] += 1
+                heuristics_matrix[node2, node1] += 1
+                
+    n = distance_matrix.shape[0]
+    #Normalize heuristic by distance matrix
+    for i in range(n):
+        for j in range(n):
+            if distance_matrix[i, j] > 0:
+                heuristics_matrix[i, j] /= distance_matrix[i, j]
+    return heuristics_matrix

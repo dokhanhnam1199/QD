@@ -1,0 +1,62 @@
+```python
+import numpy as np
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import minimum_spanning_tree
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for TSP based on distance, node degree, and global connectivity,
+    with adaptive sparsification and normalization.  This version focuses on
+    simplicity and efficiency.
+
+    Args:
+        distance_matrix: A numpy array representing the distance matrix.
+
+    Returns:
+        A numpy array of the same shape as distance_matrix,
+        representing the heuristic values for each edge.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Inverse Distance Heuristic
+    inverse_distance = 1.0 / (distance_matrix + 1e-9)
+    inverse_distance = inverse_distance / np.max(inverse_distance) if np.max(inverse_distance) != 0 else inverse_distance
+
+    # 2. MST heuristic
+
+    mst_heuristic = np.zeros((n, n), dtype=float)
+    mst = minimum_spanning_tree(csr_matrix(distance_matrix))
+    for i in range(n):
+        for j in range(n):
+            if mst[i, j] > 0:
+                mst_heuristic[i, j] = 1.0
+    mst_heuristic = mst_heuristic / np.max(mst_heuristic) if np.max(mst_heuristic) != 0 else mst_heuristic
+
+
+    # 3. Combination with fixed weights
+    alpha, beta = 0.7, 0.3  # Weights for inverse distance and MST
+
+    heuristic_matrix = alpha * inverse_distance + beta * mst_heuristic
+
+
+    # 4. Adaptive Sparsification and Randomness
+    for i in range(n):
+        k = min(max(2, int(np.sqrt(n))), n - 1)
+        row = heuristic_matrix[i].copy()
+        indices_to_keep = np.argsort(row)[-k:]
+        mask = np.zeros(n, dtype=bool)
+        mask[indices_to_keep] = True
+        heuristic_matrix[i, ~mask] = 0  # Sparsify
+        # Add small randomness to the k nearest neighbors
+        randomness = np.random.rand(k) * 0.01  # scaled randomness
+        heuristic_matrix[i, indices_to_keep] += randomness
+        heuristic_matrix[i, indices_to_keep] = np.clip(heuristic_matrix[i, indices_to_keep], 0, 1)
+
+    # 5. Normalize Rows
+    row_sums = heuristic_matrix.sum(axis=1, keepdims=True)
+    heuristic_matrix = np.nan_to_num(heuristic_matrix / row_sums)
+
+    heuristic_matrix[np.diag_indices_from(heuristic_matrix)] = 0
+    return heuristic_matrix
+```

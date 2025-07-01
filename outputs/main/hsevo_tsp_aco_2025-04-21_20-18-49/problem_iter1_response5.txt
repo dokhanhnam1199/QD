@@ -1,0 +1,48 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Improves upon the basic inverse distance heuristic by incorporating:
+
+    1.  **Inverse Distance:**  Favors shorter edges (like v1).
+    2.  **Node Degree Consideration:** Penalizes connecting nodes that are already highly connected (prevents premature closure of loops and encourages a more balanced exploration).  We estimate connectivity using the sum of the inverse distances to other nodes.
+    3.  **Edge Centrality Bias:** Favors edges that bridge clusters or relatively isolated nodes.  This is done by calculating a crude measure of "betweenness" for each edge based on distances to other nodes. The idea is that if connecting two nodes significantly reduces the total path length to other nodes, it's a promising edge.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Basic inverse distance (important foundation)
+    inverse_distance = 1.0 / (distance_matrix + np.eye(n))  # Add eye to avoid division by zero
+
+    # Node degree (connectivity) penalty
+    node_degrees = np.sum(inverse_distance, axis=1, keepdims=True)  # connectivity for each node.
+
+    # Calculate heuristic for each edge
+    for i in range(n):
+        for j in range(i + 1, n):  # Only upper triangle
+            # Inverse distance component
+            heuristic = inverse_distance[i, j]
+
+            # Node degree penalty (penalize high-degree nodes)
+            heuristic /= (node_degrees[i] * node_degrees[j])**0.1  #Adjust power for less penalty effect.
+
+            # Edge centrality bias (Crude approximation of edge "betweenness")
+            path_length_reduction = 0.0
+            for k in range(n):
+                if k != i and k != j:
+                    # Minimum distance to node k without using edge (i, j)
+                    dist_without_ij = min(distance_matrix[i, k], distance_matrix[j, k])
+
+                    # Minimum distance to node k using edge (i, j)
+                    dist_with_ij = distance_matrix[i, j] + min(distance_matrix[i, k] if distance_matrix[i, k]!=distance_matrix[i,j] else np.inf , distance_matrix[j, k] if distance_matrix[j, k]!=distance_matrix[i,j] else np.inf)  #avoid cases where i-k=i-j
+                    # Significant reduction if edge (i, j) allows for a shorter path
+                    path_length_reduction += max(0, dist_without_ij - dist_with_ij) #Only non-negative change
+
+            heuristic += 0.0001*path_length_reduction #reduce centrality effect
+
+            heuristic_matrix[i, j] = heuristic
+            heuristic_matrix[j, i] = heuristic  # Symmetric
+
+    return heuristic_matrix
+```

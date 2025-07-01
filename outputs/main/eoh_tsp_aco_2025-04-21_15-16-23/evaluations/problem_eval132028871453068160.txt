@@ -1,0 +1,71 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm estimates edge desirability for TSP by iteratively constructing tours using a nearest neighbor approach with probabilistic acceptance of non-improving moves based on simulated annealing principles, and averaging the inclusion frequency of each edge across multiple runs.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_trials = 50
+    initial_temperature = 100.0
+    cooling_rate = 0.95
+
+    def calculate_tour_length(tour):
+        length = 0
+        for i in range(n):
+            length += distance_matrix[tour[i], tour[(i + 1) % n]]
+        return length
+
+    def nearest_neighbor_tour(start_node):
+        tour = [start_node]
+        unvisited_nodes = set(range(n))
+        unvisited_nodes.remove(start_node)
+        current_node = start_node
+
+        while unvisited_nodes:
+            nearest_node = min(unvisited_nodes, key=lambda node: distance_matrix[current_node, node])
+            tour.append(nearest_node)
+            unvisited_nodes.remove(nearest_node)
+            current_node = nearest_node
+        return tour
+
+    def simulated_annealing_step(tour, temperature):
+        i = np.random.randint(1, n - 1)
+        k = np.random.randint(i + 1, n)
+        new_tour = tour[:i] + tour[i:k+1][::-1] + tour[k+1:]
+        
+        current_length = calculate_tour_length(tour)
+        new_length = calculate_tour_length(new_tour)
+        
+        if new_length < current_length:
+            return new_tour
+        else:
+            acceptance_probability = np.exp((current_length - new_length) / temperature)
+            if np.random.rand() < acceptance_probability:
+                return new_tour
+            else:
+                return tour
+
+    for _ in range(num_trials):
+        # Generate a tour using nearest neighbor heuristic
+        start_node = np.random.randint(0, n)
+        current_tour = nearest_neighbor_tour(start_node)
+        current_tour.append(start_node)
+        current_tour = current_tour[:-1]
+        
+        temperature = initial_temperature
+        for _ in range(100):
+            current_tour = simulated_annealing_step(current_tour, temperature)
+            temperature *= cooling_rate
+
+        # Update the heuristics matrix based on the edges in the improved tour
+        for i in range(n):
+            node1 = current_tour[i]
+            node2 = current_tour[(i + 1) % n]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+    # Normalize the heuristics matrix
+    total_count = np.sum(heuristics_matrix)
+    if total_count > 0:
+        heuristics_matrix /= total_count
+
+    return heuristics_matrix

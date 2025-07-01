@@ -1,0 +1,96 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively refines a solution by probabilistically accepting or rejecting edge swaps based on their impact on route cost and feasibility, guided by a temperature parameter that decreases over time.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 1000
+    initial_temperature = 100
+    cooling_rate = 0.95
+
+    # Initialize a random solution
+    customer_indices = list(range(1, n))
+    random.shuffle(customer_indices)
+
+    current_routes = []
+    current_route = [0]
+    current_load = 0
+    for customer in customer_indices:
+        if current_load + demands[customer] <= capacity:
+            current_route.append(customer)
+            current_load += demands[customer]
+        else:
+            current_route.append(0)
+            current_routes.append(current_route)
+            current_route = [0, customer]
+            current_load = demands[customer]
+    current_route.append(0)
+    current_routes.append(current_route)
+
+    def calculate_cost(routes):
+        total_cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_cost += distance_matrix[route[i], route[i+1]]
+        return total_cost
+
+    current_cost = calculate_cost(current_routes)
+
+    temperature = initial_temperature
+
+    for iteration in range(num_iterations):
+        # Select two random edges to swap
+        route1_index = random.randint(0, len(current_routes) - 1)
+        route1 = current_routes[route1_index]
+        if len(route1) < 3:
+          continue
+        edge1_index = random.randint(0, len(route1) - 2)
+        u1 = route1[edge1_index]
+        v1 = route1[edge1_index + 1]
+
+        route2_index = random.randint(0, len(current_routes) - 1)
+        route2 = current_routes[route2_index]
+        if len(route2) < 3:
+          continue
+        edge2_index = random.randint(0, len(route2) - 2)
+        u2 = route2[edge2_index]
+        v2 = route2[edge2_index + 1]
+
+        # Create a new solution by swapping the edges
+        new_routes = [route[:] for route in current_routes]
+        new_routes[route1_index][edge1_index + 1] = v2
+        new_routes[route2_index][edge2_index + 1] = v1
+
+        # Check feasibility of the new solution
+        feasible = True
+        for route in new_routes:
+            load = 0
+            for customer in route[1:-1]:
+                load += demands[customer]
+            if load > capacity:
+                feasible = False
+                break
+
+        if feasible:
+            new_cost = calculate_cost(new_routes)
+            cost_difference = new_cost - current_cost
+
+            # Accept the new solution with a probability
+            if cost_difference < 0 or random.random() < np.exp(-cost_difference / temperature):
+                current_routes = [route[:] for route in new_routes]
+                current_cost = new_cost
+        
+        #Update heuristics matrix based on current best solution
+        for route in current_routes:
+          for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+
+        # Cool the temperature
+        temperature *= cooling_rate
+
+    return heuristics_matrix

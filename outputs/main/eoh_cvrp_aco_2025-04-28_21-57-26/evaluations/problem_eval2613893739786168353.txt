@@ -1,0 +1,115 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses a savings-based approach to construct initial routes, then iteratively improves them by relocating nodes between routes based on cost and feasibility, updating a heuristic matrix reflecting edge usage in good solutions.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 500
+    
+    # 1. Savings Calculation
+    savings = {}
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings[(i, j)] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+    
+    # 2. Initial Route Construction (Savings-based)
+    sorted_savings = sorted(savings.items(), key=lambda item: item[1], reverse=True)
+    routes = []
+    node_route = {i: None for i in range(1, n)}
+    
+    for (i, j), saving in sorted_savings:
+        route_i = node_route[i]
+        route_j = node_route[j]
+        
+        if route_i is None and route_j is None:
+            if demands[i] + demands[j] <= capacity:
+                new_route = [0, i, j, 0]
+                routes.append(new_route)
+                node_route[i] = new_route
+                node_route[j] = new_route
+        
+        elif route_i is not None and route_j is None:
+            current_load = sum(demands[node] for node in route_i[1:-1])
+            if demands[j] + current_load <= capacity and route_i[-2] == i:
+                route_i[-1] = j
+                route_i.append(0)
+                node_route[j] = route_i
+        
+        elif route_i is None and route_j is not None:
+            current_load = sum(demands[node] for node in route_j[1:-1])
+            if demands[i] + current_load <= capacity and route_j[1] == j:
+                route_j.insert(1, i)
+                node_route[i] = route_j
+                
+        elif route_i is not None and route_j is not None and route_i != route_j:
+            current_load_i = sum(demands[node] for node in route_i[1:-1])
+            current_load_j = sum(demands[node] for node in route_j[1:-1])
+            if current_load_i + current_load_j <= capacity:
+                if route_i[-2] == i and route_j[1] == j:
+                    route_i[-1] = route_j[1]
+                    route_i.extend(route_j[2:])
+                    for node in route_j[1:]:
+                        node_route[node] = route_i
+                    routes.remove(route_j)
+                    
+    remaining_nodes = [i for i in range(1,n) if node_route[i] is None]
+    for node in remaining_nodes:
+        routes.append([0, node, 0])
+        
+    # 3. Iterative Improvement (Node Relocation)
+    best_routes = routes[:]
+    best_cost = float('inf')
+    
+    for _ in range(num_iterations):
+        # a. Perturbation: Select a node and a route (excluding current route)
+        route_from_index = random.randint(0, len(routes) - 1)
+        route_from = routes[route_from_index]
+        if len(route_from) <= 2:
+            continue
+        node_to_relocate = random.choice(route_from[1:-1])
+        
+        possible_routes = [route for idx, route in enumerate(routes) if idx != route_from_index]
+        if not possible_routes:
+           continue
+        route_to = random.choice(possible_routes)
+        
+        # b. Attempt Relocation
+        original_routes = [route[:] for route in routes] #create deep copies to prevent unexpected changes
+        
+        route_from.remove(node_to_relocate)
+        
+        insert_position = random.randint(1, len(route_to)-1)
+        route_to.insert(insert_position, node_to_relocate)
+        
+        # c. Feasibility Check and Cost Calculation
+        feasible = True
+        total_cost = 0
+        for current_route in routes:
+            current_load = 0
+            for i in range(1, len(current_route)-1):
+                current_load += demands[current_route[i]]
+            if current_load > capacity:
+                feasible = False
+                break
+            for i in range(len(current_route) - 1):
+                total_cost += distance_matrix[current_route[i]][current_route[i+1]]
+        
+        # d. Accept or Reject based on cost
+        if feasible and total_cost < best_cost:
+                best_cost = total_cost
+                best_routes = [route[:] for route in routes] #create deep copies to prevent unexpected changes
+        else:
+            routes = [route[:] for route in original_routes]
+
+    # 4. Construct Heuristic Matrix
+    for route in best_routes:
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            heuristics_matrix[node1, node2] = 1
+            heuristics_matrix[node2, node1] = 1
+
+    return heuristics_matrix

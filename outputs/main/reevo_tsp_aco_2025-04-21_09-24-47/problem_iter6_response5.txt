@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for TSP using a combination of factors, adaptive sparsification,
+    edge combination strategies, and improved MST approximation.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix representing the TSP instance.
+
+    Returns:
+        np.ndarray: Prior indicators (probabilities) of edge inclusion.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Inverse Distance Heuristic
+    inverse_distance = 1.0 / (distance_matrix + 1e-9)
+
+    # Nearest Neighbor Heuristic
+    nearest_neighbors = np.zeros((n, n), dtype=float)
+    for i in range(n):
+        distances = distance_matrix[i].copy()
+        distances[i] = np.inf
+        num_neighbors = min(max(2, int(np.log(n))), n - 1)  # Logarithmic scaling
+        nearest_neighbor_indices = np.argsort(distances)[:num_neighbors]
+        for neighbor_index in nearest_neighbor_indices:
+            nearest_neighbors[i, neighbor_index] = 1.0
+
+    # Minimum Spanning Tree (MST) heuristic (approximation using Prim's)
+    mst_heuristic = np.zeros((n, n), dtype=float)
+    visited = [0]
+    edges = []
+    while len(visited) < n:
+        min_edge = None
+        min_dist = np.inf
+        for i in visited:
+            for j in range(n):
+                if j not in visited:
+                    if distance_matrix[i, j] < min_dist:
+                        min_dist = distance_matrix[i, j]
+                        min_edge = (i, j)
+        if min_edge:
+            u, v = min_edge
+            edges.append((u, v))
+            visited.append(v)
+        else:
+            break # Handle disconnected graphs
+
+    for u, v in edges:
+        mst_heuristic[u, v] = 1.0
+        mst_heuristic[v, u] = 1.0
+
+    # Combine Heuristics (adjusted weights)
+    heuristic_matrix = (0.35 * inverse_distance +
+                        0.35 * nearest_neighbors +
+                        0.30 * mst_heuristic)
+
+    # Adaptive Sparsification (adjust based on n)
+    k = min(max(3, int(np.sqrt(n))), n - 1)  # Adjust k based on sqrt(n)
+    for i in range(n):
+        row = heuristic_matrix[i].copy()
+        indices_to_keep = np.argsort(row)[-k:]
+        mask = np.zeros(n, dtype=bool)
+        mask[indices_to_keep] = True
+        heuristic_matrix[i, ~mask] = 0
+        heuristic_matrix[i, i] = 0  # Remove self loops
+
+    # Normalize Heuristic Matrix
+    row_sums = heuristic_matrix.sum(axis=1, keepdims=True)
+    heuristic_matrix = np.nan_to_num(heuristic_matrix / row_sums)
+
+    return heuristic_matrix
+```

@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristics for TSP based on a combination of inverse distance,
+    nearest neighbor considerations, and diversification to avoid local optima.
+
+    Args:
+        distance_matrix (np.ndarray): A square matrix where element [i, j]
+                                        represents the distance between node i and node j.
+
+    Returns:
+        np.ndarray: A matrix of the same shape as distance_matrix, containing heuristic
+                      values indicating the desirability of including each edge in the solution.
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Inverse Distance Component: Encourages shorter edges
+    inverse_distance = 1.0 / (distance_matrix + 1e-9)  # Adding a small constant to avoid division by zero
+
+    # 2. Nearest Neighbor Component: Bias towards edges to nearest neighbors.
+    nearest_neighbors_bonus = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        # Find the indices of the nearest neighbors for node i (excluding itself)
+        neighbors = np.argsort(distance_matrix[i, :])[1:min(4, n)]  # Top 3 nearest neighbors
+        for neighbor in neighbors:
+            nearest_neighbors_bonus[i, neighbor] = 1.0
+            nearest_neighbors_bonus[neighbor, i] = 1.0
+
+
+    # 3. Diversification Component: Penalize edges that are consistently part of short subtours to avoid early convergence.
+    #    This can be approximated by looking at 'opposite' connections from the top N nearest neighbors
+    #    If neighbors A and B are both near to a vertex C, edge(A,B) might be penalized.
+    diversification_penalty = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        nearest_neighbors_i = np.argsort(distance_matrix[i, :])[1:min(5, n)] # consider a few neighbors
+        for j in range(i + 1, n): # Avoiding double-counting
+            nearest_neighbors_j = np.argsort(distance_matrix[j, :])[1:min(5,n)]
+
+            #Check if the edges i to j is likely to lead to local optima.
+            if any(neighbor_i in nearest_neighbors_j for neighbor_i in nearest_neighbors_i):
+                diversification_penalty[i,j] = -0.5 # Penilize if there's overlap between neighbors
+                diversification_penalty[j,i] = -0.5
+                
+
+    # Combine the components: Weigh each component to balance exploration and exploitation
+    heuristics_matrix = 0.6 * inverse_distance + 0.3 * nearest_neighbors_bonus + 0.1 * diversification_penalty
+    heuristics_matrix = np.clip(heuristics_matrix, -1.0, 2.0) #Clipping values
+
+    return heuristics_matrix
+```

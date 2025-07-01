@@ -1,0 +1,84 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for CVRP based on distance, demand, and angular considerations.
+
+    This function assigns higher probabilities to edges that:
+    1. Connect nodes with lower distances.
+    2. Connect nodes whose combined demand is less likely to exceed vehicle capacity.
+    3. Create a path that spreads out spatially and doesn't cluster too much.
+    4. Encourages returns to depot when the route becomes too long.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Customer demands (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators (n x n).
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Parameters for tuning the heuristics.  Adjust as needed for best performance.
+    distance_weight = 1.0
+    demand_weight = 0.5
+    angle_weight = 0.2
+    depot_return_weight = 0.3
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+                continue
+
+            # Distance heuristic: Shorter distances are more attractive.
+            distance_heuristic = distance_weight / (distance_matrix[i, j] + 1e-6)  # Avoid division by zero
+
+            # Demand heuristic: Lower combined demand is more attractive, encourage capacity constraint awareness
+            demand_heuristic = demand_weight * np.exp(-demands[i] / capacity) * np.exp(-demands[j] / capacity)
+            # Consider demand to depot
+            if i != 0 and j == 0:
+                demand_heuristic = demand_weight * np.exp(-demands[i] / capacity) #encourage return to depot if high demand
+
+            # Angle heuristic:  Encourage diverse routes; try to reduce sharp turns
+
+            if i == 0: #depot is first node of interest
+              angle_heuristic = 1.0
+
+            else:
+              # Compute angle between i and j with respect to the depot (node 0).
+              v1 = coordinates[i] - coordinates[0]
+              v2 = coordinates[j] - coordinates[i] # Angle between new edge and last travelled edge
+
+              v1_norm = np.linalg.norm(v1)
+              v2_norm = np.linalg.norm(v2)
+
+              if v1_norm == 0 or v2_norm == 0:
+                  angle = 0.0 #Degenerate cases when one point sits on top of the other
+              else:
+
+                dot_product = np.dot(v1, v2)
+                cosine_angle = dot_product / (v1_norm * v2_norm)
+                # Ensure that cosine_angle is within the valid range [-1, 1]
+                cosine_angle = np.clip(cosine_angle, -1.0, 1.0)
+                angle = np.arccos(cosine_angle) # Radians
+                angle_heuristic = angle_weight * (1 - np.abs(angle - np.pi/2)/(np.pi/2)) #Prefer perpendicular movements
+
+            #Depot return heuristic - encourage returns to the depot when edges have high lengths
+            depot_return_heuristic = 0
+            if j == 0:
+                depot_return_heuristic = depot_return_weight/(distance_matrix[i,j] + 1e-6)
+
+            # Combine the heuristics.
+            heuristic_matrix[i, j] = distance_heuristic + demand_heuristic + angle_heuristic + depot_return_heuristic
+
+    # Normalize to create a probability distribution (optional, but can be helpful).
+    heuristic_matrix = heuristic_matrix / np.sum(heuristic_matrix)
+
+    return heuristic_matrix
+```

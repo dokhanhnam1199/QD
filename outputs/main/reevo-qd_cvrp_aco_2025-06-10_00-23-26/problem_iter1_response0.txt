@@ -1,0 +1,70 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for the Capacitated Vehicle Routing Problem (CVRP) using stochastic solution sampling principles.
+
+    This function combines several factors to determine the desirability of including an edge in a solution:
+        1. Distance: Shorter distances are generally preferred.
+        2. Demand: Edges connecting nodes with smaller demands are initially favored, as they're less likely to cause capacity issues.
+        3. Angle: Considers the angle formed by the depot and the two nodes connected by an edge. Smaller angles (more direct routes from the depot) are preferred.
+        4. Closeness to Depot:  Favors edges where at least one of the nodes is close to the depot.  This encourages routes to start and end near the depot, potentially reducing total travel.
+    It also sparsifies the matrix by setting unpromising elements to zero based on a combined score.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Normalize distance matrix (avoid division by zero)
+    normalized_distance = distance_matrix / (np.max(distance_matrix) + 1e-6)
+
+    # Calculate angles relative to the depot (node 0)
+    depot_x, depot_y = coordinates[0]
+    angles = np.zeros((n, n))
+    for i in range(1, n):
+        x_i, y_i = coordinates[i]
+        angle_i = np.arctan2(y_i - depot_y, x_i - depot_x)
+        for j in range(i + 1, n):
+            x_j, y_j = coordinates[j]
+            angle_j = np.arctan2(y_j - depot_y, x_j - depot_x)
+            angle_diff = np.abs(angle_i - angle_j)
+            angles[i, j] = min(angle_diff, 2 * np.pi - angle_diff)  # Smaller angle is better
+            angles[j, i] = angles[i, j]
+    normalized_angles = angles / (np.max(angles) + 1e-6)
+
+    # Normalize demands (avoid division by zero)
+    normalized_demands = demands / (np.max(demands) + 1e-6)
+
+    # Create the heuristic matrix
+    for i in range(n):
+        for j in range(i + 1, n):
+            # Avoid self-loops
+            if i == j:
+                heuristic_matrix[i, j] = 0
+                continue
+
+            # Base heuristic: inverse distance
+            heuristic_score = 1 / (normalized_distance[i, j] + 1e-6)
+
+            # Adjust by demand: prefer smaller demand nodes (but not the depot). More aggressive influence
+            demand_factor = (2 - normalized_demands[i] - normalized_demands[j]) if (i !=0 and j !=0) else 1
+            heuristic_score *= demand_factor
+
+            # Adjust by angle to the depot: smaller angles are better
+            heuristic_score *= (2 - normalized_angles[i, j])
+
+
+            # Adjust by closeness to depot. Encourages paths near the depot. Slightly less influencial
+            depot_distance_factor = (0.5 / (normalized_distance[0, i] + 1e-6) + 0.5/ (normalized_distance[0,j]+1e-6))
+            heuristic_score += 0.1*depot_distance_factor #Scale down as we only want a slight bias.
+
+            heuristic_matrix[i, j] = heuristic_score
+            heuristic_matrix[j, i] = heuristic_score
+
+    # Sparsify the matrix: zero out less promising edges
+    threshold = np.percentile(heuristic_matrix[heuristic_matrix > 0], 40)  #Keep the best 60%
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    return heuristic_matrix
+```

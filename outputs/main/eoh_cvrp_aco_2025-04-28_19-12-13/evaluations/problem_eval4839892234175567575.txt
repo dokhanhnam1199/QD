@@ -1,0 +1,64 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm estimates edge probabilities by simulating ants traversing the graph, depositing pheromones on edges proportional to their desirability (distance and capacity constraints) and evaporating pheromones over time.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones((n, n)) * 0.01  # Initialize with a small value to avoid division by zero
+
+    num_ants = 50
+    alpha = 1  # Influence of pheromone
+    beta = 2  # Influence of distance
+    rho = 0.1  # Evaporation rate
+    Q = 100  # Pheromone deposit constant
+
+    for _ in range(num_ants):
+        ant_route = [0]
+        remaining_nodes = list(range(1, n))
+        current_node = 0
+        vehicle_load = 0
+
+        while remaining_nodes:
+            # Calculate probabilities for each remaining node
+            probabilities = np.zeros(len(remaining_nodes))
+            for i, next_node in enumerate(remaining_nodes):
+                if vehicle_load + demands[next_node] <= capacity:
+                    probabilities[i] = (heuristics_matrix[current_node, next_node]**alpha) / (distance_matrix[current_node, next_node]**beta)
+                else:
+                    probabilities[i] = 0  # Node is infeasible
+
+            # Normalize probabilities
+            if np.sum(probabilities) > 0:
+                probabilities /= np.sum(probabilities)
+            else:
+                # If all nodes are infeasible, choose one randomly
+                probabilities = np.ones(len(remaining_nodes)) / len(remaining_nodes)
+
+            # Choose the next node based on probabilities
+            next_node_index = np.random.choice(len(remaining_nodes), p=probabilities)
+            next_node = remaining_nodes[next_node_index]
+
+            # Update ant's route and vehicle load
+            ant_route.append(next_node)
+            vehicle_load += demands[next_node]
+            remaining_nodes.remove(next_node)
+            current_node = next_node
+
+        # Return to depot
+        ant_route.append(0)
+
+        # Update pheromones based on route length
+        route_length = 0
+        for i in range(len(ant_route) - 1):
+            route_length += distance_matrix[ant_route[i], ant_route[i+1]]
+
+        for i in range(len(ant_route) - 1):
+            heuristics_matrix[ant_route[i], ant_route[i+1]] += Q / route_length
+            heuristics_matrix[ant_route[i+1], ant_route[i]] += Q / route_length
+
+
+        # Evaporate pheromones
+        heuristics_matrix *= (1 - rho)
+
+    return heuristics_matrix

@@ -1,0 +1,99 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for solving the Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    This version combines multiple factors to estimate the promise of including each edge in a solution and
+    sparsifies the matrix by setting unpromising elements to zero.
+
+    Args:
+        distance_matrix (np.ndarray): A matrix of distances between nodes (shape: n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n x 2).
+        demands (np.ndarray): A vector of customer demands (shape: n).
+        capacity (int): The capacity of each vehicle.
+
+    Returns:
+        np.ndarray: A matrix of the same shape as distance_matrix, where each element indicates the
+                  promise of including the corresponding edge in a solution. Higher values indicate more promise.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Parameters to adjust the influence of each factor
+    distance_factor = 1.0
+    demand_factor = 1.0
+    angle_factor = 1.0
+    closeness_factor = 1.0 # Penalty for connecting distant nodes to the depot
+
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+                continue
+
+            # Distance heuristic: Prefer shorter edges
+            distance_heuristic = distance_factor / distance_matrix[i, j]
+
+            # Demand heuristic: Penalize connecting nodes with high demand if vehicle is already close to capacity
+            demand_heuristic = 1.0 - (demands[i] + demands[j]) / (2.0 * capacity) if demands[i] + demands[j] <= 2 * capacity else 0.0
+            demand_heuristic = demand_factor * max(0.0, demand_heuristic) #ensure non-negative
+            
+            # Angle heuristic: Encourages smoother paths by calculating angle between edges
+            if i == 0:
+              angle_heuristic = 1.0  # No angle constraint for edges connected to the depot
+            else:
+              angle_sum = 0
+              angle_count = 0
+              
+              if i != 0:  # Depot has index 0. Calculate incoming path direction.
+                  dx1, dy1 = coordinates[j, 0] - coordinates[i, 0], coordinates[j, 1] - coordinates[i, 1]
+                  
+                  if np.linalg.norm(coordinates[j] - coordinates[i]) < 1e-6: # Avoid div by 0, close locations already taken care off.
+                      continue
+                    
+                  for k in range(n):
+                      if k != i and k != j:
+                          dx2, dy2 = coordinates[k, 0] - coordinates[i, 0], coordinates[k, 1] - coordinates[i, 1]
+
+                          if np.linalg.norm(coordinates[k] - coordinates[i]) < 1e-6: # Avoid div by 0.
+                              continue
+
+                          dot_product = dx1 * dx2 + dy1 * dy2
+                          magnitude1 = np.sqrt(dx1**2 + dy1**2)
+                          magnitude2 = np.sqrt(dx2**2 + dy2**2)
+
+                          if magnitude1 > 0 and magnitude2 > 0:
+                              cosine_angle = dot_product / (magnitude1 * magnitude2)
+                              angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0)) # Clip is needed because cosine_angle is numerically unstable
+                              angle_sum += angle
+                              angle_count +=1
+              if angle_count > 0:
+                  angle_heuristic = angle_factor / (angle_sum/angle_count+ 1e-9) # Prefer smaller turning angle
+              else:
+                  angle_heuristic = 0.0
+
+            # Closeness to Depot heuristic: penalizing direct connections of remote points
+            if i == 0 and distance_matrix[i,j] > np.mean(distance_matrix):
+              closeness_heuristic = 0.1  # Penalize long distances
+            else:
+              closeness_heuristic = 1.0
+
+            # Combine the heuristics
+            heuristic_matrix[i, j] = distance_heuristic * demand_heuristic * closeness_heuristic #* angle_heuristic
+
+
+    # Sparsify the matrix: Remove unpromising edges (e.g., based on a threshold or top k)
+    threshold = np.percentile(heuristic_matrix[heuristic_matrix > 0], 20)  # Keep top 80%
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    # Normalize the matrix: Scale values to [0, 1] for stochastic sampling
+    max_value = np.max(heuristic_matrix)
+    if max_value > 0:
+        heuristic_matrix = heuristic_matrix / max_value
+
+    return heuristic_matrix
+```

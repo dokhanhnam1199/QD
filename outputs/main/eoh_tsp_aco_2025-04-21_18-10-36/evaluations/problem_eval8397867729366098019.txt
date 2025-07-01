@@ -1,0 +1,67 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm refines edge weights by iteratively sampling tours, applying a 3-opt local search, and updating weights based on tour length and edge usage, emphasizing shorter tours with frequently used edges.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones_like(distance_matrix, dtype=float)
+    edge_weights = np.ones_like(distance_matrix, dtype=float)
+    num_samples = 50
+    alpha = 0.1
+
+    for _ in range(num_samples):
+        # Generate a random initial tour
+        nodes = list(range(n))
+        np.random.shuffle(nodes)
+        tour = nodes + [nodes[0]]
+        
+        # 3-opt local search
+        improved = True
+        while improved:
+            improved = False
+            for i in range(1, n - 2):
+                for j in range(i + 2, n - 1):
+                    for k in range(j + 2, n + 1):
+                        if j - i == 1 or k - j == 1: continue
+                        
+                        a, b, c, d, e, f = tour[i - 1], tour[i], tour[j - 1], tour[j], tour[k - 1], tour[k]
+                        
+                        d0 = distance_matrix[a, b] + distance_matrix[c, d] + distance_matrix[e, f]
+                        d1 = distance_matrix[a, c] + distance_matrix[b, d] + distance_matrix[e, f]
+                        d2 = distance_matrix[a, b] + distance_matrix[c, e] + distance_matrix[d, f]
+                        d3 = distance_matrix[a, c] + distance_matrix[b, e] + distance_matrix[d, f]
+                        d4 = distance_matrix[a, e] + distance_matrix[d, c] + distance_matrix[b, f]
+
+                        if d1 < d0:
+                            tour[i:j] = reversed(tour[i:j])
+                            improved = True
+                        elif d2 < d0:
+                            tour[j:k] = reversed(tour[j:k])
+                            improved = True
+                        elif d3 < d0:
+                            tour[i:j] = reversed(tour[i:j])
+                            tour[j:k] = reversed(tour[j:k])
+                            improved = True
+                        elif d4 < d0:
+                            tour[i:k] = reversed(tour[i:k])
+                            improved = True
+
+        # Calculate tour length
+        tour_length = 0
+        for i in range(n):
+            tour_length += distance_matrix[tour[i], tour[i+1]]
+
+        # Update edge weights
+        for i in range(n):
+            node1 = tour[i]
+            node2 = tour[i+1]
+            edge_weights[node1, node2] += alpha * (1 / tour_length)
+            edge_weights[node2, node1] += alpha * (1 / tour_length)
+
+    # Normalize edge weights to create the heuristics matrix
+    max_weight = np.max(edge_weights)
+    if max_weight > 0:
+        heuristics_matrix = edge_weights / max_weight
+    else:
+        heuristics_matrix = np.ones_like(distance_matrix) / n # Avoid division by zero
+
+    return heuristics_matrix

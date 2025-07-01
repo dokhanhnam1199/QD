@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Feasibility: Only consider bins that can fit the item
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        return priorities  # No bin can fit, all priorities are 0.
+
+    # Calculate waste for feasible bins
+    waste = bins_remain_cap - item
+    waste[~feasible_bins] = np.inf  # make infeasible waste infinitely large
+
+    # Normalize waste: Lower waste is better, so we use inverse. Add a small constant to avoid division by zero during normalization
+    min_waste = np.min(waste[feasible_bins])
+    max_waste = np.max(waste[feasible_bins])
+
+    if max_waste == min_waste:
+        waste_normalized = np.ones_like(waste, dtype=float)
+    else:
+        waste_normalized = 1 - (waste - min_waste) / (max_waste - min_waste)
+    waste_normalized[~feasible_bins] = 0 # make infeasible bins zero again
+
+    priorities = waste_normalized
+
+    # Boost the absolutely least-waste bin (or bins if there are ties)
+    min_waste_bins = np.where(waste == min_waste)[0]
+    for min_waste_bin in min_waste_bins:
+      if feasible_bins[min_waste_bin]:
+          priorities[min_waste_bin] += 1.0
+
+    # Further boost bins that are close to being full after adding the item
+    almost_full_threshold = 0.95  # Define a threshold for "almost full"
+    post_fill_levels = (item + (bins_remain_cap - waste)) / np.max(bins_remain_cap + item)  #calculate fill levels after item is added
+    almost_full_bins = (post_fill_levels >= almost_full_threshold) & feasible_bins
+
+    priorities[almost_full_bins] += 0.5 # small bonus for bins almost full
+
+    return priorities
+```

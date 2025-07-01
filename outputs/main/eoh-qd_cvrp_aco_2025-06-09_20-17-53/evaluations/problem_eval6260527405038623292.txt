@@ -1,0 +1,103 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses a clustering approach based on node proximity and demand, then evaluates routes within clusters and between clusters to generate a heuristic matrix.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    
+    # Determine number of clusters.  A more sophisticated method could be used.
+    num_clusters = int(np.sqrt(n)) # Scaling by sqrt(n) works empirically
+
+    # Cluster nodes based on coordinates and demands
+    clusters = [[] for _ in range(num_clusters)]
+    cluster_centers = []
+
+    for i in range(num_clusters):
+      cluster_centers.append((random.random(), random.random()))  #Initialize to random points
+
+    for node in range(1, n):  # Skip depot
+        min_dist = float('inf')
+        best_cluster = -1
+        for i in range(num_clusters):
+          #Use Euclidean distance between normalized coordinates. Demand is also factored in.
+          dist = np.linalg.norm((coordinates[node]/np.max(coordinates)) - np.array(cluster_centers[i])) + 0.01*demands[node]/capacity
+          if dist < min_dist:
+            min_dist = dist
+            best_cluster = i
+        clusters[best_cluster].append(node)
+
+    # Evaluate routes within and between clusters
+    num_samples_per_cluster = 50
+    
+    for cluster_idx in range(num_clusters):
+      for _ in range(num_samples_per_cluster):
+          route = clusters[cluster_idx][:]  # Copy cluster nodes
+          random.shuffle(route)
+          
+          # Form routes within the cluster, starting and ending at the depot.
+          current_route = [0]
+          current_demand = 0
+          feasible_route = []
+
+          for node in route:
+              if current_demand + demands[node] <= capacity:
+                  current_route.append(node)
+                  current_demand += demands[node]
+              else:
+                  current_route.append(0)
+                  feasible_route.append(current_route)
+                  current_route = [0, node]
+                  current_demand = demands[node]
+
+          if current_route != [0]:
+              current_route.append(0)
+              feasible_route.append(current_route)
+
+          # Update heuristics matrix for intra-cluster routes
+          for sub_route in feasible_route:
+              for i in range(len(sub_route) - 1):
+                  node1 = sub_route[i]
+                  node2 = sub_route[i+1]
+                  heuristics_matrix[node1, node2] += 1
+                  heuristics_matrix[node2, node1] += 1
+                  
+    #Evaluate routes *between* clusters.  This is harder.
+    num_inter_cluster_samples = 500
+    for _ in range(num_inter_cluster_samples):
+        #Combine nodes from all clusters into one large route.
+        combined_route = []
+        for cluster_idx in range(num_clusters):
+            combined_route.extend(clusters[cluster_idx])
+        
+        random.shuffle(combined_route)
+        
+        current_route = [0]
+        current_demand = 0
+        feasible_route = []
+
+        for node in combined_route:
+            if current_demand + demands[node] <= capacity:
+                current_route.append(node)
+                current_demand += demands[node]
+            else:
+                current_route.append(0)
+                feasible_route.append(current_route)
+                current_route = [0, node]
+                current_demand = demands[node]
+
+        if current_route != [0]:
+            current_route.append(0)
+            feasible_route.append(current_route)
+
+        # Update heuristics matrix for inter-cluster routes
+        for sub_route in feasible_route:
+            for i in range(len(sub_route) - 1):
+                node1 = sub_route[i]
+                node2 = sub_route[i+1]
+                heuristics_matrix[node1, node2] += 1
+                heuristics_matrix[node2, node1] += 1
+
+    return heuristics_matrix

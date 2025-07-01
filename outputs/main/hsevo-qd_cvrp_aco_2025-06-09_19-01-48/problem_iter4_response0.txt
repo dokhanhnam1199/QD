@@ -1,0 +1,93 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int,
+                  distance_add_constant: float = 7.313077335671263e-06, inverse_square_weight: float = 0.9839969253583299,
+                  overload_penalty: float = 0.10899120250327077, depot_discount: float = 0.8010092404235448,
+                  angle_weight: float = 0.12769422377125228) -> np.ndarray:
+    """
+    Heuristics for CVRP based on distance, demand, and angle.  Inspired by physics:
+    - Inverse square law for distance (gravity).
+    - Penalize edges that would overload a vehicle.
+    - Encourage connections that "straighten" the route (reduce turning).
+
+    Args:
+        distance_matrix: Distance between nodes.
+        coordinates:  Node coordinates (x, y).
+        demands:  Node demands.
+        capacity: Vehicle capacity.
+        distance_add_constant: small constant to avoid division by zero
+        inverse_square_weight: Weight for the inverse square distance heuristic.
+        overload_penalty: Penalty for connections that would likely overload a vehicle.
+        depot_discount: Discount factor for connections to the depot.
+        angle_weight: Weight for the angle heuristic.
+
+    Returns:
+        A matrix of heuristic values for each edge.  Higher values indicate more promising edges.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Add a small constant to distances to avoid division by zero and handle self-loops gracefully
+    distance_matrix = distance_matrix + distance_add_constant
+
+    # Heuristic based on inverse square distance (like gravity's influence):
+    heuristic_matrix = inverse_square_weight / (distance_matrix**2)
+
+
+    # Penalize connections that would likely overload a vehicle *IF* considered early in route construction:
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # Never connect a node to itself.
+                continue
+
+            # Rough estimate of the remaining capacity if connecting i and j to the depot:
+            #  This is crude since it doesn't know the whole tour!  Helps avoid grossly infeasible early decisions.
+
+            remaining_capacity_i = capacity - demands[i] if i != 0 else capacity # Assume depot has effectively infinite capacity.
+            remaining_capacity_j = capacity - demands[j] if j != 0 else capacity
+
+            if (demands[i] + demands[j]) > capacity and i != 0 and j != 0:
+               heuristic_matrix[i, j] *= overload_penalty # Harsh penalty for immediate overload.
+
+            # Slightly discount connection to the depot for non-depot nodes to encourage intermediate hops first
+            if j == 0 and i != 0: #returning to depot
+                heuristic_matrix[i,j] *= depot_discount
+
+    # Angle Heuristic (encourage straighter paths):
+    for i in range(n):
+        for j in range(n):
+            if i == j: continue
+
+            # Consider node k as a potential "previous" node to node i:
+            angle_heuristic = 0
+            for k in range(n):
+                if k == i or k == j: continue
+
+                # Calculate vectors for edges ki and ij:
+                vector_ki = coordinates[i] - coordinates[k]
+                vector_ij = coordinates[j] - coordinates[i]
+
+                # Calculate the angle between vectors ki and ij:
+                dot_product = np.dot(vector_ki, vector_ij)
+                magnitudes = np.linalg.norm(vector_ki) * np.linalg.norm(vector_ij)
+
+                if magnitudes > 0: # Avoid division by zero.
+                    cosine_angle = dot_product / magnitudes
+                    angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))  # Clip to handle potential floating-point errors
+
+                    # Straighter paths have smaller angles (closer to 0).
+                    #  Prioritize straighter paths by rewarding small angles.
+                    angle_heuristic += (np.pi - angle) # Increase score as the angle decreases
+                # Average angle heuristic over all potential "previous" nodes
+            if n > 2:
+              angle_heuristic /= (n - 2)  # Normalize.  Helps if # of locations dramatically varies
+            heuristic_matrix[i, j] += angle_weight * angle_heuristic  # Weight the angle heuristic less than distance.
+
+    #Normalize heuristics for each node
+    for i in range(n):
+        row_sum = np.sum(heuristic_matrix[i,:])
+        if row_sum > 0:
+            heuristic_matrix[i,:] /= row_sum
+
+    return heuristic_matrix

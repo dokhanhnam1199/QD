@@ -1,0 +1,79 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics function for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (shape: n by n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n by 2).
+        demands (np.ndarray): Vector of customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (shape: n by n).
+    """
+    n = distance_matrix.shape[0]
+
+    # 1. Cost-based heuristic: Inverse of distance.
+    cost_heuristic = 1 / (distance_matrix + 1e-9)  # Adding a small value to avoid division by zero.
+
+    # 2. Demand-based heuristic: Penalize edges connecting nodes with high combined demand.
+    demand_penalty = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                demand_penalty[i, j] = np.exp((demands[i] + demands[j]) / capacity)  # Exponential penalty
+            else:
+                demand_penalty[i,j] = 1e9
+
+    demand_heuristic = 1 / (demand_penalty + 1e-9)
+
+    # 3. Depot proximity heuristic: Favor edges connecting nodes close to the depot.
+    depot_distances = distance_matrix[0, :]  # Distances from depot to all nodes.
+    depot_proximity_matrix = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                depot_proximity_matrix[i, j] = 1 / (depot_distances[i] + depot_distances[j] + 1e-9)
+            else:
+                depot_proximity_matrix[i,j] = 0
+
+    # 4. Angle heuristic (using coordinates):  Prefer edges that create "smooth" turns.
+    angle_heuristic = np.ones((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Calculate angles formed by edges (0 -> i) and (i -> j)
+                if i != 0 and j != 0: # avoid depot to depot edges
+                    v1 = coordinates[i] - coordinates[0]
+                    v2 = coordinates[j] - coordinates[i]
+
+                    v1 = v1 / (np.linalg.norm(v1) + 1e-9)
+                    v2 = v2 / (np.linalg.norm(v2) + 1e-9)
+                    dot_product = np.dot(v1, v2)
+                    angle = np.arccos(np.clip(dot_product, -1.0, 1.0))  # Clip to avoid domain errors
+
+                    angle_heuristic[i, j] = np.exp(-angle) # penalize edges resulting in sharp angles.
+                else:
+                     angle_heuristic[i, j] = 0 # make the chances very slim for this edge.
+
+    # Combine heuristics (weighted sum).
+    combined_heuristic = (
+        0.5 * cost_heuristic +
+        0.15 * demand_heuristic +
+        0.25 * depot_proximity_matrix +
+        0.1 * angle_heuristic
+    )
+
+    # Sparsify the matrix: set edges with low heuristic value to zero.
+    threshold = np.quantile(combined_heuristic[combined_heuristic > 0], 0.2) # Keep top 80%
+    combined_heuristic[combined_heuristic < threshold] = 0
+
+    # Ensure diagonal is zero:
+    for i in range(n):
+      combined_heuristic[i, i] = 0
+
+    return combined_heuristic
+```
