@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for TSP using a combination of factors and sparsification.
+
+    Args:
+        distance_matrix (np.ndarray): A 2D numpy array representing the distance matrix.
+
+    Returns:
+        np.ndarray: A 2D numpy array of the same shape as distance_matrix,
+                    representing prior indicators (probabilities) of including each edge.
+    """
+
+    n = distance_matrix.shape[0]
+
+    # Initialize heuristic matrix with inverse distance
+    heuristic_matrix = 1 / (distance_matrix + 1e-9)  # Adding a small constant to avoid division by zero
+
+    # Normalize distances to range [0, 1] to stabalize heuristic values later
+    normalized_distances = distance_matrix / np.max(distance_matrix)
+
+    # Calculate node "density" (inverse sum of distances to other nodes)
+    node_densities = 1 / (np.sum(distance_matrix, axis=1) + 1e-9)
+
+    # Incorporate node densities into the heuristic matrix.  Nodes connected to high density node
+    # get a slightly increased weight/prior.
+    for i in range(n):
+        for j in range(n):
+             heuristic_matrix[i, j] *= (node_densities[i] + node_densities[j]) / 2
+
+    # Calculate a "closeness" measure based on shortest path lengths between nodes
+    # This is a rough proxy for estimating overall network connectivity without
+    # the expense of Dijkstra or similar pathfinding algo
+    closeness_matrix = np.zeros_like(distance_matrix)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Estimate shortest path via indirect connection, scaled by overall distance
+                indirect_paths = np.sort(distance_matrix[i, :] + distance_matrix[:,j])
+                closeness = min(indirect_paths[1:4]) # average k closest non-direct
+                closeness_matrix[i,j] = 1/(distance_matrix[i,j] + closeness)
+
+    heuristic_matrix = 0.7 * heuristic_matrix + 0.3*closeness_matrix
+
+    # Sparsify the matrix: set probabilities of edges with high normalized
+    # distance to 0.  This reduces search space, potentially at the cost
+    # of excluding optimal paths.
+    threshold = np.quantile(normalized_distances[normalized_distances > 0], 0.75)
+    heuristic_matrix[normalized_distances > threshold] = 0
+
+    # Ensure the diagonal is zero (no self-loops)
+    np.fill_diagonal(heuristic_matrix, 0)
+
+    return heuristic_matrix
+```

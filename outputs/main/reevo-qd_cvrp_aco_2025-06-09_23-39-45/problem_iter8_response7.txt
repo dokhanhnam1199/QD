@@ -1,0 +1,73 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    Args:
+        distance_matrix: Distance matrix (shape: n by n).
+        coordinates: Euclidean coordinates of nodes (shape: n by 2).
+        demands: Customer demands (shape: n).
+        capacity: Vehicle capacity.
+
+    Returns:
+        A matrix of the same shape as distance_matrix, indicating how promising it is to include each edge in a solution.
+    """
+    n = distance_matrix.shape[0]
+
+    # Initialize the heuristic matrix with zeros
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Calculate savings for each pair of nodes based on Clarke-Wright savings algorithm.
+    savings = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings[j, i] = savings[i, j]
+
+    # Normalize savings to be between 0 and 1.
+    max_saving = np.max(savings)
+    min_saving = np.min(savings)
+    if max_saving > min_saving:
+        normalized_savings = (savings - min_saving) / (max_saving - min_saving)
+    else:
+        normalized_savings = np.ones_like(savings)
+
+    # Incorporate demand consideration.
+    demand_factor = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                demand_factor[i, j] = 1 / (demands[i] + demands[j] + 1e-6)  # Adding a small constant to avoid division by zero
+    
+    # Normalize demand factor.
+    max_demand = np.max(demand_factor)
+    min_demand = np.min(demand_factor)
+    if max_demand > min_demand:
+         normalized_demand = (demand_factor - min_demand) / (max_demand - min_demand)
+    else:
+         normalized_demand = np.ones_like(demand_factor)
+
+    # Calculate a combined score. Prioritize edges with shorter distance, high savings, and lower combined demand
+    heuristic_matrix = (normalized_savings + normalized_demand) / (distance_matrix + 1e-6) # adding small constant
+
+    # Sparsify the matrix: set elements below a certain threshold to zero.
+    threshold = np.percentile(heuristic_matrix[heuristic_matrix > 0], 20) # Only consider the positive numbers for percentile. 20th percentile.
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+    
+    # Ensure that the depot (node 0) connections are always considered by increasing their weights.
+    for i in range(1, n):
+         heuristic_matrix[0, i] *= 2 #Double weight to bias starting at depot.
+         heuristic_matrix[i, 0] *= 2
+
+    # Further enhance depot connections using coordinates
+    depot_x, depot_y = coordinates[0]
+    for i in range(1,n):
+      node_x, node_y = coordinates[i]
+      dist_to_depot = np.sqrt((depot_x - node_x)**2 + (depot_y - node_y)**2)
+      heuristic_matrix[0,i] += (1/(dist_to_depot + 1e-6))  # Inverse distance to depot
+      heuristic_matrix[i,0] += (1/(dist_to_depot + 1e-6))
+    
+    return heuristic_matrix
+```

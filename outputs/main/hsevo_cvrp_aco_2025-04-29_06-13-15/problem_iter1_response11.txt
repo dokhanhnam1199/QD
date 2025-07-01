@@ -1,0 +1,80 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for solving the Capacitated Vehicle Routing Problem (CVRP)
+    via stochastic solution sampling.
+
+    This version incorporates several ideas:
+    1.  Distance-based desirability: Shorter edges are more desirable, hence 1/distance.
+    2.  Demand-based penalty: Edges connecting to nodes with high demand are penalized,
+        making them less desirable unless unavoidable.  This encourages balancing load.
+    3.  Capacity proximity: Edges leading back to the depot (node 0) get a boost if the
+        current load is nearing capacity.
+    4.  Clustering consideration: Use Euclidean distances to approximate clustering tendency
+
+    Args:
+        distance_matrix: Distance matrix (shape: n by n).
+        coordinates: Euclidean coordinates of nodes (shape: n by 2).
+        demands: Vector of customer demands (shape: n).
+        capacity: Vehicle capacity.
+
+    Returns:
+        A matrix of the same shape as the distance_matrix, where each entry indicates
+        how promising it is to include the corresponding edge in a solution.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Normalize demands to be between 0 and 1
+    normalized_demands = demands / np.max(demands)
+
+    # Scaling factor for demand penalty. Adjust based on performance tuning
+    demand_penalty_factor = 0.5  #Can tune
+
+    # Scaling factor for depot proximity boost
+    depot_boost_factor = 0.8  #Can tune
+
+    # Euclidean distance as proxy for geographical clustering
+    euclidean_distance_matrix = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            euclidean_distance_matrix[i, j] = np.linalg.norm(coordinates[i] - coordinates[j])
+    euclidean_distance_matrix = (euclidean_distance_matrix / np.max(euclidean_distance_matrix))
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+            else:
+                # Base desirability is inverse of distance
+                desirability = 1 / distance_matrix[i, j]
+
+                # Demand penalty: higher demand makes an edge less desirable
+                demand_penalty = (normalized_demands[i] + normalized_demands[j]) * demand_penalty_factor
+                desirability -= demand_penalty
+
+                # Depot proximity boost: Encourage returning to depot as capacity is approached.
+                # Only works when traveling to depot
+                if j == 0:  # Traveling to depot
+                    # Proximity boost inversely proportional to Euclidean Distance
+                    depot_proximity_boost = (1-euclidean_distance_matrix[i,j]) * depot_boost_factor
+                    desirability += depot_proximity_boost
+
+                # Cluster consideration: Short edge between similar customers (based on location), slightly favored
+                desirability += (1 - euclidean_distance_matrix[i, j]) * 0.1
+                    
+                heuristic_matrix[i, j] = desirability
+
+    # Normalize the heuristic matrix to be between 0 and 1.
+    min_val = np.min(heuristic_matrix)
+    max_val = np.max(heuristic_matrix)
+
+    if max_val - min_val > 0:
+        heuristic_matrix = (heuristic_matrix - min_val) / (max_val - min_val)
+    else:
+        heuristic_matrix = np.ones_like(heuristic_matrix) * 0.5  # All edges equally likely
+
+    return heuristic_matrix
+```

@@ -1,0 +1,73 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for CVRP using a combination of distance, demand, and angle considerations.
+
+    Args:
+        distance_matrix: Distance matrix between nodes (n x n).
+        coordinates: Euclidean coordinates of nodes (n x 2).
+        demands: Customer demands (n).
+        capacity: Vehicle capacity.
+
+    Returns:
+        Heuristic matrix (n x n) indicating the desirability of including each edge.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Parameters to control the influence of different factors
+    distance_weight = 0.5
+    demand_weight = 0.3
+    angle_weight = 0.2
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+            else:
+                # Distance factor: Inverse of distance
+                distance_factor = 1 / distance_matrix[i, j]
+
+                # Demand factor:  Encourage connecting to nodes with demands that fit vehicle capacity.
+                # Penalize exceeding capacity more heavily.
+
+                demand_factor = 1 / (demands[j] + 1e-6) # Avoid division by zero
+                if demands[i] + demands[j] > capacity:
+                    demand_factor /=2
+
+                # Angle factor:  Prefer edges that don't make sharp turns
+                # Calculate the angle between the vectors from node i to node j and from node 0 (depot) to node j
+                if i != 0 and j != 0:
+                    vector_ij = coordinates[j] - coordinates[i]
+                    vector_0j = coordinates[j] - coordinates[0]
+
+                    # Calculate the dot product and magnitudes
+                    dot_product = np.dot(vector_ij, vector_0j)
+                    magnitude_ij = np.linalg.norm(vector_ij)
+                    magnitude_0j = np.linalg.norm(vector_0j)
+
+                    # Calculate the cosine of the angle
+                    if magnitude_ij > 0 and magnitude_0j > 0:
+                        cos_angle = dot_product / (magnitude_ij * magnitude_0j)
+                        # Ensure cos_angle is within [-1, 1] to avoid errors
+                        cos_angle = np.clip(cos_angle, -1.0, 1.0)
+                        angle = np.arccos(cos_angle)  # Angle in radians
+                        angle_factor = 1 - (angle / np.pi) # Normalize between 0 and 1
+
+                    else:
+                        angle_factor = 0.5 # Neutral value if vectors are zero
+                else:
+                    angle_factor = 0.5 #Neutral if one node is the depot.
+
+
+                # Combine the factors
+                heuristic_matrix[i, j] = (
+                    distance_weight * distance_factor +
+                    demand_weight * demand_factor +
+                    angle_weight * angle_factor
+                )
+
+    return heuristic_matrix
+```

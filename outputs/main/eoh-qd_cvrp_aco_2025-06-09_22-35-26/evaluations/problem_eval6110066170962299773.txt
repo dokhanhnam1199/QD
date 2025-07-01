@@ -1,0 +1,71 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively refines a heuristic matrix by probabilistically selecting edges based on the matrix itself and gradually biasing towards feasible and cost-effective routes.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.ones_like(distance_matrix) # Initialize with equal probability
+    temperature = 1.0 #Simulated annealing
+    cooling_rate = 0.995
+    num_iterations = 100
+
+    for iteration in range(num_iterations):
+        for i in range(n):
+            for j in range(i + 1, n): # Only consider upper triangle, the matrix is symmetric
+                # Probabilistically select edges based on current heuristic values (exploration)
+                probability = heuristics_matrix[i, j] ** temperature
+                if random.random() < probability:
+                    # Try adding edge (i, j) to a route
+                    route = [i, j]
+                    current_demand = demands[i] + demands[j]
+                    is_feasible = True
+
+                    # Try to expand the route
+                    remaining_nodes = list(range(1, n))
+                    random.shuffle(remaining_nodes) # Explore random nodes
+
+                    for node in remaining_nodes:
+                        if node not in route:
+                            if current_demand + demands[node] <= capacity:
+                                route.append(node)
+                                current_demand += demands[node]
+                            
+
+                    #Check depot exists
+                    if 0 not in route:
+                        route = [0] + route + [0]
+                    else:
+                        first_zero_index = route.index(0)
+                        del route[first_zero_index]
+                        route = [0] + route + [0]
+                    
+                    
+                    # Evaluate route feasibility and cost
+                    total_cost = 0
+                    for k in range(len(route) - 1):
+                        total_cost += distance_matrix[route[k], route[k+1]]
+                    
+                    if current_demand > capacity:
+                        is_feasible = False
+
+                    #Update heuristics matrix
+                    if is_feasible:
+                        #Increase value if a good route can be constructed
+                        heuristics_matrix[i, j] *= (1 + 1/ (total_cost + 1e-6))
+                        heuristics_matrix[j, i] = heuristics_matrix[i, j]
+                    else:
+                        #Decrease value if route is not feasible
+                        heuristics_matrix[i, j] *= 0.9
+                        heuristics_matrix[j, i] = heuristics_matrix[i, j]
+        
+        #Cooling
+        temperature *= cooling_rate
+    
+    # Normalize
+    max_val = np.max(heuristics_matrix)
+    if max_val > 0:
+        heuristics_matrix = heuristics_matrix / max_val
+    
+    return heuristics_matrix

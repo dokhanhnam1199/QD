@@ -1,0 +1,81 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm learns edge selection probabilities through a reinforcement learning approach, where routes are constructed incrementally, evaluated for feasibility, and edges are rewarded or penalized based on their contribution to feasible, low-cost routes.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    learning_rate = 0.1
+    discount_factor = 0.9
+    num_episodes = 500
+
+    q_matrix = np.zeros_like(distance_matrix)
+
+    def calculate_route_load(route):
+        load = 0
+        for node in route[1:]:
+            load += demands[node]
+        return load
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    for episode in range(num_episodes):
+        current_node = 0
+        route = [0]
+        remaining_nodes = list(range(1, n))
+        vehicle_load = 0
+        episode_reward = 0
+
+        while remaining_nodes:
+            # Choose next node based on Q-values and exploration
+            eligible_nodes = [node for node in remaining_nodes if vehicle_load + demands[node] <= capacity]
+
+            if not eligible_nodes:
+                route.append(0)
+                vehicle_load = 0
+                current_node = 0
+                continue
+            
+            if random.random() < 0.1:  # Exploration
+                next_node = random.choice(eligible_nodes)
+            else:  # Exploitation
+                next_node = max(eligible_nodes, key=lambda node: q_matrix[current_node, node])
+
+            route.append(next_node)
+            remaining_nodes.remove(next_node)
+            vehicle_load += demands[next_node]
+            
+            #Reward is negative distance
+            reward = -distance_matrix[current_node, next_node]
+
+            # Q-value update
+            q_matrix[current_node, next_node] = (1 - learning_rate) * q_matrix[current_node, next_node] + \
+                                           learning_rate * (reward + discount_factor * np.max(q_matrix[next_node, :]))
+            q_matrix[next_node, current_node] = q_matrix[current_node, next_node]
+
+            current_node = next_node
+
+        route.append(0)
+
+        if calculate_route_load(route) <= capacity:
+            episode_reward = -calculate_route_cost(route)
+        else:
+            episode_reward = -1000  # Large penalty for infeasible routes
+
+
+        #Heuristic Matrix update
+        for i in range(len(route)-1):
+            heuristics_matrix[route[i], route[i+1]] += episode_reward
+            heuristics_matrix[route[i+1], route[i]] += episode_reward
+
+
+    # Normalize heuristic matrix
+    max_val = np.max(np.abs(heuristics_matrix))
+    if max_val > 0:
+        heuristics_matrix = heuristics_matrix / max_val
+
+    return heuristics_matrix

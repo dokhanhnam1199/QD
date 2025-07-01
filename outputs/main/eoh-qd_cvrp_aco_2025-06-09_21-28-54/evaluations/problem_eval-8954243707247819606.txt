@@ -1,0 +1,78 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively refines routes by randomly swapping nodes between routes to improve feasibility and cost, using edge appearance frequency as a heuristic.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 1000
+    num_routes = 5
+
+    # Initialize routes randomly
+    routes = []
+    remaining_customers = list(range(1, n))
+    for _ in range(num_routes):
+        route = [0]
+        current_load = 0
+        while remaining_customers and current_load + min(demands[c] for c in remaining_customers) <= capacity:
+            eligible_customers = [c for c in remaining_customers if current_load + demands[c] <= capacity]
+            if not eligible_customers:
+                break
+            customer = random.choice(eligible_customers)
+            route.append(customer)
+            current_load += demands[customer]
+            remaining_customers.remove(customer)
+        route.append(0)
+        routes.append(route)
+
+    # Assign remaining customers to the nearest route
+    for customer in remaining_customers:
+        best_route_index = -1
+        min_distance = float('inf')
+        for i, route in enumerate(routes):
+            last_node = route[-2]  # Before the depot at the end
+            distance = distance_matrix[last_node, customer]
+            if distance < min_distance and sum(demands[node] for node in route[1:-1]) + demands[customer] <= capacity:
+                min_distance = distance
+                best_route_index = i
+        
+        if best_route_index != -1:
+            routes[best_route_index].insert(-1, customer)
+            
+        else:
+            #Create a new route
+            routes.append([0,customer,0])
+
+    # Iterative improvement
+    for _ in range(num_iterations):
+        # Choose two random routes
+        route_index1, route_index2 = random.sample(range(len(routes)), 2)
+        route1, route2 = routes[route_index1], routes[route_index2]
+
+        # Choose a random node from each route (excluding the depot)
+        if len(route1) <= 2 or len(route2) <= 2:
+          continue
+
+        node_index1 = random.randint(1, len(route1) - 2)
+        node_index2 = random.randint(1, len(route2) - 2)
+        node1, node2 = route1[node_index1], route2[node_index2]
+
+        # Check if swapping improves the routes (capacity and distance)
+        load1 = sum(demands[node] for node in route1[1:-1]) - demands[node1] + demands[node2]
+        load2 = sum(demands[node] for node in route2[1:-1]) - demands[node2] + demands[node1]
+
+        if load1 <= capacity and load2 <= capacity:
+            # Swap the nodes
+            route1[node_index1], route2[node_index2] = node2, node1
+            routes[route_index1], routes[route_index2] = route1, route2
+
+
+    # Update heuristics matrix based on final routes
+    for route in routes:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1  # Assuming undirected graph
+
+    return heuristics_matrix

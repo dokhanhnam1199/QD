@@ -1,0 +1,85 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a simplified genetic algorithm with mutation and crossover based on edge exchange to evolve a population of TSP solutions, updating a heuristic matrix based on edge frequencies in fitter solutions.}"""
+    
+    n = distance_matrix.shape[0]
+    population_size = 50
+    num_generations = 50
+    mutation_rate = 0.1
+    crossover_rate = 0.7
+    heuristics_matrix = np.zeros((n, n))
+
+    # Initialize population
+    population = []
+    for _ in range(population_size):
+        path = np.random.permutation(n)
+        population.append(path)
+
+    def calculate_fitness(path):
+        path_length = 0
+        for i in range(n):
+            path_length += distance_matrix[path[i], path[(i + 1) % n]]
+        return 1.0 / path_length  # Fitness is the inverse of path length
+
+    def crossover(parent1, parent2):
+        if np.random.rand() > crossover_rate:
+            return parent1.copy()
+
+        start = np.random.randint(n)
+        length = np.random.randint(1, n // 2)
+        child = [-1] * n
+        
+        for i in range(length):
+            child[(start + i) % n] = parent1[(start + i) % n]
+        
+        remaining_cities = [city for city in parent2 if city not in child]
+
+        child_index = 0
+        for i in range(n):
+            if child[i] == -1:
+                child[i] = remaining_cities[child_index]
+                child_index += 1
+
+        return np.array(child)
+
+    def mutate(path):
+        if np.random.rand() > mutation_rate:
+            return path.copy()
+
+        i = np.random.randint(n)
+        j = np.random.randint(n)
+        path_copy = path.copy()
+        path_copy[i], path_copy[j] = path_copy[j], path_copy[i]
+        return path_copy
+
+    for generation in range(num_generations):
+        # Evaluate fitness
+        fitness_scores = [calculate_fitness(path) for path in population]
+
+        # Selection (roulette wheel selection)
+        probabilities = np.array(fitness_scores) / np.sum(fitness_scores)
+        selected_indices = np.random.choice(population_size, size=population_size, p=probabilities)
+        selected_population = [population[i] for i in selected_indices]
+
+        # Crossover and Mutation
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = selected_population[i]
+            parent2 = selected_population[i + 1 if i+1 < population_size else i]
+            child1 = crossover(parent1, parent2)
+            child2 = crossover(parent2, parent1)
+            new_population.append(mutate(child1))
+            new_population.append(mutate(child2))
+        
+        population = new_population
+
+        # Update heuristics matrix based on best solutions in population
+        best_path_index = np.argmax(fitness_scores)
+        best_path = population[best_path_index]
+
+        for i in range(n):
+            heuristics_matrix[best_path[i], best_path[(i + 1) % n]] += 1
+            heuristics_matrix[best_path[(i + 1) % n], best_path[i]] += 1
+
+    return heuristics_matrix

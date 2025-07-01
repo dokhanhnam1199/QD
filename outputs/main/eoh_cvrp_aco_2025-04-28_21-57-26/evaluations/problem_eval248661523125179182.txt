@@ -1,0 +1,77 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm combines stochastic sampling with adaptive learning, iteratively building routes and updating edge weights based on route cost and feasibility, guiding the search towards promising solution spaces.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 500
+    learning_rate = 0.1
+
+    for _ in range(num_iterations):
+        # 1. Route Construction (Greedy with Stochasticity)
+        current_node = 0
+        route = [0]
+        remaining_nodes = set(range(1, n))
+        current_capacity = capacity
+
+        while remaining_nodes:
+            probabilities = {}
+            for node in remaining_nodes:
+                # Heuristic: distance, demand, and learned edge weight
+                distance_heuristic = 1 / (distance_matrix[current_node, node] + 1e-6)
+                demand_heuristic = (current_capacity - demands[node]) / capacity if current_capacity >= demands[node] else 0
+                edge_weight = heuristics_matrix[current_node, node] + 0.1  # Add small value to avoid zero weight
+
+                probabilities[node] = distance_heuristic * (demand_heuristic + 0.1) * edge_weight
+
+            if not probabilities:
+                break
+            total_prob = sum(probabilities.values())
+            if total_prob == 0:
+                next_node = remaining_nodes.pop()
+            else:
+                normalized_probabilities = {node: prob / total_prob for node, prob in probabilities.items()}
+                next_node = np.random.choice(list(normalized_probabilities.keys()), p=list(normalized_probabilities.values()))
+
+            if current_capacity >= demands[next_node]:
+                route.append(next_node)
+                current_capacity -= demands[next_node]
+                remaining_nodes.remove(next_node)
+                current_node = next_node
+            else:
+                route.append(0)
+                current_node = 0
+                current_capacity = capacity
+
+        if current_node != 0:
+            route.append(0)
+
+        # 2. Route Evaluation and Edge Weight Update
+        route_cost = 0
+        is_feasible = True
+        total_demand = 0
+
+        for i in range(1, len(route)-1):
+            total_demand += demands[route[i]]
+
+        if total_demand > (len([node for node in route if node ==0])-1) * capacity:
+            is_feasible = False
+
+        for i in range(len(route) - 1):
+            route_cost += distance_matrix[route[i], route[i+1]]
+        
+        #Update edge weights - adaptive learning
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            if is_feasible:
+                 heuristics_matrix[node1, node2] += learning_rate / (route_cost + 1e-6) #Reward good edges
+                 heuristics_matrix[node2, node1] += learning_rate / (route_cost + 1e-6) #Reward good edges
+            else:
+                heuristics_matrix[node1, node2] -= learning_rate #Penalize infeasible edges
+                heuristics_matrix[node2, node1] -= learning_rate #Penalize infeasible edges
+
+    return heuristics_matrix

@@ -1,0 +1,68 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm estimates edge importance by sampling random feasible routes and counting edge occurrences, favoring shorter edges and penalizing edges that lead to capacity violations.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        # Initialize
+        current_node = 0
+        route = [0]
+        remaining_nodes = set(range(1, n))
+        current_capacity = capacity
+
+        while remaining_nodes:
+            # Probabilistically select the next node
+            probabilities = {}
+            for node in remaining_nodes:
+                # Heuristic: distance and demand
+                distance_heuristic = 1 / (distance_matrix[current_node, node] + 1e-6)  # Avoid division by zero
+                demand_heuristic = (current_capacity - demands[node]) / capacity if current_capacity >= demands[node] else 0
+                
+                probabilities[node] = distance_heuristic * (demand_heuristic + 0.1) # add a small value to demand_heuristic to guarantee there is always a small probability to select a node
+
+            if not probabilities:
+                break  # No feasible nodes left
+            
+            # Normalize probabilities to form a distribution
+            total_prob = sum(probabilities.values())
+            if total_prob == 0:
+                next_node = remaining_nodes.pop()
+            else:
+                normalized_probabilities = {node: prob / total_prob for node, prob in probabilities.items()}
+                
+                # Select the next node based on the distribution
+                next_node = np.random.choice(list(normalized_probabilities.keys()), p=list(normalized_probabilities.values()))
+
+            # Check capacity constraint
+            if current_capacity >= demands[next_node]:
+                route.append(next_node)
+                current_capacity -= demands[next_node]
+                remaining_nodes.remove(next_node)
+                heuristics_matrix[current_node, next_node] += 1
+                heuristics_matrix[next_node, current_node] += 1
+                current_node = next_node
+            else:
+                # Return to depot
+                route.append(0)
+                heuristics_matrix[current_node, 0] += 1
+                heuristics_matrix[0, current_node] += 1
+                current_node = 0
+                current_capacity = capacity
+        
+        if current_node != 0:
+            heuristics_matrix[current_node, 0] += 1
+            heuristics_matrix[0, current_node] += 1
+
+
+    # Normalize by distance
+    for i in range(n):
+        for j in range(n):
+             if heuristics_matrix[i, j] > 0:
+                heuristics_matrix[i, j] /= (distance_matrix[i, j] + 1e-6)
+    
+    return heuristics_matrix

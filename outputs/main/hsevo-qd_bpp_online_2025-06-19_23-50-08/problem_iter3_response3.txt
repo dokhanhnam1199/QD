@@ -1,0 +1,46 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins considering fill rate, waste, and future fit potential."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    bin_count = len(bins_remain_cap)
+
+    fit = item <= bins_remain_cap
+    waste = bins_remain_cap - item
+
+    priorities[~fit] = -np.inf  # Impossible to fit
+
+    if np.any(fit):
+        # Fill ratio - encourages efficient space utilization
+        priorities[fit] = (item / bins_remain_cap[fit])
+
+        # Waste penalty - discourages creating small, unusable spaces.  Make it stronger.
+        priorities[fit] -= np.exp(-waste[waste >= 0] * 8)  # Increased penalty strength
+
+        # Bonus for bins with remaining capacity close to common item sizes
+        # Goal: keep bins "moldable" for future items.
+        # Use more robust stats, avoid single mean.
+
+        common_sizes = np.array([0.25, 0.33, 0.5, 0.66, 0.75]) # Example, refine these!
+        remaining_after_fit = bins_remain_cap[fit] - item
+        size_diffs = np.abs(remaining_after_fit[:, None] - common_sizes[None, :])
+        min_diffs = np.min(size_diffs, axis=1)  # Closest common size
+
+        priorities[fit] += np.exp(-min_diffs * 5)
+
+        # Bonus for half-full bins, promote bins with remaining capacity between 0.4 and 0.6.
+        half_full_mask = (remaining_after_fit > 0.4) & (remaining_after_fit < 0.6)
+        priorities[fit][half_full_mask] += 0.5
+
+        # Encourages distribution across all bins when possible, discouraging overfilling some bins.
+
+        priorities[fit] += 0.1  # A general bonus to distribute items initially
+
+        # If nearly full after placement (between 90 and 100%) then high reward
+        nearly_full = (bins_remain_cap[fit] - item) < (0.1 * 1.0)
+        priorities[fit][nearly_full] += 1
+
+    return priorities
+```

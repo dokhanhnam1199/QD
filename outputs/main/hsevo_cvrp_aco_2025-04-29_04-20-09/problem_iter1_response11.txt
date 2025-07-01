@@ -1,0 +1,77 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    A heuristic function for the Capacitated Vehicle Routing Problem (CVRP)
+    using stochastic solution sampling based on distance, demand, and angular considerations.
+
+    Args:
+        distance_matrix (np.ndarray): A square matrix of distances between nodes.
+        coordinates (np.ndarray): A matrix of node coordinates (x, y).
+        demands (np.ndarray): A vector of customer demands.
+        capacity (int): The capacity of each vehicle.
+
+    Returns:
+        np.ndarray: A matrix of heuristic values indicating the desirability of each edge.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Parameters for controlling the heuristic
+    alpha = 1.0  # Weight for distance
+    beta = 1.0  # Weight for demand
+    gamma = 1.0  # Weight for angle
+    delta = 0.5  # Weight for depot distance
+
+    depot_index = 0
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+            else:
+                # Distance component: Favor shorter distances
+                distance_heuristic = (1 / distance_matrix[i, j]) if distance_matrix[i, j] > 0 else 0
+
+                # Demand component: Penalize edges connecting to high-demand nodes, if demand is greater than a certain fraction of capacity
+                demand_heuristic = 1.0
+                demand_sum = demands[i] + demands[j]
+                if demand_sum > 0.6 * capacity:
+                    demand_heuristic = max(0.1, 1 - demand_sum / (2*capacity)) #reduce probability if demand sum is too high
+                    #else: #slightly reward it otherwise
+                     #   demand_heuristic = 1+ (0.6*capacity -demand_sum)/(capacity*10)
+
+
+                # Angle component: Penalize sharp turns to prevent highly clustered routes
+                if i != depot_index and j != depot_index:
+                    v1 = coordinates[i] - coordinates[depot_index]
+                    v2 = coordinates[j] - coordinates[i]
+                    v1_u = v1 / np.linalg.norm(v1) if np.linalg.norm(v1) > 0 else v1
+                    v2_u = v2 / np.linalg.norm(v2) if np.linalg.norm(v2) > 0 else v2
+
+                    angle = np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
+                    angle_heuristic = 1 - (angle / np.pi)  # Favor edges with smaller angles
+                else:
+                    angle_heuristic = 1.0
+
+                # Depot proximity component: favor direct returns to depot after larger demands or longer tour
+                depot_proximity_heuristic = 1.0
+                if j == depot_index:
+                    depot_proximity_heuristic = (1 / distance_matrix[i, j]) if distance_matrix[i, j] > 0 else 0
+                    # encourage the last node before depot to be "further"
+
+                heuristic_matrix[i, j] = (
+                    alpha * distance_heuristic +
+                    beta * demand_heuristic +
+                    gamma * angle_heuristic +
+                    delta * depot_proximity_heuristic
+                )
+
+    # Normalize the heuristic matrix
+    max_heuristic = np.max(heuristic_matrix)
+    if max_heuristic > 0:
+        heuristic_matrix = heuristic_matrix / max_heuristic
+
+    return heuristic_matrix
+```

@@ -1,0 +1,44 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, newtonian_weight: float = 0.26904787804932484, inverse_distance_weight: float = 0.04499136708658891,
+                   degree_factor_weight: float = 0.9725106874630135, sparsification_percentile: float = 57.121226620586675, epsilon: float = 8.711647548019124e-07) -> np.ndarray:
+    """
+    Combines Newtonian attraction, inverse distance, node degree consideration,
+    and sparsification for TSP edge prioritization.
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+    safe_distance_matrix = distance_matrix + epsilon
+
+    # 1. Newtonian Attraction Component
+    attraction = 1 / (safe_distance_matrix**2)
+    mass = np.sum(1 / safe_distance_matrix, axis=1)
+    M = np.outer(mass, mass)
+    potential_energy = safe_distance_matrix / np.mean(safe_distance_matrix)
+    newtonian = (attraction * M) / potential_energy
+
+    # 2. Inverse Distance Component
+    inverse_distance = 1 / safe_distance_matrix
+
+    # 3. Node Degree Consideration: Favor edges connecting to nodes with fewer connections
+    degree = np.sum(distance_matrix < np.mean(distance_matrix), axis=1) # Rough degree estimate. Lower is better
+    degree_matrix = np.outer(degree, degree)
+    degree_factor = 1 / (degree_matrix + epsilon)
+    # degree_factor = (degree_factor - np.min(degree_factor)) / (np.max(degree_factor) - np.min(degree_factor)) # Normalize
+
+    # 4. Combine Components (Experiment with weights)
+    heuristics = newtonian_weight * newtonian + inverse_distance_weight * inverse_distance + degree_factor_weight * degree_factor
+
+    # 5. Normalize
+    min_heuristic = np.min(heuristics)
+    max_heuristic = np.max(heuristics)
+    heuristics = (heuristics - min_heuristic) / (max_heuristic - min_heuristic)
+
+    # 6. Sparsification: Set less promising edges to zero (Dynamic threshold)
+    threshold = np.percentile(heuristics, sparsification_percentile)  # Keep top 80% of edges, experiment with values. Could be parameter.
+    heuristics[heuristics < threshold] = 0
+
+    # Ensure diagonal is zero.
+    np.fill_diagonal(heuristics, 0)
+
+    return heuristics

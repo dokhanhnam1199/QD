@@ -1,0 +1,81 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively constructs solutions by probabilistically selecting edges based on distance, demand, and a dynamic pheromone-like value, while also incorporating a local search component to refine solutions.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone_matrix = np.ones_like(distance_matrix)
+    alpha = 1.0
+    beta = 2.0
+    rho = 0.1
+    q0 = 0.9
+
+    num_iterations = 500
+
+    for iteration in range(num_iterations):
+        current_node = 0
+        route = [0]
+        remaining_nodes = set(range(1, n))
+        current_capacity = capacity
+        total_distance = 0
+
+        while remaining_nodes:
+            probabilities = {}
+            for node in remaining_nodes:
+                if current_capacity >= demands[node]:
+                    eta = 1 / distance_matrix[current_node, node]
+                    tau = pheromone_matrix[current_node, node]
+                    probabilities[node] = (tau**alpha) * (eta**beta)
+
+            if not probabilities:
+                break
+
+            total_prob = sum(probabilities.values())
+            if total_prob == 0:
+                next_node = random.choice(list(remaining_nodes))
+            else:
+                normalized_probabilities = {node: prob / total_prob for node, prob in probabilities.items()}
+                if random.random() < q0:
+                    next_node = max(normalized_probabilities, key=normalized_probabilities.get)
+                else:
+                    next_node = np.random.choice(list(normalized_probabilities.keys()), p=list(normalized_probabilities.values()))
+            
+            if current_capacity >= demands[next_node]:
+                route.append(next_node)
+                current_capacity -= demands[next_node]
+                total_distance += distance_matrix[current_node, next_node]
+                remaining_nodes.remove(next_node)
+                current_node = next_node
+            else:
+                route.append(0)
+                total_distance += distance_matrix[current_node, 0]
+                current_capacity = capacity
+                current_node = 0
+
+        total_distance += distance_matrix[current_node, 0]
+        route.append(0)
+
+        # Local Search (2-opt) - Simplified for brevity
+        for i in range(1, len(route) - 2):
+            for j in range(i + 1, len(route) - 1):
+                if j - i == 1: continue
+                
+                delta_distance = -distance_matrix[route[i-1], route[i]] - distance_matrix[route[j], route[j+1]] + distance_matrix[route[i-1], route[j]] + distance_matrix[route[i], route[j+1]]
+                if delta_distance < 0:
+                    route[i:j+1] = list(reversed(route[i:j+1]))
+                    total_distance += delta_distance
+
+        # Pheromone Update
+        for i in range(len(route) - 1):
+            pheromone_matrix[route[i], route[i+1]] = (1 - rho) * pheromone_matrix[route[i], route[i+1]] + rho / total_distance
+            pheromone_matrix[route[i+1], route[i]] = pheromone_matrix[route[i], route[i+1]]
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+    
+    for i in range(n):
+        for j in range(n):
+            if heuristics_matrix[i, j] > 0:
+               heuristics_matrix[i, j] /= distance_matrix[i, j]
+            
+    return heuristics_matrix

@@ -1,0 +1,70 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm samples multiple random routes, evaluates their feasibility and cost, and then constructs a heuristic matrix based on the frequency that each edge appears in feasible, low-cost solutions.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        # Generate a random permutation of customers (excluding the depot)
+        customer_indices = np.random.permutation(range(1, n))
+        
+        # Construct routes based on capacity constraints
+        routes = []
+        current_route = [0]
+        current_demand = 0
+        
+        for customer in customer_indices:
+            if current_demand + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_demand += demands[customer]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, customer]
+                current_demand = demands[customer]
+        
+        current_route.append(0)
+        routes.append(current_route)
+
+        # Check feasibility (all customers visited and capacity respected)
+        visited_customers = set()
+        total_demand = 0
+        is_feasible = True
+
+        for route in routes:
+            route_demand = 0
+            for node in route:
+                if node != 0:
+                    visited_customers.add(node)
+                    route_demand += demands[node]
+            if route_demand > capacity:
+                is_feasible = False
+                break
+            total_demand += route_demand
+
+        if len(visited_customers) != n - 1:
+            is_feasible = False
+            
+        # Calculate route cost
+        route_cost = 0
+        if is_feasible:
+            for route in routes:
+                for i in range(len(route) - 1):
+                    route_cost += distance_matrix[route[i], route[i+1]]
+                    
+            # Update heuristics matrix if the solution is feasible (and potentially good - to be improved with more sophisticated cost evaluation later)
+            if is_feasible: #and route_cost < float('inf'): #Add a cost threshold later
+                for route in routes:
+                    for i in range(len(route) - 1):
+                        node1 = route[i]
+                        node2 = route[i+1]
+                        heuristics_matrix[node1, node2] += 1
+                        heuristics_matrix[node2, node1] += 1  # Assuming symmetry
+    
+    # Normalize the matrix
+    heuristics_matrix = heuristics_matrix / np.sum(heuristics_matrix) if np.sum(heuristics_matrix) > 0 else heuristics_matrix
+    return heuristics_matrix

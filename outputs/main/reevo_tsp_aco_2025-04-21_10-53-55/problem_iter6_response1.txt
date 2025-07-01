@@ -1,0 +1,68 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for TSP using relative ranking, centrality, adaptive sparsification,
+    and row-wise normalization. This version prioritizes shorter edges and uses a more robust
+    centrality measure.
+
+    Args:
+        distance_matrix (np.ndarray): A 2D numpy array representing the distance matrix.
+
+    Returns:
+        np.ndarray: A 2D numpy array of the same shape as distance_matrix,
+                     representing the heuristic values (prior indicators).
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Calculate nearest neighbors for each node.
+    nearest_neighbors = []
+    for i in range(n):
+        distances = distance_matrix[i].copy()
+        distances[i] = np.inf  # Exclude self-loop
+        nearest_neighbors.append(np.argsort(distances))
+
+    # Calculate a centrality measure (degree of connectivity).  Use harmonic mean to avoid issues with disconnected components
+    centrality = np.zeros(n)
+    for i in range(n):
+        connected_distances = distance_matrix[i][distance_matrix[i] != np.inf] # only consider finite distances
+        if len(connected_distances) > 0:
+            centrality[i] = len(connected_distances) / np.sum(1/(connected_distances + 1e-9))  # Harmonic mean
+
+    centrality = centrality / np.max(centrality) if np.max(centrality) > 0 else np.zeros(n)  # Normalize
+
+    # Inverse distance factor (normalized).  Prioritize shorter edges more strongly
+    inverse_distance = 1 / (distance_matrix + 1e-9)
+    inverse_distance = inverse_distance / np.max(inverse_distance)
+
+    # Combine factors: inverse distance, nearest neighbor rank, and centrality.
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Rank of j in i's nearest neighbors and vice versa
+                rank_i = np.where(nearest_neighbors[i] == j)[0][0]
+                rank_j = np.where(nearest_neighbors[j] == i)[0][0]
+                rank_factor = 1 / (rank_i + rank_j + 1)
+
+                centrality_factor = (centrality[i] + centrality[j]) / 2 # Average centrality
+
+                heuristic_matrix[i, j] = inverse_distance[i, j] * rank_factor * centrality_factor
+
+    # Adaptive Sparsification
+    quantile_level = 0.8  # Adjust as needed - increased sparsity
+    positive_values = heuristic_matrix[heuristic_matrix > 0]
+    threshold = np.quantile(positive_values, quantile_level) if len(positive_values) > 0 else 0
+
+    heuristic_matrix[heuristic_matrix < threshold] = 0  # sparsify
+
+    # Row-wise normalization to avoid zero rows after sparsification
+    for i in range(n):
+        row_sum = np.sum(heuristic_matrix[i])
+        if row_sum > 0:
+            heuristic_matrix[i] = heuristic_matrix[i] / row_sum
+
+    return heuristic_matrix
+```

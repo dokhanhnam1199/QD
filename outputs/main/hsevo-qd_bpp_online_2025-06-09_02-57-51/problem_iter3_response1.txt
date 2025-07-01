@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This version incorporates more nuanced strategies including:
+    - Dynamic adjustment of priorities based on remaining capacity distribution.
+    - Consideration of both best-fit and worst-fit characteristics.
+    - A "leveling" term to encourage more uniform bin utilization.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    remaining_after_add = bins_remain_cap - item
+    valid_bins = remaining_after_add >= 0
+
+    if np.any(valid_bins):
+        # Best-Fit component: Prioritize bins with tighter fit.
+        space_diff = np.abs(remaining_after_add)
+        best_fit_priority = 1.0 / (space_diff + 1e-9)
+        priorities[valid_bins] += best_fit_priority[valid_bins]
+
+        # Encourage fuller bins (avoid leaving tiny fragments).  Penalize tiny remainders more heavily.
+        fill_ratios = (bins_remain_cap[valid_bins] - remaining_after_add[valid_bins]) / bins_remain_cap[valid_bins]
+        priorities[valid_bins] += 10 * np.exp(-20 * (remaining_after_add[valid_bins] / item)**2)
+
+        # Leveling term: Discourage packing into bins that are already *very* full,
+        # unless the item fits almost perfectly.  This is to avoid creating near-full bins that are difficult to fill later.  It also provides a diversification element.
+        very_full_bins = fill_ratios > 0.9
+        if np.any(very_full_bins):
+            perfect_fit = np.abs(remaining_after_add[valid_bins][very_full_bins]) < 0.1 * item
+            priorities[valid_bins][very_full_bins] -= 5 * (1-perfect_fit) # big penalty unless near perfect fit
+
+
+        # Dynamic adjustment: Scale priorities based on remaining capacity distribution.
+        # If many bins have similar capacity, slightly favor bins with more remaining capacity
+        # because it offers more flexibility later.  If only a few bins are viable, emphasize
+        # best-fit.  This makes the heuristic more adaptive.
+        num_valid_bins = np.sum(valid_bins)
+
+        if num_valid_bins > 1: # Only apply if there's a choice.
+            capacity_std = np.std(bins_remain_cap[valid_bins])
+            if capacity_std > 0.1 * np.mean(bins_remain_cap[valid_bins]):  # Significant capacity variation
+                priorities[valid_bins] += 0.5 * (bins_remain_cap[valid_bins] / np.max(bins_remain_cap)) # Favor larger remaining capacity
+
+            else: # Capacity is relatively uniform; emphasize best fit slightly more.
+                priorities[valid_bins] *= 1.2
+    else:
+        # No valid bins:  Prioritize bins that are *closest* to being able to accommodate the item.
+        # This represents a "desperation" strategy, attempting to minimize wasted space even if it's not immediately feasible.
+        priorities = 1 / (1 + np.abs(remaining_after_add))
+
+
+    return priorities
+```

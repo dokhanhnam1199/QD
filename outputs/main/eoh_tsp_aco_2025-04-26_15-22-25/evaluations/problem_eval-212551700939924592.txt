@@ -1,0 +1,52 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """
+    {This algorithm combines edge frequency in shortest paths with a penalty for longer edges, and rewards edges connecting nodes with high degree in a graph constructed from short edges.}
+    """
+    n = distance_matrix.shape[0]
+
+    # 1. Shortest Path Edge Frequency
+    shortest_path_counts = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Use Dijkstra's algorithm to find shortest path.
+                dist = np.inf * np.ones(n)
+                dist[i] = 0
+                prev = -1 * np.ones(n, dtype=int)
+                unvisited = set(range(n))
+
+                while unvisited:
+                    u = min(unvisited, key=lambda node: dist[node])
+                    unvisited.remove(u)
+
+                    for v in range(n):
+                        if distance_matrix[u, v] != 0 and dist[u] + distance_matrix[u, v] < dist[v]:
+                            dist[v] = dist[u] + distance_matrix[u, v]
+                            prev[v] = u
+                
+                #Trace back the path to identify the edges
+                current = j
+                while current != i:
+                  
+                  shortest_path_counts[current, prev[current]] +=1
+                  shortest_path_counts[prev[current],current]+=1
+                  current = prev[current]
+                  if current == -1:
+                    break
+    # Normalize
+    shortest_path_counts = shortest_path_counts / np.sum(shortest_path_counts)
+
+    # 2. Edge Length Penalty
+    edge_length_penalty = 1.0 / (distance_matrix + np.eye(n))
+
+    # 3. High Degree Reward
+    short_edge_threshold = np.mean(distance_matrix) 
+    short_edge_graph = distance_matrix <= short_edge_threshold
+    node_degrees = np.sum(short_edge_graph, axis=0)
+    high_degree_reward = np.outer(node_degrees, node_degrees)
+
+    # Combine the components
+    heuristics_matrix = shortest_path_counts + edge_length_penalty + (high_degree_reward / np.max(high_degree_reward))
+    return heuristics_matrix

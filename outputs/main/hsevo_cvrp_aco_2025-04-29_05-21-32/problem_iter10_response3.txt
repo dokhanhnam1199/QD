@@ -1,0 +1,109 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int,
+                  depot_boost_weight: float = 0.9814642158398333, detour_penalty_weight: float = 0.4191188385787975,
+                  adaptive_pruning_distance_multiplier: float = 0.9471133285764992, adaptive_pruning_demand_divisor: float = 4.945878085792497,
+                  angle_reward_weight: float = 0.49816193884032123, knn_k: int = 10.4073090086383, knn_boost_weight: float = 0.05032111873078964,
+                  sparsification_threshold_multiplier: float = 0.006124745278545977, small_number: float = 8.114482974713627e-07) -> np.ndarray:
+    """
+    Heuristics function for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    This version incorporates demand, distance, depot proximity, and angle considerations with adaptive sparsification,
+    k-NN intensification, and refined components.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (shape: n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n x 2).
+        demands (np.ndarray): Vector of customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+        depot_boost_weight (float): Weight for boosting edges connected to the depot. Default is 0.4.
+        detour_penalty_weight (float): Weight for penalizing detours from the direct depot route. Default is 0.07.
+        adaptive_pruning_distance_multiplier (float): Multiplier for the mean distance in adaptive pruning. Default is 1.2.
+        adaptive_pruning_demand_divisor (float): Divisor for capacity in adaptive pruning based on demand. Default is 3.0.
+        angle_reward_weight (float): Weight for rewarding edges based on the angle from the depot. Default is 0.15.
+        knn_k (int): Number of nearest neighbors to consider for k-NN intensification. Default is 10.
+        knn_boost_weight (float): Weight for boosting edges connected to k-nearest neighbors. Default is 0.08.
+        sparsification_threshold_multiplier (float): Multiplier for the mean heuristic value in sparsification. Default is 0.008.
+        small_number(float): A small number to prevent division by zero
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (shape: n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+    depot_index = 0
+
+    # Heuristic 1: Basic inverse distance
+    heuristics = 1 / (distance_matrix + small_number)
+
+    # Heuristic 2: Demand and Capacity consideration
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristics[i, j] = 0
+                continue
+
+            if i == depot_index and j != depot_index:
+                if demands[j] > capacity:  # Directly prune edges that violate capacity constraint.
+                    heuristics[i, j] = 0
+                else:
+                    heuristics[i, j] += depot_boost_weight  # Depot boost, increased weight
+
+            if j == depot_index and i != depot_index:
+                heuristics[i,j] = 0 # No edge to the depot.
+
+    # Heuristic 3: Depot proximity with adaptive pruning
+    depot_distances = distance_matrix[:, depot_index]
+    mean_depot_distance = np.mean(depot_distances)
+
+    for i in range(n):
+        for j in range(n):
+            if i != depot_index and j != depot_index:
+                # Penalize edges based on detour from direct depot route.  Simpler calculation.
+                detour_penalty = (depot_distances[i] + depot_distances[j]) / (2 * mean_depot_distance + small_number)
+                heuristics[i, j] -= detour_penalty_weight * detour_penalty  # Reduced weight
+
+                # Adaptive pruning based on demand and distance.  Less aggressive than v1.
+                if distance_matrix[i, j] > adaptive_pruning_distance_multiplier * np.mean(distance_matrix) and demands[i] + demands[j] > capacity / adaptive_pruning_demand_divisor:  # Only prune if nodes have considerable demand compared to vehicle capacity. Increased distance multiplier.
+                    heuristics[i, j] = 0
+
+    # Heuristic 4: Angle from Depot (less computational intensive angle heuristic)
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                # Dot product to find the cosine of the angle between vectors
+                vector_i = coordinates[i] - coordinates[depot_index]
+                vector_j = coordinates[j] - coordinates[depot_index]
+
+                norm_i = np.linalg.norm(vector_i)
+                norm_j = np.linalg.norm(vector_j)
+
+                if norm_i > 0 and norm_j > 0:
+                    cos_angle = np.dot(vector_i, vector_j) / (norm_i * norm_j)
+                    # Convert cosine to angle in radians
+                    angle = np.arccos(np.clip(cos_angle, -1.0, 1.0))  # Ensure within valid range
+
+                    # Prefer edges where nodes are in similar direction from depot. Smaller angle -> higher heuristic value
+                    heuristics[i, j] += angle_reward_weight * (1 - angle / np.pi)  # Normalized angle reward, increased weight
+
+    # Heuristic 5: k-NN intensification (Focuses on local neighborhood connectivity)
+    k = min(knn_k, n - 1)  # Limit k to prevent issues with small n
+    for i in range(1, n):
+        # Find k-nearest neighbors of node i (excluding itself)
+        distances_i = distance_matrix[i, 1:]  # Exclude depot distance
+        nearest_neighbors = np.argsort(distances_i)[:k] + 1  # Get indices of k nearest neighbors, add 1 to offset depot exclusion
+
+        for neighbor in nearest_neighbors:
+            if i != neighbor:
+                heuristics[i, neighbor] += knn_boost_weight  # Small boost to neighbors, reduced weight
+                heuristics[neighbor, i] += knn_boost_weight  # Ensure symmetry
+
+    # Heuristic 6: Sparsification: zero out small heuristic values. Adaptive threshold, more aggressive.
+    threshold = sparsification_threshold_multiplier * np.mean(heuristics)  # Adaptive threshold, reduced multiplier
+    heuristics[heuristics < threshold] = 0
+
+    # Normalize
+    max_heuristic = np.max(heuristics)
+    if max_heuristic > 0:
+        heuristics = heuristics / max_heuristic
+
+    return heuristics

@@ -1,0 +1,75 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a guided random walk with adaptive step size and acceptance probability influenced by a combination of distance, demand, and pheromone information to explore the solution space and estimate edge importance.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone_matrix = np.ones_like(distance_matrix)
+    alpha = 1.0
+    beta = 2.0
+    gamma = 0.5
+    num_walks = 500
+    step_size = 1.0
+    adaptive_rate = 0.01
+
+    for _ in range(num_walks):
+        current_node = 0
+        current_capacity = capacity
+        remaining_nodes = set(range(1, n))
+        route = [0]
+        total_distance = 0
+
+        while remaining_nodes:
+            probabilities = {}
+            for node in remaining_nodes:
+                if current_capacity >= demands[node]:
+                    distance_heuristic = 1 / (distance_matrix[current_node, node] + 1e-6)
+                    demand_heuristic = (current_capacity - demands[node]) / capacity
+                    probabilities[node] = (distance_heuristic**alpha) * (demand_heuristic**beta) * (pheromone_matrix[current_node, node]**gamma)
+
+            if not probabilities:
+                # Return to depot if no feasible nodes available
+                heuristics_matrix[current_node, 0] += 1
+                heuristics_matrix[0, current_node] += 1
+                total_distance += distance_matrix[current_node, 0]
+                current_node = 0
+                current_capacity = capacity
+                route.append(0)
+                continue
+            
+            total_prob = sum(probabilities.values())
+            if total_prob == 0:
+                next_node = random.choice(list(remaining_nodes))
+            else:
+                normalized_probabilities = {node: prob / total_prob for node, prob in probabilities.items()}
+                next_node = np.random.choice(list(normalized_probabilities.keys()), p=list(normalized_probabilities.values()))
+            
+
+            delta_distance = distance_matrix[current_node, next_node]
+            expected_distance = total_distance / (len(route)+1e-6)
+            acceptance_probability = np.exp((expected_distance - delta_distance) / step_size)
+
+            if random.random() < acceptance_probability:
+                heuristics_matrix[current_node, next_node] += 1
+                heuristics_matrix[next_node, current_node] += 1
+                total_distance += delta_distance
+                route.append(next_node)
+                current_capacity -= demands[next_node]
+                remaining_nodes.remove(next_node)
+                current_node = next_node
+                step_size *= (1 - adaptive_rate) # Reduce step size if move is accepted
+            else:
+                step_size *= (1 + adaptive_rate)  # Increase step size if move is rejected
+
+
+        heuristics_matrix[current_node, 0] += 1
+        heuristics_matrix[0, current_node] += 1
+
+
+    for i in range(n):
+        for j in range(n):
+            if heuristics_matrix[i, j] > 0:
+                heuristics_matrix[i, j] /= (distance_matrix[i, j] + 1e-6)
+
+    return heuristics_matrix

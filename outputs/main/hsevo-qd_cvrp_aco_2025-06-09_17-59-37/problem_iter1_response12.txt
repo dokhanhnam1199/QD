@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Generates heuristics for CVRP based on distance, angle, demand, and capacity considerations.
+    A Newtonian approach emphasizing gravitational attraction (short distances, smaller angles) and constraints.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Scale distance_matrix for better handling of extreme values.
+    scaled_distance = distance_matrix / np.max(distance_matrix)
+
+    # Calculate angles between nodes relative to the depot (node 0).
+    angles = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                vec_i = coordinates[i] - coordinates[0]
+                vec_j = coordinates[j] - coordinates[0]
+                angles[i, j] = np.arccos(np.dot(vec_i, vec_j) / (np.linalg.norm(vec_i) * np.linalg.norm(vec_j)))
+
+    # Normalize angles
+    angles = angles / np.max(angles)
+
+    # Heuristic calculation: combines distance attraction with angle and demand penalties.
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Favor shorter distances (inverse relationship) and smaller angles relative to depot
+                attraction = (1 / (scaled_distance[i, j] + 1e-6))  # Add small constant to avoid division by zero
+                angle_penalty = angles[i, j]  # Lower angles are better
+
+                # Introduce demand penalty. The larger the demand, the lower the chance to be visited right after this
+                # The higher the current demand, the less promising is the edge
+
+                demand_penalty = (demands[i] + demands[j]) / (2 * capacity) if i != 0 and j != 0 else 0 #Scale to 0, 1
+
+                # Ensure return to depot when demand is high
+
+                depot_attraction = 0
+                if demands[i] > capacity * 0.75 and j == 0 and i != 0 :
+                    depot_attraction = 1
+                if demands[j] > capacity * 0.75 and i == 0 and j != 0:
+                    depot_attraction = 1
+                if i == 0 and j != 0:
+                    depot_attraction += 0.5 / (demands[j]/capacity + 1e-6)
+                if j == 0 and i != 0:
+                    depot_attraction += 0.5 / (demands[i]/capacity + 1e-6)
+                heuristic_matrix[i, j] = attraction * (1 - angle_penalty) * (1 - demand_penalty) + depot_attraction
+    return heuristic_matrix
+```

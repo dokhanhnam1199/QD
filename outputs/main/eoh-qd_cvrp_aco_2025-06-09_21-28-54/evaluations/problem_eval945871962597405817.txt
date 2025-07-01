@@ -1,0 +1,110 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses a large neighborhood search approach, iteratively improving routes by randomly selecting and re-optimizing sub-sequences of nodes.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_iterations = 1000
+    neighborhood_size = 5
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    def check_capacity(route):
+        total_demand = sum(demands[i] for i in route if i != 0)
+        return total_demand <= capacity
+
+    def generate_initial_routes():
+      remaining_customers = list(range(1,n))
+      routes = []
+      current_route = [0]
+      current_load = 0
+
+      while remaining_customers:
+        best_customer = -1
+        best_distance = float('inf')
+
+        for customer in remaining_customers:
+          if current_load + demands[customer] <= capacity:
+            dist = distance_matrix[current_route[-1], customer]
+            if dist < best_distance:
+              best_distance = dist
+              best_customer = customer
+        
+        if best_customer != -1:
+          current_route.append(best_customer)
+          current_load += demands[best_customer]
+          remaining_customers.remove(best_customer)
+        else:
+          current_route.append(0)
+          routes.append(current_route)
+          current_route = [0]
+          current_load = 0
+
+      current_route.append(0)
+      routes.append(current_route)
+      return routes
+
+    best_routes = generate_initial_routes()
+    best_cost = sum(calculate_route_cost(route) for route in best_routes)
+
+    for _ in range(num_iterations):
+      # Choose a random route
+      route_index = random.randint(0, len(best_routes) - 1)
+      route = best_routes[route_index]
+      
+      #Choose a random sub-sequence
+      start_index = random.randint(1, len(route) - 2)
+      end_index = min(start_index + neighborhood_size, len(route) -1)
+      sub_sequence = route[start_index:end_index]
+
+      # Re-optimize subsequence
+      import itertools
+      best_sub_sequence = sub_sequence
+      best_sub_sequence_cost = float('inf')
+
+      for permutation in itertools.permutations(sub_sequence):
+        new_route = route[:start_index] + list(permutation) + route[end_index:]
+
+        valid_route = True
+        demand = 0
+        for node in new_route:
+          if node != 0:
+            demand += demands[node]
+        
+        if not check_capacity(new_route):
+          valid_route = False
+
+        if valid_route:
+          new_sub_sequence_cost = calculate_route_cost(new_route)
+
+          if new_sub_sequence_cost < best_sub_sequence_cost:
+            best_sub_sequence_cost = new_sub_sequence_cost
+            best_sub_sequence = list(permutation)
+
+      new_route = route[:start_index] + best_sub_sequence + route[end_index:]
+      new_cost = calculate_route_cost(new_route)
+      
+      #Update best routes
+      best_routes[route_index] = new_route
+
+      total_cost = sum(calculate_route_cost(route) for route in best_routes)
+
+      if total_cost < best_cost:
+        best_cost = total_cost
+      else:
+        best_routes = generate_initial_routes()
+        best_cost = sum(calculate_route_cost(route) for route in best_routes)
+
+    # Populate heuristics matrix
+    for route in best_routes:
+      for i in range(len(route) - 1):
+        heuristics_matrix[route[i], route[i+1]] += 1
+        heuristics_matrix[route[i+1], route[i]] += 1
+    return heuristics_matrix

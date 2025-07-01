@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # 1. Feasibility: Eliminate bins that can't fit the item.
+    infeasible_bins = bins_remain_cap < item
+    priorities[infeasible_bins] = -np.inf
+
+    # Only calculate priority for bins that *can* hold the item
+    feasible_bins_indices = np.where(~infeasible_bins)[0]
+
+    if feasible_bins_indices.size > 0:
+        # 2. Remaining capacity after insertion: Smaller is generally preferred
+        remaining_cap_after_insertion = bins_remain_cap[feasible_bins_indices] - item
+
+        # 3. Best Fit score (reduced influence):
+        best_fit_score = 1.0 / (remaining_cap_after_insertion + 1e-9)
+        priorities[feasible_bins_indices] = best_fit_score * 0.2  # Further Reduced weight of best fit
+
+
+        # 4. Sweet spot bonus: Prioritize bins for balanced fill
+        fill_ratios = (bins_remain_cap[feasible_bins_indices] - item) / bins_remain_cap.max()
+        sweet_spot_lower = 0.3
+        sweet_spot_upper = 0.65
+        sweet_spot_bonus = np.where(
+            (fill_ratios >= sweet_spot_lower) & (fill_ratios <= sweet_spot_upper),
+            0.7,  # Adjust bonus strength
+            0.0
+        )
+        priorities[feasible_bins_indices] += sweet_spot_bonus
+
+        # 5. Tie-breaker: Prefer bins appearing earlier, but consistently
+        priorities[feasible_bins_indices] += (bins_remain_cap.size - feasible_bins_indices) / bins_remain_cap.size * 0.003 # Even further reduced
+
+
+
+        # 6. Fragmentation penalty (more aggressive): Discourage small remainders
+        fragmentation_threshold_lower = 0.05
+        fragmentation_threshold_upper = 0.2
+
+        fragmentation_penalty = np.where(
+            (fill_ratios >= fragmentation_threshold_lower) & (fill_ratios <= fragmentation_threshold_upper),
+            -0.8,  # More stronger penalty for fragmentation
+            0.0
+        )
+        priorities[feasible_bins_indices] += fragmentation_penalty
+
+        # 7. Near-full penalty (stronger, adaptive threshold): Adapt threshold based on bin size
+        almost_full_threshold = 0.85 + 0.05 * (bins_remain_cap[feasible_bins_indices] / bins_remain_cap.max())  # Dynamic threshold
+        almost_full_penalty = np.where(
+            bins_remain_cap[feasible_bins_indices] / bins_remain_cap.max() > almost_full_threshold,
+            -0.9,  # High penalty
+            0.0
+        )
+        priorities[feasible_bins_indices] += almost_full_penalty
+
+        # 8. Dynamic weight adjustment based on capacity distribution
+        bin_utilization = 1 - bins_remain_cap[feasible_bins_indices]/bins_remain_cap.max()
+        utilization_std = np.std(bin_utilization) # Calculate utilization standard deviation
+        utilization_mean = np.mean(bin_utilization)
+        capacity_score = -0.1*utilization_std + 0.05 * utilization_mean # Encourage high mean, low std
+        priorities[feasible_bins_indices] += capacity_score
+    return priorities
+```

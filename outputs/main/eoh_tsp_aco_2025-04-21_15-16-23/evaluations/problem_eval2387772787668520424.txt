@@ -1,0 +1,70 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm iteratively constructs TSP tours by probabilistically selecting edges based on their length and pheromone trails, then updates pheromone levels according to tour quality, resulting in a heuristic matrix reflecting edge importance.}"""
+    n = distance_matrix.shape[0]
+    pheromone = np.ones_like(distance_matrix)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    alpha = 1
+    beta = 2
+    rho = 0.5
+    Q = 100
+    num_iterations = 100
+
+    for iteration in range(num_iterations):
+        tours = []
+        tour_lengths = []
+
+        for start_node in range(n):
+            current_node = start_node
+            unvisited = set(range(n))
+            unvisited.remove(current_node)
+            tour = [current_node]
+
+            while unvisited:
+                probabilities = np.zeros(n)
+                for neighbor in unvisited:
+                    probabilities[neighbor] = (pheromone[current_node, neighbor]**alpha) * ((1 / distance_matrix[current_node, neighbor])**beta)
+                
+                probabilities /= np.sum(probabilities)
+                
+                next_node = np.random.choice(n, p=probabilities)
+
+                if next_node not in unvisited:
+                    available_nodes = list(unvisited)
+                    if len(available_nodes) > 0:
+                        next_node = np.random.choice(available_nodes)
+                    else:
+                        break
+
+                tour.append(next_node)
+                unvisited.remove(next_node)
+                current_node = next_node
+
+            tour.append(start_node)
+            tours.append(tour)
+
+            tour_length = 0
+            for i in range(n):
+                tour_length += distance_matrix[tour[i], tour[i+1]]
+            tour_lengths.append(tour_length)
+
+        # Update pheromones
+        delta_pheromone = np.zeros_like(distance_matrix)
+        for k in range(n):
+            tour = tours[k]
+            tour_length = tour_lengths[k]
+            for i in range(n):
+                delta_pheromone[tour[i], tour[i+1]] += Q / tour_length
+                delta_pheromone[tour[i+1], tour[i]] += Q / tour_length
+
+        pheromone = (1 - rho) * pheromone + delta_pheromone
+
+        # Update heuristic matrix
+        for tour in tours:
+            for i in range(n):
+                heuristics_matrix[tour[i], tour[i+1]] += 1
+                heuristics_matrix[tour[i+1], tour[i]] += 1
+
+    heuristics_matrix /= (num_iterations * n)
+    return heuristics_matrix

@@ -1,0 +1,59 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively builds routes by selecting the closest feasible node to the last node in the current route, considering capacity constraints, and probabilistically diversifying the search by sometimes selecting a less-close node.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    
+    num_vehicles = 0
+    all_routes = []
+    unvisited_nodes = set(range(1, n))
+    
+    while unvisited_nodes:
+        num_vehicles += 1
+        current_route = [0]
+        current_capacity = capacity
+        current_node = 0
+        
+        while True:
+            feasible_nodes = [node for node in unvisited_nodes if demands[node] <= current_capacity]
+            
+            if not feasible_nodes:
+                break
+            
+            distances = [distance_matrix[current_node, node] for node in feasible_nodes]
+            
+            # Probabilistic Selection: Favor closer nodes but allow some diversification
+            probabilities = [(1 / (d + 0.0001)) for d in distances]  # Inverse distance
+            probabilities = [p / sum(probabilities) for p in probabilities]
+            
+            # Introduce some randomness: with a small probability, select from all feasible
+            if random.random() < 0.1 and len(feasible_nodes) > 1:
+                next_node = random.choices(feasible_nodes)[0]
+            else:
+                next_node = random.choices(feasible_nodes, weights=probabilities, k=1)[0]
+            
+            current_route.append(next_node)
+            current_capacity -= demands[next_node]
+            current_node = next_node
+            unvisited_nodes.remove(next_node)
+        
+        current_route.append(0)
+        all_routes.append(current_route)
+
+    # Build Heuristic Matrix
+    for route in all_routes:
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+            
+    # Normalize heuristic matrix by distance
+    for i in range(n):
+        for j in range(n):
+            if heuristics_matrix[i, j] > 0:
+                heuristics_matrix[i, j] /= distance_matrix[i, j]
+            
+    return heuristics_matrix

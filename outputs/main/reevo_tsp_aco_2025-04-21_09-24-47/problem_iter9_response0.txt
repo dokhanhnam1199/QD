@@ -1,0 +1,134 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for TSP using a combination of factors, adaptive sparsification,
+    edge combination strategies, and cycle prevention, with improved adaptive weights and normalization.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix representing the TSP instance.
+
+    Returns:
+        np.ndarray: Prior indicators (probabilities) of edge inclusion.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Inverse Distance Heuristic
+    inverse_distance = 1.0 / (distance_matrix + 1e-9)
+    inverse_distance = inverse_distance / np.max(inverse_distance)
+
+    # Nearest Neighbor Heuristic
+    nearest_neighbors = np.zeros((n, n), dtype=float)
+    for i in range(n):
+        distances = distance_matrix[i].copy()
+        distances[i] = np.inf
+        num_neighbors = min(max(2, int(np.log(n))), n - 1)  # Logarithmic scaling
+        nearest_neighbor_indices = np.argsort(distances)[:num_neighbors]
+        for neighbor_index in nearest_neighbor_indices:
+            nearest_neighbors[i, neighbor_index] = 1.0
+    nearest_neighbors = nearest_neighbors / np.max(nearest_neighbors)
+
+    # Minimum Spanning Tree (MST) heuristic (approximation using distances)
+    mst_heuristic = np.zeros((n, n), dtype=float)
+
+    #Prim's algorithm inspired approach
+    start_node = 0
+    visited = {start_node}
+    possible_edges = []
+    for i in range(n):
+        if i != start_node:
+            possible_edges.append((start_node, i, distance_matrix[start_node, i]))
+
+    mst_edges = []
+    while len(visited) < n:
+        min_edge = None
+        min_dist = np.inf
+        for u, v, dist in possible_edges:
+            if (u in visited and v not in visited) or (v in visited and u not in visited):
+                if dist < min_dist:
+                    min_dist = dist
+                    min_edge = (u, v, dist)
+        if min_edge:
+            u, v, _ = min_edge
+            mst_edges.append((u, v))
+            visited.add(u)
+            visited.add(v)
+            new_possible_edges = []
+            for i in range(n):
+              for j in range(n):
+                  if i != j:
+                    if (i,j, distance_matrix[i,j]) not in possible_edges:
+                      new_possible_edges.append((i, j, distance_matrix[i, j]))
+
+            possible_edges = new_possible_edges
+            for i in range(n):
+              if i not in visited:
+                for v_node in visited:
+
+                  possible_edges.append((i,v_node, distance_matrix[i, v_node]))
+            possible_edges = list(set(possible_edges)) # Remove duplicates
+    for u,v in mst_edges:
+        mst_heuristic[u, v] = 1.0
+        mst_heuristic[v, u] = 1.0
+    mst_heuristic = mst_heuristic / np.max(mst_heuristic)
+
+    # Degree Heuristic (penalize high-degree nodes less severely)
+    degree_heuristic = np.zeros_like(distance_matrix, dtype=float)
+    avg_degree = (n-1)  # max possible degree
+    for i in range(n):
+      for j in range(n):
+        if i != j:
+          degree_i = np.sum(distance_matrix[i,:] > 0)
+          degree_j = np.sum(distance_matrix[:,j] > 0)
+          degree_heuristic[i,j] = 1 / (1 + np.abs(degree_i + degree_j - avg_degree )) # less severe penalty
+    degree_heuristic = degree_heuristic / np.max(degree_heuristic)
+
+    # Adaptive Weights (dynamically adjust)
+    weight_inverse_distance = 0.4
+    weight_nearest_neighbors = 0.3
+    weight_mst = 0.2
+    weight_degree = 0.1
+
+    # Combine Heuristics
+    heuristic_matrix = (weight_inverse_distance * inverse_distance +
+                        weight_nearest_neighbors * nearest_neighbors +
+                        weight_mst * mst_heuristic +
+                        weight_degree * degree_heuristic)
+
+    # Adaptive Sparsification (adjust based on n)
+    k = min(max(3, int(np.sqrt(n))), n - 1) # Adjust k based on sqrt(n)
+    for i in range(n):
+        row = heuristic_matrix[i].copy()
+        indices_to_keep = np.argsort(row)[-k:]
+        mask = np.zeros(n, dtype=bool)
+        mask[indices_to_keep] = True
+        heuristic_matrix[i, ~mask] = 0
+        heuristic_matrix[i,i] = 0 # Remove self loops
+
+    # Add small noise to allow exploration
+    noise = np.random.rand(n, n) * 0.01
+    heuristic_matrix = (heuristic_matrix + noise)
+    heuristic_matrix = (heuristic_matrix + heuristic_matrix.T)/2 #ensure Symmetry
+
+    # Cycle Prevention Heuristic
+    cycle_heuristic = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Penalize edges that are likely to create short cycles
+                cycle_length = 3  # Consider cycles of length 3 (can be adjusted)
+                for k in range(n):
+                    if k != i and k != j:
+                        cycle_penalty = (heuristic_matrix[i, k] * heuristic_matrix[k, j])  # Product of probabilities
+                        cycle_heuristic[i, j] += cycle_penalty
+    cycle_heuristic = cycle_heuristic / (np.max(cycle_heuristic) + 1e-9) #Normalize
+    heuristic_matrix = heuristic_matrix - 0.1 * cycle_heuristic #reduce cycles
+    heuristic_matrix = np.clip(heuristic_matrix, 0, 1)
+
+    row_sums = heuristic_matrix.sum(axis=1, keepdims=True)
+    heuristic_matrix = np.nan_to_num(heuristic_matrix / (row_sums + 1e-9))
+
+    return heuristic_matrix
+```

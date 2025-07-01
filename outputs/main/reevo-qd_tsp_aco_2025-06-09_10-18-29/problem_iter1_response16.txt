@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for the Traveling Salesman Problem (TSP) based on stochastic solution sampling principles.
+    This version considers multiple factors and sparsifies the matrix.
+
+    Args:
+        distance_matrix (np.ndarray): A square matrix representing the distances between cities.
+
+    Returns:
+        np.ndarray: A matrix of the same shape as distance_matrix, representing the heuristic values
+                    indicating the desirability of including each edge in the TSP tour. Higher values
+                    indicate more desirable edges.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Inverse Distance: Shorter distances are more desirable.
+    inverse_distance = 1 / (distance_matrix + 1e-9)  # Adding a small constant to avoid division by zero
+
+    # 2. Nearest Neighbor Consideration: Edges connecting to nodes with fewer close neighbors are favored.
+    nearest_neighbors = np.argsort(distance_matrix, axis=1)[:, 1:4]  # Get the 3 nearest neighbors (excluding itself)
+    neighbor_distances = np.take_along_axis(distance_matrix, nearest_neighbors, axis=1)
+    neighbor_distance_sum = np.sum(neighbor_distances, axis=1, keepdims=True)
+
+    # Node "importance" based on how far away its nearest neighbors are (high value = more important)
+    node_importance = neighbor_distance_sum.reshape(-1)
+    # Assign importance to edges: edges connecting to "important" nodes are more desirable
+    importance_matrix = np.zeros((n, n))
+    for i in range(n):
+      for j in range(n):
+          importance_matrix[i, j] = node_importance[i] + node_importance[j]
+
+
+    # 3. Sparsification: Remove very long edges to focus the search space
+    threshold = np.mean(distance_matrix) + np.std(distance_matrix) #Dynamic threshold
+    sparse_mask = distance_matrix <= threshold
+
+
+    # Combine the factors:
+
+    heuristic_matrix = inverse_distance * importance_matrix * sparse_mask
+
+    #Normalize for easier interpretation, but after applying the 0 mask
+    if np.any(heuristic_matrix > 0): # handle the case that sparse_mask blocks everything
+      heuristic_matrix = heuristic_matrix / np.max(heuristic_matrix)
+
+
+    return heuristic_matrix
+```

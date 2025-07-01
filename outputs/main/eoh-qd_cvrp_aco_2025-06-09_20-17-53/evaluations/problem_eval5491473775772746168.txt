@@ -1,0 +1,69 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses a biased random sampling approach where routes are constructed probabilistically based on a combination of distance and remaining capacity, favoring closer nodes with available capacity.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_samples = 1000  # Adjust the number of samples
+
+    for _ in range(num_samples):
+        # Initialize
+        routes = []
+        current_route = [0]
+        current_capacity = 0
+        remaining_customers = set(range(1, n))
+
+        while remaining_customers:
+            current_node = current_route[-1]
+            possible_next_customers = []
+            probabilities = []
+
+            # Find possible next customers
+            for customer in remaining_customers:
+                if current_capacity + demands[customer] <= capacity:
+                    possible_next_customers.append(customer)
+
+            # If no feasible customer is found, return to depot
+            if not possible_next_customers:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0]
+                current_capacity = 0
+                continue
+
+            # Calculate probabilities based on distance and demand
+            total_probability = 0
+            for customer in possible_next_customers:
+                distance_factor = 1 / (distance_matrix[current_node, customer] + 1e-6)  # Avoid division by zero
+                capacity_factor = (capacity - current_capacity - demands[customer]) / capacity
+                probability = distance_factor * (capacity_factor + 0.1) #Adding a small constant to ensure that customers with low capacity difference are also explored
+                probabilities.append(probability)
+                total_probability += probability
+
+            # Normalize probabilities
+            probabilities = [p / total_probability for p in probabilities]
+
+            # Choose next customer probabilistically
+            next_customer = np.random.choice(possible_next_customers, p=probabilities)
+
+            # Update route and capacity
+            current_route.append(next_customer)
+            current_capacity += demands[next_customer]
+            remaining_customers.remove(next_customer)
+
+        # Add final return to depot if needed
+        current_route.append(0)
+        routes.append(current_route)
+        
+
+        # Update heuristics matrix
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                heuristics_matrix[u, v] += 1
+                heuristics_matrix[v, u] += 1 #Symmetric matrix
+
+    return heuristics_matrix

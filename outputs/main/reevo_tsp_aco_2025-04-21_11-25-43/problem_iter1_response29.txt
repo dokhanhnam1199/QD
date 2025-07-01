@@ -1,0 +1,60 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for the Traveling Salesman Problem (TSP) using a combination of factors
+    and stochastic solution sampling to estimate the desirability of each edge.
+
+    Args:
+        distance_matrix (np.ndarray): A square matrix representing the distances between cities.
+
+    Returns:
+        np.ndarray: A matrix of the same shape as the distance matrix, where each element
+                   indicates the prior probability/desirability of including the corresponding
+                   edge in the final TSP tour.
+    """
+
+    n = distance_matrix.shape[0]  # Number of cities
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Inverse Distance (Closer cities are generally better)
+    inverse_distance = 1 / (distance_matrix + 1e-9)  # Add small constant to avoid division by zero
+
+    # 2. Nearest Neighbor Consideration:  Favor edges that connect to nodes with few close neighbors.
+    # This encourages exploration and prevents getting stuck in local clusters
+    nearest_neighbors = np.zeros(n)
+    for i in range(n):
+        distances = distance_matrix[i, :]
+        nearest_neighbors[i] = np.sum(distances < np.mean(distances)) # Count neighbors closer than average
+
+    neighbor_factor = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        for j in range(n):
+            neighbor_factor[i, j] = nearest_neighbors[i] + nearest_neighbors[j]
+    neighbor_factor = 1 / (neighbor_factor + 1e-9)
+
+
+    # 3. Randomness: Inject some randomness to encourage exploration. This helps avoid
+    # local optima and allows stochastic sampling to work effectively.
+    random_factor = np.random.rand(n, n) * 0.1 # Add some noise
+
+    # Combine Factors (Weighted average)
+    heuristic_matrix = 0.6 * inverse_distance + 0.3 * neighbor_factor + 0.1 * random_factor
+
+    # Sparsify the Matrix:  Zero out the least promising edges to reduce search space.
+    # Keep only the top k edges for each node (or globally).
+    k = int(n * 0.4)  # Keep top 40% edges for each city (parameter to be tuned).
+
+    for i in range(n):
+        row = heuristic_matrix[i, :].copy() # create a copy before modifying
+        indices = np.argsort(row)[::-1] # from largest to smallest
+        threshold = row[indices[k]]
+        heuristic_matrix[i, row < threshold] = 0 # sparsify the row by setting everything less than threshold to 0
+
+    # Ensure no self-loops and symmetry
+    np.fill_diagonal(heuristic_matrix, 0)
+    heuristic_matrix = (heuristic_matrix + heuristic_matrix.T) / 2 # make sure its symmetric
+
+    return heuristic_matrix
+```

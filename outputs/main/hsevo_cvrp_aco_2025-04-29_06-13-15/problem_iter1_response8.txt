@@ -1,0 +1,78 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for CVRP using a combination of distance, demand, and angular considerations.
+
+    Args:
+        distance_matrix: Distance between each pair of nodes.
+        coordinates: Euclidean coordinates of each node.
+        demands: Demand of each node.
+        capacity: Vehicle capacity.
+
+    Returns:
+        A matrix of heuristics values, same shape as distance_matrix. Higher values indicate
+        more promising edges.
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros((n, n))
+
+    # Adjust very small distances to avoid division by zero
+    distance_matrix = np.where(distance_matrix < 1e-6, 1e-6, distance_matrix)
+
+    # Inverse distance heuristic
+    heuristics = 1 / distance_matrix
+
+    # Demand-based penalty: Edges connecting high-demand nodes are penalized.
+    demand_penalty = np.outer(demands, demands)
+    heuristics = heuristics / (demand_penalty + 1e-6)  # Adding a small constant for stability
+
+    # Capacity consideration: edges to the depot (node 0) are boosted relatively if node demand is large and reduces when demand is low.
+    for i in range(1, n):  # Skip depot to depot (0 to 0) link
+        heuristics[0, i] *= (1 + demands[i] / capacity)  # Boost return-to-depot probability from nodes with high demands
+
+        heuristics[i, 0] *= (1 + demands[i] / capacity)  # Boost return-to-depot probability from nodes with high demands
+
+
+    # Angular component: Penalize edges that require sharp turns.  Try to pick edge that results in a less sharp angle.
+    # Iterate through each possible center node 'j'. Note that if 'i' leads to 'j', we are assessing edges of the form 'i -> j -> k'.
+    for j in range(1, n): # exclude the depot when calculating angles
+        for i in range(n):
+            if i == j:
+                continue # skip identical node.
+            for k in range(n):
+                if k == j or k == i:
+                    continue # skip identical node.
+
+                # Calculate angles (dot product to find angle between vectors).
+                vec_ji = coordinates[i] - coordinates[j]
+                vec_jk = coordinates[k] - coordinates[j]
+
+                norm_ji = np.linalg.norm(vec_ji)
+                norm_jk = np.linalg.norm(vec_jk)
+
+                if norm_ji == 0 or norm_jk == 0:
+                  cos_angle = -1.0 # avoid division by zero if any distance ==0; cos -1 for very sharp angle to avoid using this route.
+                else:
+                  cos_angle = np.dot(vec_ji, vec_jk) / (norm_ji * norm_jk)
+
+                  cos_angle = np.clip(cos_angle, -1.0, 1.0) # Ensure the value is within the valid range
+
+                angle = np.arccos(cos_angle)
+
+                # Penalty: smaller angle (sharp turn) results in lower probability.
+                angle_penalty = (angle / np.pi)  # Normalize to 0-1 range.
+                heuristics[j, k] *= (1 - 0.5*angle_penalty) # Reduce probability of sharp turn
+
+    # Normalize heuristics to [0, 1] for stable stochastic sampling
+    min_val = np.min(heuristics)
+    max_val = np.max(heuristics)
+
+    if max_val > min_val:
+        heuristics = (heuristics - min_val) / (max_val - min_val)
+    else: # handle cases with uniform heuristic matrix.
+      heuristics = np.ones_like(heuristics)
+
+    return heuristics
+```

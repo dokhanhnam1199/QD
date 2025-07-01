@@ -1,0 +1,86 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a reinforcement learning approach, rewarding edges used in feasible routes and penalizing those that lead to capacity violations, ultimately creating a heuristic matrix reflecting learned edge desirability.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    q_table = np.zeros_like(distance_matrix)
+    learning_rate = 0.1
+    discount_factor = 0.9
+    exploration_rate = 0.1
+    num_episodes = 1000
+
+    for episode in range(num_episodes):
+        route = [0]
+        remaining_nodes = set(range(1, n))
+        current_capacity = capacity
+
+        while remaining_nodes:
+            if random.random() < exploration_rate:
+                feasible_nodes = {
+                    node for node in remaining_nodes if demands[node] <= current_capacity
+                }
+                if not feasible_nodes:
+                    route.append(0)
+                    current_capacity = capacity
+                    feasible_nodes = {
+                    node for node in remaining_nodes if demands[node] <= current_capacity
+                    }
+                    if not feasible_nodes:
+                        break
+
+                next_node = random.choice(list(feasible_nodes))
+
+            else:
+                feasible_nodes = {
+                    node for node in remaining_nodes if demands[node] <= current_capacity
+                }
+                if not feasible_nodes:
+                    route.append(0)
+                    current_capacity = capacity
+                    feasible_nodes = {
+                        node for node in remaining_nodes if demands[node] <= current_capacity
+                    }
+                    if not feasible_nodes:
+                        break
+
+                next_node = max(
+                    feasible_nodes, key=lambda node: q_table[route[-1]][node]
+                )
+
+            route.append(next_node)
+            remaining_nodes.remove(next_node)
+            current_capacity -= demands[next_node]
+
+        route.append(0)
+
+        # Update Q-table
+        for i in range(len(route) - 1):
+            state = route[i]
+            action = route[i+1]
+            reward = 0
+            if demands[action] > capacity:
+                reward = -1
+            else:
+                 reward = 1
+
+            old_value = q_table[state, action]
+
+            if i < len(route)-2:
+                next_action = route[i+2]
+                next_max = np.max(q_table[action, next_action])
+            else:
+                next_max = 0
+
+            new_value = (1 - learning_rate) * old_value + learning_rate * (reward + discount_factor * next_max)
+            q_table[state, action] = new_value
+            q_table[action, state] = new_value #Symmetric matrix
+
+    #Normalize
+    max_q = np.max(np.abs(q_table))
+    if max_q > 0:
+        heuristics_matrix = q_table / max_q
+    else:
+        heuristics_matrix = q_table
+    return heuristics_matrix

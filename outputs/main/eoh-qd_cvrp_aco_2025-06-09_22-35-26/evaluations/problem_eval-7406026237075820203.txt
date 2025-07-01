@@ -1,0 +1,69 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively improves routes by swapping nodes between routes based on a savings metric that considers both distance and load balance.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 1000
+
+    # Initialize routes randomly
+    num_routes = np.random.randint(1, n // 2 + 1)
+    routes = [([0], 0) for _ in range(num_routes)]  # (route, current_load)
+
+    unassigned_customers = set(range(1, n))
+
+    for _ in range(num_routes):
+      if not unassigned_customers:
+        break
+      customer = unassigned_customers.pop()
+      routes[_][0].append(customer)
+      routes = [(route[0], sum([demands[i] for i in route[0]])) for route in routes]
+    
+    # Iterative improvement
+    for _ in range(num_iterations):
+      # Select two random routes
+      route_index1 = np.random.randint(0, len(routes))
+      route_index2 = np.random.randint(0, len(routes))
+
+      if route_index1 == route_index2:
+        continue
+      
+      route1, load1 = routes[route_index1]
+      route2, load2 = routes[route_index2]
+
+      #Select two random customers from different routes
+      if len(route1) <=1 or len(route2) <=1:
+        continue
+
+      customer_index1 = np.random.randint(1, len(route1))
+      customer_index2 = np.random.randint(1, len(route2))
+
+      customer1 = route1[customer_index1]
+      customer2 = route2[customer_index2]
+
+      # Calculate savings
+      savings = distance_matrix[route1[customer_index1-1], customer2] + distance_matrix[customer1, route1[customer_index1+1 if customer_index1 + 1 < len(route1) else 0]] - distance_matrix[route1[customer_index1-1], customer1] - distance_matrix[customer2, route1[customer_index1+1 if customer_index1 + 1 < len(route1) else 0]] + distance_matrix[route2[customer_index2-1], customer1] + distance_matrix[customer2, route2[customer_index2+1 if customer_index2 + 1 < len(route2) else 0]] - distance_matrix[route2[customer_index2-1], customer2] - distance_matrix[customer1, route2[customer_index2+1 if customer_index2 + 1 < len(route2) else 0]]
+
+      #Check for capacity constraints
+      if (load1 - demands[customer1] + demands[customer2] <= capacity) and (load2 - demands[customer2] + demands[customer1] <= capacity):
+          
+        # Swap customers if savings is positive
+        if savings > 0:
+          route1[customer_index1], route2[customer_index2] = route2[customer_index2], route1[customer_index1]
+          routes[route_index1] = (route1, sum([demands[i] for i in route1]))
+          routes[route_index2] = (route2, sum([demands[i] for i in route2]))
+
+    # Update heuristics matrix
+    for route, _ in routes:
+      for i in range(len(route) - 1):
+        u = route[i]
+        v = route[i+1]
+        heuristics_matrix[u, v] += 1
+        heuristics_matrix[v, u] += 1
+
+    # Normalize the matrix
+    heuristics_matrix = heuristics_matrix / num_iterations
+    
+    return heuristics_matrix

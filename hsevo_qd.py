@@ -752,7 +752,7 @@ class HSEvo_QD:
         return population_hs[best_obj_id]
 
     def evolve(self):
-        while self.function_evals < self.cfg.max_fe:
+        while (self.prompt_tokens + self.completion_tokens) < self.cfg.max_token:
             # If all individuals are invalid, stop
             if all([not individual["exec_success"] for individual in self.population]):
                 raise RuntimeError(f"All individuals are invalid. Please check the stdout files in {os.getcwd()}.")
@@ -803,4 +803,5 @@ class HSEvo_QD:
                     try_hs_num -= 1
             self.update_iter()
 
+        logging.info(f"Token used: {(self.prompt_tokens + self.completion_tokens)}.")
         return self.best_code_overall, self.best_code_path_overall

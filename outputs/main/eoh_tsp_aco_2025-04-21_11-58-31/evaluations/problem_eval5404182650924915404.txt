@@ -1,0 +1,75 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm iteratively refines a population of tours using crossover and mutation inspired by genetic algorithms, recording edge frequencies in the resulting solutions to estimate edge importance.}"""
+    n = distance_matrix.shape[0]
+    num_samples = 100
+    population_size = 50
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Initialize population with random tours
+    population = []
+    for _ in range(population_size):
+        tour = np.random.permutation(n)
+        tour = np.append(tour, tour[0])
+        population.append(tour)
+
+    for _ in range(num_samples):
+        # Selection (tournament selection)
+        selected_tours = []
+        for _ in range(population_size):
+            indices = np.random.choice(population_size, 2, replace=False)
+            tour1 = population[indices[0]]
+            tour2 = population[indices[1]]
+            cost1 = sum(distance_matrix[tour1[k], tour1[k+1]] for k in range(n))
+            cost2 = sum(distance_matrix[tour2[k], tour2[k+1]] for k in range(n))
+            if cost1 < cost2:
+                selected_tours.append(tour1)
+            else:
+                selected_tours.append(tour2)
+        
+        # Crossover (order crossover) and Mutation (swap mutation)
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = selected_tours[i % len(selected_tours)]
+            parent2 = selected_tours[(i + 1) % len(selected_tours)]
+            
+            start = np.random.randint(1, n)
+            length = np.random.randint(1, n - start + 1)
+            child1 = np.zeros(n + 1, dtype=int) - 1
+            
+            child1[start:start + length] = parent1[start:start + length]
+            
+            current_index = start + length
+            parent2_index = start + length
+            while -1 in child1:
+                if current_index >= n:
+                    current_index = 0
+                if parent2_index >= n:
+                    parent2_index = 0
+                
+                if parent2[parent2_index] not in child1:
+                    child1[current_index] = parent2[parent2_index]
+                    current_index += 1
+                parent2_index += 1
+
+            child1[n] = child1[0]
+
+            # Mutation (swap)
+            if np.random.rand() < 0.1:
+                idx1, idx2 = np.random.choice(n, 2, replace=False)
+                child1[idx1], child1[idx2] = child1[idx2], child1[idx1]
+            
+            new_population.append(child1)
+        population = new_population
+
+        # Update heuristics matrix
+        for tour in population:
+            for i in range(n):
+                node1 = tour[i]
+                node2 = tour[i+1]
+                heuristics_matrix[node1, node2] += 1
+                heuristics_matrix[node2, node1] += 1
+
+    heuristics_matrix /= (num_samples * population_size)
+    return heuristics_matrix

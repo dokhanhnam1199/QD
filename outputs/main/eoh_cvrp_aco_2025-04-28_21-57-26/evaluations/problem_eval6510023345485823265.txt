@@ -1,0 +1,65 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a biased random sampling approach with pheromone updates and a cost-based heuristic to iteratively build routes and estimate edge importance.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone_matrix = np.ones_like(distance_matrix)
+
+    num_samples = 500
+    learning_rate = 0.1
+    alpha = 1
+    beta = 2
+
+    for _ in range(num_samples):
+        current_node = 0
+        route = [0]
+        remaining_nodes = set(range(1, n))
+        current_capacity = capacity
+        total_distance = 0
+
+        while remaining_nodes:
+            probabilities = {}
+            for node in remaining_nodes:
+                if current_capacity >= demands[node]:
+                    eta = 1 / (distance_matrix[current_node, node] + 1e-6)
+                    tau = pheromone_matrix[current_node, node]
+                    probabilities[node] = (tau**alpha) * (eta**beta)
+            
+            if not probabilities:
+                break
+            
+            total_prob = sum(probabilities.values())
+            if total_prob == 0:
+                next_node = remaining_nodes.pop()
+            else:
+                normalized_probabilities = {node: prob / total_prob for node, prob in probabilities.items()}
+                next_node = np.random.choice(list(normalized_probabilities.keys()), p=list(normalized_probabilities.values()))
+
+            if current_capacity >= demands[next_node]:
+                route.append(next_node)
+                total_distance += distance_matrix[current_node, next_node]
+                current_capacity -= demands[next_node]
+                remaining_nodes.remove(next_node)
+                heuristics_matrix[current_node, next_node] += 1
+                heuristics_matrix[next_node, current_node] += 1
+                
+                pheromone_matrix[current_node, next_node] = (1 - learning_rate) * pheromone_matrix[current_node, next_node] + learning_rate
+                pheromone_matrix[next_node, current_node] = (1 - learning_rate) * pheromone_matrix[next_node, current_node] + learning_rate
+                current_node = next_node
+            else:
+                route.append(0)
+                total_distance += distance_matrix[current_node, 0]
+                heuristics_matrix[current_node, 0] += 1
+                heuristics_matrix[0, current_node] += 1
+
+                current_node = 0
+                current_capacity = capacity
+        
+        if current_node != 0:
+            total_distance += distance_matrix[current_node, 0]
+            heuristics_matrix[current_node, 0] += 1
+            heuristics_matrix[0, current_node] += 1
+
+    return heuristics_matrix

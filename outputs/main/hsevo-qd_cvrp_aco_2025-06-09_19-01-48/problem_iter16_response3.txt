@@ -1,0 +1,87 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int,
+                  capacity_penalty: float = 0.0389864497836077, small_demand_reward: float = 1.1792074815636744,
+                  depot_connection_discount: float = 0.5460459858149471, angle_heuristic_weight: float = 0.10012494472369982,
+                  depot_attraction_weight: float = 0.07595143930012047, sparsification_threshold_factor: float = 0.48020305466806834,
+                  distance_epsilon: float = 4.510363755586683e-06, small_demand_threshold_factor: float = 0.18866173163433508) -> np.ndarray:
+    """
+    CVRP heuristic combining distance, demand, angle, and depot proximity, with adaptive sparsification.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Distance heuristic (inverse square)
+    distance_heuristic = 1.0 / (distance_matrix + distance_epsilon)**2
+    heuristic_matrix = distance_heuristic.copy()
+
+    # Demand-based penalty/reward
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0
+                continue
+
+            combined_demand = demands[i] + demands[j]
+            if combined_demand > capacity and i != 0 and j != 0:
+                heuristic_matrix[i, j] *= capacity_penalty  # Harsh penalty for exceeding capacity
+            elif combined_demand <= (capacity * small_demand_threshold_factor) and i != 0 and j != 0:  # Small demand edges are slightly favored
+                heuristic_matrix[i,j] *= small_demand_reward
+                
+            #Proximity to depot
+            if j == 0 and i != 0:
+                 heuristic_matrix[i,j] *= depot_connection_discount # Discount connection to depot
+            if i == 0 and j != 0:
+                 heuristic_matrix[i,j] *= depot_connection_discount # Discount connection to depot
+
+    # Angle heuristic (encourage straighter paths)
+    angle_heuristic = np.zeros((n,n))
+    for i in range(n):
+        for j in range(n):
+            if i == j: continue
+
+            angle_sum = 0
+            for k in range(n):
+                if k == i or k == j: continue
+
+                v1 = coordinates[i] - coordinates[k]
+                v2 = coordinates[j] - coordinates[i]
+
+                dot_product = np.dot(v1, v2)
+                magnitudes = np.linalg.norm(v1) * np.linalg.norm(v2)
+
+                if magnitudes > 0:
+                    cosine_angle = dot_product / magnitudes
+                    angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
+                    angle_sum += (np.pi - angle)
+
+            if n > 2:
+                angle_heuristic[i,j] = angle_sum / (n - 2)
+            else:
+                angle_heuristic[i,j] = 0
+
+            heuristic_matrix[i, j] += angle_heuristic_weight * angle_heuristic[i,j]
+
+
+    # Depot attraction (nodes closer to the depot are encouraged)
+
+    depot_attraction = np.zeros((n, n))
+    for i in range(n):
+      for j in range(n):
+        if i == j: continue
+      depot_attraction[i, j] = (1 / (distance_matrix[i, 0] + distance_epsilon)) + (1 / (distance_matrix[j, 0] + distance_epsilon))
+      heuristic_matrix[i, j] += depot_attraction_weight * depot_attraction[i, j]
+
+
+    # Normalize heuristics for each node
+    for i in range(n):
+        row_sum = np.sum(heuristic_matrix[i,:])
+        if row_sum > 0:
+            heuristic_matrix[i,:] /= row_sum
+
+    # Adaptive Sparsification
+    threshold = np.mean(heuristic_matrix) * sparsification_threshold_factor # Dynamic threshold
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+
+    return heuristic_matrix

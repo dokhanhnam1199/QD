@@ -1,0 +1,94 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for CVRP using a combination of factors:
+    - Distance: Shorter distances are more promising.
+    - Demand: Edges connecting to nodes with high demand might be less promising
+      if they quickly consume vehicle capacity.
+    - Angle: Edges forming sharp turns are penalized, encouraging smoother routes.
+    - Capacity utilization: Edges that would cause capacity overflow are strongly penalized.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Customer demands (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Heuristic matrix (n x n) indicating edge promisingness.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix)
+
+    # Parameters to control the influence of each factor. Tune these to improve performance!
+    distance_weight = 1.0
+    demand_weight = 0.5
+    angle_weight = 0.7
+    capacity_weight = 2.0  # Higher weight means strong penalty for capacity issues
+    sparsification_threshold = 0.1
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+                continue
+
+            # Distance factor: Inverse distance. Add a small constant to avoid division by zero.
+            distance_factor = distance_weight / (distance_matrix[i, j] + 1e-6)
+
+            # Demand factor: Penalize edges that lead to high demand nodes. Normalize demand.
+            normalized_demand_i = demands[i] / capacity
+            normalized_demand_j = demands[j] / capacity
+            demand_factor = (1 - demand_weight * (normalized_demand_i + normalized_demand_j)/2)
+
+
+            # Angle factor: Encourage smoother routes. Only consider for nodes other than the depot.
+            angle_factor = 1.0
+            if i != 0 and j != 0: # Avoid calculating the angle based on the depot (node 0)
+                # Get coordinates
+                x_i, y_i = coordinates[i]
+                x_j, y_j = coordinates[j]
+
+                # Find the nearest nodes k to node i and j (excluding node j for i and node i for j)
+                best_angle_i = 0
+                best_angle_j = 0
+                for k in range(n):
+                    if k != i and k != j:
+                        x_k, y_k = coordinates[k]
+                        vector_ij = np.array([x_j - x_i, y_j - y_i])
+                        vector_ik = np.array([x_k - x_i, y_k - y_i])
+                        vector_ji = np.array([x_i - x_j, y_i - y_j])
+                        vector_jk = np.array([x_k - x_j, y_k - y_j])
+
+                        # Calculate the angle between the edges
+                        angle_i = np.degrees(np.arccos(np.dot(vector_ij, vector_ik) / (np.linalg.norm(vector_ij) * np.linalg.norm(vector_ik) + 1e-6)))
+                        angle_j = np.degrees(np.arccos(np.dot(vector_ji, vector_jk) / (np.linalg.norm(vector_ji) * np.linalg.norm(vector_jk) + 1e-6)))
+
+                        # Update the best angle for node i and j
+                        best_angle_i = max(best_angle_i, angle_i)
+                        best_angle_j = max(best_angle_j, angle_j)
+                angle_factor = 1 - angle_weight * (best_angle_i + best_angle_j)/360
+            # Capacity factor: Heavily penalize edges that would likely cause capacity overflow early on.
+            # Simplistic approximation: just consider the demands of the two nodes connected by the edge.
+
+            if demands[i] + demands[j] > capacity * 0.8 : #tune 0.8
+              capacity_factor = 0.01  # Strongly penalize; set close to zero but non-zero.
+
+            else:
+              capacity_factor = 1.0 # set to 1
+
+            # Combine the factors
+            heuristic_matrix[i, j] = distance_factor * demand_factor * angle_factor * capacity_factor
+
+    #Sparsify the matrix
+    max_heuristic = np.max(heuristic_matrix)
+
+    for i in range(n):
+        for j in range(n):
+            if heuristic_matrix[i,j] < sparsification_threshold * max_heuristic :
+              heuristic_matrix[i, j] = 0.0
+    return heuristic_matrix
+```

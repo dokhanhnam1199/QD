@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """Adaptive heuristic: Combines attraction, node degree, savings & dynamic temp."""
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+    epsilon = 1e-9
+    initial_temperature = 10.0
+    temperature = initial_temperature
+    min_temperature = 0.01
+    cooling_rate = 0.995
+    adaptive_cooling_threshold = 0.05
+    node_degrees = np.ones(n)
+
+    # Gravitational attraction and node degree
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                distance_factor = 1.0 / (distance_matrix[i, j]**2 + epsilon)
+                degree_factor = node_degrees[i]
+                heuristics[i, j] = distance_factor * degree_factor * temperature
+            else:
+                heuristics[i, j] = 0.0
+
+    # Savings Heuristic
+    depot = 0
+    savings = np.zeros_like(distance_matrix)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                savings[i, j] = distance_matrix[depot, i] + distance_matrix[depot, j] - distance_matrix[i, j]
+    savings = savings / (np.max(savings) + epsilon)
+
+    # Combine with savings
+    heuristics = heuristics + savings * temperature
+
+    #Sparsification
+    sparsification_threshold = np.mean(heuristics) * 0.1
+    if temperature < 1.0:
+      heuristics[heuristics < sparsification_threshold] = 0.0
+
+    # Annealing Schedule
+    if np.sum(heuristics > 0) / (n * (n - 1)) < adaptive_cooling_threshold:
+      cooling_rate = 0.999
+    temperature *= cooling_rate
+    temperature = max(temperature, min_temperature)
+
+    # Node importance normalized
+    node_importance = np.sum(distance_matrix, axis=1)
+    node_importance = (node_importance - np.min(node_importance)) / (np.max(node_importance) - np.min(node_importance) + epsilon) #Normalize node importance
+    for i in range(n):
+        for j in range(n):
+           heuristics[i,j] = heuristics[i, j] * (node_importance[i] + node_importance[j])
+
+    return heuristics
+```

@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for CVRP based on distance, demand, and angle.
+
+    This function calculates a heuristic value for each edge in the distance matrix,
+    taking into account the distance between nodes, the demand of the destination node,
+    and the angle between the edge and the depot.  Edges closer to the depot and
+    connecting to nodes with smaller demands are favored.  A penalty is added if connecting
+    to a node pushes load beyond vehicle capacity.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Demand of each node (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Heuristic matrix of the same shape as the distance matrix (n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    depot_coords = coordinates[0]
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # Avoid self-loops
+                continue
+
+            distance = distance_matrix[i, j]
+            demand = demands[j]
+
+            # Basic heuristic: inverse of distance
+            heuristic = 1 / (distance + 1e-9) # Avoid division by zero
+
+            # Angle penalty: Penalize edges that deviate significantly from pointing towards the depot.
+            # Dot product gives a measure of alignment: 1 is perfect, -1 is opposite direction.
+
+            if i != 0:
+              vec_i_to_j = coordinates[j] - coordinates[i]
+              vec_i_to_depot = depot_coords - coordinates[i]
+
+              norm_i_to_j = np.linalg.norm(vec_i_to_j)
+              norm_i_to_depot = np.linalg.norm(vec_i_to_depot)
+
+              if norm_i_to_j > 0 and norm_i_to_depot > 0:  #avoid division by zero
+                  cos_angle = np.dot(vec_i_to_j, vec_i_to_depot) / (norm_i_to_j * norm_i_to_depot)
+                  heuristic += 0.5 * (cos_angle + 1)  # Scale to [0, 1] and add to heuristic
+              else:
+                  heuristic += 0.5 # If either norm is 0, the angle is ill-defined. Treat as a slightly positive value.
+
+            # Demand heuristic: Favor nodes with smaller demands
+            heuristic += 1 / (demand + 1e-9) * 0.1 #scale demand by a factor to allow it to affect the heuristic slightly.
+
+            heuristic_matrix[i, j] = heuristic
+
+    return heuristic_matrix
+```

@@ -262,7 +262,7 @@ class ReEvo_QD:
                 individual = population[response_id]
                 # Store objective value for each individual
                 if traceback_msg == '':  # If execution has no error
-                   try:
+                    try:
                         # Split the output into lines
                         lines = stdout_str.strip().split('\n')
                         l = len(self.cfg.bd_list)
@@ -271,7 +271,6 @@ class ReEvo_QD:
 
                         for i, bd in enumerate(self.cfg.bd_list):
                             individual[bd] = float(lines[-l + i])
-                    
                         individual["exec_success"] = True
                     except:
                         population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid std out / objective value!")
@@ -585,7 +584,7 @@ class ReEvo_QD:
         return population
 
     def evolve(self):
-        while self.function_evals < self.cfg.max_fe:
+        while (self.prompt_tokens + self.completion_tokens) < self.cfg.max_token:
             # If all individuals are invalid, stop
             if all([not individual["exec_success"] for individual in self.population]):
                 raise RuntimeError(f"All individuals are invalid. Please check the stdout files in {os.getcwd()}.")
@@ -614,4 +613,5 @@ class ReEvo_QD:
             # Update
             self.update_iter()
 
+        logging.info(f"Token used: {(self.prompt_tokens + self.completion_tokens)}.")
         return self.best_code_overall, self.best_code_path_overall

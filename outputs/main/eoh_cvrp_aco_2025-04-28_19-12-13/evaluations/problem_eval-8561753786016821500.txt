@@ -1,0 +1,107 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs initial routes randomly with capacity constraints, then iteratively refines them using a combination of 2-opt and node relocation and updates edge frequencies based on the improved solutions.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 50
+
+    # Initial random route construction
+    routes = []
+    unvisited = set(range(1, n))
+    while unvisited:
+        route = [0]
+        current_load = 0
+        available_nodes = list(unvisited)
+        random.shuffle(available_nodes)
+
+        for node in available_nodes:
+            if current_load + demands[node] <= capacity:
+                route.append(node)
+                current_load += demands[node]
+                unvisited.remove(node)
+        route.append(0)
+        routes.append(route)
+        
+
+    # Iterative Improvement (Local Search - 2-opt within routes and node relocation)
+    for _ in range(num_iterations):
+        for route_index in range(len(routes)):
+            route = routes[route_index]
+            if len(route) <= 3:
+                continue
+            
+            # 2-opt
+            for i in range(1, len(route) - 2):
+                for k in range(i + 1, len(route) - 1):
+                    # 2-opt swap
+                    new_route = route[:i] + route[i:k+1][::-1] + route[k+1:]
+                    
+                    current_cost = 0
+                    for j in range(len(route) - 1):
+                        current_cost += distance_matrix[route[j], route[j+1]]
+                    
+                    new_cost = 0
+                    for j in range(len(new_route) - 1):
+                        new_cost += distance_matrix[new_route[j], new_route[j+1]]
+
+                    if new_cost < current_cost:
+                        routes[route_index] = new_route  # Update route 
+                        route = new_route
+            
+            # Node relocation (move node to another route)
+            for node_index in range(1, len(route)-1):
+                node_to_move = route[node_index]
+
+                for other_route_index in range(len(routes)):
+                    if other_route_index == route_index:
+                        continue
+                    
+                    other_route = routes[other_route_index]
+                    
+                    for insert_index in range(1, len(other_route)):
+                        temp_route_1 = route[:node_index] + route[node_index+1:]
+                        temp_route_2 = other_route[:insert_index] + [node_to_move] + other_route[insert_index:]
+
+                        route_1_load = sum([demands[node] for node in temp_route_1[1:-1]])
+                        route_2_load = sum([demands[node] for node in temp_route_2[1:-1]])
+                        
+                        if route_1_load <= capacity and route_2_load <= capacity:
+                            
+                            current_cost = 0
+                            for j in range(len(route) - 1):
+                                current_cost += distance_matrix[route[j], route[j+1]]
+                            
+                            other_route_current_cost = 0
+                            for j in range(len(other_route) - 1):
+                                other_route_current_cost += distance_matrix[other_route[j], other_route[j+1]]
+
+                            new_cost_route_1 = 0
+                            for j in range(len(temp_route_1) - 1):
+                                new_cost_route_1 += distance_matrix[temp_route_1[j], temp_route_1[j+1]]
+
+                            new_cost_route_2 = 0
+                            for j in range(len(temp_route_2) - 1):
+                                new_cost_route_2 += distance_matrix[temp_route_2[j], temp_route_2[j+1]]
+                            
+                            if (new_cost_route_1 + new_cost_route_2) < (current_cost + other_route_current_cost):
+                                routes[route_index] = temp_route_1
+                                routes[other_route_index] = temp_route_2
+                                route = temp_route_1
+                                
+                                break #break inner loop insert_index
+
+    # Update heuristics matrix
+    for route in routes:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+    
+    #Normalize heuristic matrix
+    total_visits = np.sum(heuristics_matrix)
+    if total_visits > 0:
+      heuristics_matrix = heuristics_matrix / total_visits
+    return heuristics_matrix

@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Highest priority: Exact fit
+    exact_fit = (bins_remain_cap == item)
+    priorities[exact_fit] = 1000.0
+
+    # High priority: Near perfect fit, discrete level
+    near_perfect_fit_threshold = 0.05
+    near_perfect_fit = (bins_remain_cap >= item) & (bins_remain_cap <= item * (1 + near_perfect_fit_threshold))
+    priorities[near_perfect_fit] = 950.0 # Increased base score
+
+    # Feasibility check
+    infeasible = bins_remain_cap < item
+    priorities[infeasible] = -1e10
+
+    # Fragmentation Penalty: Penalize creating small remaining spaces, relative to item size
+    small_space_threshold = 0.25  # Relative to item size
+    fragmented_bins = (bins_remain_cap >= item) & ((bins_remain_cap - item) <= small_space_threshold * item)
+    if np.any(fragmented_bins):
+        waste = bins_remain_cap[fragmented_bins] - item
+        penalty = (waste / (small_space_threshold * item)) * 500 # Increased scaling
+        priorities[fragmented_bins] -= penalty
+
+    # Discourage near-full bins
+    near_full_threshold = 0.15  # Relative to total bin capacity (implicit in bins_remain_cap)
+    near_full_bins = (bins_remain_cap >= item) & (bins_remain_cap <= near_full_threshold * np.max(bins_remain_cap)) #More strict requirement
+    priorities[near_full_bins] -= 300 # Increased penalty
+
+    # Similarity Bonus: Reward bins with a remaining capacity close to the item size.
+    similarity_threshold = 0.3 * item #Increased threshold
+    similar_size = np.abs(bins_remain_cap - item) <= similarity_threshold
+    priorities[similar_size] += 400.0
+
+    # Dynamic fill ratio reward : Focus is on good usage. Gaussian scaled
+    fill_ratio_std = 0.1
+    can_accommodate = bins_remain_cap >= item
+    if np.any(can_accommodate):
+        fill_ratio = item / bins_remain_cap[can_accommodate]
+        gaussian_reward = np.exp(-0.5 * ((fill_ratio-1)/ fill_ratio_std)**2)
+        priorities[can_accommodate] += gaussian_reward * 600
+    return priorities
+```

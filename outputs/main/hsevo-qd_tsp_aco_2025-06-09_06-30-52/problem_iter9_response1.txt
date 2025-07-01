@@ -1,0 +1,103 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Combines inverse distance, degree penalty, sparsification, and local structure analysis with adaptive weighting.
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+    avg_distance = np.mean(distance_matrix[distance_matrix != 0])
+    small_constant = 1e-6
+    
+    # Node degree penalty (more aggressive)
+    node_degrees = np.sum(distance_matrix < (avg_distance * 1.5), axis=1)
+    degree_penalty_weight = 1.0
+
+    # Local neighbor consideration (more comprehensive)
+    neighbor_radius_factor = 1.2
+    local_neighbor_weight = 0.2
+
+    # Distance thresholding (more adaptive)
+    distance_threshold_percentile = 25
+    distance_threshold_reduction = 0.5
+
+    # Sparsification percentile
+    sparsification_percentile = 75
+
+    # Centrality bonus
+    centrality_bonus_weight = 0.3
+
+    # Calculate node centrality (betweenness centrality as a proxy)
+    centrality = np.zeros(n)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                shortest_paths_count = 0
+                total_paths_count = 0
+
+                # Approximation of number of shortest paths (simplified)
+                paths = find_all_paths(distance_matrix, i, j, max_depth=4) # Limiting the search depth to improve speed
+                total_paths_count = len(paths)
+                shortest_distance = distance_matrix[i,j] if distance_matrix[i,j] != 0 else np.inf
+                for path in paths:
+                    path_distance = 0
+                    for k in range(len(path) - 1):
+                        path_distance += distance_matrix[path[k], path[k+1]] if distance_matrix[path[k], path[k+1]] !=0 else np.inf
+                    if np.isclose(path_distance, shortest_distance, atol=small_constant):
+                        shortest_paths_count +=1
+                if total_paths_count >0:
+                   centrality[i] += shortest_paths_count/total_paths_count
+
+    centrality = (centrality - np.min(centrality)) / (np.max(centrality) - np.min(centrality) + small_constant)
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Base heuristic: inverse distance
+                heuristics[i, j] = 1 / (distance_matrix[i, j] + small_constant)
+
+                # Degree penalty
+                degree_penalty = (node_degrees[i] + node_degrees[j])**degree_penalty_weight
+                heuristics[i, j] /= (1 + (degree_penalty * (distance_matrix[i, j]/avg_distance)))
+
+                # Local neighbor consideration
+                local_neighbors = np.sum(distance_matrix[i, :] < (distance_matrix[i, j] * neighbor_radius_factor)) + np.sum(distance_matrix[j, :] < (distance_matrix[j, i] * neighbor_radius_factor))
+                heuristics[i, j] /= (1 + (local_neighbors * local_neighbor_weight))
+
+                # Centrality bonus
+                heuristics[i, j] *= (1 + centrality[i] * centrality_bonus_weight)
+                heuristics[i, j] *= (1 + centrality[j] * centrality_bonus_weight)
+
+            else:
+                heuristics[i, j] = 0
+
+    # Sparsification
+    for i in range(n):
+        row = heuristics[i, :]
+        threshold = np.percentile(row[row > 0], sparsification_percentile)
+        heuristics[i, row < threshold] = 0
+
+    # Adaptive distance thresholding
+    distance_threshold = np.percentile(distance_matrix[distance_matrix != 0], distance_threshold_percentile)
+    for i in range(n):
+        for j in range(n):
+            if distance_matrix[i,j] > distance_threshold and heuristics[i,j] > 0:
+                heuristics[i,j] *= distance_threshold_reduction
+
+    return heuristics
+
+def find_all_paths(distance_matrix, start, end, path=[], max_depth=5):
+    path = path + [start]
+    if start == end:
+        return [path]
+    if len(path) > max_depth:
+      return []
+    paths = []
+    for node in range(distance_matrix.shape[0]):
+        if distance_matrix[start, node] != 0 and node not in path:
+            new_paths = find_all_paths(distance_matrix, node, end, path, max_depth)
+            for new_path in new_paths:
+                paths.append(new_path)
+    return paths
+```

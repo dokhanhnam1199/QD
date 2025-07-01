@@ -1,0 +1,73 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """A refined heuristic for CVRP, combining various factors with adaptive adjustments."""
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # 1. Baseline: Inverse Distance
+    heuristic_matrix = 1 / (distance_matrix + 1e-6)
+
+    # 2. Demand-Aware Penalty
+    demand_penalty = np.ones((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                combined_demand = demands[i] + demands[j]
+                if combined_demand > capacity:
+                    demand_penalty[i, j] = 0.01  # Harsh penalty for exceeding capacity
+                else:
+                    demand_penalty[i, j] = max(0.1, 1 - (combined_demand / capacity)**0.8)  # Moderate penalty
+    heuristic_matrix *= demand_penalty
+
+    # 3. Depot Affinity Boost
+    depot_affinity = np.zeros((n, n))
+    for i in range(1, n):
+        depot_affinity[0, i] = 1.5 / (distance_matrix[0, i] + 1e-6)  # Stronger boost
+        depot_affinity[i, 0] = 1.5 / (distance_matrix[i, 0] + 1e-6)  # Stronger boost
+    heuristic_matrix += depot_affinity  # Additive, not multiplicative
+
+    # 4. Angle Preference (Sharper)
+    angle_preference = np.ones((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                v1 = coordinates[i] - coordinates[0]
+                v2 = coordinates[j] - coordinates[i]
+                v1 /= (np.linalg.norm(v1) + 1e-6)
+                v2 /= (np.linalg.norm(v2) + 1e-6)
+                dot_product = np.dot(v1, v2)
+                angle = np.arccos(np.clip(dot_product, -1.0, 1.0))
+                angle_preference[i, j] = 1 - (angle / np.pi)**3  # Sharper falloff
+    heuristic_matrix *= angle_preference
+
+    # 5. Node Centrality (Attempt at better connectivity)
+    centrality = np.zeros(n)
+    for i in range(1, n):
+        centrality[i] = np.sum(1 / (distance_matrix[i, 1:] + 1e-6)) # Inverse distance to all other nodes
+    centrality = (centrality - np.min(centrality)) / (np.max(centrality) - np.min(centrality) + 1e-6) # Normalize
+    centrality_matrix = np.zeros((n, n))
+    for i in range(1,n):
+      for j in range(1,n):
+        centrality_matrix[i,j] = (centrality[i] + centrality[j])/2 # average centrality of both nodes
+    heuristic_matrix *= (0.5 + centrality_matrix/2)
+
+    # 6. Adaptive Sparsification (More Aggressive)
+    for i in range(n):
+        row = heuristic_matrix[i, :]
+        threshold = np.mean(row[row > 0]) * 0.1 if np.any(row > 0) else 0
+        heuristic_matrix[i, row < threshold] = 0
+        heuristic_matrix[i, i] = 0 # Remove self-loops
+
+        col = heuristic_matrix[:, i]
+        threshold = np.mean(col[col > 0]) * 0.1 if np.any(col > 0) else 0
+        heuristic_matrix[col < threshold, i] = 0
+
+    # 7. Normalize Again
+    max_val = np.max(heuristic_matrix)
+    if max_val > 0:
+        heuristic_matrix = heuristic_matrix / max_val
+
+    return heuristic_matrix
+```

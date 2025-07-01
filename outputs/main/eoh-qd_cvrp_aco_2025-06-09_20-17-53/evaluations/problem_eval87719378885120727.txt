@@ -1,0 +1,74 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm samples multiple random routes, evaluates their feasibility and cost, and then biases the edge selection probability towards shorter edges while penalizing edges used in infeasible routes, constructing a heuristic matrix based on the adjusted edge frequencies.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000  # Number of random routes to sample
+    top_k = 10  # Consider top k best routes
+    infeasibility_penalty = 10  # Penalty for infeasible routes
+    distance_weight = 0.5  # Weight for distance in score calculation
+
+    route_scores = []
+
+    for _ in range(num_samples):
+        # Generate a random route
+        route = list(range(1, n))
+        random.shuffle(route)
+        
+        # Split route into feasible vehicle routes
+        vehicle_routes = []
+        current_route = [0]
+        current_load = 0
+        for node in route:
+            if current_load + demands[node] <= capacity:
+                current_route.append(node)
+                current_load += demands[node]
+            else:
+                current_route.append(0)
+                vehicle_routes.append(current_route)
+                current_route = [0, node]
+                current_load = demands[node]
+        
+        current_route.append(0)
+        vehicle_routes.append(current_route)
+
+        # Calculate total distance of route
+        total_distance = 0
+        for vehicle_route in vehicle_routes:
+            for i in range(len(vehicle_route) - 1):
+                total_distance += distance_matrix[vehicle_route[i], vehicle_route[i+1]]
+
+        # Check feasibility
+        is_feasible = True
+        for vehicle_route in vehicle_routes:
+            load = sum(demands[node] for node in vehicle_route)
+            if load > capacity:
+                is_feasible = False
+                break
+
+        # Calculate score, penalizing infeasible routes and rewarding shorter distances
+        score = (distance_weight * total_distance) + (infeasibility_penalty if not is_feasible else 0)
+        
+        route_scores.append((vehicle_routes, total_distance, score, is_feasible))
+
+    # Sort routes by score
+    route_scores.sort(key=lambda x: x[2])
+
+    # Update heuristic matrix based on top k routes
+    for k in range(min(top_k, len(route_scores))):
+        vehicle_routes, total_distance, score, is_feasible = route_scores[k]
+        for vehicle_route in vehicle_routes:
+            for i in range(len(vehicle_route) - 1):
+                node1 = vehicle_route[i]
+                node2 = vehicle_route[i+1]
+                # Bias towards shorter edges
+                edge_weight = 1 / (distance_matrix[node1, node2] + 1e-6)  # Avoid division by zero
+
+                heuristics_matrix[node1, node2] += edge_weight
+                heuristics_matrix[node2, node1] += edge_weight
+
+    return heuristics_matrix

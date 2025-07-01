@@ -1,0 +1,66 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm constructs a heuristic matrix by iteratively refining edge weights based on the exponential of the negative impact of the relative edge distance to the minimum edge distance after performing local searches to find near-optimal tours.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones_like(distance_matrix, dtype=float)  # Initialize with equal probabilities
+    num_iterations = 50
+    num_local_searches = 10
+    neighborhood_size = 5
+
+    def calculate_tour_distance(tour):
+        distance = 0
+        for i in range(n - 1):
+            distance += distance_matrix[tour[i], tour[i + 1]]
+        distance += distance_matrix[tour[-1], tour[0]]
+        return distance
+
+    def local_search(initial_tour):
+        best_tour = initial_tour
+        best_distance = calculate_tour_distance(best_tour)
+
+        for _ in range(neighborhood_size):
+            # Generate a neighbor by swapping two random nodes
+            neighbor = best_tour.copy()
+            i, j = np.random.choice(n, 2, replace=False)
+            neighbor[i], neighbor[j] = neighbor[j], neighbor[i]
+
+            neighbor_distance = calculate_tour_distance(neighbor)
+
+            if neighbor_distance < best_distance:
+                best_tour = neighbor
+                best_distance = neighbor_distance
+
+        return best_tour, best_distance
+
+    for _ in range(num_iterations):
+        tours = []
+        distances = []
+
+        for _ in range(num_local_searches):
+            initial_tour = np.random.permutation(n)
+            best_tour, best_distance = local_search(initial_tour)
+            tours.append(best_tour)
+            distances.append(best_distance)
+
+        # Find the best tours based on distance
+        sorted_indices = np.argsort(distances)
+        best_tours = [tours[i] for i in sorted_indices[:num_local_searches // 2]]
+
+        # Update heuristic matrix based on edge frequencies in best tours
+        edge_counts = np.zeros_like(distance_matrix, dtype=int)
+        for tour in best_tours:
+            for i in range(n - 1):
+                edge_counts[tour[i], tour[i + 1]] += 1
+                edge_counts[tour[i + 1], tour[i]] += 1
+            edge_counts[tour[-1], tour[0]] += 1
+            edge_counts[tour[0], tour[-1]] += 1
+
+        # Adjust heuristics based on edge frequencies and distances
+        min_distance = np.min(distance_matrix[distance_matrix > 0])
+        for i in range(n):
+            for j in range(n):
+                if i != j:
+                    heuristics_matrix[i, j] += edge_counts[i, j] * np.exp(-distance_matrix[i, j] / min_distance)
+
+    return heuristics_matrix

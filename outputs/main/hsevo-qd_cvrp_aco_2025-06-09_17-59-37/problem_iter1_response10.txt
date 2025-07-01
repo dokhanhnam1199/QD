@@ -1,0 +1,67 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    This version incorporates:
+    1. Distance-based preference: Shorter distances are preferred.
+    2. Demand-based adjustment: Edges connecting to nodes with high demand are penalized.
+    3. Capacity-awareness:  Edges that, if included, would likely violate capacity constraints are penalized.
+    4. Location-based adjustment: Penalize edges that connect nodes that are far away from the depot but have low demand
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Demand of each node (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Distance-based preference
+    heuristic_matrix = 1 / (distance_matrix + 1e-9)  # Adding a small constant to avoid division by zero
+
+    # Demand-based adjustment: penalize edges connected to high demand nodes
+    demand_penalty = demands / np.sum(demands)
+    for i in range(n):
+        for j in range(n):
+            heuristic_matrix[i, j] /= (demand_penalty[i] + demand_penalty[j] + 1) # Add 1 to ensure that it doesn't become extremely small
+
+
+    # Capacity-awareness: Penalize edges that could cause capacity violation
+    avg_demand = np.mean(demands[1:])  # Average demand of customers (excluding depot)
+    capacity_ratio = avg_demand / capacity
+
+    for i in range(n):
+        for j in range(n):
+              if demands[i] + demands[j] > capacity :  # Simple check for capacity constraints, can be improved with better estimation
+                    heuristic_matrix[i, j] *= 0.1 # Heavily penalize the edge
+
+
+    #Location-based adjustment: penalize edges that connect nodes that are far away from the depot but have low demand
+    depot_distances = distance_matrix[0, :] #Distance from depot to all other nodes
+
+    for i in range(1, n):
+        for j in range(1,n):
+            if i != j:
+              distance_from_depot_i = depot_distances[i]
+              distance_from_depot_j = depot_distances[j]
+              if demands[i] < avg_demand and demands[j] < avg_demand:
+                  heuristic_matrix[i,j] /= (distance_from_depot_i + distance_from_depot_j + 1)
+
+
+    # Ensure depot connections are relatively favored initially, to force creation of cycles.
+    for i in range(1,n):
+       heuristic_matrix[0,i] *= 1.2
+       heuristic_matrix[i,0] *= 1.2
+    # Mask the diagonal elements (no self-loops)
+    for i in range(n):
+        heuristic_matrix[i, i] = 0
+
+    return heuristic_matrix
+```

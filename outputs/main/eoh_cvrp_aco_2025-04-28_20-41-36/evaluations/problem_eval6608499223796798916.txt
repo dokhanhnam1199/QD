@@ -1,0 +1,60 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses a weighted combination of distance, demand, and angular proximity to prioritize edges, favoring shorter distances, lower combined demands, and edges that form smaller angles with the depot.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+
+    # Calculate angular proximity to depot
+    depot_coords = coordinates[0]
+    angles = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                vector_i = coordinates[i] - depot_coords
+                vector_j = coordinates[j] - depot_coords
+                
+                # Calculate angle between vectors
+                norm_i = np.linalg.norm(vector_i)
+                norm_j = np.linalg.norm(vector_j)
+                
+                if norm_i > 0 and norm_j > 0:
+                    dot_product = np.dot(vector_i, vector_j)
+                    cosine_angle = dot_product / (norm_i * norm_j)
+                    angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))  # Clip to avoid NaN
+                    angles[i, j] = angle
+                    angles[j, i] = angle
+                else:
+                    angles[i, j] = np.pi  # Maximum angle if a node is at the depot
+                    angles[j, i] = np.pi
+            else:
+                angles[i, j] = np.pi
+
+    # Normalize values
+    normalized_distance = distance_matrix / (np.max(distance_matrix) if np.any(distance_matrix) else 1)
+    normalized_demand = np.array([[demands[i] + demands[j] for j in range(n)] for i in range(n)]) / (2 * capacity if 2 * capacity > 0 else 1)
+    normalized_angle = angles / np.pi  # Angles are between 0 and pi
+
+    # Weighted combination of factors
+    alpha = 0.4  # Weight for distance
+    beta = 0.3   # Weight for demand
+    gamma = 0.3  # Weight for angular proximity
+    
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                if demands[i] + demands[j] > capacity:
+                    heuristics_matrix[i, j] = -1e9 # Large negative value if capacity is exceeded
+                    heuristics_matrix[j,i] = -1e9
+                else:
+                    heuristics_matrix[i, j] = alpha * (1 - normalized_distance[i, j]) + \
+                                               beta * (1 - normalized_demand[i, j]) + \
+                                               gamma * (1 - normalized_angle[i, j])
+                    heuristics_matrix[j, i] = heuristics_matrix[i, j]
+            else:
+                heuristics_matrix[i, j] = -1e9
+                
+    return heuristics_matrix

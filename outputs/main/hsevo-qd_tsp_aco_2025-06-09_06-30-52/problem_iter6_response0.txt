@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Combines inverse distance, node degree penalty, global distance context,
+    and adaptive sparsification for TSP.
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+    avg_distance = np.mean(distance_matrix[distance_matrix != 0])
+    small_constant = 1e-6
+    
+    # Node degree penalty (slightly modified)
+    node_degrees = np.sum(distance_matrix < (avg_distance * 1.5), axis=1)
+    
+    # Global distance context: penalize edges significantly longer than average.
+    long_edge_penalty = np.zeros_like(distance_matrix)
+    long_edge_penalty[distance_matrix > (avg_distance * 2)] = 1  # Increased threshold
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Combining factors
+                degree_penalty = (node_degrees[i] + node_degrees[j])**1.5
+                
+                # Adaptive distance weight: adjust based on relative edge length
+                distance_weight = min(1.0, distance_matrix[i, j] / avg_distance) # Cap at 1.0
+
+                heuristics[i, j] = (1 / (distance_matrix[i, j] + small_constant)) / (1 + (degree_penalty * distance_weight))
+
+                # Further penalize long edges
+                heuristics[i, j] /= (1 + long_edge_penalty[i, j])
+
+            else:
+                heuristics[i, j] = 0
+
+    # Adaptive Sparsification:  Keep a variable number of edges based on node degree.
+    for i in range(n):
+        row = heuristics[i, :]
+        
+        # Higher degree -> more edges kept.  Lower degree -> fewer edges kept.
+        percentile = 90 - min(node_degrees[i], 7) * 3 # Adjust percentile dynamically, between 69 and 90.
+
+        threshold = np.percentile(row[row > 0], percentile)
+        heuristics[i, row < threshold] = 0
+        
+    return heuristics
+```

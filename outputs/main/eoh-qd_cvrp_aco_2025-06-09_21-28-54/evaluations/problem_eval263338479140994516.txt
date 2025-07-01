@@ -1,0 +1,125 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm employs a simulated annealing approach to iteratively improve route construction, updating edge weights based on the acceptance probability of new solutions.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    temperature = 100.0
+    cooling_rate = 0.99
+    num_iterations = 1000
+
+    def calculate_cost(routes):
+        cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    def generate_neighbor(routes, demands, capacity):
+        # Randomly select a route
+        if not routes:
+            return routes
+        route_index = random.randint(0, len(routes) - 1)
+        route = routes[route_index]
+
+        # Randomly select two nodes in the route (excluding the depot)
+        nodes_in_route = [node for node in route if node != 0]
+        if len(nodes_in_route) < 2:
+            return routes # not enough customer in the route, return itself
+
+        idx1, idx2 = random.sample(range(len(nodes_in_route)), 2)
+        node1 = nodes_in_route[idx1]
+        node2 = nodes_in_route[idx2]
+        
+        # Swap the positions of the two nodes in the customer permutation.
+        customer_permutation = []
+        visited_customer = set()
+        for route_iter in routes:
+            for node in route_iter:
+                if (node != 0) and (node not in visited_customer):
+                    customer_permutation.append(node)
+                    visited_customer.add(node)
+
+        idx1 = customer_permutation.index(node1)
+        idx2 = customer_permutation.index(node2)
+        customer_permutation[idx1], customer_permutation[idx2] = customer_permutation[idx2], customer_permutation[idx1]
+        
+        # Reconstruct routes based on the modified customer permutation.
+        new_routes = []
+        current_route = [0]
+        current_capacity = 0
+
+        for customer in customer_permutation:
+            if current_capacity + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_capacity += demands[customer]
+            else:
+                current_route.append(0)
+                new_routes.append(current_route)
+                current_route = [0, customer]
+                current_capacity = demands[customer]
+
+        current_route.append(0)
+        new_routes.append(current_route)
+        return new_routes
+
+    # Initialize routes with a greedy approach
+    customer_indices = list(range(1, n))
+    current_route = [0]
+    current_load = 0
+    routes = []
+    while customer_indices:
+      best_customer = -1
+      best_distance = float('inf')
+      for customer in customer_indices:
+        if current_load + demands[customer] <= capacity:
+          dist = distance_matrix[current_route[-1], customer]
+          if dist < best_distance:
+            best_distance = dist
+            best_customer = customer
+
+      if best_customer != -1:
+        current_route.append(best_customer)
+        current_load += demands[best_customer]
+        customer_indices.remove(best_customer)
+      else:
+        current_route.append(0)
+        routes.append(current_route)
+        current_route = [0]
+        current_load = 0
+    current_route.append(0)
+    routes.append(current_route)
+
+    best_routes = routes
+    best_cost = calculate_cost(routes)
+
+    for _ in range(num_iterations):
+        new_routes = generate_neighbor(routes, demands, capacity)
+        new_cost = calculate_cost(new_routes)
+
+        if new_cost < calculate_cost(routes):
+            routes = new_routes
+            if new_cost < best_cost:
+                best_routes = new_routes
+                best_cost = new_cost
+        else:
+            # Simulated Annealing acceptance probability
+            delta = new_cost - calculate_cost(routes)
+            acceptance_probability = np.exp(-delta / temperature)
+            if random.random() < acceptance_probability:
+                routes = new_routes
+
+        temperature *= cooling_rate
+
+    # Update heuristics matrix based on the best routes found
+    for route in best_routes:
+        for i in range(len(route) - 1):
+            u = route[i]
+            v = route[i+1]
+            heuristics_matrix[u, v] += 1
+            heuristics_matrix[v, u] += 1
+
+    return heuristics_matrix

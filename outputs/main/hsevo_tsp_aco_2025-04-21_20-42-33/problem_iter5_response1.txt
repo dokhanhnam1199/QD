@@ -1,0 +1,39 @@
+```python
+import numpy as np
+from scipy.sparse.csgraph import dijkstra
+
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Combines inverse distance, shortest path estimates, and adaptive degree penalty.
+    """
+    n = distance_matrix.shape[0]
+
+    # Inverse distance
+    inverse_distance = 1.0 / (distance_matrix + np.eye(n) * 1e-6)
+    np.fill_diagonal(inverse_distance, 0)
+
+    # Shortest path estimates (using Dijkstra)
+    shortest_paths = dijkstra(distance_matrix, return_predecessors=False)
+    max_path_length = np.max(shortest_paths[np.isfinite(shortest_paths)])
+    path_penalty = shortest_paths / max_path_length  # Normalize to [0, 1]
+
+    # Node Degree as adaptive penalty
+    node_degree = np.sum(1 / (distance_matrix + np.eye(n) * 1e-6), axis=1)
+    degree_penalty = np.zeros_like(distance_matrix)
+    for i in range(n):
+        for j in range(n):
+            degree_penalty[i, j] = np.sqrt(node_degree[i] * node_degree[j])
+
+    heuristic_matrix = inverse_distance * (1 - path_penalty)  # Combine inverse dist and shortest path
+    heuristic_matrix = heuristic_matrix / (1 + degree_penalty) # Apply adaptive degree penalty
+
+    # Normalize
+    heuristic_matrix = (heuristic_matrix + 1e-9) / np.sum(heuristic_matrix + 1e-9)
+
+    # Sparsification via percentile
+    threshold = np.percentile(heuristic_matrix, 75)
+    heuristic_matrix[heuristic_matrix < threshold] = 0.0
+
+    return heuristic_matrix
+```

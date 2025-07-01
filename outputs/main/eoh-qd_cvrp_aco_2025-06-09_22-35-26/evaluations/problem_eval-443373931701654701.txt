@@ -1,0 +1,68 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm samples multiple random routes, evaluates their feasibility and cost, and uses the frequency of each edge appearing in feasible routes, weighted by route length and capacity utilization, to construct a heuristic matrix.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000  # Number of random routes to sample
+
+    for _ in range(num_samples):
+        # Generate a random permutation of customers (excluding the depot)
+        customer_indices = list(range(1, n))
+        random.shuffle(customer_indices)
+
+        # Build routes based on capacity constraints
+        routes = []
+        current_route = [0]  # Start at the depot
+        current_capacity = 0
+
+        for customer in customer_indices:
+            if current_capacity + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_capacity += demands[customer]
+            else:
+                current_route.append(0)  # Return to depot
+                routes.append(current_route)
+                current_route = [0, customer]  # Start a new route from the depot
+                current_capacity = demands[customer]
+
+        current_route.append(0)  # Return to depot for the last route
+        routes.append(current_route)
+
+        # Check feasibility (all customers visited)
+        visited = set()
+        for route in routes:
+            visited.update(route)
+        
+        if len(visited) == n:  # All customers visited
+            # Calculate route length and capacity utilization
+            route_lengths = []
+            capacity_utilizations = []
+            for route in routes:
+                route_length = 0
+                route_demand = 0
+                for i in range(len(route) - 1):
+                    node1 = route[i]
+                    node2 = route[i+1]
+                    route_length += distance_matrix[node1, node2]
+                    if node2 != 0:
+                        route_demand += demands[node2] 
+                route_lengths.append(route_length)
+                capacity_utilizations.append(route_demand / capacity if capacity > 0 else 0)
+
+            # Update heuristics matrix based on edges in routes, weighted by inverse route length and capacity utilization
+            for route_idx, route in enumerate(routes):
+                weight = (1 / (route_lengths[route_idx] + 1e-6)) * (capacity_utilizations[route_idx] + 1e-6)  # Add small constant to prevent division by zero
+                for i in range(len(route) - 1):
+                    node1 = route[i]
+                    node2 = route[i+1]
+                    heuristics_matrix[node1, node2] += weight
+                    heuristics_matrix[node2, node1] += weight  # Symmetry
+
+    # Normalize the heuristics matrix
+    heuristics_matrix = heuristics_matrix / num_samples
+
+    return heuristics_matrix

@@ -1,0 +1,105 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs solutions using an adaptive large neighborhood search (ALNS) framework, iteratively destroying and repairing routes based on various removal and insertion heuristics to explore the solution space and derive edge frequencies.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 100
+    num_destroy = n // 3
+
+    def initial_solution():
+        unassigned_nodes = set(range(1, n))
+        routes = []
+        while unassigned_nodes:
+            route = [0]
+            current_capacity = capacity
+            while True:
+                feasible_nodes = [node for node in unassigned_nodes if demands[node] <= current_capacity]
+                if not feasible_nodes:
+                    break
+                next_node = random.choice(feasible_nodes)
+                route.append(next_node)
+                current_capacity -= demands[next_node]
+                unassigned_nodes.remove(next_node)
+            route.append(0)
+            routes.append(route)
+        return routes
+
+    def calculate_cost(routes):
+        cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    def destroy_route(routes, num_remove):
+        all_nodes_except_depot = []
+        for route in routes:
+            all_nodes_except_depot.extend(route[1:-1])
+        
+        if not all_nodes_except_depot:
+            return [], routes
+        
+        nodes_to_remove = random.sample(all_nodes_except_depot, min(num_remove, len(all_nodes_except_depot)))
+        
+        new_routes = []
+        for route in routes:
+            new_route = [node for node in route if node not in nodes_to_remove]
+            if len(new_route) > 2:
+                new_routes.append(new_route)
+            elif len(new_route) == 2:
+                pass
+            elif len(new_route) == 1 and new_route[0] != 0:
+                pass
+        
+        return nodes_to_remove, new_routes
+
+    def repair_route(unassigned_nodes, routes):
+        for node in unassigned_nodes:
+            best_insertion_cost = float('inf')
+            best_route_index = -1
+            best_insertion_index = -1
+
+            for i in range(len(routes)):
+                for j in range(1, len(routes[i])):
+                    temp_route = routes[i][:j] + [node] + routes[i][j:]
+                    route_demand = sum(demands[v] for v in temp_route[1:-1]) if len(temp_route) > 2 else 0
+                    
+                    if route_demand <= capacity:
+                        insertion_cost = distance_matrix[temp_route[j-1], node] + distance_matrix[node, temp_route[j]] - distance_matrix[temp_route[j-1], temp_route[j]]
+
+                        if insertion_cost < best_insertion_cost:
+                            best_insertion_cost = insertion_cost
+                            best_route_index = i
+                            best_insertion_index = j
+            
+            if best_route_index != -1:
+                routes[best_route_index] = routes[best_route_index][:best_insertion_index] + [node] + routes[best_route_index][best_insertion_index:]
+            else:
+                routes.append([0, node, 0])
+
+        return routes
+
+    best_solution = initial_solution()
+    best_cost = calculate_cost(best_solution)
+
+    for _ in range(num_iterations):
+        unassigned_nodes, current_solution = destroy_route(best_solution, num_destroy)
+        current_solution = repair_route(unassigned_nodes, current_solution)
+
+        current_cost = calculate_cost(current_solution)
+        if current_cost < best_cost:
+            best_cost = current_cost
+            best_solution = current_solution
+
+        for route in best_solution:
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                heuristics_matrix[node1, node2] += 1
+                heuristics_matrix[node2, node1] += 1
+
+    return heuristics_matrix

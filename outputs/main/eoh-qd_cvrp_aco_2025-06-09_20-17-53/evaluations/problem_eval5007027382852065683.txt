@@ -1,0 +1,77 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs routes iteratively by considering savings from merging routes and prioritizing merges that improve overall cost while respecting vehicle capacity.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 100
+
+    for _ in range(num_samples):
+        # Initialize routes: each customer is served by a separate route
+        routes = [[i] for i in range(1, n)]
+        
+        # Calculate savings for all possible merges
+        savings = {}
+        for i in range(len(routes)):
+            for j in range(i + 1, len(routes)):
+                route_i = routes[i]
+                route_j = routes[j]
+                savings[(i, j)] = distance_matrix[route_i[0], 0] + distance_matrix[route_j[0], 0] - distance_matrix[route_i[0], route_j[0]]
+        
+        # Sort savings in descending order
+        sorted_savings = sorted(savings.items(), key=lambda item: item[1], reverse=True)
+        
+        # Merge routes based on savings
+        merged_routes = []
+        used_routes = set()
+
+        for (i, j), saving in sorted_savings:
+            if i in used_routes or j in used_routes:
+                continue
+
+            route_i = routes[i]
+            route_j = routes[j]
+            
+            # Check capacity constraint
+            total_demand = sum(demands[node] for node in route_i + route_j)
+            if total_demand <= capacity:
+                # Merge the routes
+                merged_route = route_i + route_j
+                merged_routes.append(merged_route)
+                used_routes.add(i)
+                used_routes.add(j)
+        
+        # Add routes that were not merged
+        for i in range(len(routes)):
+            if i not in used_routes:
+                merged_routes.append(routes[i])
+
+        # Construct full routes including depot
+        full_routes = []
+        for route in merged_routes:
+          current_load = 0
+          current_route = [0]
+          for node in route:
+            if current_load + demands[node] <= capacity:
+              current_route.append(node)
+              current_load += demands[node]
+            else:
+              current_route.append(0)
+              full_routes.append(current_route)
+              current_route = [0, node]
+              current_load = demands[node]
+          current_route.append(0)
+          full_routes.append(current_route)
+
+        # Update heuristic matrix
+        for route in full_routes:
+          for i in range(len(route) - 1):
+            u = route[i]
+            v = route[i+1]
+            heuristics_matrix[u, v] += 1
+            heuristics_matrix[v, u] += 1
+
+    # Normalize heuristics matrix
+    heuristics_matrix /= num_samples
+    return heuristics_matrix

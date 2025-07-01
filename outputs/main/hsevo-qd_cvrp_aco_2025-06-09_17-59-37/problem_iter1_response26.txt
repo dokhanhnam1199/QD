@@ -1,0 +1,81 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    This version incorporates:
+    1. Inverse distance, to prefer shorter edges.
+    2. Demand consideration: Edges connected to nodes with high demand are penalized if those nodes are already heavily connected (discouraging over-saturation of routes early on).
+    3. Angular proximity to depot: Favor nodes that are closer in angle to the depot, as vehicles generally go out and back.
+    4. Capacity-aware node priority: prioritize links with larger demand initially, because if they are not put in early they may be infeasible later.
+    5. Depot Affinity: Links that connects the depot to other locations. This creates an artificial affinity because every tour has to start and end at the depot.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (n x n).
+        coordinates (np.ndarray): Coordinates of nodes (n x 2).
+        demands (np.ndarray): Customer demands (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (n x n).
+    """
+
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+
+    # Parameters (tunable)
+    alpha = 1.0   # Inverse distance weight
+    beta = 0.5    # Demand weight
+    gamma = 0.7 # Angular proximity weight
+    delta = 0.8 # Capacity-aware node priority weight
+    epsilon = 0.9 # depot Affinity weight
+
+    # Calculate angles relative to the depot
+    depot_x, depot_y = coordinates[0]
+    angles = np.arctan2(coordinates[:, 1] - depot_y, coordinates[:, 0] - depot_x)
+
+    # Node degree (number of edges connected to a node - initialized to zero)
+    node_degree = np.zeros(n)
+
+    # Calculate Node priority
+    node_priority = demands / capacity # High priority for high demand
+
+    # Iterate over all edges
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristics[i, j] = 0  # No self-loops
+            else:
+                # Inverse distance component
+                distance_component = alpha / distance_matrix[i, j]
+
+                # Demand consideration component (Penalize edges to high-demand nodes that are already heavily connected)
+                demand_component = beta * (1 - (node_degree[i] + node_degree[j]) / (2 * (n - 1)))  * np.sqrt(demands[i] * demands[j])
+
+
+                # Angular proximity component (Favor nodes closer in angle to the depot)
+                angle_diff = np.abs(angles[i] - angles[j])
+                angular_proximity = gamma * np.exp(-angle_diff)
+
+                # Capacity-aware component
+                capacity_priority = delta * (node_priority[i] + node_priority[j])
+
+
+                # Depot Affinity component (Bias towards depot)
+                depot_affinity = 0
+                if i == 0 or j == 0:
+                    depot_affinity = epsilon
+
+
+                # Combine all components
+                heuristics[i, j] = distance_component + demand_component + angular_proximity + capacity_priority + depot_affinity
+
+    # Ensure symmetry and zero diagonal
+    heuristics = (heuristics + heuristics.T) / 2
+    np.fill_diagonal(heuristics, 0)
+
+
+    return heuristics
+```

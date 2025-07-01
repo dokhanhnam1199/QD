@@ -1,0 +1,80 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """
+    {This algorithm constructs a minimum spanning tree (MST) using Prim's algorithm, then calculates edge frequencies based on shortest paths within the MST to estimate edge importance for the TSP.}
+    """
+    n = distance_matrix.shape[0]
+    mst = np.zeros_like(distance_matrix, dtype=float)
+    visited = [False] * n
+    edges = []
+
+    # Prim's Algorithm to find MST
+    start_node = 0
+    visited[start_node] = True
+    
+    for _ in range(n - 1):
+        min_weight = np.inf
+        best_edge = None
+
+        for i in range(n):
+            if visited[i]:
+                for j in range(n):
+                    if not visited[j] and distance_matrix[i, j] < min_weight:
+                        min_weight = distance_matrix[i, j]
+                        best_edge = (i, j)
+
+        if best_edge:
+            u, v = best_edge
+            mst[u, v] = distance_matrix[u, v]
+            mst[v, u] = distance_matrix[v, u]
+            visited[v] = True
+            edges.append((u,v))
+    
+    # Calculate shortest paths within the MST. Since it is already generated we define all nodes are accessible. 
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_paths = n * (n - 1) // 2
+
+    for start_node in range(n):
+        for end_node in range(start_node + 1, n):
+                
+            # Find the path between start_node and end_node on MST:
+            
+            path = find_path_in_mst(start_node, end_node, mst)
+                
+            if path is not None:
+                for i in range(len(path) - 1):
+                    u = path[i]
+                    v = path[i + 1]
+                    heuristics_matrix[u, v] += 1
+                    heuristics_matrix[v, u] += 1
+
+    heuristics_matrix = heuristics_matrix / num_paths if num_paths > 0 else heuristics_matrix
+    return heuristics_matrix
+    
+def find_path_in_mst(start_node, end_node, mst):
+    """
+    Helper function to find a path between two nodes in the MST using DFS.
+    """
+    visited = {start_node}
+    path = [start_node]
+    
+    def dfs(current_node, target_node, current_path):
+        nonlocal path
+        
+        if current_node == target_node:
+            path = current_path[:] #copy the current path
+            return True
+        
+        for neighbor in range(mst.shape[0]):
+            if mst[current_node, neighbor] > 0 and neighbor not in visited:
+                visited.add(neighbor)
+                if dfs(neighbor, target_node, current_path + [neighbor]):
+                    return True
+                visited.remove(neighbor)
+        return False
+    
+    if dfs(start_node, end_node, [start_node]):
+        return path
+    else:
+        return heuristics_matrix

@@ -1,0 +1,88 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses an ant colony optimization (ACO) approach to iteratively construct routes, updating pheromone levels based on route quality and feasibility, to generate a heuristic matrix representing edge attractiveness.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone_matrix = np.ones_like(distance_matrix)  # Initialize pheromone levels
+    alpha = 1.0  # Pheromone influence
+    beta = 2.0  # Distance influence
+    rho = 0.5  # Evaporation rate
+    Q = 100  # Pheromone deposit constant
+    num_ants = 50
+    iterations = 100
+
+    for iteration in range(iterations):
+        ant_routes = []
+        for ant in range(num_ants):
+            route = []
+            remaining_nodes = list(range(1, n))
+            current_node = 0
+            current_load = 0
+            current_route = [0]
+
+            while remaining_nodes:
+                probabilities = np.zeros(len(remaining_nodes))
+                for i, next_node in enumerate(remaining_nodes):
+                    if current_load + demands[next_node] <= capacity:
+                        probabilities[i] = (pheromone_matrix[current_node, next_node]**alpha) / (distance_matrix[current_node, next_node]**beta)
+                    else:
+                        probabilities[i] = 0
+                
+                if np.sum(probabilities) == 0:
+                    current_route.append(0)
+                    route.append(current_route)
+                    current_route = [0]
+                    current_node = 0
+                    current_load = 0
+                    probabilities = np.zeros(len(remaining_nodes))
+                    for i, next_node in enumerate(remaining_nodes):
+                         if current_load + demands[next_node] <= capacity:
+                            probabilities[i] = (pheromone_matrix[current_node, next_node]**alpha) / (distance_matrix[current_node, next_node]**beta)
+                         else:
+                            probabilities[i] = 0
+
+                probabilities /= np.sum(probabilities)
+                next_node = random.choices(remaining_nodes, probabilities)[0]
+                
+                if current_load + demands[next_node] <= capacity:
+                    current_route.append(next_node)
+                    current_load += demands[next_node]
+                    current_node = next_node
+                    remaining_nodes.remove(next_node)
+                else:
+                    current_route.append(0)
+                    route.append(current_route)
+                    current_route = [0, next_node]
+                    current_node = 0
+                    current_load = demands[next_node]
+                    remaining_nodes.remove(next_node)
+            
+            current_route.append(0)
+            route.append(current_route)
+            ant_routes.append(route)
+        
+        # Calculate route lengths and update pheromones
+        delta_pheromone_matrix = np.zeros_like(distance_matrix)
+        for route in ant_routes:
+            total_distance = 0
+            for sub_route in route:
+                for i in range(len(sub_route) - 1):
+                    total_distance += distance_matrix[sub_route[i], sub_route[i+1]]
+            
+            for sub_route in route:
+                for i in range(len(sub_route) - 1):
+                    u = sub_route[i]
+                    v = sub_route[i+1]
+                    delta_pheromone_matrix[u, v] += Q / total_distance
+                    delta_pheromone_matrix[v, u] += Q / total_distance
+        
+        pheromone_matrix = (1 - rho) * pheromone_matrix + delta_pheromone_matrix
+    
+    # The pheromone matrix is the heuristics matrix
+    heuristics_matrix = pheromone_matrix
+    
+    return heuristics_matrix

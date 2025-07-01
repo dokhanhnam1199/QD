@@ -1,0 +1,56 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm samples multiple stochastic solutions based on a nearest neighbor heuristic, evaluates their feasibility and cost, and then aggregates the edge usage frequencies to construct a heuristic matrix guiding future search.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_samples = 100
+
+    for _ in range(num_samples):
+        # Construct a random but feasible route
+        current_node = 0
+        remaining_nodes = set(range(1, n))
+        current_load = 0
+        route = [0]
+        
+        while remaining_nodes:
+            # Find nearest neighbors that fit within capacity
+            feasible_neighbors = []
+            for neighbor in remaining_nodes:
+                if current_load + demands[neighbor] <= capacity:
+                    feasible_neighbors.append(neighbor)
+            
+            if not feasible_neighbors:
+                # Return to depot if no feasible neighbors
+                route.append(0)
+                current_load = 0
+                continue
+                
+            # Pick a random neighbor from the feasible neighbors based on distance
+            neighbor_distances = {neighbor: distance_matrix[current_node, neighbor] for neighbor in feasible_neighbors}
+            
+            if neighbor_distances:
+                probabilities = np.array(list(neighbor_distances.values()))
+                probabilities = 1 / (probabilities + 1e-6) # Inverse distance based probabilities
+                probabilities /= np.sum(probabilities)
+                
+                chosen_neighbor = np.random.choice(list(neighbor_distances.keys()), p=probabilities)
+                
+                route.append(chosen_neighbor)
+                current_load += demands[chosen_neighbor]
+                remaining_nodes.remove(chosen_neighbor)
+                current_node = chosen_neighbor
+            else:
+                # No feasible neighbors and the current_load is not zero. Return to depot.
+                route.append(0)
+                current_load = 0
+                current_node = 0
+
+        route.append(0) # Return to depot
+
+        # Update heuristics matrix based on route
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1 # Assume symmetric distance matrix
+
+    return heuristics_matrix

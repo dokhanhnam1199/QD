@@ -1,0 +1,100 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a genetic algorithm to evolve a population of candidate solutions (permutations of nodes), evaluating their fitness based on tour length, and uses the frequency of edges in the best solutions to build a heuristics matrix.}"""
+    n = distance_matrix.shape[0]
+    population_size = 50
+    num_generations = 50
+    mutation_rate = 0.05
+
+    # Initialize population
+    population = [np.random.permutation(n) for _ in range(population_size)]
+
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    for generation in range(num_generations):
+        # Evaluate fitness (tour length)
+        fitness = np.array([calculate_tour_length(tour, distance_matrix) for tour in population])
+
+        # Selection (tournament selection)
+        selected_indices = np.random.choice(population_size, size=population_size, replace=True, p=1/fitness/np.sum(1/fitness))
+        selected_population = [population[i] for i in selected_indices]
+
+        # Crossover (order crossover)
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = selected_population[i]
+            parent2 = selected_population[min(i+1, population_size-1)]  # Handle odd population sizes
+            child1, child2 = order_crossover(parent1, parent2)
+            new_population.append(child1)
+            new_population.append(child2)
+
+        # Mutation (swap mutation)
+        for i in range(population_size):
+            if np.random.rand() < mutation_rate:
+                new_population[i] = swap_mutation(new_population[i])
+
+        population = new_population
+
+    # Build heuristics matrix from the best solutions
+    best_indices = np.argsort(fitness)[:population_size // 5] # Use top 20% of solutions
+    for index in best_indices:
+        tour = population[index]
+        for i in range(n):
+            heuristics_matrix[tour[i], tour[(i + 1) % n]] += 1
+            heuristics_matrix[tour[(i + 1) % n], tour[i]] += 1
+
+    heuristics_matrix /= len(best_indices)
+    return heuristics_matrix
+
+
+def calculate_tour_length(tour, distance_matrix):
+    length = 0
+    for i in range(len(tour) - 1):
+        length += distance_matrix[tour[i], tour[i + 1]]
+    length += distance_matrix[tour[-1], tour[0]]  # Return to start
+    return length
+
+def order_crossover(parent1, parent2):
+    n = len(parent1)
+    start = np.random.randint(n)
+    length = np.random.randint(1, n - 1)
+    end = (start + length) % n
+
+    child1 = np.zeros(n, dtype=int) - 1
+    child2 = np.zeros(n, dtype=int) - 1
+
+    if start < end:
+        child1[start:end] = parent1[start:end]
+        child2[start:end] = parent2[start:end]
+    else:
+        child1[start:] = parent1[start:]
+        child1[:end] = parent1[:end]
+        child2[start:] = parent2[start:]
+        child2[:end] = parent2[:end]
+
+    # Fill in the remaining positions
+    current1 = end
+    current2 = end
+    parent2_index = end
+    parent1_index = end
+
+    while -1 in child1:
+        if parent2[parent2_index] not in child1:
+            child1[current1] = parent2[parent2_index]
+            current1 = (current1 + 1) % n
+        parent2_index = (parent2_index + 1) % n
+
+    while -1 in child2:
+        if parent1[parent1_index] not in child2:
+            child2[current2] = parent1[parent1_index]
+            current2 = (current2 + 1) % n
+        parent1_index = (parent1_index + 1) % n
+
+    return child1, child2
+
+def swap_mutation(tour):
+    index1 = np.random.randint(len(tour))
+    index2 = np.random.randint(len(tour))
+    tour[index1], tour[index2] = tour[index2], tour[index1]
+    return heuristics_matrix

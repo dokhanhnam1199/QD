@@ -1,0 +1,62 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm samples a set of random routes, evaluates their feasibility and cost, and then creates a heuristic matrix favoring edges that appear frequently in feasible and low-cost routes.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        # Generate a random route (permutation of customers)
+        customer_permutation = list(range(1, n))
+        random.shuffle(customer_permutation)
+
+        # Split the route into feasible sub-routes respecting capacity
+        routes = []
+        current_route = [0]
+        current_capacity = 0
+        for customer in customer_permutation:
+            if current_capacity + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_capacity += demands[customer]
+            else:
+                current_route.append(0)  # Return to depot
+                routes.append(current_route)
+                current_route = [0, customer]
+                current_capacity = demands[customer]
+
+        current_route.append(0)  # Return to depot at the end
+        routes.append(current_route)
+
+        # Calculate the cost of the sampled route
+        total_cost = 0
+        is_feasible = True
+        for route in routes:
+            route_cost = 0
+            for i in range(len(route) - 1):
+                route_cost += distance_matrix[route[i]][route[i+1]]
+            total_cost += route_cost
+            
+            #Check feasibility
+            current_capacity = 0
+            for customer in route[1:]:
+                if customer != 0:
+                    current_capacity += demands[customer]
+            if current_capacity > capacity:
+                is_feasible = False
+                break
+
+
+        # Update the heuristic matrix if the route is feasible.  Favor shorter routes.
+        if is_feasible:
+            for route in routes:
+                for i in range(len(route) - 1):
+                    u = route[i]
+                    v = route[i+1]
+                    heuristics_matrix[u][v] += 1.0 / (1.0 + total_cost)  #Promote edges in good routes
+                    heuristics_matrix[v][u] += 1.0 / (1.0 + total_cost)  #Symmetric
+
+    return heuristics_matrix

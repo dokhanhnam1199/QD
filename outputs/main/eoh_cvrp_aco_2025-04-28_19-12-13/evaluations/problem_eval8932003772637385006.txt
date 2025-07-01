@@ -1,0 +1,127 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs an initial solution using a savings heuristic, then iteratively improves the solution by randomly selecting and re-inserting nodes into different routes, accepting moves based on cost improvement or a simulated annealing criterion, and finally aggregates edge frequencies from the accepted solutions to build a heuristic matrix.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 1000
+    initial_temperature = 100
+    cooling_rate = 0.99
+
+    # 1. Initial Solution (Savings Heuristic)
+    def calculate_savings(distance_matrix, i, j):
+        return distance_matrix[i, 0] + distance_matrix[0, j] - distance_matrix[i, j]
+
+    savings = []
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings.append((i, j, calculate_savings(distance_matrix, i, j)))
+    savings.sort(key=lambda x: x[2], reverse=True)
+
+    routes = []
+    node_route = {}
+    for i in range(1, n):
+        routes.append([0, i, 0])
+        node_route[i] = len(routes) - 1
+
+    for i, j, _ in savings:
+        if node_route.get(i) is not None and node_route.get(j) is not None and node_route[i] != node_route[j]:
+            route_i_idx = node_route[i]
+            route_j_idx = node_route[j]
+            route_i = routes[route_i_idx]
+            route_j = routes[route_j_idx]
+
+            if route_i[-2] != 0 and route_j[1] != 0:
+                total_demand = sum(demands[node] for node in route_i[1:-1]) + sum(demands[node] for node in route_j[1:-1])
+                if total_demand <= capacity:
+                    new_route = route_i[:-1] + route_j[1:]
+                    routes[route_i_idx] = new_route
+                    for node in route_j[1:-1]:
+                        node_route[node] = route_i_idx
+                    routes.pop(route_j_idx)
+                    for node, route_idx in node_route.items():
+                        if route_idx > route_j_idx:
+                            node_route[node] -= 1
+
+    def calculate_cost(routes):
+        cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                cost += distance_matrix[route[i]][route[i+1]]
+        return cost
+
+    def is_feasible(routes):
+        for route in routes:
+            current_capacity = capacity
+            for i in range(1,len(route)-1):
+                current_capacity -= demands[route[i]]
+            if current_capacity < 0:
+                return False
+        return True
+
+    best_routes = [route[:] for route in routes]
+    best_cost = calculate_cost(routes)
+
+    # 2. Iterative Improvement (Simulated Annealing with Node Re-insertion)
+    temperature = initial_temperature
+    for iteration in range(num_iterations):
+        # a. Perturb: Randomly select a node and re-insert it into a different route
+        routes_copy = [route[:] for route in routes]
+        if len(routes_copy) > 0:
+            route_idx = random.randint(0, len(routes_copy) - 1)
+            route = routes_copy[route_idx]
+            if len(route) > 2:
+                node_idx = random.randint(1, len(route) - 2)
+                node_to_move = route[node_idx]
+                
+                original_route = route[:]
+                original_route.pop(node_idx)
+                
+                new_route_idx = random.randint(0, len(routes_copy) - 1)
+                while new_route_idx == route_idx and len(routes_copy) > 1:
+                    new_route_idx = random.randint(0, len(routes_copy) - 1)
+
+                new_route = routes_copy[new_route_idx]
+                
+                insert_pos = random.randint(1, len(new_route) - 1)
+                new_route.insert(insert_pos, node_to_move)
+
+                # check capacity
+                original_capacity = capacity
+                for i in range(1, len(original_route)-1):
+                    original_capacity -= demands[original_route[i]]
+
+                new_capacity = capacity
+                for i in range(1, len(new_route)-1):
+                    new_capacity -= demands[new_route[i]]
+
+                if original_capacity < 0 or new_capacity < 0:
+                    routes_copy = [route[:] for route in routes]
+                else:
+                    routes_copy[route_idx] = original_route
+                    routes_copy[new_route_idx] = new_route
+                    new_cost = calculate_cost(routes_copy)
+                    cost_difference = new_cost - calculate_cost(routes)
+
+                    # b. Acceptance Criterion (Simulated Annealing)
+                    if cost_difference < 0 or random.random() < np.exp(-cost_difference / temperature):
+                        routes = routes_copy
+                        if new_cost < best_cost:
+                            best_cost = new_cost
+                            best_routes = [route[:] for route in routes]
+
+        # c. Cooling
+        temperature *= cooling_rate
+
+    # 3. Heuristic Matrix Construction
+    for route in best_routes:
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+    return heuristics_matrix

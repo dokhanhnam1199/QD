@@ -1,0 +1,54 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm refines edge importance by iteratively simulating shortest path computations, perturbing edge costs based on their usage frequency in shortest paths, and updating a heuristic matrix to reflect these adjusted costs.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones_like(distance_matrix, dtype=float) # Initialize with all ones, or other suitable value
+
+    num_iterations = 10
+    perturbation_factor = 0.1
+
+    for _ in range(num_iterations):
+        edge_usage = np.zeros_like(distance_matrix, dtype=float)
+        
+        # Simulate shortest paths from each node
+        for start_node in range(n):
+            distances = distance_matrix.copy() * heuristics_matrix # incorporate the "heuristics"
+            
+            # Dijkstra's algorithm to find shortest paths
+            dist = np.full(n, np.inf)
+            dist[start_node] = 0
+            visited = np.zeros(n, dtype=bool)
+            path = {i: [] for i in range(n)}
+
+            for _ in range(n):
+                u = np.argmin(dist + visited * np.inf)
+                if dist[u] == np.inf:
+                    break
+                visited[u] = True
+
+                for v in range(n):
+                    if not visited[v] and distances[u, v] > 0:
+                        if dist[v] > dist[u] + distances[u, v]:
+                            dist[v] = dist[u] + distances[u, v]
+                            path[v] = path[u] + [u]
+
+            # Update edge usage based on shortest paths
+            for end_node in range(n):
+                if start_node != end_node and dist[end_node] != np.inf:
+                    current = end_node
+                    full_path = path[end_node] + [end_node]
+                    for i in range(len(full_path)-1):
+                        node1 = full_path[i]
+                        node2 = full_path[i+1]
+                        edge_usage[node1, node2] += 1
+                        edge_usage[node2, node1] += 1
+
+        # Perturb heuristic matrix based on edge usage
+        total_usage = np.sum(edge_usage)
+        if total_usage > 0:
+            edge_usage /= total_usage
+            heuristics_matrix *= np.exp(perturbation_factor * (edge_usage - np.mean(edge_usage))) # Encourage/discourage edge usage
+            heuristics_matrix = np.clip(heuristics_matrix, 0.01, 10)
+
+    return heuristics_matrix

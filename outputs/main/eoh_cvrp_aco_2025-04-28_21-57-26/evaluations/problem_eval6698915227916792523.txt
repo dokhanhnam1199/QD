@@ -1,0 +1,64 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm adaptively adjusts edge probabilities based on the success of adding edges to routes during multiple stochastic solution constructions, favoring edges that frequently lead to feasible and shorter routes.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    edge_success_counts = np.zeros_like(distance_matrix)
+    edge_attempt_counts = np.zeros_like(distance_matrix)
+    num_samples = 100
+
+    for _ in range(num_samples):
+        unvisited = set(range(1, n))
+        routes = []
+        current_route = [0]
+        current_load = 0
+
+        while unvisited:
+            possible_edges = []
+            edge_probabilities = []
+
+            for node in unvisited:
+                if current_load + demands[node] <= capacity:
+                    edge = (current_route[-1], node)
+                    attempt_count = edge_attempt_counts[edge[0]][edge[1]] + 1
+                    success_count = edge_success_counts[edge[0]][edge[1]]
+                    probability = (success_count + 1) / attempt_count #Laplace smoothing
+
+                    possible_edges.append(node)
+                    edge_probabilities.append(probability)
+
+            if not possible_edges:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0]
+                current_load = 0
+                continue
+
+            total_prob = sum(edge_probabilities)
+            normalized_probabilities = [prob / total_prob for prob in edge_probabilities]
+
+            next_node = random.choices(possible_edges, weights=normalized_probabilities, k=1)[0]
+            edge_attempt_counts[current_route[-1]][next_node] += 1
+            edge_attempt_counts[next_node][current_route[-1]] += 1
+
+            current_route.append(next_node)
+            current_load += demands[next_node]
+            unvisited.remove(next_node)
+
+        current_route.append(0)
+        routes.append(current_route)
+
+        route_cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                route_cost += distance_matrix[route[i]][route[i+1]]
+
+        for route in routes:
+            for i in range(len(route) - 1):
+                edge_success_counts[route[i]][route[i+1]] += 1
+                edge_success_counts[route[i+1]][route[i]] += 1
+
+    heuristics_matrix = edge_success_counts / (edge_attempt_counts + 1e-6) #Avoid division by zero
+    return heuristics_matrix

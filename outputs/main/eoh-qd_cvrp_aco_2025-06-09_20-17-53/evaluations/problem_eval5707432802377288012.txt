@@ -1,0 +1,63 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively constructs routes by probabilistically selecting the next node based on distance and demand, prioritizing closer and less demanding nodes, and updates a heuristic matrix based on the frequency of edge usage in feasible routes.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_iterations = 1000
+
+    for _ in range(num_iterations):
+        routes = []
+        unvisited = set(range(1, n))
+        current_route = [0]
+        current_load = 0
+
+        while unvisited:
+            # Calculate probabilities for each unvisited node
+            probabilities = {}
+            total_probability = 0
+            for node in unvisited:
+                distance_score = 1 / (distance_matrix[current_route[-1], node] + 1e-6)  # Avoid division by zero
+                demand_score = 1 / (demands[node] + 1e-6)
+                combined_score = distance_score * demand_score
+                probabilities[node] = combined_score
+                total_probability += combined_score
+
+            # Normalize probabilities
+            for node in unvisited:
+                probabilities[node] /= total_probability
+
+            # Choose next node based on probabilities
+            chosen_node = np.random.choice(list(probabilities.keys()), p=list(probabilities.values()))
+
+            if current_load + demands[chosen_node] <= capacity:
+                current_route.append(chosen_node)
+                current_load += demands[chosen_node]
+                unvisited.remove(chosen_node)
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0]
+                current_load = 0
+
+        current_route.append(0)
+        routes.append(current_route)
+
+        # Update heuristics matrix
+        feasible = True
+        for route in routes:
+            route_load = 0
+            for i in range(1, len(route) - 1):
+                route_load += demands[route[i]]
+            if route_load > capacity:
+                feasible = False
+                break
+
+        if feasible:
+            for route in routes:
+                for i in range(len(route) - 1):
+                    u = route[i]
+                    v = route[i+1]
+                    heuristics_matrix[u, v] += 1
+
+    return heuristics_matrix

@@ -1,0 +1,100 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs multiple route clusters by iteratively merging nearest feasible clusters and biasing edge selection in the heuristic matrix towards edges frequently used in those clusters.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 500
+    
+    def calculate_route_load(route):
+        load = 0
+        for node in route:
+            load += demands[node]
+        return load
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    def nearest_neighbor_clustering(unassigned_nodes, current_clusters):
+        # Find the closest unassigned node to the cluster or depot
+        best_node = None
+        best_cluster_index = None
+        min_distance = float('inf')
+
+        for node in unassigned_nodes:
+            for i, cluster in enumerate(current_clusters):
+                # Distance from node to the closest node within the cluster
+                min_cluster_dist = min(distance_matrix[node, existing_node] for existing_node in cluster)
+                if min_cluster_dist < min_distance:
+                    min_distance = min_cluster_dist
+                    best_node = node
+                    best_cluster_index = i
+            # Distance from node to depot
+            if distance_matrix[0, node] < min_distance:
+                min_distance = distance_matrix[0, node]
+                best_node = node
+                best_cluster_index = -1  # -1 represents adding to a new cluster
+
+        return best_node, best_cluster_index
+
+    for _ in range(num_iterations):
+        # Initialize clusters with each node as a separate cluster
+        unassigned_nodes = set(range(1, n))
+        current_clusters = [[i] for i in range(1, n)] # Each cluster is a list of nodes
+        
+        # Perform nearest-neighbor clustering until only one big cluster remains
+        while len(current_clusters) > 1:
+            # Assign unassigned nodes to existing clusters
+            while unassigned_nodes:
+                nearest_node, cluster_index = nearest_neighbor_clustering(unassigned_nodes, current_clusters)
+
+                if cluster_index == -1: # New Cluster
+                    current_clusters.append([nearest_node])
+                else:
+                    current_clusters[cluster_index].append(nearest_node)
+
+                unassigned_nodes.remove(nearest_node)
+                
+            # Combine feasible clusters 
+            min_distance = float('inf')
+            cluster_1_idx = None
+            cluster_2_idx = None
+
+            for i in range(len(current_clusters)):
+                for j in range(i + 1, len(current_clusters)):
+                    # Compute distance between clusters (minimum distance between nodes in different clusters)
+                    cluster_dist = min(distance_matrix[node1, node2] for node1 in current_clusters[i] for node2 in current_clusters[j])
+
+                    # Check capacity constraint
+                    if calculate_route_load(current_clusters[i] + current_clusters[j]) <= capacity and cluster_dist < min_distance:
+                        min_distance = cluster_dist
+                        cluster_1_idx = i
+                        cluster_2_idx = j
+                        
+            # No feasible merge found, stop merging this iteration
+            if cluster_1_idx is None or cluster_2_idx is None:
+                break
+
+            # Merge the two nearest clusters
+            current_clusters[cluster_1_idx] = current_clusters[cluster_1_idx] + current_clusters[cluster_2_idx]
+            del current_clusters[cluster_2_idx]
+            
+        # Update heuristic matrix based on the resulting clusters
+        for cluster in current_clusters:
+          route = [0] + cluster + [0]
+          for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+
+    # Normalize the heuristic matrix
+    total_visits = np.sum(heuristics_matrix)
+    if total_visits > 0:
+        heuristics_matrix = heuristics_matrix / total_visits
+
+    return heuristics_matrix

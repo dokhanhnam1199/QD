@@ -1,0 +1,87 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm learns edge selection probabilities by training a simple neural network to predict route feasibility based on edge inclusion, and then uses these probabilities to guide route construction.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 1000
+    learning_rate = 0.1
+
+    # Initialize edge weights (neural network parameters)
+    edge_weights = np.random.rand(n, n) * 0.01
+
+    def sigmoid(x):
+        return 1 / (1 + np.exp(-x))
+
+    def predict_feasibility(route):
+        # Calculate a route score based on edge weights
+        route_score = 0
+        for i in range(len(route) - 1):
+            u = route[i]
+            v = route[i+1]
+            route_score += edge_weights[u, v]
+        return sigmoid(route_score)
+
+    def is_feasible(route):
+        route_demand = sum([demands[i] for i in route])
+        return route_demand <= capacity
+    
+    for _ in range(num_samples):
+        # Generate a random permutation of customers
+        permutation = np.random.permutation(np.arange(1, n))
+        
+        # Build routes based on the permutation
+        routes = []
+        current_route = [0]
+        current_demand = 0
+        
+        for customer in permutation:
+            if current_demand + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_demand += demands[customer]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, customer]
+                current_demand = demands[customer]
+
+        current_route.append(0)
+        routes.append(current_route)
+
+        # Evaluate feasibility and update edge weights
+        overall_feasible = True
+        for route in routes:
+            if not is_feasible(route):
+                overall_feasible = False
+                break
+        
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                
+                prediction = predict_feasibility(route)
+                target = 1.0 if is_feasible(route) else 0.0
+                
+                # Update edge weights based on prediction error
+                error = target - prediction
+                edge_weights[u, v] += learning_rate * error * prediction * (1 - prediction)
+                edge_weights[v, u] += learning_rate * error * prediction * (1 - prediction)
+        
+        # Update heuristics matrix based on learned edge weights
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                heuristics_matrix[u, v] += edge_weights[u, v]
+                heuristics_matrix[v, u] += edge_weights[v, u]
+                
+    # Normalize the matrix
+    max_val = np.max(heuristics_matrix)
+    if max_val > 0:
+      heuristics_matrix = heuristics_matrix / max_val
+    
+    return heuristics_matrix

@@ -1,0 +1,117 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Improved heuristics combining distance, demand, location, depot proximity, connectivity, angle,
+    adaptive sparsification, and iterative refinement with a focus on avoiding local optima.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # 1. Distance Factor (Inverse)
+    distance_factor = 1 / (distance_matrix + 1e-6)
+    heuristic_matrix = distance_factor.copy()
+
+    # 2. Demand Penalty with Sigmoid Smoothing
+    demand_penalty = np.ones((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            combined_demand = demands[i] + demands[j]
+            # Sigmoid for smoother transition and less harsh penalty
+            demand_ratio = combined_demand / capacity
+            demand_penalty[i, j] = 1 / (1 + np.exp(5 * (demand_ratio - 0.9)))  # Adjust 5 and 0.9 as needed
+    heuristic_matrix *= demand_penalty
+
+    # 3. Spatial Proximity with Clustering Tendency
+    spatial_proximity = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                delta_x = coordinates[i, 0] - coordinates[j, 0]
+                delta_y = coordinates[i, 1] - coordinates[j, 1]
+                dist = np.sqrt(delta_x**2 + delta_y**2)
+                spatial_proximity[i, j] = 1 / (dist + 1e-6)
+    heuristic_matrix *= spatial_proximity
+
+    # 4. Depot Attraction with Distance Decay
+    depot_boost = np.zeros((n, n))
+    for i in range(1, n):
+        depot_boost[0, i] = np.exp(-distance_matrix[0, i] / (0.2 * np.mean(distance_matrix[0, 1:] + 1e-6)))  # Tunable parameter 0.2
+        depot_boost[i, 0] = depot_boost[0, i]
+    heuristic_matrix += 0.5 * depot_boost  # Add to, not multiply, for smoother influence
+
+    # 5. Connectivity Boost with Adaptive Degree Adjustment
+    degree = np.sum(heuristic_matrix > 0, axis=0) + np.sum(heuristic_matrix > 0, axis=1)
+    connectivity_boost = np.zeros((n, n))
+    avg_degree = np.mean(degree[1:]) # avoid including depot since that will skew the degree value
+    for i in range(1, n):
+        for j in range(1, n):
+             connectivity_boost[i, j] = np.exp(-abs(degree[i] - avg_degree) / (avg_degree + 1e-6)) * np.exp(-abs(degree[j] - avg_degree) / (avg_degree + 1e-6))
+    heuristic_matrix *= (0.5 * connectivity_boost + 0.5)  # Weighted average of connectivity
+
+    # 6. Angle Consideration (More Robust)
+    angle_penalty = np.ones((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                vector1 = coordinates[i] - coordinates[0]
+                vector2 = coordinates[j] - coordinates[i]
+                norm_vector1 = np.linalg.norm(vector1)
+                norm_vector2 = np.linalg.norm(vector2)
+
+                if norm_vector1 > 1e-6 and norm_vector2 > 1e-6:  # prevent div by zero
+                    vector1 /= norm_vector1
+                    vector2 /= norm_vector2
+                    dot_product = np.dot(vector1, vector2)
+                    angle = np.arccos(np.clip(dot_product, -1.0, 1.0))
+                    angle_penalty[i, j] = 1 - (angle / np.pi)**1.5  # Adjust exponent for sensitivity
+                else:
+                    angle_penalty[i,j] = 0.5  # default value
+
+    heuristic_matrix *= angle_penalty
+
+    # 7. Adaptive Sparsification (More Aggressive)
+    for i in range(n):
+        row = heuristic_matrix[i, :]
+        mean_val = np.mean(row[row > 0]) if np.any(row > 0) else 0
+        median_val = np.median(row[row > 0]) if np.any(row > 0) else 0
+        threshold = min(mean_val, median_val) * 0.1  # More aggressive: 0.1
+        heuristic_matrix[i, row < threshold] = 0
+
+        col = heuristic_matrix[:, i]
+        mean_val = np.mean(col[col > 0]) if np.any(col > 0) else 0
+        median_val = np.median(col[col > 0]) if np.any(col > 0) else 0
+        threshold = min(mean_val, median_val) * 0.1  # More aggressive: 0.1
+        heuristic_matrix[col < threshold, i] = 0
+
+    # 8. Depot Sparsification (Context-Aware)
+    depot_connections = heuristic_matrix[0, 1:]
+    if len(depot_connections) > 0:
+        depot_threshold = np.mean(depot_connections) * 0.2 # Adjusting threshold to be relative to other depot connections
+        for i in range(1, n):
+            if heuristic_matrix[0, i] < depot_threshold:
+                heuristic_matrix[0, i] = 0
+            if heuristic_matrix[i, 0] < depot_threshold:
+                heuristic_matrix[i, 0] = 0
+
+    # 9. Iterative Refinement (Local Optima Avoidance)
+    for _ in range(2):  # Small number of iterations
+        for i in range(1, n):
+            for j in range(1, n):
+                if i != j and heuristic_matrix[i,j] > 0:
+                    # Check if adding edges (0,i) and (j,0) would create a better partial route
+                    potential_improvement = heuristic_matrix[0, i] + heuristic_matrix[j, 0] - heuristic_matrix[0,j] - heuristic_matrix[i,0]
+
+                    if potential_improvement > 0:
+                        heuristic_matrix[0, j] = 0.5 * (heuristic_matrix[0,j] + 0.7 * potential_improvement) # slightly increase weight
+                        heuristic_matrix[i, 0] = 0.5 * (heuristic_matrix[i,0] + 0.7 * potential_improvement) # slightly increase weight
+                        heuristic_matrix[i, j] *= 0.8   # Slightly decrease to avoid stagnation
+
+    # 10. Normalize
+    max_val = np.max(heuristic_matrix)
+    if max_val > 0:
+        heuristic_matrix = heuristic_matrix / max_val
+
+    return heuristic_matrix
+```

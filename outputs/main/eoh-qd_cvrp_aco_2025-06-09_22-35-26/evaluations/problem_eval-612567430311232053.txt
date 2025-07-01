@@ -1,0 +1,51 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm estimates edge inclusion probabilities by sampling routes using a nearest neighbor approach with stochasticity, evaluating feasibility, and accumulating edge counts, biasing towards shorter edges.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        # Start at the depot
+        current_node = 0
+        route = [0]
+        current_capacity = 0
+        remaining_customers = set(range(1, n))
+
+        while remaining_customers:
+            # Find nearest neighbors among remaining customers
+            distances = [distance_matrix[current_node, customer] for customer in remaining_customers]
+            nearest_neighbors = sorted(zip(remaining_customers, distances), key=lambda x: x[1])
+
+            # Introduce stochasticity: select from top k nearest neighbors
+            k = min(5, len(nearest_neighbors))  # Consider top 5 or fewer
+            candidates = nearest_neighbors[:k]
+            
+            # Randomly choose a neighbor from the candidates
+            chosen_customer, _ = random.choice(candidates)
+
+            if current_capacity + demands[chosen_customer] <= capacity:
+                route.append(chosen_customer)
+                current_capacity += demands[chosen_customer]
+                current_node = chosen_customer
+                remaining_customers.remove(chosen_customer)
+            else:
+                route.append(0)  # Return to depot
+                current_node = 0
+                current_capacity = 0
+
+        route.append(0)  # Return to depot
+
+        # Update heuristics matrix based on the sampled route, biasing by distance
+        for i in range(len(route) - 1):
+            u = route[i]
+            v = route[i+1]
+            # Inversely proportional to distance to encourage shorter edges
+            heuristics_matrix[u, v] += 1 / (distance_matrix[u, v] + 1e-6) # Avoid division by zero
+            heuristics_matrix[v, u] += 1 / (distance_matrix[v, u] + 1e-6)
+
+    return heuristics_matrix

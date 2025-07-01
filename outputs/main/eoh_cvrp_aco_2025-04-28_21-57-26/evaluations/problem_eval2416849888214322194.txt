@@ -1,0 +1,64 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs routes randomly, evaluates their feasibility with respect to capacity, and assigns higher probabilities to edges present in feasible routes with lower total distances.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 100  # Number of random routes to generate
+
+    for _ in range(num_samples):
+        # Generate a random permutation of customer nodes (excluding the depot)
+        permutation = list(range(1, n))
+        random.shuffle(permutation)
+
+        routes = []
+        current_route = [0]
+        current_capacity = capacity
+
+        for node in permutation:
+            if demands[node] <= current_capacity:
+                current_route.append(node)
+                current_capacity -= demands[node]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, node]
+                current_capacity = capacity - demands[node]
+        
+        current_route.append(0)
+        routes.append(current_route)
+                
+        # Check feasibility and calculate total distance of the routes
+        total_distance = 0
+        feasible = True
+        for route in routes:
+            current_capacity = capacity
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                total_distance += distance_matrix[node1, node2]
+                if node2 != 0:
+                    current_capacity -= demands[node2]
+                    if current_capacity < 0:
+                        feasible = False
+                        break
+            if not feasible:
+                break
+
+        # Update heuristics matrix if the solution is feasible
+        if feasible:
+            # Increment the heuristic matrix for edges in the route
+            for route in routes:
+                for i in range(len(route) - 1):
+                    node1 = route[i]
+                    node2 = route[i+1]
+                    heuristics_matrix[node1, node2] += 1 / (total_distance + 1e-6)  # Add a small constant to avoid division by zero
+                    heuristics_matrix[node2, node1] += 1 / (total_distance + 1e-6)
+
+    # Normalize the heuristic matrix
+    max_val = np.max(heuristics_matrix)
+    if max_val > 0:
+        heuristics_matrix /= max_val
+    
+    return heuristics_matrix

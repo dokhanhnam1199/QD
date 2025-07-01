@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for CVRP based on a combination of distance, demand, and spatial considerations.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes.
+        coordinates (np.ndarray): Euclidean coordinates of nodes.
+        demands (np.ndarray): Demand of each node.
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators for each edge (same shape as distance_matrix).
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+
+    # Inverse distance (gravitational analogy - closer is better)
+    inverse_distance = 1 / (distance_matrix + 1e-9)  # Add small constant to avoid division by zero
+
+    # Demand-aware penalty (penalize edges connecting nodes with high demand - capacity constraints)
+    demand_penalty = np.zeros_like(distance_matrix)
+    for i in range(n):
+        for j in range(n):
+            demand_penalty[i, j] = (demands[i] + demands[j]) / (2 * capacity)  # Scale penalty based on demand relative to capacity
+    
+    # Depot proximity bias (favor edges near the depot - central planning authority).
+    depot_proximity = np.zeros_like(distance_matrix)
+    for i in range(n):
+      for j in range(n):
+        depot_proximity[i,j] = 1 / (distance_matrix[0, i] + distance_matrix[0,j] + 1e-9)
+    # Angle-based heuristic (Encourage routes that don't have sharp turns - minimize jerky movements).
+
+    angle_factor = np.zeros_like(distance_matrix)
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                vector_i = coordinates[i] - coordinates[0]  # Vector from depot to node i
+                vector_j = coordinates[j] - coordinates[0]  # Vector from depot to node j
+
+                # Compute cosine of the angle between the vectors
+                dot_product = np.dot(vector_i, vector_j)
+                magnitude_i = np.linalg.norm(vector_i)
+                magnitude_j = np.linalg.norm(vector_j)
+
+                if magnitude_i > 0 and magnitude_j > 0:
+                    cos_angle = dot_product / (magnitude_i * magnitude_j)
+                    angle_factor[i, j] = (1 + cos_angle)/2  #Scale to [0,1]. Higher is better (straighter paths)
+                else:
+                    angle_factor[i, j] = 0 # Handle edge cases.
+
+    # Combine the heuristics (assign weights based on relative importance)
+    heuristics = (0.5 * inverse_distance +
+                  0.15 * (1 - demand_penalty) +  # Invert the penalty so higher is better
+                  0.15 * depot_proximity +
+                  0.2 * angle_factor
+                  )
+
+    return heuristics
+```

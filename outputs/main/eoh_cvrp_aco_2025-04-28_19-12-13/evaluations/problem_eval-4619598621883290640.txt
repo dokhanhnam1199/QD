@@ -1,0 +1,79 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs routes incrementally by probabilistically selecting the next node based on a combination of distance and pheromone-like values, representing prior solution quality, and periodically updating these values based on the best-found route.}
+    """
+    n = len(demands)
+    pheromone_matrix = np.ones_like(distance_matrix)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    alpha = 1
+    beta = 2
+    rho = 0.5
+    q = 100
+
+    num_iterations = 50
+    best_so_far_route = None
+    best_so_far_cost = float('inf')
+
+    for iteration in range(num_iterations):
+        routes = []
+        unvisited = set(range(1, n))
+        current_node = 0
+        current_route = [0]
+        current_load = 0
+
+        while unvisited:
+            probabilities = []
+            candidates = []
+            for neighbor in unvisited:
+                if current_load + demands[neighbor] <= capacity:
+                    candidates.append(neighbor)
+                    prob = (pheromone_matrix[current_node, neighbor]**alpha) * ((1/distance_matrix[current_node, neighbor])**beta)
+                    probabilities.append(prob)
+
+            if not candidates:
+                routes.append(current_route + [0])
+                current_node = 0
+                current_route = [0]
+                current_load = 0
+                continue
+                
+            probabilities = np.array(probabilities)
+            probabilities /= probabilities.sum()
+
+            next_node = random.choices(candidates, probabilities)[0]
+            current_route.append(next_node)
+            current_load += demands[next_node]
+            unvisited.remove(next_node)
+            current_node = next_node
+            
+        current_route.append(0)
+        routes.append(current_route)
+
+        total_cost = 0
+        concatenated_route = []
+        for route in routes:
+            concatenated_route.extend(route[:-1])
+            for i in range(len(route) - 1):
+                total_cost += distance_matrix[route[i], route[i+1]]
+        concatenated_route.append(0)
+        
+        if total_cost < best_so_far_cost:
+            best_so_far_cost = total_cost
+            best_so_far_route = concatenated_route
+
+        # Pheromone Update
+        pheromone_matrix *= (1 - rho)
+        if best_so_far_route:
+            for i in range(len(best_so_far_route) - 1):
+                pheromone_matrix[best_so_far_route[i], best_so_far_route[i+1]] += q / best_so_far_cost
+                pheromone_matrix[best_so_far_route[i+1], best_so_far_route[i]] += q / best_so_far_cost
+
+    # Populate heuristics matrix based on pheromone levels
+    for i in range(n):
+        for j in range(n):
+            heuristics_matrix[i, j] = pheromone_matrix[i, j]
+
+    return heuristics_matrix

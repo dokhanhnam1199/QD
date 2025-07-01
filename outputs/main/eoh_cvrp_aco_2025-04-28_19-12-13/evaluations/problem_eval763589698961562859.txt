@@ -1,0 +1,144 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs initial routes using a cheapest insertion heuristic, then iteratively refines these routes by applying a 2-opt local search and reassigning nodes to different routes based on a savings criterion, updating edge frequencies based on the best solutions found.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 200
+
+    def calculate_route_load(route):
+        load = 0
+        for node in route[1:-1]:
+            load += demands[node]
+        return load
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+    
+    def calculate_total_cost(routes):
+      total_cost = 0
+      for route in routes:
+        total_cost += calculate_route_cost(route)
+      return total_cost
+
+    def savings(node1, node2):
+      return distance_matrix[node1, 0] + distance_matrix[0, node2] - distance_matrix[node1, node2]
+
+    def two_opt_swap(route, i, k):
+        """Performs a 2-opt swap on a route."""
+        new_route = route[:i] + route[i:k+1][::-1] + route[k+1:]
+        return new_route
+
+    def two_opt(route):
+      """Applies 2-opt local search to a route."""
+      best_route = route
+      improved = True
+      while improved:
+        improved = False
+        for i in range(1, len(route) - 2):
+          for k in range(i + 1, len(route) - 1):
+            new_route = two_opt_swap(route, i, k)
+            if calculate_route_cost(new_route) < calculate_route_cost(best_route):
+              best_route = new_route
+              improved = True
+        route = best_route
+      return best_route
+    
+    # Initialization: Cheapest Insertion
+    unassigned_nodes = set(range(1, n))
+    routes = []
+    while unassigned_nodes:
+        seed_node = random.choice(list(unassigned_nodes))
+        route = [0, seed_node, 0]
+        unassigned_nodes.remove(seed_node)
+
+        while True:
+            best_node = -1
+            best_insertion_index = -1
+            min_insertion_cost = float('inf')
+
+            for node in unassigned_nodes:
+                if calculate_route_load(route) + demands[node] <= capacity:
+                    for i in range(1, len(route)):
+                        cost = distance_matrix[route[i-1], node] + distance_matrix[node, route[i]] - distance_matrix[route[i-1], route[i]]
+                        if cost < min_insertion_cost:
+                            min_insertion_cost = cost
+                            best_node = node
+                            best_insertion_index = i
+
+            if best_node != -1:
+                route.insert(best_insertion_index, best_node)
+                unassigned_nodes.remove(best_node)
+            else:
+                break
+        routes.append(route)
+
+    best_routes = [route[:] for route in routes]
+    best_cost = calculate_total_cost(routes)
+
+    # Iterative Refinement
+    for _ in range(num_iterations):
+        # Local Search (2-opt)
+        for i in range(len(routes)):
+          routes[i] = two_opt(routes[i])
+
+        # Reassignment based on Savings
+        for i in range(len(routes)):
+            if len(routes[i]) <= 3:
+                continue
+            node_index = random.randint(1, len(routes[i]) - 2)
+            node_to_move = routes[i][node_index]
+            original_route = routes[i][:]
+            routes[i].pop(node_index)
+            
+            best_route_index = -1
+            best_insertion_index = -1
+            max_savings_val = -float('inf')
+
+            for j in range(len(routes)):
+                for k in range(1, len(routes[j])):
+                  temp_route = routes[j][:]
+                  temp_route.insert(k, node_to_move)
+                  if calculate_route_load(temp_route) <= capacity:
+                    current_savings = savings(routes[j][k-1], node_to_move) + savings(node_to_move,routes[j][k])
+                    if current_savings > max_savings_val:
+                      max_savings_val = current_savings
+                      best_route_index = j
+                      best_insertion_index = k
+                      
+            if best_route_index != -1:
+              if best_route_index == i:
+                routes[best_route_index].insert(best_insertion_index,node_to_move)
+              else:
+                routes[best_route_index].insert(best_insertion_index,node_to_move)
+                if len(routes[i]) <= 2:
+                  routes.pop(i)
+                  if i < best_route_index:
+                      best_route_index -=1
+            else:
+              routes[i].insert(node_index, node_to_move)
+
+        # Update best solution
+        current_cost = calculate_total_cost(routes)
+        if current_cost < best_cost:
+            best_cost = current_cost
+            best_routes = [route[:] for route in routes]
+
+    # Heuristic Matrix Update
+    for route in best_routes:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+    
+    #Normalize heuristic matrix
+    total_visits = np.sum(heuristics_matrix)
+    if total_visits > 0:
+      heuristics_matrix = heuristics_matrix / total_visits
+
+    return heuristics_matrix

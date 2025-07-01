@@ -1,0 +1,62 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively constructs routes by probabilistically adding the nearest feasible customer to the current route, favoring edges used in previously generated good solutions.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 100
+
+    for _ in range(num_iterations):
+        routes = []
+        unvisited = set(range(1, n))
+        
+        while unvisited:
+            current_route = [0]
+            current_capacity = 0
+            last_node = 0
+            
+            while True:
+                # Find feasible neighbors
+                feasible_neighbors = [node for node in unvisited if current_capacity + demands[node] <= capacity]
+
+                if not feasible_neighbors:
+                    break  # No more feasible neighbors, close the route
+
+                # Probabilistic selection based on distance and heuristic
+                probabilities = []
+                for neighbor in feasible_neighbors:
+                    #Heuristic component: favor edges used in previous solutions.  Add small constant to avoid division by zero if an edge hasn't been seen before.
+                    heuristic_value = heuristics_matrix[last_node, neighbor] + 0.001
+                    distance = distance_matrix[last_node, neighbor]
+                    probabilities.append(heuristic_value / distance)  # Higher heuristic, lower distance = higher probability
+
+                # Normalize probabilities
+                total_probability = sum(probabilities)
+                if total_probability > 0:
+                    probabilities = [p / total_probability for p in probabilities]
+                else:
+                    # If all probabilities are zero, choose a random neighbor
+                    probabilities = [1/len(feasible_neighbors)] * len(feasible_neighbors)
+                
+                # Select next customer probabilistically
+                next_customer = random.choices(feasible_neighbors, probabilities)[0]
+                current_route.append(next_customer)
+                current_capacity += demands[next_customer]
+                unvisited.remove(next_customer)
+                last_node = next_customer
+            
+            current_route.append(0)  # Return to depot
+            routes.append(current_route)
+
+            # Update heuristics matrix based on the generated route (positive reinforcement)
+            for route in routes:
+                for i in range(len(route) - 1):
+                    u = route[i]
+                    v = route[i+1]
+                    heuristics_matrix[u, v] += 1
+                    heuristics_matrix[v, u] += 1
+
+    return heuristics_matrix

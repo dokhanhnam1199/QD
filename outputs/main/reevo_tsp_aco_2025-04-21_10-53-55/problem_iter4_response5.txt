@@ -1,0 +1,64 @@
+```python
+import numpy as np
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import minimum_spanning_tree
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+
+    """
+    Heuristic function for TSP using stochastic solution sampling.
+
+    This version prioritizes nearest neighbors and MST approximation, and normalizes heuristics.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix of the TSP problem.
+
+    Returns:
+        np.ndarray: Prior indicators (heuristics) of edge promise.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+
+    # 1. Inverse distance (basic heuristic)
+    inverse_distance = 1 / (distance_matrix + 1e-9)  # Add a small constant to avoid division by zero
+
+    # 2. Nearest neighbor heuristic: reward edges to nearest neighbors
+    nearest_neighbors = np.argsort(distance_matrix, axis=1)
+    nearest_neighbor_bonus = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        for j in range(1, min(4, n)):  # Bonus for the 3 nearest neighbors (excluding self)
+            neighbor_index = nearest_neighbors[i, j]
+            nearest_neighbor_bonus[i, neighbor_index] = 1.0 / j  # closer, larger bonus
+
+    # 3. Minimum Spanning Tree approximation: edges that participate MSTs are important
+    mst = minimum_spanning_tree(distance_matrix)
+    mst_matrix = mst.toarray()
+    mst_bonus = (mst_matrix > 0).astype(float)
+
+
+    # Calculate probabilities based on these heuristics:
+    heuristics = inverse_distance + 2*nearest_neighbor_bonus + 3*mst_bonus
+
+    # 4. Sparsification: Remove edges unlikely to be in the optimal solution
+    # Only keep the top k edges per row/column based on the combined heuristic
+
+    k = min(5, n - 1)  # Number of edges to keep per node (excluding self)
+
+    for i in range(n):
+        # Zero out all entries except the k largest in each row
+        row = heuristics[i, :].copy()
+        indices_to_keep = np.argsort(row)[-k:]  # Indices of the k largest elements
+        heuristics[i, :] = 0
+        heuristics[i, indices_to_keep] = row[indices_to_keep]
+
+        # Zero out the diagonal element, if not done.
+        heuristics[i, i] = 0
+
+    # Normalize
+    max_val = np.max(heuristics)
+    if max_val > 0:
+        heuristics = heuristics / max_val
+
+    return heuristics
+```

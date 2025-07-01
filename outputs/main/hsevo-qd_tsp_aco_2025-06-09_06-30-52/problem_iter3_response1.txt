@@ -1,0 +1,52 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Combines inverse distance, node degree penalty, and a cycle-breaking component.
+    Sparsifies the matrix by setting unpromising elements to zero.
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+    avg_distance = np.mean(distance_matrix[distance_matrix != 0])
+    small_constant = 1e-9
+
+    node_degrees = np.sum(distance_matrix < avg_distance * 1.5, axis=1)  # Increased sensitivity
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                degree_penalty = (node_degrees[i] + node_degrees[j])
+                distance_factor = 1 / (distance_matrix[i, j] + small_constant)
+
+                # Cycle-breaking component: penalize edges connecting nodes that are "close" in terms of shortest paths
+                shortest_path_distance = np.inf
+                try:
+                    import scipy.sparse.csgraph as csgraph
+                    dist_matrix = distance_matrix.copy()
+                    dist_matrix[dist_matrix == 0] = np.inf
+                    shortest_path_distance = csgraph.shortest_path(csgraph.csr_matrix(dist_matrix), directed=False)[i, j]
+                except ImportError:
+                    # Fallback for environments without scipy.
+                    # This is a very naive implementation and computationally expensive
+                    # but it prevents complete failure.
+                    dist = distance_matrix.copy()
+                    dist[dist == 0] = np.inf
+                    shortest_path_distance = dist[i,j]
+                    
+                    
+                    for k in range(n):
+                        shortest_path_distance = min(shortest_path_distance, dist[i,k] + dist[k,j])
+
+
+                cycle_penalty = shortest_path_distance / (avg_distance + small_constant)
+                heuristics[i, j] = distance_factor / (1 + (degree_penalty * (distance_matrix[i, j]/avg_distance)) + cycle_penalty)
+
+                # Sparsify: remove edges that are too long or have a low heuristic value
+                if distance_matrix[i, j] > 2.5 * avg_distance or heuristics[i, j] < 0.1 / (avg_distance + small_constant):
+                    heuristics[i, j] = 0
+            else:
+                heuristics[i, j] = 0
+
+    return heuristics
+```

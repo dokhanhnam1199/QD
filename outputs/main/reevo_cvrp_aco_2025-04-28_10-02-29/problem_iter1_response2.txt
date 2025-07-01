@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    Combines several factors to determine the promise of each edge and sparsifies the matrix.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (shape: n by n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n by 2).
+        demands (np.ndarray): Vector of customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (shape: n by n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros((n, n))
+
+    # Calculate savings for each edge (Clarke-Wright savings heuristic)
+    savings = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings[j, i] = savings[i, j]
+
+    # Normalize distance matrix (smaller is better)
+    normalized_distance = 1 / (distance_matrix + 1e-6)  # Avoid division by zero
+
+    # Normalize savings matrix (larger is better)
+    normalized_savings = (savings - np.min(savings)) / (np.max(savings) - np.min(savings) + 1e-6)
+
+    # Demand factor: penalize edges connecting nodes with high combined demand relative to capacity.
+    demand_factor = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                demand_factor[i, j] = max(0, (demands[i] + demands[j]) / capacity)
+
+    # Distance from depot factor: Encourages edges close to the depot
+    depot_proximity = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+             depot_proximity[i,j] = 1 - (distance_matrix[0,i] + distance_matrix[0,j]) / (2 * np.max(distance_matrix))
+
+
+    # Combine factors
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                 heuristics[i, j] = (0.5 * normalized_distance[i, j] + 0.4 * normalized_savings[i,j] + 0.1 * depot_proximity[i,j]) / (1 + demand_factor[i,j]) # Weight the components.
+
+    # Sparsify the matrix: Keep only the top k edges for each node
+    k = int(np.sqrt(n)) #Adjust k based on problem size
+    for i in range(n):
+        row = heuristics[i, :].copy()  # Copy the row to avoid modifying the original during sorting
+        indices = np.argsort(row)[-k:]  # Get indices of top k values
+        heuristics[i, :] = 0  # Zero out the entire row
+        heuristics[i, indices] = row[indices]  # Restore only the top k values
+
+
+    return heuristics
+```

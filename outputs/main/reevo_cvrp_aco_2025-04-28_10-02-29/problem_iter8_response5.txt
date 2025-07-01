@@ -1,0 +1,92 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+
+    """
+    Heuristic function for Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    Refined version with normalized factors, sparsification, and prioritized depot connections.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Vector of customer demands (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+
+    # Calculate savings matrix (Clarke-Wright Savings)
+    savings_matrix = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings_matrix[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings_matrix[j, i] = savings_matrix[i, j]
+
+    # Node proximity to depot
+    depot_proximity = np.zeros(n)
+    for i in range(1, n):
+        depot_proximity[i] = 1 / (distance_matrix[0, i] + 1e-6)
+
+    # Demand factor
+    demand_factor = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                demand_factor[i, j] = np.exp(-np.abs(demands[i] + demands[j] - capacity) / capacity)
+
+    # Angle factor (try to avoid sharp turns)
+    angle_factor = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                vector_i = coordinates[i] - coordinates[0]
+                vector_j = coordinates[j] - coordinates[0]
+                dot_product = np.dot(vector_i, vector_j)
+                magnitudes = np.linalg.norm(vector_i) * np.linalg.norm(vector_j)
+                if magnitudes > 0:
+                    cos_angle = np.clip(dot_product / magnitudes, -1.0, 1.0)
+                    angle = np.arccos(cos_angle)
+                    angle_factor[i, j] = 1 - (angle / np.pi)
+                else:
+                    angle_factor[i, j] = 0
+
+    # Distance Factor
+    distance_factor = np.exp(-distance_matrix / np.mean(distance_matrix))
+    np.fill_diagonal(distance_factor, 0)
+    
+    # Normalize factors
+    savings_matrix = (savings_matrix - np.min(savings_matrix)) / (np.max(savings_matrix) - np.min(savings_matrix) + 1e-6)
+    depot_proximity = (depot_proximity - np.min(depot_proximity)) / (np.max(depot_proximity) - np.min(depot_proximity) + 1e-6)
+    demand_factor = (demand_factor - np.min(demand_factor)) / (np.max(demand_factor) - np.min(demand_factor) + 1e-6)
+    angle_factor = (angle_factor - np.min(angle_factor)) / (np.max(angle_factor) - np.min(angle_factor) + 1e-6)
+    distance_factor = (distance_factor - np.min(distance_factor)) / (np.max(distance_factor) - np.min(distance_factor) + 1e-6)
+
+    # Combine factors with weights
+    heuristics_matrix = (
+        0.3 * savings_matrix
+        + 0.15 * (np.tile(depot_proximity, (n, 1)) + np.tile(depot_proximity, (n, 1)).T)
+        + 0.05 * demand_factor
+        + 0.25 * angle_factor
+        + 0.25 * distance_factor
+    )
+
+    # Prioritize depot connections
+    for i in range(1, n):
+        heuristics_matrix[0, i] *= 1.3
+        heuristics_matrix[i, 0] *= 1.3
+
+    # Adaptive Sparsification using Capacity
+    avg_demand = np.mean(demands[1:])
+    sparsity_threshold = np.clip(50 + 10 * (1 - (avg_demand / capacity)), 10, 90)
+    threshold = np.percentile(heuristics_matrix[heuristics_matrix > 0], sparsity_threshold)
+    heuristics_matrix[heuristics_matrix < threshold] = 0
+
+    # Ensure diagonal is zero
+    np.fill_diagonal(heuristics_matrix, 0)
+
+    return heuristics_matrix
+```

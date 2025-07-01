@@ -1,0 +1,78 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively refines a heuristic matrix by probabilistically selecting edges based on their initial desirability and the best routes found so far, favoring edges that connect nodes within promising routes.}"""
+    n = len(demands)
+    heuristics_matrix = np.ones_like(distance_matrix)  # Initialize with ones to avoid division by zero
+    alpha = 0.1  # Learning rate
+    num_iterations = 50
+
+    for _ in range(num_iterations):
+        # Generate a set of routes based on current heuristic matrix
+        routes = []
+        unvisited = set(range(1, n))
+        current_route = [0]
+        current_load = 0
+
+        while unvisited:
+            current_node = current_route[-1]
+            
+            # Calculate probabilities for each unvisited node based on heuristic matrix
+            probabilities = []
+            nodes = []
+            for neighbor in unvisited:
+                probabilities.append(heuristics_matrix[current_node, neighbor])
+                nodes.append(neighbor)
+
+            #If no routes are feasible, restart from depot:
+            if sum(probabilities) <=0:
+                 current_route.append(0)
+                 routes.append(current_route)
+                 current_route = [0]
+                 current_load = 0
+                 continue
+            
+            probabilities = np.array(probabilities) / sum(probabilities) # Normalize to create probability distribution
+
+            # Choose the next node probabilistically
+            next_node = random.choices(nodes, probabilities)[0]
+
+            if current_load + demands[next_node] <= capacity:
+                current_route.append(next_node)
+                current_load += demands[next_node]
+                unvisited.remove(next_node)
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, next_node]
+                current_load = demands[next_node]
+                unvisited.remove(next_node)
+
+        current_route.append(0)
+        routes.append(current_route)
+
+        # Update heuristic matrix based on the edges used in the current routes
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                heuristics_matrix[u, v] = (1 - alpha) * heuristics_matrix[u, v] + alpha * 10 # Increase desirability
+                heuristics_matrix[v, u] = (1 - alpha) * heuristics_matrix[v, u] + alpha * 10 # Assuming symmetry
+        
+        #Decrease desirability for edges that weren't in routes
+        all_edges = [(i,j) for i in range(n) for j in range(i+1,n)]
+        present_edges = set()
+        for route in routes:
+            for i in range(len(route)-1):
+                u = route[i]
+                v = route[i+1]
+                present_edges.add(tuple(sorted((u,v))))
+
+        for edge in all_edges:
+            if edge not in present_edges:
+                u,v = edge
+                heuristics_matrix[u, v] = (1 - alpha) * heuristics_matrix[u, v] + alpha * 0.1 
+                heuristics_matrix[v, u] = (1 - alpha) * heuristics_matrix[v, u] + alpha * 0.1
+
+    return heuristics_matrix

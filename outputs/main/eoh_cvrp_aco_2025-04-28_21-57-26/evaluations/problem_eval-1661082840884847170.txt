@@ -1,0 +1,84 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a Monte Carlo Tree Search (MCTS) approach to explore the solution space, estimating edge importance based on the frequency of edge visits within promising routes discovered during the search.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+
+    num_simulations = 500
+    exploration_constant = 1.0
+
+    def simulate(node, route, remaining_nodes, current_capacity, distance):
+        while remaining_nodes:
+            possible_nodes = [n for n in remaining_nodes if current_capacity >= demands[n]]
+            if not possible_nodes:
+                break
+
+            next_node = random.choice(possible_nodes)
+            distance += distance_matrix[node, next_node]
+            node = next_node
+            current_capacity -= demands[next_node]
+            remaining_nodes = remaining_nodes.copy()
+            remaining_nodes.remove(next_node)
+            route.append(next_node)
+
+        if node != 0:
+            distance += distance_matrix[node, 0]
+            route.append(0)
+
+        return route, distance
+
+    def tree_search():
+        best_route = None
+        best_distance = float('inf')
+
+        for _ in range(num_simulations):
+            current_node = 0
+            route = [0]
+            remaining_nodes = set(range(1, n))
+            current_capacity = capacity
+            total_distance = 0
+
+            # Selection & Expansion
+            while remaining_nodes:
+                possible_nodes = [n for n in remaining_nodes if current_capacity >= demands[n]]
+                if not possible_nodes:
+                    break
+
+                next_node = random.choice(possible_nodes)
+                total_distance += distance_matrix[current_node, next_node]
+                current_capacity -= demands[next_node]
+                route.append(next_node)
+                remaining_nodes.remove(next_node)
+
+                heuristics_matrix[current_node, next_node] += 1
+                heuristics_matrix[next_node, current_node] += 1
+
+                current_node = next_node
+            
+            if current_node != 0:
+                total_distance += distance_matrix[current_node, 0]
+                heuristics_matrix[current_node, 0] += 1
+                heuristics_matrix[0, current_node] += 1
+            else:
+                total_distance += distance_matrix[current_node, 0]
+
+            # Simulation (Rollout) - removed to enhance performance and focus on exploration/exploitation
+            simulated_route = route
+            simulated_distance = total_distance
+            
+            if simulated_distance < best_distance:
+                best_distance = simulated_distance
+                best_route = simulated_route
+
+        return best_route, best_distance
+
+    best_route, best_distance = tree_search()
+    
+    for i in range(n):
+        for j in range(n):
+            if heuristics_matrix[i, j] > 0:
+               heuristics_matrix[i, j] /= (distance_matrix[i, j] + 1e-6)
+
+    return heuristics_matrix

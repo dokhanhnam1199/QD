@@ -1,0 +1,60 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm adaptively biases random route sampling towards promising edges based on route cost and feasibility, updating edge desirability with an exponential moving average.}"""
+    n = len(demands)
+    heuristics_matrix = np.ones_like(distance_matrix)  # Initialize with ones to avoid zero probabilities
+    alpha = 0.1 # Learning rate for updating heuristics matrix
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        route = list(range(1, n))  # Exclude depot (node 0)
+
+        # Probabilistically select the next node based on heuristic values
+        current_node = 0
+        current_capacity = 0
+        feasible_route = []
+        current_route = [0]
+
+        while route:
+            probabilities = [heuristics_matrix[current_node, next_node] for next_node in route]
+            probabilities = np.array(probabilities)
+            probabilities = probabilities / np.sum(probabilities)
+
+            next_node = random.choices(route, weights=probabilities)[0]
+
+            if current_capacity + demands[next_node] <= capacity:
+                current_route.append(next_node)
+                current_capacity += demands[next_node]
+                route.remove(next_node)
+                current_node = next_node
+            else:
+                current_route.append(0)
+                feasible_route.append(current_route)
+                current_capacity = demands[next_node]
+                current_route = [0, next_node]
+                route.remove(next_node)
+                current_node = next_node
+        
+        if current_route != [0]:
+            current_route.append(0)
+            feasible_route.append(current_route)
+
+        # Update heuristics matrix based on route cost and feasibility
+        route_cost = 0
+        for sub_route in feasible_route:
+            for i in range(len(sub_route) - 1):
+                node1 = sub_route[i]
+                node2 = sub_route[i+1]
+                route_cost += distance_matrix[node1, node2]
+        
+        # Update heuristics matrix based on route cost. Good routes will reinforce the edges.
+        for sub_route in feasible_route:
+            for i in range(len(sub_route) - 1):
+                node1 = sub_route[i]
+                node2 = sub_route[i+1]
+                heuristics_matrix[node1, node2] = (1 - alpha) * heuristics_matrix[node1, node2] + alpha * (1 / (1 + route_cost))
+                heuristics_matrix[node2, node1] = (1 - alpha) * heuristics_matrix[node2, node1] + alpha * (1 / (1 + route_cost))
+
+    return heuristics_matrix

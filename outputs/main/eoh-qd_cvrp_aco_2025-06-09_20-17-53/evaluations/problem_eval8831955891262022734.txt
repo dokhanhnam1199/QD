@@ -1,0 +1,146 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses a genetic algorithm approach to evolve a population of routes, using feasibility and distance as fitness functions to create a heuristic matrix favoring edges present in fitter routes.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    population_size = 50
+    num_generations = 50
+
+    def create_initial_population(population_size, n):
+        population = []
+        for _ in range(population_size):
+            route = list(range(1, n))
+            np.random.shuffle(route)
+            population.append(route)
+        return population
+
+    def calculate_fitness(route, distance_matrix, demands, capacity):
+        routes = []
+        current_route = [0]
+        current_demand = 0
+
+        for node in route:
+            if current_demand + demands[node] <= capacity:
+                current_route.append(node)
+                current_demand += demands[node]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, node]
+                current_demand = demands[node]
+        current_route.append(0)
+        routes.append(current_route)
+
+        total_distance = 0
+        feasible = True
+        for r in routes:
+            route_distance = 0
+            current_demand = 0
+            for i in range(len(r) - 1):
+                route_distance += distance_matrix[r[i], r[i+1]]
+                if r[i+1] != 0:
+                    current_demand += demands[r[i+1]]
+            if current_demand > capacity:
+                feasible = False
+                break
+
+            total_distance += route_distance
+
+        if not feasible:
+            return float('inf') # Bad route
+        else:
+            return total_distance
+
+    def crossover(parent1, parent2):
+        start = np.random.randint(0, len(parent1))
+        end = np.random.randint(start, len(parent1))
+
+        child = [-1] * len(parent1)
+        child[start:end+1] = parent1[start:end+1]
+
+        idx = 0
+        for gene in parent2:
+            if gene not in child:
+                while child[idx] != -1:
+                    idx += 1
+                child[idx] = gene
+
+        return child
+
+    def mutate(route, mutation_rate=0.05):
+        if np.random.rand() < mutation_rate:
+            idx1, idx2 = np.random.choice(len(route), 2, replace=False)
+            route[idx1], route[idx2] = route[idx2], route[idx1]
+        return route
+
+    population = create_initial_population(population_size, n)
+
+    for generation in range(num_generations):
+        fitness_scores = [calculate_fitness(route, distance_matrix, demands, capacity) for route in population]
+        
+        # Selection (roulette wheel selection - minimizing distance)
+        fitness_scores = np.array(fitness_scores)
+        if np.isinf(fitness_scores).all():
+            probabilities = np.ones_like(fitness_scores) / len(fitness_scores)
+        else:
+            probabilities = 1.0 / (fitness_scores + 1e-6)  # Add a small value to avoid division by zero
+            probabilities /= np.sum(probabilities)
+        
+        selected_indices = np.random.choice(len(population), size=population_size, replace=True, p=probabilities)
+        selected_population = [population[i] for i in selected_indices]
+
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = selected_population[i]
+            parent2 = selected_population[min(i+1, population_size-1)] # Handle odd population sizes
+            
+            child1 = crossover(parent1, parent2)
+            child2 = crossover(parent2, parent1)
+
+            child1 = mutate(child1)
+            child2 = mutate(child2)
+            
+            new_population.append(child1)
+            new_population.append(child2)
+        
+        population = new_population[:population_size]
+
+    # After evolution, update heuristic matrix based on the best routes
+    best_fitness = float('inf')
+    best_route = None
+    for route in population:
+        fitness = calculate_fitness(route, distance_matrix, demands, capacity)
+        if fitness < best_fitness:
+            best_fitness = fitness
+            best_route = route
+
+    # Update heuristics_matrix based on best route
+    routes = []
+    current_route = [0]
+    current_demand = 0
+    for node in best_route:
+        if current_demand + demands[node] <= capacity:
+            current_route.append(node)
+            current_demand += demands[node]
+        else:
+            current_route.append(0)
+            routes.append(current_route)
+            current_route = [0, node]
+            current_demand = demands[node]
+    current_route.append(0)
+    routes.append(current_route)
+
+    for route in routes:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+
+    # Normalize
+    total_counts = np.sum(heuristics_matrix)
+    if total_counts > 0:
+        heuristics_matrix = heuristics_matrix / total_counts
+
+    return heuristics_matrix

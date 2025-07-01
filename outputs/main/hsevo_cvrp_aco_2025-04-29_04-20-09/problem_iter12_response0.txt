@@ -1,0 +1,90 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    An enhanced heuristic for the CVRP that incorporates distance, demand, angle,
+    centrality, and depot attraction, with adaptive sparsification.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix)
+
+    # Calculate the centroid of the customer nodes
+    center_x = np.mean(coordinates[1:, 0])
+    center_y = np.mean(coordinates[1:, 1])
+
+    # Total demand calculation
+    total_demand = np.sum(demands[1:])
+
+    # Average distance to depot weighted by demand
+    demand_weighted_dist_to_depot = np.sum(demands[1:] * distance_matrix[0, 1:]) / total_demand if total_demand > 0 else 1.0
+
+    # Adaptive Sparsification Threshold (dynamically adjusted based on demand and distance)
+    sparsification_threshold = np.mean(distance_matrix) * (1 + (total_demand / (capacity * n)))
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+
+            distance = distance_matrix[i, j]
+
+            # Sparsification: Eliminate edges that are too long or deemed unpromising early on
+            if distance > sparsification_threshold:
+                heuristic_matrix[i, j] = 0.0  # Directly set to zero to prune unpromising edges
+                continue
+
+            # Distance component: Reciprocal of distance, with a small constant to avoid division by zero
+            distance_component = 1 / (distance + 1e-6)
+
+            # Demand component: Penalize edges that would likely violate capacity constraints early
+            demand_component = 1.0
+            if i != 0 and j != 0 and demands[i] + demands[j] > capacity * 1.2:  #relaxed capacity constraint
+                demand_component = 0.05 # more aggressive penalization
+            elif i!=0 and j!=0 and demands[i] + demands[j] > capacity:
+                demand_component = 0.2 # stronger penalization if capacity will be violated
+
+            # Angle Component (Penalize sharp turns). Simplified calculation for speed.
+            angle_component = 1.0
+            if i != 0 and j != 0:
+                # Calculate angles to a subset of other nodes for efficiency
+                num_angles = min(5, n - 2) #Consider only a few angles
+                angles = []
+
+                #Sampling without replacement
+                candidates = list(range(1,n))
+                candidates.remove(i)
+                candidates.remove(j)
+                sampled_indices = np.random.choice(candidates, size=min(num_angles, len(candidates)), replace=False)
+
+                for k in sampled_indices:
+                    v1 = coordinates[i] - coordinates[j]
+                    v2 = coordinates[k] - coordinates[i]
+                    dot_product = np.dot(v1, v2)
+                    magnitudes = np.linalg.norm(v1) * np.linalg.norm(v2)
+                    if magnitudes == 0:
+                        angle = 0
+                    else:
+                        angle = np.arccos(dot_product / magnitudes)
+                    angles.append(angle)
+                if len(angles) > 0:
+                    angle_component = np.min(np.degrees(angles) / 180.0) #Normalize between 0 and 1.
+
+            # Centrality component: Favor edges closer to the center of the customer distribution.
+            center_distance = (np.sqrt((coordinates[i, 0] - center_x)**2 + (coordinates[i, 1] - center_y)**2) +
+                               np.sqrt((coordinates[j, 0] - center_x)**2 + (coordinates[j, 1] - center_y)**2)) / 2
+            centrality_component = np.exp(-center_distance / (demand_weighted_dist_to_depot + 1e-6))
+
+            # Depot attraction: Encourage edges connecting to the depot.
+            depot_component = 1.0
+            if i == 0 or j == 0:
+                depot_component = 1.0 #High priority to depot
+            else:
+                depot_component = 0.5 #Lower prioirty if not directly connected
+
+            # Context-Aware Combination: Adaptive combination of components with multiplicative interaction
+            heuristic_matrix[i, j] = (distance_component**0.8 * demand_component**1.2 * (1 - angle_component)**0.9 *
+                                      centrality_component**0.7 * depot_component**1.1) # Fine-tuned exponents
+
+    return heuristic_matrix
+```

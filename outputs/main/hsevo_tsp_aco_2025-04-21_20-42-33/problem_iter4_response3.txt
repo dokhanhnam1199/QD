@@ -1,0 +1,61 @@
+import numpy as np
+import scipy.sparse
+from scipy.sparse.csgraph import dijkstra
+
+def heuristics_v2(distance_matrix: np.ndarray,
+                  inverse_distance_epsilon: float = 8.382197975269118e-09,
+                  degree_threshold_factor: float = 1.9389110259801656,
+                  degree_penalty_min: float = 0.61123121537746,
+                  shortest_paths_epsilon: float = 1.4018064849564856e-09,
+                  randomness_factor: float = 0.07740571915903323,
+                  sparsify_threshold: float = 0.0389780425799138) -> np.ndarray:
+    """TSP heuristic: shortest paths + adaptive degree bias + controlled randomness."""
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Inverse distance
+    inverse_distance = 1 / (distance_matrix + inverse_distance_epsilon)
+
+    # 2. Shortest path estimate (Dijkstra)
+    graph = scipy.sparse.csr_matrix(distance_matrix)
+    shortest_paths = dijkstra(graph, directed=False, indices=range(n))
+
+    # 3. Adaptive degree bias (only penalize high degree nodes)
+    degree_penalty = np.ones_like(distance_matrix)
+    avg_degree = 0
+    for i in range(n):
+        degree_i = np.sum(inverse_distance[i, :]) - inverse_distance[i, i]
+        avg_degree += degree_i
+    avg_degree /= n
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                degree_i = np.sum(inverse_distance[i, :]) - inverse_distance[i, i]
+                degree_j = np.sum(inverse_distance[j, :]) - inverse_distance[j, j]
+
+                # Penalize only if degree is significantly above average
+                if degree_i > degree_threshold_factor * avg_degree:
+                    degree_penalty[i, j] *= max(degree_penalty_min, avg_degree / (degree_i + inverse_distance_epsilon)) # Reduced penalty
+                if degree_j > degree_threshold_factor * avg_degree:
+                    degree_penalty[i, j] *= max(degree_penalty_min, avg_degree / (degree_j + inverse_distance_epsilon)) # Reduced penalty
+            else:
+                degree_penalty[i, j] = 0
+
+    # 4. Combine heuristics: Prioritize inverse distance and shortest paths
+    heuristic_matrix = inverse_distance * degree_penalty / (shortest_paths + shortest_paths_epsilon)
+
+    # 5. Controlled Randomness (only add if heuristic value is non-zero)
+    for i in range(n):
+        for j in range(n):
+            if heuristic_matrix[i, j] > 0:
+                heuristic_matrix[i, j] += randomness_factor * np.random.rand()
+
+    # 6. Normalize
+    max_heuristic = np.max(heuristic_matrix)
+    heuristic_matrix /= max_heuristic
+
+    # 7. Sparsify: Remove edges with very low heuristic value
+    heuristic_matrix[heuristic_matrix < sparsify_threshold] = 0
+
+    return heuristic_matrix

@@ -1,0 +1,49 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm explores the TSP solution space by iteratively constructing tours using a biased nearest neighbor approach guided by edge frequencies from previously generated tours.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    edge_frequency = np.ones((n, n))  # Initialize with ones to avoid division by zero
+    num_samples = 100
+
+    for _ in range(num_samples):
+        current_node = np.random.randint(n)
+        unvisited_nodes = set(range(n))
+        unvisited_nodes.remove(current_node)
+        tour = [current_node]
+
+        while unvisited_nodes:
+            # Biased nearest neighbor selection
+            probabilities = np.zeros(n)
+            for neighbor in unvisited_nodes:
+                probabilities[neighbor] = edge_frequency[current_node, neighbor] / distance_matrix[current_node, neighbor] if distance_matrix[current_node, neighbor] > 0 else 0  # Adjust for distance
+            
+            if np.sum(probabilities[list(unvisited_nodes)]) > 0:
+                probabilities /= np.sum(probabilities[list(unvisited_nodes)])
+                next_node = np.random.choice(n, p=probabilities)
+                while next_node not in unvisited_nodes:  #Ensure selected node is unvisited, might occur due to rounding errors in probabilities
+                    probabilities[next_node] = 0
+                    if np.sum(probabilities[list(unvisited_nodes)]) == 0:
+                        next_node = np.random.choice(list(unvisited_nodes))
+                        break
+                    probabilities /= np.sum(probabilities[list(unvisited_nodes)])
+                    next_node = np.random.choice(n, p=probabilities)
+            else:
+                next_node = np.random.choice(list(unvisited_nodes))
+
+            tour.append(next_node)
+            unvisited_nodes.remove(next_node)
+            heuristics_matrix[current_node, next_node] += 1
+            heuristics_matrix[next_node, current_node] += 1
+            current_node = next_node
+        
+        heuristics_matrix[current_node, tour[0]] += 1
+        heuristics_matrix[tour[0], current_node] += 1
+
+        # Update edge frequencies (exponential moving average)
+        for i in range(n):
+            edge_frequency[tour[i], tour[(i+1)%n]] = 0.9 * edge_frequency[tour[i], tour[(i+1)%n]] + 0.1
+            edge_frequency[tour[(i+1)%n], tour[i]] = 0.9 * edge_frequency[tour[(i+1)%n], tour[i]] + 0.1
+
+    return heuristics_matrix

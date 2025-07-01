@@ -1,0 +1,72 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+  """{This algorithm generates multiple random tours, applies a local search (2-opt) to improve each tour, selects the best tours, and uses edge frequencies in these optimized tours to build a heuristic matrix.}"""
+  n = distance_matrix.shape[0]
+  num_tours = 100
+  best_tours_fraction = 0.1
+
+  tours = []
+  tour_lengths = []
+
+  def two_opt(tour):
+    best_tour = tour
+    improved = True
+    while improved:
+      improved = False
+      for i in range(1, n - 1):
+        for k in range(i + 1, n):
+          new_tour = tour[:i] + tour[i:k+1][::-1] + tour[k+1:]
+          new_length = 0
+          for idx in range(n - 1):
+            new_length += distance_matrix[new_tour[idx], new_tour[idx+1]]
+          new_length += distance_matrix[new_tour[n-1], new_tour[0]]
+          
+          tour_length = 0
+          for idx in range(n - 1):
+            tour_length += distance_matrix[tour[idx], tour[idx+1]]
+          tour_length += distance_matrix[tour[n-1], tour[0]]
+
+          if new_length < tour_length:
+            best_tour = new_tour
+            tour = new_tour
+            improved = True
+    return best_tour
+  
+  for _ in range(num_tours):
+    # Generate a random tour
+    tour = np.random.permutation(n)
+    
+    # Apply 2-opt local search
+    tour = two_opt(list(tour))
+    
+    # Calculate the tour length
+    tour_length = 0
+    for i in range(n - 1):
+      tour_length += distance_matrix[tour[i], tour[i+1]]
+    tour_length += distance_matrix[tour[n-1], tour[0]]
+
+    tours.append(tour)
+    tour_lengths.append(tour_length)
+
+  # Select the best tours
+  num_best_tours = int(num_tours * best_tours_fraction)
+  best_tour_indices = np.argsort(tour_lengths)[:num_best_tours]
+  best_tours = [tours[i] for i in best_tour_indices]
+
+  # Create a heuristic matrix
+  heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+  for tour in best_tours:
+    for i in range(n - 1):
+      u = tour[i]
+      v = tour[i+1]
+      heuristics_matrix[u, v] += 1.0 / distance_matrix[u, v] if distance_matrix[u, v] > 0 else 0
+      heuristics_matrix[v, u] += 1.0 / distance_matrix[v, u] if distance_matrix[v, u] > 0 else 0
+    u = tour[n-1]
+    v = tour[0]
+    heuristics_matrix[u, v] += 1.0 / distance_matrix[u, v] if distance_matrix[u, v] > 0 else 0
+    heuristics_matrix[v, u] += 1.0 / distance_matrix[v, u] if distance_matrix[v, u] > 0 else 0
+
+  # Normalize the heuristic matrix
+  return heuristics_matrix

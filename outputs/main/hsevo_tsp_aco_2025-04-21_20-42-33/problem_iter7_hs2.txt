@@ -1,0 +1,56 @@
+import numpy as np
+import scipy.sparse
+from scipy.sparse.csgraph import dijkstra
+
+
+def heuristics_v2(distance_matrix: np.ndarray, inverse_distance_epsilon: float = 1.509260590972914e-09, degree_penalty_epsilon: float = 8.786769369639729e-09, shortest_paths_exp_divisor: float = 8.459799442398596, sparsification_percentile: float = 63.41038107952861, normalization_epsilon: float = 9.14099445589443e-09) -> np.ndarray:
+    """Combines inverse distance, shortest paths, and adaptive degree penalty."""
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix, dtype=float)
+
+    # Inverse distance
+    inverse_distance = 1 / (distance_matrix + inverse_distance_epsilon)
+
+    # Shortest paths (Dijkstra's)
+    shortest_paths = np.zeros((n, n))
+    for i in range(n):
+        dist = np.full(n, np.inf)
+        visited = np.zeros(n, dtype=bool)
+        dist[i] = 0
+        for _ in range(n):
+            u = np.argmin(dist + visited * np.inf)
+            visited[u] = True
+            for v in range(n):
+                if distance_matrix[u, v] > 0 and dist[v] > dist[u] + distance_matrix[u, v]:
+                    dist[v] = dist[u] + distance_matrix[u, v]
+        shortest_paths[i, :] = dist
+
+    # Node degree (inverse distance based)
+    node_degree = np.sum(1 / (distance_matrix + np.eye(n)), axis=1)
+    mean_distance = np.mean(distance_matrix[distance_matrix > 0])
+
+    if shortest_paths_exp_divisor is None:
+        shortest_paths_exp_divisor = mean_distance
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                h = inverse_distance[i, j]
+
+                # Adaptive degree penalty
+                degree_penalty = 1 / (np.sqrt(node_degree[i] * node_degree[j]) + degree_penalty_epsilon)
+                h *= degree_penalty
+
+                # Favor edges on shorter paths
+                h *= np.exp(-shortest_paths[i, j] / shortest_paths_exp_divisor)
+
+                heuristics[i, j] = h
+
+    # Normalize
+    heuristics = (heuristics - np.min(heuristics)) / (np.max(heuristics) - np.min(heuristics) + normalization_epsilon)
+
+    # Sparsify based on percentile threshold.  More aggressive sparsification.
+    threshold = np.percentile(heuristics[heuristics > 0], sparsification_percentile)
+    heuristics[heuristics < threshold] = 0
+
+    return heuristics

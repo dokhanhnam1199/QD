@@ -1,0 +1,96 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively refines routes by swapping nodes between them, accepting changes based on a simulated annealing-like criterion, and updates a heuristic matrix based on the edges present in accepted routes.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_routes = 5
+    num_iterations = 1000
+    temperature = 100
+
+    # Initialize random routes
+    routes = []
+    remaining_customers = list(range(1, n))
+    for _ in range(num_routes):
+        route = [0]
+        current_load = 0
+        while remaining_customers and current_load + min([demands[c] for c in remaining_customers]) <= capacity:
+            possible_customers = [c for c in remaining_customers if current_load + demands[c] <= capacity]
+            if not possible_customers:
+                break
+            customer = np.random.choice(possible_customers)
+            route.append(customer)
+            remaining_customers.remove(customer)
+            current_load += demands[customer]
+        route.append(0)
+        routes.append(route)
+
+    # Assign remaining customers to the route with the nearest last node
+    for customer in remaining_customers:
+        best_route_index = -1
+        min_dist = np.inf
+        for i in range(len(routes)):
+            last_node = routes[i][-2]
+            dist = distance_matrix[last_node, customer]
+            if dist < min_dist and sum([demands[n] for n in routes[i][1:-1]]) + demands[customer] <= capacity:
+                min_dist = dist
+                best_route_index = i
+
+        if best_route_index != -1:
+            routes[best_route_index].insert(-1, customer)
+        else:
+            # create new route
+            routes.append([0, customer, 0])
+
+    # Iteratively improve routes using simulated annealing-like swaps
+    for _ in range(num_iterations):
+        # Select two routes at random
+        route_index1, route_index2 = np.random.choice(len(routes), 2, replace=False)
+        route1 = routes[route_index1]
+        route2 = routes[route_index2]
+
+        # Select a node from each route (excluding depot)
+        if len(route1) <= 2 or len(route2) <= 2:
+            continue  # skip if a route is just depot to depot
+        node_index1 = np.random.randint(1, len(route1) - 1)
+        node_index2 = np.random.randint(1, len(route2) - 1)
+        node1 = route1[node_index1]
+        node2 = route2[node_index2]
+
+        # Calculate the change in cost (distance)
+        old_cost = distance_matrix[route1[node_index1 - 1], node1] + distance_matrix[node1, route1[node_index1 + 1]] + \
+                   distance_matrix[route2[node_index2 - 1], node2] + distance_matrix[node2, route2[node_index2 + 1]]
+        new_cost = distance_matrix[route1[node_index1 - 1], node2] + distance_matrix[node2, route1[node_index1 + 1]] + \
+                   distance_matrix[route2[node_index2 - 1], node1] + distance_matrix[node1, route2[node_index2 + 1]]
+        cost_change = new_cost - old_cost
+        
+        # check capacity constraints:
+        route1_load = sum([demands[n] for n in route1[1:-1]]) - demands[node1] + demands[node2]
+        route2_load = sum([demands[n] for n in route2[1:-1]]) - demands[node2] + demands[node1]
+        
+        if route1_load > capacity or route2_load > capacity:
+            cost_change = 1 # large positive cost_change
+
+        # Accept the swap with probability based on temperature
+        if cost_change < 0 or np.random.rand() < np.exp(-cost_change / temperature):
+            # Perform the swap
+            route1[node_index1] = node2
+            route2[node_index2] = node1
+
+            routes[route_index1] = route1
+            routes[route_index2] = route2
+
+        # Update temperature (cooling schedule)
+        temperature *= 0.99
+
+    # Update heuristics matrix based on best routes found
+    for route in routes:
+        for i in range(len(route) - 1):
+            u = route[i]
+            v = route[i+1]
+            heuristics_matrix[u, v] += 1
+            heuristics_matrix[v, u] += 1
+
+    return heuristics_matrix

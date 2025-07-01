@@ -1,0 +1,81 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a genetic algorithm approach, evolving a population of candidate tours through selection, crossover, and mutation to find promising edges.}"""
+    n = distance_matrix.shape[0]
+    population_size = 50
+    num_generations = 100
+    mutation_rate = 0.01
+
+    # Initialize population
+    population = []
+    for _ in range(population_size):
+        tour = np.random.permutation(n)
+        population.append(tour)
+
+    def calculate_fitness(tour):
+        fitness = 0
+        for i in range(n):
+            fitness += distance_matrix[tour[i], tour[(i + 1) % n]]
+        return fitness
+
+    def crossover(parent1, parent2):
+        start = np.random.randint(n)
+        length = np.random.randint(1, n // 2)
+        child = np.zeros(n, dtype=int) - 1
+
+        # Copy segment from parent1
+        for i in range(length):
+            child[(start + i) % n] = parent1[(start + i) % n]
+
+        # Fill in the rest from parent2, avoiding duplicates
+        current_parent2_index = 0
+        for i in range(n):
+            child_index = (start + length + i) % n
+            if child[child_index] == -1:
+                while parent2[current_parent2_index] in child:
+                    current_parent2_index += 1
+                child[child_index] = parent2[current_parent2_index]
+                current_parent2_index += 1
+        return child
+
+    def mutate(tour):
+        for i in range(n):
+            if np.random.rand() < mutation_rate:
+                j = np.random.randint(n)
+                tour[i], tour[j] = tour[j], tour[i]
+        return tour
+
+    # Evolve population
+    for _ in range(num_generations):
+        # Selection (tournament selection)
+        selected_parents = []
+        tournament_size = 5
+        for _ in range(population_size):
+            tournament_indices = np.random.choice(population_size, tournament_size, replace=False)
+            tournament_fitnesses = [calculate_fitness(population[i]) for i in tournament_indices]
+            winner_index = tournament_indices[np.argmin(tournament_fitnesses)]
+            selected_parents.append(population[winner_index])
+
+        # Crossover and Mutation
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = selected_parents[i]
+            parent2 = selected_parents[i + 1] if i + 1 < population_size else selected_parents[0]
+            child1 = crossover(parent1, parent2)
+            child2 = crossover(parent2, parent1)
+            new_population.append(mutate(child1))
+            new_population.append(mutate(child2))
+        population = new_population
+
+    # Calculate edge frequencies from the final population
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    for tour in population:
+        for i in range(n):
+            node1 = tour[i]
+            node2 = tour[(i + 1) % n]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+    heuristics_matrix /= (population_size * num_generations)
+    return heuristics_matrix

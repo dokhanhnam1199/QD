@@ -1,0 +1,54 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int,
+                   sparsification_factor: float = 4.468915424853988,
+                   demand_penalty: float = 0.046145171975636785,
+                   demand_bonus: float = 1.0737405226743628,
+                   angular_smoothing: float = 0.012487111394175314,
+                   demand_power: float = 1.05659130152294,
+                   angular_power: float = 0.5145647076281931,
+                   depot_power: float = 1.240315482948227,
+                   depot_proximity_factor: float = 1.1041796022581176,
+                   distance_smoothing: float = 6.653292961550015e-06) -> np.ndarray:
+    """Adaptive heuristic combining distance, demand, angle, and depot proximity."""
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix)
+    depot_coords = coordinates[0]
+    angles = np.arctan2(coordinates[:, 1] - depot_coords[1], coordinates[:, 0] - depot_coords[0])
+
+    # Adaptive sparsification threshold based on mean distance from depot
+    avg_dist_to_depot = np.mean(distance_matrix[0, 1:])
+    sparsification_threshold = sparsification_factor * avg_dist_to_depot
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+
+            distance = distance_matrix[i, j]
+
+            # Sparsification
+            if distance > sparsification_threshold:
+                continue
+
+            distance_component = 1 / (distance + distance_smoothing)
+
+            demand_component = 1.0
+            if i != 0 and j != 0:
+                if demands[i] + demands[j] > capacity:
+                    demand_component = demand_penalty  # High penalty for exceeding capacity
+                else:
+                    demand_component = demand_bonus
+
+            angle_diff = abs(angles[i] - angles[j])
+            angular_factor = 1 / (angle_diff + angular_smoothing)
+
+            depot_proximity = 1.0
+            if i == 0 or j == 0:
+                depot_proximity = depot_proximity_factor
+
+            # Combine with multiplicative factors and powers
+            heuristic_value = distance_component * (demand_component**demand_power) * (angular_factor**angular_power) * (depot_proximity**depot_power)
+            heuristic_matrix[i, j] = heuristic_value
+
+    return heuristic_matrix

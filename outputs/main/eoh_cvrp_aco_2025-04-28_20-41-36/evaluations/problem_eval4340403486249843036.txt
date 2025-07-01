@@ -1,0 +1,84 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm combines the nearest neighbor approach with adaptive edge weighting based on route feasibility and a probabilistic selection mechanism, iteratively refining the edge weights based on the quality of sampled routes.}"""
+    n = len(demands)
+    heuristics_matrix = np.ones_like(distance_matrix) # Initialize with ones instead of zeros
+    
+    # Parameters
+    num_iterations = 100
+    sample_size = 10
+    alpha = 0.1 # Learning rate for weight update
+    
+    for iteration in range(num_iterations):
+        # Sample routes using weighted probabilities
+        sampled_routes = []
+        for _ in range(sample_size):
+            route = []
+            current_node = 0
+            current_capacity = capacity
+            unvisited_nodes = set(range(1, n))
+            route.append(0)
+
+            while unvisited_nodes:
+                # Calculate edge probabilities based on heuristic weights
+                edge_probabilities = np.zeros(n)
+                for node in unvisited_nodes:
+                    if demands[node] <= current_capacity:
+                        edge_probabilities[node] = heuristics_matrix[current_node, node]
+
+                # Normalize probabilities to sum to 1
+                if np.sum(edge_probabilities) > 0:
+                    edge_probabilities = edge_probabilities / np.sum(edge_probabilities)
+                    
+                    # Select next node probabilistically
+                    next_node = np.random.choice(n, p=edge_probabilities)
+                    if next_node not in unvisited_nodes or demands[next_node] > current_capacity:
+                        # If the chosen node is infeasible, break this route and return to depot.
+                        route.append(0)
+                        current_node = 0
+                        current_capacity = capacity
+                        continue
+
+                    route.append(next_node)
+                    unvisited_nodes.remove(next_node)
+                    current_capacity -= demands[next_node]
+                    current_node = next_node
+                else:
+                    # If no feasible nodes, return to depot.
+                    route.append(0)
+                    current_node = 0
+                    current_capacity = capacity
+                    if len([node for node in unvisited_nodes if demands[node] <= capacity]) == 0:
+                        break #No feasible nodes at all to visit anymore
+            route.append(0)
+            sampled_routes.append(route)
+
+        # Evaluate routes and update edge weights
+        for route in sampled_routes:
+            route_distance = 0
+            valid_route = True
+            current_capacity = capacity
+            for i in range(len(route) - 1):
+                route_distance += distance_matrix[route[i], route[i+1]]
+                if route[i+1] != 0 and i > 0: #Exclude Depot
+                    if route[i] == 0:
+                        current_capacity = capacity
+                    current_capacity -= demands[route[i+1]]
+                    if current_capacity < 0:
+                        valid_route = False
+                        break
+                        
+            if valid_route: # Positive feedback: increase weights of edges in good routes
+                for i in range(len(route) - 1):
+                    heuristics_matrix[route[i], route[i+1]] *= (1 + alpha)
+                    heuristics_matrix[route[i+1], route[i]] *= (1 + alpha)
+            else: # Negative feedback: decrease weights of edges in bad routes
+                for i in range(len(route) - 1):
+                    heuristics_matrix[route[i], route[i+1]] *= (1 - alpha)
+                    heuristics_matrix[route[i+1], route[i]] *= (1 - alpha)
+                    
+            heuristics_matrix = np.clip(heuristics_matrix, 0.01, 10)  # Prevent weights from becoming zero or too large
+
+    return heuristics_matrix

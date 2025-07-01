@@ -1,0 +1,80 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a clustering-first, routing-second approach, where nodes are clustered based on their proximity and demand, followed by generating routes within each cluster and then combining them.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_clusters = int(np.sqrt(n)) # Adjust number of clusters as needed
+    
+    # 1. Clustering (K-Means variant based on location and demand)
+    clusters = [[] for _ in range(num_clusters)]
+    cluster_centers = []
+
+    # Initialize cluster centers randomly from nodes, weighted by demand
+    probabilities = [demands[i] / sum(demands) if i > 0 else 0 for i in range(n)]
+    initial_centers = random.choices(range(1, n), weights=probabilities[1:], k=num_clusters)
+    cluster_centers = [coordinates[i] for i in initial_centers]
+    
+    #Assign nodes to closest cluster
+    for node in range(1, n):
+        min_dist = float('inf')
+        closest_cluster = -1
+        for i in range(num_clusters):
+            dist = np.linalg.norm(coordinates[node] - cluster_centers[i])
+            if dist < min_dist:
+                min_dist = dist
+                closest_cluster = i
+        clusters[closest_cluster].append(node)
+
+    # 2. Route Generation within Clusters (Simple Nearest Neighbor with Capacity Check)
+    cluster_routes = []
+    for cluster in clusters:
+        if not cluster: #Empty cluster, just to avoid errors
+            cluster_routes.append([0,0])
+            continue
+
+        current_node = 0  # Start at depot
+        current_route = [0]
+        current_capacity = capacity
+        remaining_nodes = set(cluster)
+        
+        while remaining_nodes:
+            nearest_node = None
+            min_dist = float('inf')
+            
+            for node in remaining_nodes:
+                if demands[node] <= current_capacity:
+                    dist = distance_matrix[current_node, node]
+                    if dist < min_dist:
+                        min_dist = dist
+                        nearest_node = node
+            
+            if nearest_node is None: #No feasible node
+                current_route.append(0)
+                current_capacity = capacity
+                current_node = 0
+            else:
+                current_route.append(nearest_node)
+                current_capacity -= demands[nearest_node]
+                current_node = nearest_node
+                remaining_nodes.remove(nearest_node)
+        
+        current_route.append(0)
+        cluster_routes.append(current_route)
+
+    # 3. Combine Routes and Construct Heuristic Matrix
+    for route in cluster_routes:
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+    
+    # Normalize heuristic matrix by distance
+    for i in range(n):
+        for j in range(n):
+            if heuristics_matrix[i, j] > 0:
+                heuristics_matrix[i, j] /= distance_matrix[i, j]
+    
+    return heuristics_matrix

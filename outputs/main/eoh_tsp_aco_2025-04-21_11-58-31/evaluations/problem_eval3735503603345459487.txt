@@ -1,0 +1,63 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """
+    {This algorithm constructs a heuristics matrix by combining distance information with degree centrality, pheromone trails inspired by ACO, and a random exploration factor, where the pheromone trails are updated based on sampled nearest neighbor tours.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones_like(distance_matrix, dtype=float)  # Initialize with ones for pheromone
+    num_samples = 100
+    alpha = 1  # Pheromone influence
+    beta = 2  # Distance influence
+    rho = 0.1  # Evaporation rate
+    Q = 100  # Pheromone deposit constant
+
+    # Calculate degree centrality
+    degree_centrality = np.sum(1 / (distance_matrix + 1e-9), axis=0)
+    degree_centrality = degree_centrality / np.sum(degree_centrality)  # Normalize
+
+    for _ in range(num_samples):
+        start_node = np.random.randint(n)
+        current_node = start_node
+        unvisited_nodes = set(range(n))
+        unvisited_nodes.remove(current_node)
+        tour = [current_node]
+
+        while unvisited_nodes:
+            nearest_neighbor = -1
+            min_distance = np.inf
+            for neighbor in unvisited_nodes:
+                if distance_matrix[current_node, neighbor] < min_distance:
+                    min_distance = distance_matrix[current_node, neighbor]
+                    nearest_neighbor = neighbor
+
+            tour.append(nearest_neighbor)
+            unvisited_nodes.remove(nearest_neighbor)
+            current_node = nearest_neighbor
+
+        tour.append(start_node)
+        tour_length = 0
+        for i in range(n):
+            tour_length += distance_matrix[tour[i], tour[i+1]]
+
+        # Pheromone update
+        delta_pheromone = Q / (tour_length + 1e-9)  # Pheromone deposited on edges of the tour
+
+        for i in range(n):
+            node1 = tour[i]
+            node2 = tour[i+1]
+            heuristics_matrix[node1, node2] += delta_pheromone
+            heuristics_matrix[node2, node1] += delta_pheromone
+    
+    #Evaporation
+    heuristics_matrix = (1 - rho) * heuristics_matrix
+    
+    # Combine distance, degree centrality, pheromone, and randomness
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                heuristics_matrix[i, j] = (heuristics_matrix[i, j]**alpha) / ((distance_matrix[i, j] + 1e-9)**beta) * (1 - degree_centrality[i]) * (1 - degree_centrality[j]) + np.random.rand()*0.01
+            else:
+                heuristics_matrix[i, j] = 0
+
+    return heuristics_matrix

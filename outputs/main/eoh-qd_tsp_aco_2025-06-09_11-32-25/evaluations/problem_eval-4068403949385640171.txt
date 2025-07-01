@@ -1,0 +1,72 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm adaptively adjusts edge weights based on the frequency of their appearance in iteratively constructed near-optimal tours using a stochastic nearest neighbor approach and simulated annealing principles.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones((n, n))  # Initialize with equal probability
+    np.fill_diagonal(heuristics_matrix, 0)
+
+    temperature = 1.0
+    cooling_rate = 0.995
+    num_iterations = 5000
+
+    for iteration in range(num_iterations):
+        # Construct a tour using stochastic nearest neighbor
+        current_node = np.random.randint(n)
+        unvisited_nodes = list(range(n))
+        unvisited_nodes.remove(current_node)
+        tour = [current_node]
+        tour_length = 0
+
+        while unvisited_nodes:
+            # Stochastic nearest neighbor selection
+            probabilities = heuristics_matrix[current_node, unvisited_nodes] / np.sum(heuristics_matrix[current_node, unvisited_nodes])
+            next_node_index = np.random.choice(len(unvisited_nodes), p=probabilities)
+            next_node = unvisited_nodes[next_node_index]
+
+            tour.append(next_node)
+            tour_length += distance_matrix[current_node, next_node]
+            current_node = next_node
+            unvisited_nodes.remove(next_node)
+
+        tour.append(tour[0])
+        tour_length += distance_matrix[current_node, tour[0]]
+
+        # Simulated annealing: Accept or reject the tour based on its length
+        if iteration > 0:
+            delta = tour_length - best_tour_length
+            if delta < 0 or np.random.rand() < np.exp(-delta / temperature):
+                # Accept the new tour
+                best_tour = tour
+                best_tour_length = tour_length
+
+                # Update heuristics: Increase weights for edges in the tour
+                for i in range(n):
+                    heuristics_matrix[tour[i], tour[i + 1]] += 0.05
+                    heuristics_matrix[tour[i + 1], tour[i]] += 0.05
+            else:
+                 # Decrease weights for edges not in the tour if rejected
+                 for i in range(n):
+                     if (tour[i], tour[i+1]) not in zip(best_tour[:-1],best_tour[1:]):
+                        heuristics_matrix[tour[i], tour[i + 1]] -= 0.01
+                        heuristics_matrix[tour[i + 1], tour[i]] -= 0.01
+
+
+        else:
+            # First iteration: Initialize best tour
+            best_tour = tour
+            best_tour_length = tour_length
+
+        # Cooling
+        temperature *= cooling_rate
+
+        # Ensure probabilities remain non-negative
+        heuristics_matrix[heuristics_matrix < 0] = 0.001
+
+    # Normalize the heuristics matrix (optional)
+    min_val = np.min(heuristics_matrix)
+    max_val = np.max(heuristics_matrix)
+    if max_val > min_val:
+        heuristics_matrix = (heuristics_matrix - min_val) / (max_val - min_val)
+
+    return heuristics_matrix

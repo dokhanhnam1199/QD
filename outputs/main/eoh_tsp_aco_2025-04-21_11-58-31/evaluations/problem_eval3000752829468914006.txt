@@ -1,0 +1,80 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a genetic algorithm approach, evolving a population of paths over several generations, selecting the best paths to reproduce and mutate, and using the frequency of edges in the best solutions to construct the heuristic matrix.}"""
+    n = distance_matrix.shape[0]
+    population_size = 50
+    num_generations = 100
+    mutation_rate = 0.05
+    
+    # Initialize population
+    population = []
+    for _ in range(population_size):
+        path = np.random.permutation(n)
+        population.append(path)
+    
+    def calculate_cost(path):
+        cost = 0
+        for i in range(n):
+            cost += distance_matrix[path[i], path[(i + 1) % n]]
+        return cost
+    
+    def crossover(parent1, parent2):
+        start = np.random.randint(n)
+        length = np.random.randint(1, n // 2)
+        child = np.zeros(n, dtype=int) - 1
+        
+        # Copy a segment from parent1
+        for i in range(length):
+            child[(start + i) % n] = parent1[(start + i) % n]
+        
+        # Fill in the rest from parent2
+        current_index = (start + length) % n
+        parent2_index = 0
+        while -1 in child:
+            gene = parent2[parent2_index]
+            if gene not in child:
+                child[current_index] = gene
+                current_index = (current_index + 1) % n
+            parent2_index += 1
+        
+        return child
+    
+    def mutate(path):
+        if np.random.rand() < mutation_rate:
+            i, j = np.random.choice(n, 2, replace=False)
+            path[i], path[j] = path[j], path[i]
+        return path
+    
+    for _ in range(num_generations):
+        # Evaluate fitness
+        fitness = [calculate_cost(path) for path in population]
+        
+        # Selection (tournament selection)
+        selected_indices = np.argpartition(fitness, population_size // 4)[:population_size // 4] # select top 25%
+        selected_parents = [population[i] for i in selected_indices]
+
+        
+        # Create new population
+        new_population = selected_parents.copy() # Keep elites
+        while len(new_population) < population_size:
+            parent1 = np.random.choice(selected_parents)
+            parent2 = np.random.choice(selected_parents)
+            child = crossover(parent1, parent2)
+            child = mutate(child)
+            new_population.append(child)
+        
+        population = new_population
+    
+    # Create heuristics matrix based on the best path in the final population
+    fitness = [calculate_cost(path) for path in population]
+    best_path = population[np.argmin(fitness)]
+    
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        node1 = best_path[i]
+        node2 = best_path[(i + 1) % n]
+        heuristics_matrix[node1, node2] = 1
+        heuristics_matrix[node2, node1] = 1
+    
+    return heuristics_matrix

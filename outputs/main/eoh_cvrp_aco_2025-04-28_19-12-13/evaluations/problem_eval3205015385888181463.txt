@@ -1,0 +1,134 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs solutions using a clustering-first, route-second approach, iteratively refining cluster assignments and route orders within clusters using simulated annealing guided by a cost function incorporating distance and capacity constraints.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 100
+    initial_temp = 100
+    cooling_rate = 0.95
+    
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+    
+    def calculate_load(cluster):
+        load = 0
+        for node in cluster:
+            load += demands[node]
+        return load
+
+    def calculate_clustering_cost(clusters):
+        cost = 0
+        for cluster in clusters:
+            if len(cluster) > 0:
+                route = [0] + cluster + [0]
+                cost += calculate_route_cost(route)
+        return cost
+
+    def initial_clustering(n, num_clusters):
+        clusters = [[] for _ in range(num_clusters)]
+        nodes = list(range(1, n))
+        random.shuffle(nodes)
+        for i, node in enumerate(nodes):
+            clusters[i % num_clusters].append(node)
+        return clusters
+
+    def swap_nodes_between_clusters(clusters):
+        # Select two random clusters
+        cluster_idx1 = random.randint(0, len(clusters) - 1)
+        cluster_idx2 = random.randint(0, len(clusters) - 1)
+        
+        #Ensure clusters are not empty
+        if not clusters[cluster_idx1] or not clusters[cluster_idx2]:
+            return clusters
+
+        # Select a random node from each cluster
+        node1 = random.choice(clusters[cluster_idx1])
+        node2 = random.choice(clusters[cluster_idx2])
+
+        # Swap the nodes
+        clusters[cluster_idx1].remove(node1)
+        clusters[cluster_idx2].remove(node2)
+        clusters[cluster_idx1].append(node2)
+        clusters[cluster_idx2].append(node1)
+
+        return clusters
+
+    def two_opt_within_cluster(cluster):
+      if len(cluster) <= 1:
+        return cluster
+
+      best_cluster = cluster[:]
+      best_cost = calculate_route_cost([0] + cluster + [0])
+
+      for i in range(len(cluster) - 1):
+          for k in range(i + 1, len(cluster)):
+              new_cluster = cluster[:i] + cluster[i:k+1][::-1] + cluster[k+1:]
+              new_cost = calculate_route_cost([0] + new_cluster + [0])
+              if new_cost < best_cost:
+                  best_cluster = new_cluster[:]
+                  best_cost = new_cost
+      return best_cluster
+    
+    # Determine number of clusters (vehicles)
+    num_clusters = min(n - 1, int(np.ceil(np.sum(demands[1:]) / capacity)))
+    
+    # Initialize clustering
+    clusters = initial_clustering(n, num_clusters)
+
+    best_clustering = [cluster[:] for cluster in clusters]
+    best_cost = float('inf')
+    
+    temp = initial_temp
+    for _ in range(num_iterations):
+        #Generate Neighbour
+        new_clusters = [cluster[:] for cluster in clusters] 
+        new_clusters = swap_nodes_between_clusters(new_clusters)
+    
+        # Check capacity constraints and correct (crude handling)
+        for i in range(len(new_clusters)):
+            load = calculate_load(new_clusters[i])
+            if load > capacity:
+                #Move nodes to other clusters until capacity is met
+                while load > capacity and new_clusters[i]:
+                    node_to_move = new_clusters[i].pop()
+                    
+                    min_load_cluster = min(range(len(new_clusters)), key=lambda k: calculate_load(new_clusters[k]))
+                    new_clusters[min_load_cluster].append(node_to_move)
+                    load = calculate_load(new_clusters[i]) #Recalculate
+
+        # 2-opt within each cluster
+        for i in range(len(new_clusters)):
+            new_clusters[i] = two_opt_within_cluster(new_clusters[i])    
+        
+        new_cost = calculate_clustering_cost(new_clusters)
+        
+        # Simulated Annealing acceptance criterion
+        cost_diff = new_cost - calculate_clustering_cost(clusters)
+        if cost_diff < 0 or random.random() < np.exp(-cost_diff / temp):
+            clusters = [cluster[:] for cluster in new_clusters]
+
+            # Update best solution
+            if new_cost < best_cost:
+                best_cost = new_cost
+                best_clustering = [cluster[:] for cluster in new_clusters]
+
+        temp *= cooling_rate
+
+    #Heuristic matrix from best solution
+    for cluster in best_clustering:
+        route = [0] + cluster + [0]
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+
+    # Normalize heuristic matrix
+    total_visits = np.sum(heuristics_matrix)
+    if total_visits > 0:
+        heuristics_matrix = heuristics_matrix / total_visits
+
+    return heuristics_matrix

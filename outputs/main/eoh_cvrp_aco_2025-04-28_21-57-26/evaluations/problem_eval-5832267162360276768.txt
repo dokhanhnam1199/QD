@@ -1,0 +1,74 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm initializes routes with single customers, iteratively merges them based on savings, and uses a pheromone-like matrix to encourage exploration, penalizing merges that violate capacity constraints.}"""
+
+    n = len(demands)
+    heuristics_matrix = np.zeros((n, n))
+    pheromone_matrix = np.ones((n, n))  # Initialize pheromone matrix
+
+    # Initialize savings matrix
+    savings = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(i+1, n):
+            savings[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings[j, i] = savings[i, j]  # Savings are symmetric
+
+    # Initialize individual routes for each customer
+    routes = [[i] for i in range(1, n)]
+    route_demands = {i: demands[i] for i in range(1, n)}
+    
+    num_iterations = 1000
+    for _ in range(num_iterations):
+        # Find the best savings considering pheromones
+        best_savings = -1
+        best_i = -1
+        best_j = -1
+
+        for i in range(1, n):
+            for j in range(i + 1, n):
+                # Check if i and j are end nodes of different routes
+                route_i = None
+                route_j = None
+                for r_idx, route in enumerate(routes):
+                    if route[0] == i:
+                        route_i = r_idx
+                    if route[-1] == j:
+                        route_j = r_idx
+                
+                if route_i is not None and route_j is not None and route_i != route_j:
+                    current_savings = savings[i, j] * pheromone_matrix[i, j]
+                    if current_savings > best_savings:
+                        best_savings = current_savings
+                        best_i = i
+                        best_j = j
+                        best_route_i = route_i
+                        best_route_j = route_j
+
+        # Merge routes if beneficial and feasible
+        if best_savings > 0:
+            
+            route_i = routes[best_route_i]
+            route_j = routes[best_route_j]
+            
+            total_demand = sum([demands[node] for node in route_i + route_j])
+            
+            if total_demand <= capacity:
+                # Update pheromone matrix - reward
+                for node1 in route_i:
+                  for node2 in route_j:
+                    heuristics_matrix[node1, node2] +=1
+                    heuristics_matrix[node2, node1] +=1
+                    pheromone_matrix[node1, node2] *= 1.1  # Increase pheromone
+                    pheromone_matrix[node2, node1] *= 1.1
+                # Merge the routes
+                routes[best_route_i] = route_i + route_j
+                del routes[best_route_j]
+            else:
+                # Penalize the edge in pheromone matrix
+                pheromone_matrix[best_i, best_j] *= 0.9  # Decrease pheromone
+                pheromone_matrix[best_j, best_i] *= 0.9
+
+
+    return heuristics_matrix

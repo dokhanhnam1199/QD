@@ -1,0 +1,106 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses a genetic algorithm approach to evolve a population of routes, evaluating their fitness based on distance and capacity constraints, and then uses the edge frequencies in the best routes to generate a heuristic matrix.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    population_size = 50
+    num_generations = 50
+    mutation_rate = 0.1
+
+    def create_individual():
+        customer_indices = list(range(1, n))
+        random.shuffle(customer_indices)
+        return customer_indices
+
+    def create_population(size):
+        return [create_individual() for _ in range(size)]
+
+    def calculate_fitness(individual):
+        routes = []
+        current_route = [0]
+        current_capacity = 0
+        for customer in individual:
+            if current_capacity + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_capacity += demands[customer]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, customer]
+                current_capacity = demands[customer]
+        current_route.append(0)
+        routes.append(current_route)
+        
+        total_distance = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                total_distance += distance_matrix[u, v]
+        return 1 / (total_distance + 1e-6) # Higher fitness for shorter routes
+
+    def crossover(parent1, parent2):
+        start = random.randint(0, len(parent1) - 1)
+        end = random.randint(start + 1, len(parent1))
+        child = parent1[start:end]
+        remaining = [item for item in parent2 if item not in child]
+        child = remaining[:start] + child + remaining[start:]
+        return child
+
+    def mutate(individual):
+        for i in range(len(individual)):
+            if random.random() < mutation_rate:
+                j = random.randint(0, len(individual) - 1)
+                individual[i], individual[j] = individual[j], individual[i]
+        return individual
+
+    population = create_population(population_size)
+
+    for _ in range(num_generations):
+        fitness_scores = [calculate_fitness(individual) for individual in population]
+        
+        # Selection (Roulette Wheel)
+        probabilities = [score / sum(fitness_scores) for score in fitness_scores]
+        selected_indices = np.random.choice(len(population), size=population_size, p=probabilities)
+        selected_population = [population[i] for i in selected_indices]
+
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = selected_population[i]
+            parent2 = selected_population[i+1] if i+1 < population_size else selected_population[i] 
+            child1 = crossover(parent1, parent2)
+            child2 = crossover(parent2, parent1)
+            new_population.append(mutate(child1))
+            new_population.append(mutate(child2))
+
+        population = new_population
+    
+    # Use the best individual to update heuristic matrix
+    best_individual = max(population, key=calculate_fitness)
+    routes = []
+    current_route = [0]
+    current_capacity = 0
+    for customer in best_individual:
+        if current_capacity + demands[customer] <= capacity:
+            current_route.append(customer)
+            current_capacity += demands[customer]
+        else:
+            current_route.append(0)
+            routes.append(current_route)
+            current_route = [0, customer]
+            current_capacity = demands[customer]
+    current_route.append(0)
+    routes.append(current_route)
+
+    for route in routes:
+        for i in range(len(route) - 1):
+            u = route[i]
+            v = route[i+1]
+            heuristics_matrix[u, v] += 1
+            heuristics_matrix[v, u] += 1
+    
+    return heuristics_matrix

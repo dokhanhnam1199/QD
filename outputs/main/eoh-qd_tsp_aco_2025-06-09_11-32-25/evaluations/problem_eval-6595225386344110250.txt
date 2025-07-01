@@ -1,0 +1,59 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm samples multiple near-optimal TSP solutions using a greedy randomized construction and local search, then aggregates edge usage frequencies to estimate edge importance.}"""
+    n = distance_matrix.shape[0]
+    num_samples = 100
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    for _ in range(num_samples):
+        # 1. Greedy Randomized Construction
+        start_node = np.random.randint(n)
+        current_node = start_node
+        unvisited = set(range(n))
+        unvisited.remove(current_node)
+        tour = [current_node]
+
+        while unvisited:
+            # Randomized nearest neighbor selection
+            neighbors = list(unvisited)
+            distances = [distance_matrix[current_node, neighbor] for neighbor in neighbors]
+            probabilities = np.exp(-np.array(distances) / np.std(distances))  # Softmax-like weighting
+            probabilities /= np.sum(probabilities)
+            
+            next_node = np.random.choice(neighbors, p=probabilities)
+
+            tour.append(next_node)
+            unvisited.remove(next_node)
+            current_node = next_node
+        
+        tour.append(start_node)
+
+        # 2. 2-opt Local Search
+        improved = True
+        while improved:
+            improved = False
+            for i in range(1, n):
+                for j in range(i + 1, n + 1):
+                    if j == n:
+                        new_distance = distance_matrix[tour[i-1], tour[j-1]] + distance_matrix[tour[i], tour[0]]
+                        old_distance = distance_matrix[tour[i-1], tour[i]] + distance_matrix[tour[j-1], tour[0]]
+                    else:
+                        new_distance = distance_matrix[tour[i-1], tour[j]] + distance_matrix[tour[i], tour[j-1]]
+                        old_distance = distance_matrix[tour[i-1], tour[i]] + distance_matrix[tour[j], tour[j-1]]
+
+                    if new_distance < old_distance:
+                        tour[i:j] = reversed(tour[i:j])
+                        improved = True
+                        break
+                if improved:
+                    break
+            
+        # 3. Update Heuristics Matrix
+        for i in range(n):
+            heuristics_matrix[tour[i], tour[i+1]] += 1
+            heuristics_matrix[tour[i+1], tour[i]] += 1
+            
+    heuristics_matrix /= num_samples
+
+    return heuristics_matrix

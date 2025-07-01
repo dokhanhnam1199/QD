@@ -1,0 +1,82 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm employs a Monte Carlo Tree Search (MCTS) approach to explore the solution space, favoring edges that lead to lower estimated tour costs.}"""
+    n = distance_matrix.shape[0]
+    num_simulations = 500
+    exploration_constant = 1.0
+    heuristics_matrix = np.zeros((n, n), dtype=float)
+
+    class Node:
+        def __init__(self, path, unvisited, distance_matrix):
+            self.path = path
+            self.unvisited = unvisited
+            self.distance_matrix = distance_matrix
+            self.children = {}
+            self.visits = 0
+            self.total_reward = 0
+
+        def select_child(self):
+            best_child = None
+            best_ucb = -np.inf
+            for child, node in self.children.items():
+                ucb = node.total_reward / (node.visits + 1e-6) + exploration_constant * np.sqrt(np.log(self.visits + 1) / (node.visits + 1e-6))
+                if ucb > best_ucb:
+                    best_ucb = ucb
+                    best_child = child
+            return best_child
+
+        def expand(self):
+            for node in self.unvisited:
+                self.children[node] = Node(self.path + [node], self.unvisited - {node}, self.distance_matrix)
+
+        def simulate(self):
+            current_node = self.path[-1]
+            unvisited = set(self.unvisited)
+            cost = 0
+            path = list(self.path)
+            while unvisited:
+                next_node = min(unvisited, key=lambda x: self.distance_matrix[current_node, x])
+                cost += self.distance_matrix[current_node, next_node]
+                path.append(next_node)
+                current_node = next_node
+                unvisited.remove(next_node)
+            
+            cost += self.distance_matrix[path[-1], path[0]]
+            path.append(path[0])
+            return -cost, path
+
+
+        def backpropagate(self, reward):
+            self.visits += 1
+            self.total_reward += reward
+            
+
+    for _ in range(num_simulations):
+        root = Node([np.random.randint(n)], set(range(n)), distance_matrix)
+        root.unvisited.remove(root.path[0])
+        node = root
+
+        # Selection
+        while node.children and node.unvisited:
+            next_node = node.select_child()
+            node = node.children[next_node]
+
+        # Expansion
+        if node.unvisited:
+            node.expand()
+            next_node = next(iter(node.children))
+            node = node.children[next_node]
+        
+        # Simulation
+        reward, path = node.simulate()
+
+        # Backpropagation
+        while node is not None:
+            node.backpropagate(reward)
+            if len(node.path) > 1:
+              heuristics_matrix[node.path[-2], node.path[-1]] += 1
+              heuristics_matrix[node.path[-1], node.path[-2]] += 1
+            node = None #break
+
+    return heuristics_matrix

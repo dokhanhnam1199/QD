@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Improves upon simple distance-based heuristics for CVRP by considering:
+    1. Distance: Shorter distances are generally better.
+    2. Capacity: Edges connecting nodes with high combined demand are penalized,
+       especially if they're far from the depot.
+    3. Depot proximity: Edges far from the depot are penalized if they
+       connect nodes with demands that, if routed together, are likely to cause
+       capacity issues and require frequent returns to the depot.
+    4. Node Degree: Encourage a minimum node degree
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Adjust the relative weights based on experimental analysis.
+    distance_weight = 1.0
+    capacity_weight = 0.5
+    depot_proximity_weight = 0.8
+    node_degree_weight = 0.2 #Encourage each node to be connected to at least one other
+
+    # Calculate average demand
+    avg_demand = np.mean(demands[1:])
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+                continue
+
+            distance_term = distance_weight / (distance_matrix[i, j] + 1e-9) #Adding a small number to prevent division by zero
+
+            # Demand-based penalty: Higher penalty if combined demand is large relative to capacity.
+            combined_demand = demands[i] + demands[j]
+            capacity_penalty = np.exp((combined_demand - capacity)/ (capacity+1e-9)) if combined_demand > capacity else 1
+            capacity_term = capacity_weight / (capacity_penalty + 1e-9)
+
+            #Penalize routing two demand nodes to each other if they both require another expensive trip back to the depot.
+            depot_distance_factor = (distance_matrix[0, i] + distance_matrix[0, j])
+            depot_proximity_term = depot_proximity_weight / (depot_distance_factor + 1e-9)
+
+            heuristic_matrix[i, j] = distance_term * capacity_term * depot_proximity_term
+            heuristic_matrix[j, i] = heuristic_matrix[i, j] #Symmetric cost matrix
+
+    #Node Degree Encouragement
+    for i in range(n):
+      heuristic_matrix[i,0] += node_degree_weight / (distance_matrix[i, 0] + 1e-9)
+      heuristic_matrix[0, i] += node_degree_weight / (distance_matrix[0, i] + 1e-9)
+
+    return heuristic_matrix
+```

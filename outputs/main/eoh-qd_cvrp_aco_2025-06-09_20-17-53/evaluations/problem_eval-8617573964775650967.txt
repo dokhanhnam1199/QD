@@ -1,0 +1,92 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a genetic algorithm approach to evolve a population of routes and create a heuristic matrix based on the frequency of edges in the best solutions.}"""
+    n = len(demands)
+    num_samples = 100
+    population_size = 50
+    mutation_rate = 0.1
+    heuristics_matrix = np.zeros_like(distance_matrix)
+
+    def create_initial_population(size):
+        population = []
+        for _ in range(size):
+            unvisited = list(range(1, n))
+            random.shuffle(unvisited)
+            routes = []
+            current_route = [0]
+            current_capacity = capacity
+            for node in unvisited:
+                if demands[node] <= current_capacity:
+                    current_route.append(node)
+                    current_capacity -= demands[node]
+                else:
+                    current_route.append(0)
+                    routes.append(current_route)
+                    current_route = [0, node]
+                    current_capacity = capacity - demands[node]
+            current_route.append(0)
+            routes.append(current_route)
+            population.append(routes)
+        return population
+
+    def calculate_fitness(routes):
+        cost = 0
+        for route in routes:
+            for r in route:
+                for i in range(len(r) - 1):
+                    cost += distance_matrix[r[i]][r[i+1]]
+        return cost
+
+    def crossover(parent1, parent2):
+        # Simple one-point crossover
+        crossover_point = random.randint(0, min(len(parent1), len(parent2)))
+        child1 = parent1[:crossover_point] + parent2[crossover_point:]
+        child2 = parent2[:crossover_point] + parent1[crossover_point:]
+        return child1, child2
+
+    def mutate(routes):
+        if random.random() < mutation_rate:
+             route_to_mutate_index = random.randint(0, len(routes) - 1)
+             route_to_mutate = routes[route_to_mutate_index]
+             if len(route_to_mutate) > 2:
+                 i = random.randint(1, len(route_to_mutate) - 2)
+                 j = random.randint(1, len(route_to_mutate) - 2)
+                 route_to_mutate[i], route_to_mutate[j] = route_to_mutate[j], route_to_mutate[i]
+        return routes
+    
+    population = create_initial_population(population_size)
+
+    for _ in range(num_samples):
+        # Evaluate fitness
+        fitness_scores = [calculate_fitness(routes) for routes in population]
+        
+        # Select parents (tournament selection)
+        selected_indices = random.sample(range(population_size), population_size // 2)
+        selected_population = [population[i] for i in selected_indices]
+        
+        # Create offspring
+        new_population = []
+        for i in range(0, len(selected_population) - 1, 2):
+            parent1 = selected_population[i]
+            parent2 = selected_population[i+1]
+            child1, child2 = crossover(parent1, parent2)
+            new_population.append(mutate(child1))
+            new_population.append(mutate(child2))
+
+        population = new_population
+        
+    # After evolution, find the best solution
+    fitness_scores = [calculate_fitness(routes) for routes in population]
+    best_index = np.argmin(fitness_scores)
+    best_routes = population[best_index]
+    
+    # Update heuristics matrix based on the best routes
+    for route in best_routes:
+        for r in route:
+            for i in range(len(r) - 1):
+                heuristics_matrix[r[i]][r[i+1]] += 1
+                heuristics_matrix[r[i+1]][r[i]] += 1  # Symmetry
+
+    return heuristics_matrix

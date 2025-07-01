@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Discrete Priority Levels
+    # 1. Exact Fit: Highest Priority
+    exact_fit = (bins_remain_cap == item)
+    priorities[exact_fit] = 10000.0  # Very high priority
+
+    # 2. Near Fit: High Priority (but slightly less than exact)
+    near_fit_threshold = 0.005  # Very tight near fit
+    near_fit = (bins_remain_cap >= item) & (bins_remain_cap <= item * (1 + near_fit_threshold))
+    priorities[near_fit] = 9500.0 # High priority, less than exact fit
+
+    # 3. Decent Fit
+    decent_fit_threshold = 0.05
+    decent_fit = (bins_remain_cap >= item) & (bins_remain_cap <= item * (1 + decent_fit_threshold)) & ~near_fit
+    priorities[decent_fit] = 5000.0  # Moderate priority
+
+    # Infeasibility Penalty: Absolute Must-Avoid
+    infeasible = bins_remain_cap < item
+    priorities[infeasible] = -1e12  # Huge penalty
+
+    # Fragmentation Penalty: (relative to item size)
+    fragmentation_threshold = 0.15 # 15%
+    fragmented = (bins_remain_cap >= item) & ((bins_remain_cap - item) / item <= fragmentation_threshold)
+    if np.any(fragmented):
+        waste_ratio = (bins_remain_cap[fragmented] - item) / item
+        priorities[fragmented] -= waste_ratio * 2000.0  # Scale penalty based on waste
+
+    # Penalize near-full bins to encourage more balanced packing.
+    near_full_threshold = 0.90  # Bin is 90% full or more after adding the item
+    near_full = (bins_remain_cap >= item) & ((bins_remain_cap - item) / np.max(bins_remain_cap) >= near_full_threshold)
+    priorities[near_full] -= 1500.0  # Significant penalty
+
+    # Reward partially filled bins: Favor using existing bins
+    non_empty = bins_remain_cap < np.max(bins_remain_cap)
+    priorities[non_empty] += 1000.0  # Increased reward
+
+    # Discourage bins with too much remaining capacity
+    large_capacity_threshold = 1.75 # Item must be smaller than remaining cap by this much.
+    large_capacity = (bins_remain_cap >= item) & (bins_remain_cap > large_capacity_threshold * item)
+    priorities[large_capacity] -= 1250.0
+
+    return priorities
+```

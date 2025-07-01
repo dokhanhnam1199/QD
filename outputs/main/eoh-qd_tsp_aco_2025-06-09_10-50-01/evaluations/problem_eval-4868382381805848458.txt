@@ -1,0 +1,60 @@
+import numpy as np
+
+def heuristics_v3(distance_matrix):
+    """{This algorithm samples TSP solutions using a nearest neighbor heuristic, and then scores each edge based on the inverse of its average rank across all sampled solutions.}"""
+    n = distance_matrix.shape[0]
+    num_samples = 100
+    edge_ranks_sum = np.zeros_like(distance_matrix, dtype=float)
+
+    for _ in range(num_samples):
+        start_node = np.random.randint(n)
+        current_node = start_node
+        unvisited_nodes = set(range(n))
+        unvisited_nodes.remove(current_node)
+        path = [current_node]
+
+        while unvisited_nodes:
+            nearest_neighbor = -1
+            min_distance = np.inf
+            for neighbor in unvisited_nodes:
+                if distance_matrix[current_node, neighbor] < min_distance:
+                    min_distance = distance_matrix[current_node, neighbor]
+                    nearest_neighbor = neighbor
+
+            path.append(nearest_neighbor)
+            unvisited_nodes.remove(nearest_neighbor)
+            current_node = nearest_neighbor
+
+        path.append(start_node)  # Return to starting node
+        
+        # Calculate ranks of each edge in this sample
+        edge_distances = {}
+        for i in range(n):
+            node1 = path[i]
+            node2 = path[i+1]
+            edge_distances[(node1, node2)] = distance_matrix[node1, node2]
+            edge_distances[(node2, node1)] = distance_matrix[node2, node1] #Symmetric
+
+        sorted_edges = sorted(edge_distances.items(), key=lambda item: item[1])
+        
+        edge_ranks = {}
+        rank = 1
+        for (node1, node2), distance in sorted_edges:
+            if (node1, node2) not in edge_ranks:
+                edge_ranks[(node1, node2)] = rank
+                edge_ranks[(node2, node1)] = rank
+                rank += 1
+            
+        # Update edge rank sums based on the sampled path
+        for i in range(n):
+            node1 = path[i]
+            node2 = path[i + 1]
+            edge_ranks_sum[node1, node2] += edge_ranks[(node1, node2)]
+            edge_ranks_sum[node2, node1] += edge_ranks[(node2, node1)]
+
+    average_edge_ranks = edge_ranks_sum / num_samples
+    
+    #Invert edge ranks to obtain heuristics, adding a small value to avoid division by zero
+    heuristics_matrix = 1 / (average_edge_ranks + 1e-9)
+    
+    return heuristics_matrix

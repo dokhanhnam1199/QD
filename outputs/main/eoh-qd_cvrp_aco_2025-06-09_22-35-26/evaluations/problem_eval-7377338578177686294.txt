@@ -1,0 +1,73 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses stochastic solution sampling with a nearest neighbor heuristic, biasing the nearest neighbor selection based on a combination of distance and demand, and uses the edge frequencies as heuristics.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_samples = 1000  # Number of sample solutions to generate
+
+    for _ in range(num_samples):
+        # Generate a random start node (excluding depot)
+        start_node = np.random.choice(range(1, n))
+
+        # Nearest neighbor tour construction
+        current_node = start_node
+        unvisited_nodes = set(range(1, n))
+        unvisited_nodes.remove(current_node)
+        tour = [0, current_node]
+        current_load = demands[current_node]
+        vehicle_tours = []
+        current_vehicle_tour = [0, current_node]
+
+        while unvisited_nodes:
+            # Find the nearest unvisited node, biased by demand
+            nearest_node = None
+            min_score = float('inf')
+            for neighbor in unvisited_nodes:
+                #Score is based on distance and demand
+                dist = distance_matrix[current_node, neighbor]
+                score = dist + demands[neighbor] # Combine distance and demand
+                if score < min_score:
+                    min_score = score
+                    nearest_node = neighbor
+
+            # Check if adding the nearest node exceeds capacity
+            if current_load + demands[nearest_node] <= capacity:
+                # Add to current tour
+                tour.append(nearest_node)
+                current_vehicle_tour.append(nearest_node)
+                current_load += demands[nearest_node]
+                current_node = nearest_node
+                unvisited_nodes.remove(nearest_node)
+            else:
+                # Return to depot
+                tour.append(0)
+                current_vehicle_tour.append(0)
+                vehicle_tours.append(current_vehicle_tour)
+
+                # Start a new tour from the depot with the nearest node
+                tour.append(nearest_node)
+                current_vehicle_tour = [0, nearest_node]
+
+                current_load = demands[nearest_node]
+                current_node = nearest_node
+                unvisited_nodes.remove(nearest_node)
+
+        # Close the last tour
+        tour.append(0)
+        current_vehicle_tour.append(0)
+        vehicle_tours.append(current_vehicle_tour)
+
+        # Update heuristics based on edges in the tour
+        tour = [node for tour_item in vehicle_tours for node in tour_item]
+
+        for i in range(len(tour) - 1):
+            heuristics_matrix[tour[i], tour[i+1]] += 1
+            heuristics_matrix[tour[i+1], tour[i]] += 1  # Account for symmetry
+
+    # Normalize the heuristic matrix
+    heuristics_matrix /= num_samples
+
+    return heuristics_matrix

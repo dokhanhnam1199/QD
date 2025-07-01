@@ -1,0 +1,60 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm samples many random tours, uses simulated annealing to improve each tour, and then updates an edge frequency matrix based on the improved tours, weighting the contribution of each edge by the inverse of the tour length.}"""
+    n = distance_matrix.shape[0]
+    num_samples = 1000
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    
+    def tour_length(tour):
+        length = 0
+        for i in range(n - 1):
+            length += distance_matrix[tour[i], tour[i+1]]
+        length += distance_matrix[tour[-1], tour[0]]
+        return length
+
+    def neighbor(tour):
+        # Swap two random cities in the tour
+        i, j = np.random.choice(n, 2, replace=False)
+        new_tour = tour.copy()
+        new_tour[i], new_tour[j] = new_tour[j], new_tour[i]
+        return new_tour
+
+    def simulated_annealing(tour, initial_temp=100, cooling_rate=0.95, num_iterations=100):
+        current_tour = tour.copy()
+        current_energy = tour_length(current_tour)
+        temp = initial_temp
+
+        for _ in range(num_iterations):
+            new_tour = neighbor(current_tour)
+            new_energy = tour_length(new_tour)
+
+            if new_energy < current_energy:
+                current_tour = new_tour
+                current_energy = new_energy
+            else:
+                # Metropolis acceptance criterion
+                acceptance_probability = np.exp((current_energy - new_energy) / temp)
+                if np.random.rand() < acceptance_probability:
+                    current_tour = new_tour
+                    current_energy = new_energy
+            temp *= cooling_rate
+
+        return current_tour, current_energy
+    
+    for _ in range(num_samples):
+        # Generate a random tour
+        tour = np.random.permutation(n)
+        
+        # Improve tour with simulated annealing
+        improved_tour, improved_tour_length = simulated_annealing(tour)
+
+        # Update heuristics_matrix, weighting by inverse tour length
+        weight = 1.0 / improved_tour_length
+        for i in range(n - 1):
+            heuristics_matrix[improved_tour[i], improved_tour[i+1]] += weight
+            heuristics_matrix[improved_tour[i+1], improved_tour[i]] += weight  # Symmetric
+        heuristics_matrix[improved_tour[-1], improved_tour[0]] += weight
+        heuristics_matrix[improved_tour[0], improved_tour[-1]] += weight  # Symmetric
+    
+    return heuristics_matrix

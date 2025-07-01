@@ -1,0 +1,75 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses an ant colony optimization approach with pheromone updates based on route lengths and feasibility to construct the heuristics matrix.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone_matrix = np.ones_like(distance_matrix)  # Initialize pheromone trails
+    
+    num_ants = 50
+    alpha = 1  # Pheromone importance
+    beta = 2   # Heuristic importance
+    rho = 0.5   # Evaporation rate
+    Q = 100     # Pheromone deposit constant
+    
+    num_iterations = 100
+    
+    for _ in range(num_iterations):
+        all_routes = []
+        for ant in range(num_ants):
+            current_node = 0
+            route = [0]
+            remaining_nodes = set(range(1, n))
+            current_capacity = capacity
+            
+            while remaining_nodes:
+                probabilities = {}
+                for node in remaining_nodes:
+                    if current_capacity >= demands[node]:
+                        eta = 1 / distance_matrix[current_node, node]
+                        probabilities[node] = (pheromone_matrix[current_node, node]**alpha) * (eta**beta)
+                
+                if not probabilities:
+                    break
+                    
+                total_prob = sum(probabilities.values())
+                if total_prob == 0:
+                    next_node = remaining_nodes.pop()
+                else:
+                    normalized_probabilities = {node: prob / total_prob for node, prob in probabilities.items()}
+                    next_node = np.random.choice(list(normalized_probabilities.keys()), p=list(normalized_probabilities.values()))
+                
+                if current_capacity >= demands[next_node]:
+                    route.append(next_node)
+                    current_capacity -= demands[next_node]
+                    remaining_nodes.remove(next_node)
+                    current_node = next_node
+                else:
+                    route.append(0)
+                    current_node = 0
+                    current_capacity = capacity
+            
+            route.append(0)
+            all_routes.append(route)
+        
+        # Update pheromones
+        for i in range(n):
+            for j in range(n):
+                pheromone_matrix[i, j] *= (1 - rho)  # Evaporation
+        
+        for route in all_routes:
+            route_length = 0
+            for i in range(len(route) - 1):
+                route_length += distance_matrix[route[i], route[i+1]]
+            
+            for i in range(len(route) - 1):
+                pheromone_matrix[route[i], route[i+1]] += Q / route_length
+                pheromone_matrix[route[i+1], route[i]] += Q / route_length
+
+    # Aggregate edge frequencies into the heuristic matrix
+    for i in range(n):
+        for j in range(n):
+            heuristics_matrix[i, j] = pheromone_matrix[i, j]
+
+    return heuristics_matrix

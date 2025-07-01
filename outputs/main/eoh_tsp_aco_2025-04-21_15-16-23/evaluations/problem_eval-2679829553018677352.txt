@@ -1,0 +1,81 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm estimates edge desirability for TSP by iteratively constructing tours using a genetic algorithm approach, favoring edges that appear in fitter tours over multiple generations.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    population_size = 50
+    num_generations = 50
+    mutation_rate = 0.05
+
+    def calculate_tour_length(tour):
+        length = 0
+        for i in range(n):
+            length += distance_matrix[tour[i], tour[(i + 1) % n]]
+        return length
+
+    def initialize_population():
+        population = []
+        for _ in range(population_size):
+            tour = np.random.permutation(n)
+            population.append(tour)
+        return population
+
+    def fitness(tour):
+        return 1 / calculate_tour_length(tour)
+
+    def selection(population):
+        fitness_values = [fitness(tour) for tour in population]
+        total_fitness = sum(fitness_values)
+        probabilities = [f / total_fitness for f in fitness_values]
+        selected_indices = np.random.choice(len(population), size=population_size, replace=True, p=probabilities)
+        selected_population = [population[i] for i in selected_indices]
+        return selected_population
+
+    def crossover(parent1, parent2):
+        start = np.random.randint(n)
+        end = np.random.randint(start + 1, n + 1)
+        child = np.zeros(n, dtype=int) - 1
+        child[start:end] = parent1[start:end]
+        
+        remaining_nodes = [node for node in parent2 if node not in child[start:end]]
+        
+        child_idx = 0
+        for i in range(n):
+            if child[i] == -1:
+                child[i] = remaining_nodes[child_idx]
+                child_idx += 1
+        return child
+
+    def mutate(tour):
+        if np.random.rand() < mutation_rate:
+            i = np.random.randint(n)
+            j = np.random.randint(n)
+            tour[i], tour[j] = tour[j], tour[i]
+        return tour
+
+    population = initialize_population()
+
+    for _ in range(num_generations):
+        selected_population = selection(population)
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = selected_population[i]
+            parent2 = selected_population[(i + 1) % population_size]
+            child1 = crossover(parent1, parent2)
+            child2 = crossover(parent2, parent1)
+            child1 = mutate(child1)
+            child2 = mutate(child2)
+            new_population.append(child1)
+            new_population.append(child2)
+        population = new_population
+
+        best_tour = max(population, key=fitness)
+        for i in range(n):
+            node1 = best_tour[i]
+            node2 = best_tour[(i + 1) % n]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+    heuristics_matrix /= (num_generations)
+    return heuristics_matrix

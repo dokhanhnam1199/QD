@@ -1,0 +1,118 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses an ant colony system with a pheromone matrix and a heuristic matrix based on distance, combined with a local search that optimizes route assignments by reassigning customers to different routes based on cost savings.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    pheromone_matrix = np.ones_like(distance_matrix) * 0.01
+    alpha = 1
+    beta = 2
+    rho = 0.1
+    q = 1
+    num_ants = 20
+    num_iterations = 300
+
+    def calculate_route_load(route):
+        load = 0
+        for node in route:
+            load += demands[node]
+        return load
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    def construct_solution(pheromone, heuristic):
+        unvisited = set(range(1, n))
+        routes = []
+        while unvisited:
+            route = [0]
+            current_load = 0
+            current_node = 0
+            while True:
+                eligible_nodes = [node for node in unvisited if current_load + demands[node] <= capacity]
+                if not eligible_nodes:
+                    break
+
+                probabilities = [(pheromone[current_node, node]**alpha) * (heuristic[current_node, node]**beta) for node in eligible_nodes]
+                total_prob = sum(probabilities)
+                if total_prob == 0:
+                    next_node = random.choice(eligible_nodes)
+                else:
+                    probabilities = [p / total_prob for p in probabilities]
+                    next_node = random.choices(eligible_nodes, weights=probabilities, k=1)[0]
+
+                route.append(next_node)
+                current_load += demands[next_node]
+                unvisited.remove(next_node)
+                current_node = next_node
+            route.append(0)
+            routes.append(route)
+        return routes
+
+    def local_search(routes):
+        improved = True
+        while improved:
+            improved = False
+            for i in range(len(routes)):
+                for j in range(len(routes)):
+                    if i == j:
+                        continue
+                    for node in routes[i][1:-1]:
+                        if calculate_route_load(routes[j] + [node]) - demands[0] <= capacity:
+                            cost_reduction = distance_matrix[routes[i][routes[i].index(node)-1], node] + distance_matrix[node, routes[i][routes[i].index(node)+1]] - distance_matrix[routes[i][routes[i].index(node)-1], routes[i][routes[i].index(node)+1]]
+                            cost_increase = distance_matrix[routes[j][-2], node] + distance_matrix[node, routes[j][1]] - distance_matrix[routes[j][-2], routes[j][1]]
+                            if cost_reduction + cost_increase > 0:
+                                routes[i].remove(node)
+                                routes[j].insert(1, node)
+                                improved = True
+                                break
+                    if improved:
+                        break
+                if improved:
+                    break
+        return routes
+
+    heuristic_matrix = 1 / (distance_matrix + 1e-6)
+
+    best_solution = None
+    best_cost = float('inf')
+
+    for iteration in range(num_iterations):
+        all_routes = []
+        for ant in range(num_ants):
+            routes = construct_solution(pheromone_matrix, heuristic_matrix)
+            routes = local_search(routes)
+            all_routes.append(routes)
+
+        for routes in all_routes:
+            cost = sum(calculate_route_cost(route) for route in routes)
+            if cost < best_cost:
+                best_cost = cost
+                best_solution = routes
+
+        # Pheromone Update
+        delta_pheromone = np.zeros_like(pheromone_matrix)
+        for routes in all_routes:
+            cost = sum(calculate_route_cost(route) for route in routes)
+            for route in routes:
+                for i in range(len(route) - 1):
+                    delta_pheromone[route[i], route[i+1]] += q / cost
+                    delta_pheromone[route[i+1], route[i]] += q / cost
+        pheromone_matrix = (1 - rho) * pheromone_matrix + delta_pheromone
+
+    # Heuristic Matrix Update based on best solution
+    for route in best_solution:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+    
+    #Normalize heuristic matrix
+    total_visits = np.sum(heuristics_matrix)
+    if total_visits > 0:
+      heuristics_matrix = heuristics_matrix / total_visits
+
+    return heuristics_matrix

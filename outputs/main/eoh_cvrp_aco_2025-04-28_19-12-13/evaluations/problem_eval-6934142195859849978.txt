@@ -1,0 +1,107 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively refines solutions by probabilistically swapping edges between routes, favoring swaps that reduce total distance and maintain feasibility, and accumulates edge frequencies from improved solutions into a heuristic matrix.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 1000
+    num_routes = 5
+    
+    def create_initial_routes():
+        routes = []
+        remaining_nodes = set(range(1, n))
+        for _ in range(num_routes):
+            route = [0]
+            current_capacity = capacity
+            while remaining_nodes:
+                feasible_nodes = [node for node in remaining_nodes if demands[node] <= current_capacity]
+                if not feasible_nodes:
+                    break
+                next_node = random.choice(feasible_nodes)
+                route.append(next_node)
+                current_capacity -= demands[next_node]
+                remaining_nodes.remove(next_node)
+            route.append(0)
+            routes.append(route)
+        
+        if remaining_nodes:
+            routes.append([0] + list(remaining_nodes) + [0])
+        return routes
+    
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i]][route[i+1]]
+        return cost
+    
+    def calculate_total_cost(routes):
+        total_cost = 0
+        for route in routes:
+            total_cost += calculate_route_cost(route)
+        return total_cost
+    
+    def check_feasibility(routes):
+        for route in routes:
+            current_capacity = capacity
+            for i in range(1, len(route) - 1):
+                current_capacity -= demands[route[i]]
+            if current_capacity < 0:
+                return False
+        return True
+
+    routes = create_initial_routes()
+    
+    for iteration in range(num_iterations):
+        # Select two random routes
+        route1_idx = random.randint(0, len(routes) - 1)
+        route2_idx = random.randint(0, len(routes) - 1)
+        if len(routes) == 1:
+            route2_idx = route1_idx
+        else:
+            while route2_idx == route1_idx:
+                route2_idx = random.randint(0, len(routes) - 1)
+                
+        route1 = routes[route1_idx]
+        route2 = routes[route2_idx]
+        
+        # Select two random edges (nodes) from the routes for swapping
+        if len(route1) <= 2 or len(route2) <= 2:
+            continue
+            
+        node1_idx = random.randint(1, len(route1) - 2)
+        node2_idx = random.randint(1, len(route2) - 2)
+        
+        node1 = route1[node1_idx]
+        node2 = route2[node2_idx]
+        
+        # Create new routes with swapped edges
+        new_route1 = route1[:node1_idx] + [node2] + route1[node1_idx+1:]
+        new_route2 = route2[:node2_idx] + [node1] + route2[node2_idx+1:]
+        
+        # Check feasibility
+        temp_routes = routes[:route1_idx] + [new_route1] + routes[route1_idx+1:route2_idx] + [new_route2] + routes[route2_idx+1:]
+        if not check_feasibility(temp_routes):
+            continue
+            
+        # Calculate cost difference
+        original_cost = calculate_route_cost(route1) + calculate_route_cost(route2)
+        new_cost = calculate_route_cost(new_route1) + calculate_route_cost(new_route2)
+        
+        # Accept the swap with probability based on cost improvement
+        if new_cost < original_cost:
+            routes = temp_routes
+
+    # Update heuristics matrix based on the final routes
+    for route in routes:
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+    heuristics_matrix /= num_iterations  # Normalize to get edge frequencies
+
+    return heuristics_matrix

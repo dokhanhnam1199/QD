@@ -1,0 +1,84 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm estimates edge importance by iteratively constructing feasible routes using a biased random selection favoring edges with shorter distances and higher demand compatibility.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 1000
+
+    for _ in range(num_iterations):
+        route = []
+        remaining_nodes = list(range(1, n))
+        current_load = 0
+        current_route = [0]
+
+        while remaining_nodes:
+            # Calculate a combined score for each remaining node
+            scores = []
+            for node in remaining_nodes:
+                # Distance from the last node in the current route
+                dist_score = distance_matrix[current_route[-1], node]
+                # Demand compatibility score
+                demand_score = demands[node] if current_load + demands[node] <= capacity else float('inf')
+
+                scores.append((dist_score, demand_score, node))
+
+            # Filter out nodes that exceed capacity
+            feasible_scores = [(dist, demand, node) for dist, demand, node in scores if demand != float('inf')]
+            if not feasible_scores:  # If no feasible nodes, return to depot
+                current_route.append(0)
+                route.append(current_route)
+                current_route = [0]
+                current_load = 0
+                continue
+
+            # Normalize scores to create probabilities (lower distance is better, lower demand is better)
+            
+            distances = [x[0] for x in feasible_scores]
+            demands_nodes = [x[1] for x in feasible_scores]
+            
+            max_distance = max(distances)
+            max_demand = max(demands_nodes)
+
+            prob_distances = [(max_distance - x[0] + 1e-9) for x in feasible_scores] 
+            prob_demands = [(max_demand - x[1] + 1e-9) for x in feasible_scores]
+
+            
+            sum_prob_distances = sum(prob_distances)
+            sum_prob_demands = sum(prob_demands)
+            
+            normalized_prob_distances = [p / sum_prob_distances for p in prob_distances]
+            normalized_prob_demands = [p / sum_prob_demands for p in prob_demands]
+            
+            combined_probabilities = [(normalized_prob_distances[i]+ normalized_prob_demands[i])/2 for i in range(len(normalized_prob_distances))]
+            sum_combined_probabilities = sum(combined_probabilities)
+            normalized_combined_probabilities = [p/sum_combined_probabilities for p in combined_probabilities]
+            
+
+            # Choose the next node based on probabilities
+            next_node = random.choices([x[2] for x in feasible_scores], weights=normalized_combined_probabilities, k=1)[0]
+
+            # Add the node to the route
+            current_route.append(next_node)
+            current_load += demands[next_node]
+            remaining_nodes.remove(next_node)
+
+        # Add last route if not empty
+        if len(current_route) > 1:
+            current_route.append(0)
+            route.append(current_route)
+
+        # Update heuristics matrix
+        for r in route:
+            for i in range(len(r) - 1):
+                node1 = r[i]
+                node2 = r[i+1]
+                heuristics_matrix[node1, node2] += 1
+                heuristics_matrix[node2, node1] += 1
+
+    # Normalize the heuristics matrix
+    heuristics_matrix /= num_iterations
+    return heuristics_matrix

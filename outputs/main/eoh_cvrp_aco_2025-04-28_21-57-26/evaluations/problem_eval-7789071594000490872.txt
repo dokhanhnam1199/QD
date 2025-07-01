@@ -1,0 +1,70 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm generates multiple random solutions, evaluates their costs, and constructs a heuristic matrix by averaging edge frequencies weighted by solution quality.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 500
+    temperature = 100
+
+    def generate_random_solution():
+        unvisited_nodes = list(range(1, n))
+        routes = []
+        while unvisited_nodes:
+            current_route = [0]
+            current_capacity = capacity
+            while unvisited_nodes:
+                feasible_nodes = [node for node in unvisited_nodes if demands[node] <= current_capacity]
+                if not feasible_nodes:
+                    break
+                next_node = random.choice(feasible_nodes)
+                current_route.append(next_node)
+                current_capacity -= demands[next_node]
+                unvisited_nodes.remove(next_node)
+            current_route.append(0)
+            routes.append(current_route)
+        return routes
+
+    def calculate_solution_cost(routes):
+        total_cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_cost += distance_matrix[route[i], route[i+1]]
+        return total_cost
+    
+    edge_counts = np.zeros_like(distance_matrix, dtype=float)
+    solution_costs = []
+
+    for _ in range(num_samples):
+        solution = generate_random_solution()
+        cost = calculate_solution_cost(solution)
+        solution_costs.append(cost)
+
+        for route in solution:
+            for i in range(len(route) - 1):
+                u, v = route[i], route[i+1]
+                edge_counts[u, v] += 1
+                edge_counts[v, u] += 1
+
+    min_cost = min(solution_costs)
+    
+    for i in range(n):
+        for j in range(n):
+            if edge_counts[i, j] > 0:
+                total_weighted_count = 0
+                total_weight = 0
+                for k in range(num_samples):
+                    solution = generate_random_solution()
+                    if any(i in route and j in route for route in solution):
+                      cost = calculate_solution_cost(solution)
+                      weight = np.exp(-(cost - min_cost) / temperature)
+                      
+                      total_weighted_count += weight
+                      total_weight +=1 
+                if total_weight > 0:
+                  heuristics_matrix[i,j] = total_weighted_count / total_weight
+                else:
+                  heuristics_matrix[i,j] = 0
+                
+    return heuristics_matrix

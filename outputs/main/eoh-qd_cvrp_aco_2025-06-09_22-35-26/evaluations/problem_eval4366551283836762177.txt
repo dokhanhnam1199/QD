@@ -1,0 +1,70 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses reinforcement learning to learn edge probabilities based on the reward received from the quality of routes constructed using those edges.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    alpha = 0.1  # Learning rate
+    gamma = 0.9  # Discount factor
+    num_episodes = 500
+
+    for episode in range(num_episodes):
+        # Generate a random permutation of customers (excluding the depot)
+        customer_indices = list(range(1, n))
+        random.shuffle(customer_indices)
+
+        # Build routes based on capacity constraints
+        routes = []
+        current_route = [0]  # Start at the depot
+        current_capacity = 0
+
+        for customer in customer_indices:
+            if current_capacity + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_capacity += demands[customer]
+            else:
+                current_route.append(0)  # Return to depot
+                routes.append(current_route)
+                current_route = [0, customer]  # Start a new route from the depot
+                current_capacity = demands[customer]
+
+        current_route.append(0)  # Return to depot for the last route
+        routes.append(current_route)
+
+        # Check feasibility (all customers visited)
+        visited = set()
+        for route in routes:
+            visited.update(route)
+        
+        if len(visited) == n:  # All customers visited
+            # Calculate the total distance of the routes (negative reward)
+            total_distance = 0
+            for route in routes:
+                for i in range(len(route) - 1):
+                    node1 = route[i]
+                    node2 = route[i+1]
+                    total_distance += distance_matrix[node1, node2]
+            reward = -total_distance
+
+            # Update heuristics matrix based on edges in routes and the reward
+            for route in routes:
+                for i in range(len(route) - 1):
+                    node1 = route[i]
+                    node2 = route[i+1]
+                    
+                    # Update rule: Q(s, a) = Q(s, a) + alpha * (reward + gamma * max_a' Q(s', a') - Q(s, a))
+                    # Here, we simplify and directly update the heuristic value
+                    heuristics_matrix[node1, node2] += alpha * (reward - heuristics_matrix[node1, node2])
+                    heuristics_matrix[node2, node1] += alpha * (reward - heuristics_matrix[node2, node1]) # Symmetry
+        else:
+            reward = -np.inf # Punish infeasible solutions
+
+    # Normalize the heuristics matrix
+    max_value = np.max(np.abs(heuristics_matrix))
+    if max_value > 0:
+        heuristics_matrix /= max_value
+
+    return heuristics_matrix

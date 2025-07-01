@@ -1,0 +1,51 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm combines edge frequency analysis from near-optimal solutions, adaptive weighting, and a penalty for edges far from the average distance, enhancing exploration.}"""
+    num_nodes = distance_matrix.shape[0]
+    num_samples = 100
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    avg_distance = np.mean(distance_matrix)
+
+    for _ in range(num_samples):
+        start_node = np.random.randint(num_nodes)
+        current_node = start_node
+        unvisited_nodes = set(range(num_nodes))
+        unvisited_nodes.remove(current_node)
+        tour = [current_node]
+        tour_length = 0
+
+        while unvisited_nodes:
+            # Probabilistic nearest neighbor selection with added exploration
+            probabilities = np.array([1 / (distance_matrix[current_node, neighbor] + 1e-9) for neighbor in unvisited_nodes])
+            probabilities /= np.sum(probabilities)
+            
+            nearest_neighbor = np.random.choice(list(unvisited_nodes), p=probabilities)
+
+            tour_length += distance_matrix[current_node, nearest_neighbor]
+            tour.append(nearest_neighbor)
+            unvisited_nodes.remove(nearest_neighbor)
+            current_node = nearest_neighbor
+
+        tour.append(start_node)
+        tour_length += distance_matrix[current_node, start_node]
+
+        # Adaptive weighting based on tour length
+        weight = 1.0 / (tour_length + 1e-9)
+
+        for i in range(num_nodes):
+            node1 = tour[i]
+            node2 = tour[i+1]
+            
+            # Penalize edges far from average distance
+            penalty = np.exp(-((distance_matrix[node1, node2] - avg_distance) ** 2) / (2 * (avg_distance / 2) ** 2))
+
+            heuristics_matrix[node1, node2] += weight * penalty
+            heuristics_matrix[node2, node1] += weight * penalty
+
+    # Normalize and incorporate distance
+    heuristics_matrix /= np.max(heuristics_matrix)
+    heuristics_matrix = heuristics_matrix / (distance_matrix / np.max(distance_matrix))
+
+    return heuristics_matrix

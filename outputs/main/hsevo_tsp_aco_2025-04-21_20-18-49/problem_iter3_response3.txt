@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    A heuristics function for the Traveling Salesman Problem (TSP) that combines
+    distance, node degree, and a sparse connectivity bias.
+
+    This version builds upon heuristics_v1 by adding a sparse connectivity bias.
+    It identifies and prioritizes edges that connect relatively isolated parts of the graph,
+    while still favoring short distances and considering node degree. It also incorporates a pheromone concept.
+
+    Args:
+        distance_matrix (np.ndarray): The distance matrix representing the distances
+                                         between cities.
+
+    Returns:
+        np.ndarray: A matrix of the same shape as distance_matrix, representing the
+                     prior probabilities of including each edge in a solution. Higher
+                     values indicate a higher prior probability.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix, dtype=float)
+    temperature = np.mean(distance_matrix) / 2  # Adjust as needed for optimal performance
+
+    # Inverse distance, avoid division by zero
+    inverse_distance = 1.0 / (distance_matrix + np.eye(n))
+
+    # Node degree desirability (attractiveness)
+    node_attractiveness = np.sum(inverse_distance, axis=0)
+    node_attractiveness = 1.0 / (node_attractiveness / np.mean(node_attractiveness)) #Inverse normalized attractiveness to drive toward "isolated" nodes
+
+    # Sparse connectivity bias: penalize edges connecting already well-connected nodes.
+    connectivity = np.sum(inverse_distance, axis=0)
+    sparse_connectivity_bias = np.outer(connectivity, connectivity)  # connectivity[i] * connectivity[j]
+
+    #Pheromone concept - a simple memory of good edges from shortest distances
+    pheromone_level = np.zeros_like(distance_matrix, dtype=float)
+    shortest_distance = np.partition(distance_matrix.flatten(), n+1)[n+1]
+    pheromone_level[distance_matrix <= shortest_distance * 1.2] = 1.0
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                heuristics[i, j] = ((inverse_distance[i, j]**2) *
+                                     (node_attractiveness[i] * node_attractiveness[j]) *
+                                     np.exp(-distance_matrix[i, j] / temperature) /
+                                     (sparse_connectivity_bias[i, j] + 1e-6)) + pheromone_level[i, j] # Adding pheromone boost
+
+
+    # Sparsify: Remove less promising edges. Adjust the threshold as needed.
+    threshold = np.percentile(heuristics[heuristics > 0], 20) # Keep top 80%
+    heuristics[heuristics < threshold] = 0
+
+    return heuristics
+```

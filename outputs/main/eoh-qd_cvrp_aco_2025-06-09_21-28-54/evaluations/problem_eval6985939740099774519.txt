@@ -1,0 +1,109 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses a genetic algorithm approach, evolving a population of random routes and using a fitness function based on route cost and feasibility to guide the search for better solutions, and then aggregates edge frequencies across the best solutions to create a heuristic matrix.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    population_size = 50
+    num_generations = 100
+    mutation_rate = 0.1
+
+    def create_initial_population(size):
+        population = []
+        for _ in range(size):
+            customer_indices = list(range(1, n))
+            random.shuffle(customer_indices)
+            population.append(customer_indices)
+        return population
+
+    def evaluate_route(route):
+        routes = []
+        current_route = [0]
+        current_demand = 0
+
+        for customer in route:
+            if current_demand + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_demand += demands[customer]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, customer]
+                current_demand = demands[customer]
+
+        current_route.append(0)
+        routes.append(current_route)
+
+        total_distance = 0
+        for r in routes:
+            for i in range(len(r) - 1):
+                total_distance += distance_matrix[r[i], r[i+1]]
+        return total_distance, routes
+
+    def calculate_fitness(route):
+        distance, routes = evaluate_route(route)
+        return 1.0 / (distance + 1e-6)  # Avoid division by zero
+
+    def crossover(parent1, parent2):
+        start = random.randint(0, n - 2)
+        end = random.randint(start + 1, n - 1)
+
+        child = [-1] * (n - 1)
+        child[start:end] = parent1[start:end]
+
+        remaining = [node for node in parent2 if node not in child]
+        idx = 0
+        for i in range(n - 1):
+            if child[i] == -1:
+                child[i] = remaining[idx]
+                idx += 1
+        return child
+            
+    def mutate(route):
+        if random.random() < mutation_rate:
+            i, j = random.sample(range(n - 1), 2)
+            route[i], route[j] = route[j], route[i]
+        return route
+
+    population = create_initial_population(population_size)
+
+    for _ in range(num_generations):
+        fitness_scores = [calculate_fitness(route) for route in population]
+        
+        # Selection (Roulette wheel selection)
+        probabilities = [score / sum(fitness_scores) for score in fitness_scores]
+        selected_indices = random.choices(range(population_size), weights=probabilities, k=population_size)
+        selected_population = [population[i] for i in selected_indices]
+
+        # Crossover and Mutation
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = selected_population[i]
+            parent2 = selected_population[i+1] if i+1 < population_size else selected_population[i] # Handle odd population sizes
+            child1 = crossover(parent1, parent2)
+            child2 = crossover(parent2, parent1)
+            new_population.append(mutate(child1))
+            new_population.append(mutate(child2))
+        
+        population = new_population[:population_size]  # Trim if necessary
+    
+    # After evolution, evaluate the best routes and update heuristic matrix
+    best_route = max(population, key=calculate_fitness)
+    _, best_routes = evaluate_route(best_route)
+
+    for route in best_routes:
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+    
+    # Normalize the heuristic matrix based on appearance
+    max_val = np.max(heuristics_matrix)
+    if max_val > 0:
+        heuristics_matrix = heuristics_matrix / max_val
+
+    return heuristics_matrix

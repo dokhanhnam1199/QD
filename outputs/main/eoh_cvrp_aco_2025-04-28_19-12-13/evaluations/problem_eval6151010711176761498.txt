@@ -1,0 +1,125 @@
+import numpy as np
+import random
+from collections import defaultdict
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a Monte Carlo tree search approach to explore the solution space and estimate edge probabilities based on simulated routes.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_simulations = 500
+    exploration_constant = 1.0
+
+    class Node:
+        def __init__(self, node_id, visited, current_load, route, parent=None, action=None):
+            self.node_id = node_id
+            self.visited = set(visited)
+            self.current_load = current_load
+            self.route = route
+            self.parent = parent
+            self.action = action  # The edge (parent.node_id, node_id)
+            self.children = {}
+            self.visits = 0
+            self.value = 0
+
+        def is_terminal(self):
+            return len(self.visited) == n
+
+        def get_possible_actions(self):
+            actions = []
+            for i in range(1, n):
+                if i not in self.visited and self.current_load + demands[i] <= capacity:
+                    actions.append(i)
+            return actions
+
+    def uct_select_child(node):
+        best_child = None
+        best_uct = -float('inf')
+        for child_node in node.children.values():
+            uct = child_node.value / (child_node.visits + 1e-6) + exploration_constant * np.sqrt(np.log(node.visits) / (child_node.visits + 1e-6))
+            if uct > best_uct:
+                best_uct = uct
+                best_child = child_node
+        return best_child
+
+    def expand_node(node):
+        possible_actions = node.get_possible_actions()
+        for action in possible_actions:
+            new_visited = set(node.visited)
+            new_visited.add(action)
+            child_node = Node(action, new_visited, node.current_load + demands[action], node.route + [action], parent=node, action=(node.node_id, action))
+            node.children[action] = child_node
+        return node
+
+    def simulate(node):
+        current_node = node
+        while not current_node.is_terminal():
+            possible_actions = current_node.get_possible_actions()
+            if not possible_actions:
+                break
+
+            action = random.choice(possible_actions)
+            current_node = Node(action, set(current_node.visited | {action}), current_node.current_load + demands[action], current_node.route + [action])
+
+        if current_node.is_terminal():
+            route_cost = 0
+            full_route = [0] + current_node.route + [0]
+            for i in range(len(full_route) - 1):
+                route_cost += distance_matrix[full_route[i], full_route[i+1]]
+            return 1.0 / (route_cost + 1e-6)  # Reward good routes
+        else:
+            return 0  # Punish infeasible routes
+
+    def backpropagate(node, reward):
+        while node is not None:
+            node.visits += 1
+            node.value += reward
+            node = node.parent
+
+    root_node = Node(0, {0}, 0, [0])
+
+    for _ in range(num_simulations):
+        # Selection
+        current_node = root_node
+        while current_node.children and not current_node.is_terminal():
+            current_node = uct_select_child(current_node)
+
+        # Expansion
+        if not current_node.is_terminal() and current_node.get_possible_actions():
+             current_node = expand_node(current_node)
+             #Select one of its children to simulate from
+             child_actions = list(current_node.children.keys())
+             if child_actions:
+               current_node = current_node.children[random.choice(child_actions)]
+
+
+        # Simulation
+        reward = simulate(current_node)
+
+        # Backpropagation
+        backpropagate(current_node, reward)
+
+    # Populate heuristic matrix based on visit counts of edges
+    for action, child_node in root_node.children.items():
+        heuristics_matrix[0, action] = child_node.visits
+        heuristics_matrix[action, 0] = child_node.visits
+        
+    for i in range(1,n):
+        for j in range(1,n):
+            if i != j:
+                for child_node in root_node.children.values():
+                    if child_node.action == (0, child_node.node_id):
+                         queue = [child_node]
+                         while queue:
+                             curr = queue.pop(0)
+                             if curr.parent and curr.parent.action and curr.parent.action[1] == i and curr.action[1] == j:
+                                heuristics_matrix[i,j] = curr.visits
+
+                             for c in curr.children.values():
+                                 queue.append(c)
+
+    # Normalize
+    total_visits = np.sum(heuristics_matrix)
+    if total_visits > 0:
+        heuristics_matrix /= total_visits
+
+    return heuristics_matrix

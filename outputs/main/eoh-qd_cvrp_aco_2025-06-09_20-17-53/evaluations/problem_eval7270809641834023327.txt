@@ -1,0 +1,71 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a clustering approach based on node proximity and demand to create initial routes, then refines edge probabilities through route perturbation and evaluation.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros((n, n))
+    num_clusters = int(np.sqrt(n)) # dynamically determine cluster number
+    num_perturbations = 500
+
+    # Clustering based on coordinates
+    kmeans = KMeans(n_clusters=num_clusters, random_state=0, n_init=10).fit(coordinates)
+    clusters = [[] for _ in range(num_clusters)]
+    for i in range(1, n): # Exclude depot
+        clusters[kmeans.labels_[i]].append(i)
+
+    # Initial routing within clusters
+    initial_routes = []
+    for cluster in clusters:
+        if not cluster:
+            continue
+
+        current_route = [0]  # Start at the depot
+        current_demand = 0
+        
+        for customer in cluster:
+            if current_demand + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_demand += demands[customer]
+            else:
+                current_route.append(0)  # Return to depot
+                initial_routes.append(current_route)
+                current_route = [0, customer]
+                current_demand = demands[customer]
+        
+        current_route.append(0)
+        initial_routes.append(current_route)
+
+    # Perturbation and evaluation
+    for _ in range(num_perturbations):
+        perturbed_routes = [route[:] for route in initial_routes]  # Create a copy
+        
+        # Randomly select a route and perturb it by swapping two customers
+        route_index = random.randint(0, len(perturbed_routes) - 1)
+        route = perturbed_routes[route_index]
+        
+        if len(route) > 3: # Ensure at least two customers to swap
+            idx1 = random.randint(1, len(route) - 2)
+            idx2 = random.randint(1, len(route) - 2)
+            route[idx1], route[idx2] = route[idx2], route[idx1] # Swap
+
+        # Feasibility check
+        feasible = True
+        for route in perturbed_routes:
+            total_demand = 0
+            for customer in route[1:-1]:
+                total_demand += demands[customer]
+            if total_demand > capacity:
+                feasible = False
+                break
+
+        # Update heuristics matrix if feasible
+        if feasible:
+            for route in perturbed_routes:
+                for i in range(len(route) - 1):
+                    u = route[i]
+                    v = route[i+1]
+                    heuristics_matrix[u, v] += 1
+                    heuristics_matrix[v, u] += 1
+
+    return heuristics_matrix

@@ -1,0 +1,155 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm initializes a solution, iteratively refines it using a combination of 2-opt swaps and node reassignments between routes, and returns a matrix representing the frequency of each edge's appearance in sampled solutions as a heuristic indicator.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 100
+
+    def calculate_route_demand(route):
+        return sum(demands[i] for i in route)
+
+    def construct_initial_solution():
+        unvisited = set(range(1, n))
+        routes = []
+        current_route = [0]
+        current_demand = 0
+
+        while unvisited:
+            best_node = None
+            min_dist = float('inf')
+            
+            for node in unvisited:
+                dist = distance_matrix[current_route[-1]][node]
+                if dist < min_dist and current_demand + demands[node] <= capacity:
+                    min_dist = dist
+                    best_node = node
+
+            if best_node is None:
+                routes.append(current_route + [0])
+                current_route = [0]
+                current_demand = 0
+                continue
+
+            current_route.append(best_node)
+            current_demand += demands[best_node]
+            unvisited.remove(best_node)
+        
+        routes.append(current_route + [0])
+        return routes
+
+    def calculate_total_distance(routes):
+        total_distance = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_distance += distance_matrix[route[i]][route[i+1]]
+        return total_distance
+
+    def two_opt_swap(route, i, k):
+        new_route = route[:i] + route[i:k+1][::-1] + route[k+1:]
+        return new_route
+
+    def improve_route(routes):
+        improved_routes = routes[:]
+        
+        for route_index in range(len(improved_routes)):
+            route = improved_routes[route_index][:]
+            best_distance = sum(distance_matrix[route[i]][route[i+1]] for i in range(len(route) - 1))
+            
+            improved = True
+            while improved:
+                improved = False
+                for i in range(1, len(route) - 2):
+                    for k in range(i + 1, len(route) - 1):
+                        new_route = two_opt_swap(route, i, k)
+                        new_distance = sum(distance_matrix[new_route[j]][new_route[j+1]] for j in range(len(new_route) - 1))
+                        
+                        if new_distance < best_distance:
+                            improved_routes[route_index] = new_route
+                            route = new_route[:]
+                            best_distance = new_distance
+                            improved = True
+                            break
+                    if improved:
+                        break
+        return improved_routes
+
+    def reassign_node(routes):
+      
+        
+        
+        route_index_to_remove = np.random.randint(0, len(routes))
+        if len(routes[route_index_to_remove]) <= 2: 
+            return routes 
+        
+        node_to_reassign_index = np.random.randint(1, len(routes[route_index_to_remove]) - 1)
+        node_to_reassign = routes[route_index_to_remove][node_to_reassign_index]
+        
+        original_demand_remove = demands[node_to_reassign]
+        original_routes = [route[:] for route in routes]
+        
+        routes[route_index_to_remove].pop(node_to_reassign_index)
+        
+        if calculate_route_demand(routes[route_index_to_remove]) > capacity:
+            return original_routes
+
+        
+        best_route_index = -1
+        min_added_distance = float('inf')
+        
+        for route_index in range(len(routes)):
+            if route_index == route_index_to_remove:
+                continue
+            
+            if calculate_route_demand(routes[route_index]) + original_demand_remove <= capacity:
+                
+                for insert_index in range(1, len(routes[route_index])):
+                    
+                    temp_route = routes[route_index][:]
+                    temp_route.insert(insert_index, node_to_reassign)
+                    
+                    added_distance = distance_matrix[routes[route_index][insert_index-1]][node_to_reassign] + distance_matrix[node_to_reassign][routes[route_index][insert_index]] - distance_matrix[routes[route_index][insert_index-1]][routes[route_index][insert_index]]
+                    if added_distance < min_added_distance:
+                        min_added_distance = added_distance
+                        best_route_index = route_index
+                        best_insert_index = insert_index
+        
+        if best_route_index != -1:
+            routes[best_route_index].insert(best_insert_index, node_to_reassign)
+            return routes
+        else:
+            routes[route_index_to_remove].insert(node_to_reassign_index,node_to_reassign)
+            return original_routes
+
+
+    initial_solution = construct_initial_solution()
+    best_solution = improve_route(initial_solution)
+
+    for _ in range(num_samples):
+        
+        sampled_routes = [route[:] for route in best_solution]
+
+        if np.random.rand() < 0.5:
+            sampled_routes = reassign_node(sampled_routes)
+        else:
+            route_index = np.random.randint(0,len(sampled_routes))
+            if len(sampled_routes[route_index]) > 3:
+                i = np.random.randint(1,len(sampled_routes[route_index]) -2)
+                k = np.random.randint(i+1,len(sampled_routes[route_index])-1)
+                sampled_routes[route_index] = two_opt_swap(sampled_routes[route_index], i, k)
+                
+        sampled_routes = improve_route(sampled_routes)
+        
+
+        
+        if calculate_total_distance(sampled_routes) < calculate_total_distance(best_solution):
+            best_solution = sampled_routes
+
+        for route in sampled_routes:
+            for i in range(len(route) - 1):
+                heuristics_matrix[route[i]][route[i+1]] += 1
+                heuristics_matrix[route[i+1]][route[i]] += 1
+
+    return heuristics_matrix

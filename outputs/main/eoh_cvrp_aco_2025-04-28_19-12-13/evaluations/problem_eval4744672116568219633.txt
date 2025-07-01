@@ -1,0 +1,132 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses a simulated annealing approach to iteratively improve routes and update a heuristic matrix based on accepted moves.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 1000
+    initial_temperature = 100
+    cooling_rate = 0.95
+
+    # Initialize a random solution
+    unvisited = list(range(1, n))
+    current_routes = []
+    current_route = [0]
+    current_capacity = capacity
+    while unvisited:
+        next_node = random.choice(unvisited)
+        if current_capacity >= demands[next_node]:
+            current_route.append(next_node)
+            current_capacity -= demands[next_node]
+            unvisited.remove(next_node)
+        else:
+            current_route.append(0)
+            current_routes.append(current_route)
+            current_route = [0]
+            current_capacity = capacity
+    current_route.append(0)
+    current_routes.append(current_route)
+    
+    def calculate_cost(routes):
+        cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                cost += distance_matrix[route[i], route[i+1]]
+        return cost
+    
+    current_cost = calculate_cost(current_routes)
+    
+    temperature = initial_temperature
+
+    for iteration in range(num_iterations):
+        # Generate a neighbor solution by randomly swapping two customers in different routes or moving a customer to another route
+        new_routes = [route[:] for route in current_routes] # Deep copy
+        
+        if random.random() < 0.5 and len(new_routes) > 1: #try to merge two routes
+          route1_index = random.randint(0,len(new_routes)-1)
+          route2_index = random.randint(0,len(new_routes)-1)
+          if route1_index != route2_index:
+            new_route = new_routes[route1_index][1:-1] + new_routes[route2_index][1:-1]
+            new_cap = 0
+            flag = True
+            for node in new_route:
+              new_cap += demands[node]
+            if new_cap <= capacity:
+              new_routes.pop(route1_index)
+              if route1_index < route2_index:
+                route2_index -=1
+              new_routes.pop(route2_index)
+              temp_route = [0]
+              temp_capacity = capacity
+              for node in new_route:
+                if temp_capacity >= demands[node]:
+                  temp_route.append(node)
+                  temp_capacity -= demands[node]
+                else:
+                  flag = False
+                  break
+              if flag:
+                temp_route.append(0)
+                new_routes.append(temp_route)
+        else: # try to swap or move two nodes from different routes
+          route1_index = random.randint(0, len(new_routes) - 1)
+          if len(new_routes[route1_index]) > 2: #At least two customers
+            node1_index = random.randint(1, len(new_routes[route1_index]) - 2)
+            node1 = new_routes[route1_index][node1_index]
+
+            route2_index = random.randint(0, len(new_routes) - 1)
+            if len(new_routes[route2_index]) > 2: #At least two customers
+              node2_index = random.randint(1, len(new_routes[route2_index]) - 2)
+              node2 = new_routes[route2_index][node2_index]
+
+              # Swap
+              demand_diff = demands[node1] - demands[node2]
+              route1_capacity = capacity - sum(demands[customer] for customer in new_routes[route1_index][1:-1]) + demands[node1]
+              route2_capacity = capacity - sum(demands[customer] for customer in new_routes[route2_index][1:-1]) + demands[node2]
+              
+              if route1_capacity >= demands[node2] and route2_capacity >= demands[node1]:
+                new_routes[route1_index][node1_index] = node2
+                new_routes[route2_index][node2_index] = node1
+            else: # Try to move node 1 to route 2.
+              route2_capacity = capacity - sum(demands[customer] for customer in new_routes[route2_index][1:-1])
+              if route2_capacity >= demands[node1]:
+                del new_routes[route1_index][node1_index]
+                new_routes[route2_index].insert(1, node1)
+                
+                #Remove empty route
+                if len(new_routes[route1_index]) <= 2:
+                  new_routes.pop(route1_index)
+
+          else:#Try to move node 2 to route 1
+            route2_index = random.randint(0, len(new_routes) - 1)
+            if len(new_routes[route2_index]) > 2:
+              node2_index = random.randint(1, len(new_routes[route2_index]) - 2)
+              node2 = new_routes[route2_index][node2_index]
+              route1_capacity = capacity - sum(demands[customer] for customer in new_routes[route1_index][1:-1])
+              if route1_capacity >= demands[node2]:
+                del new_routes[route2_index][node2_index]
+                new_routes[route1_index].insert(1, node2)
+                #Remove empty route
+                if len(new_routes[route2_index]) <= 2:
+                  new_routes.pop(route2_index)
+                
+        new_cost = calculate_cost(new_routes)
+
+        # Acceptance criterion (Metropolis)
+        if new_cost < current_cost or random.random() < np.exp((current_cost - new_cost) / temperature):
+            current_routes = new_routes
+            current_cost = new_cost
+
+            # Update the heuristics matrix
+            for route in current_routes:
+                for i in range(len(route) - 1):
+                    heuristics_matrix[route[i], route[i+1]] += 1
+                    heuristics_matrix[route[i+1], route[i]] += 1
+
+        # Cooling
+        temperature *= cooling_rate
+
+    return heuristics_matrix

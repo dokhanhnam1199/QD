@@ -1,0 +1,66 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_contents: list) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+        bin_contents: List of lists, where each inner list contains the sizes of items in that bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Highest priority: Exact fit
+    exact_fit = (bins_remain_cap == item)
+    priorities[exact_fit] = 1000.0
+
+    # High priority: Near perfect fit, scaled by item size
+    near_perfect_fit_threshold = 0.05  # Loosened the threshold
+    near_perfect_fit = (bins_remain_cap >= item) & (bins_remain_cap <= item * (1 + near_perfect_fit_threshold))
+    priorities[near_perfect_fit] = 900.0 - (bins_remain_cap[near_perfect_fit] - item) / item * 200  # Scale based on waste
+
+    # Feasibility check and HUGE penalty for infeasible bins
+    infeasible = bins_remain_cap < item
+    priorities[infeasible] = -1e10  # Even stronger penalty
+
+    # Dynamic Fill Ratio Reward: Gaussian around optimal fill, scaled heavily
+    can_accommodate = (bins_remain_cap >= item)
+    if np.any(can_accommodate):
+        fill_ratio = item / bins_remain_cap[can_accommodate]
+        gaussian_std = 0.1  # Adjusted std for the gaussian curve
+        gaussian_reward = np.exp(-0.5 * ((fill_ratio - 1.0) / gaussian_std) ** 2)
+        priorities[can_accommodate] += gaussian_reward * 700.0  # Scaled Gaussian reward slightly down
+
+    # Fragmentation Penalty: Penalize creating small remaining spaces
+    small_space_threshold = 0.2  # Define "small space" relative to bin size, loosened threshold slightly
+    fragmented_bins = (bins_remain_cap >= item) & ((bins_remain_cap - item) <= small_space_threshold * np.max(bins_remain_cap))
+    if np.any(fragmented_bins):
+        waste = bins_remain_cap[fragmented_bins] - item
+        penalty = (waste / (small_space_threshold * np.max(bins_remain_cap))) * 300  # Scale penalty, reduced magnitude
+        priorities[fragmented_bins] -= penalty
+
+    # Encourage using existing bins, more heavily
+    non_empty = bins_remain_cap < np.max(bins_remain_cap)
+    priorities[non_empty] += 75.0
+
+    # Similarity Bonus: Reward bins with similar-sized items based on bin contents
+    for i, content in enumerate(bin_contents):  # Iterate through bins
+        if len(content) > 0 and bins_remain_cap[i] >= item: #Only assess if bins are nonempty, and can contain item
+            avg_item_size = np.mean(content)
+            similarity = np.exp(-0.5 * ((item - avg_item_size) / (0.2 * avg_item_size))**2) if avg_item_size > 0 else 0 # Check for division by zero and avoid it. The similarity will be zero in the rare case of avg_item_size ==0.
+            priorities[i] += similarity * 150.0
+
+    # Discourage bins with way more capacity than the item size, more aggressive penalty
+    large_capacity = (bins_remain_cap >= item) & (bins_remain_cap > 1.75 * item)  # Tightened factor
+    priorities[large_capacity] -= 90 # Increase the penalty
+
+    # Very full penalty
+    very_full = (bins_remain_cap >= item) & (bins_remain_cap <= 0.1 * np.max(bins_remain_cap))
+    priorities[very_full] -= 50
+
+    return priorities
+```

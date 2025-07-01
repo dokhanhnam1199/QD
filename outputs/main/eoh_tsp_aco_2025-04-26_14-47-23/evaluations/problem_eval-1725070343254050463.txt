@@ -1,0 +1,82 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm employs a genetic algorithm approach, evolving a population of candidate TSP solutions through selection, crossover, and mutation, with edge frequencies from the best solutions contributing to a heuristic matrix.}"""
+    n = distance_matrix.shape[0]
+    population_size = 50
+    num_generations = 100
+    mutation_rate = 0.05
+
+    # Initialize population
+    population = []
+    for _ in range(population_size):
+        permutation = np.random.permutation(n)
+        population.append(permutation)
+
+    def calculate_fitness(permutation):
+        tour_length = 0
+        for i in range(n - 1):
+            tour_length += distance_matrix[permutation[i], permutation[i + 1]]
+        tour_length += distance_matrix[permutation[-1], permutation[0]]
+        return 1.0 / tour_length  # Higher fitness for shorter tours
+
+    def crossover(parent1, parent2):
+        start = np.random.randint(n)
+        end = np.random.randint(start + 1, n + 1)
+        child = np.zeros(n, dtype=int) - 1
+        child[start:end] = parent1[start:end]
+        
+        remaining = [node for node in parent2 if node not in child[start:end]]
+        
+        child_idx = 0
+        for i in range(n):
+            if child[i] == -1:
+                child[i] = remaining[child_idx]
+                child_idx += 1
+        return child
+
+    def mutate(permutation):
+        for i in range(n):
+            if np.random.rand() < mutation_rate:
+                j = np.random.randint(n)
+                permutation[i], permutation[j] = permutation[j], permutation[i]
+        return permutation
+
+    for generation in range(num_generations):
+        # Evaluate fitness
+        fitness_scores = [calculate_fitness(permutation) for permutation in population]
+
+        # Selection (roulette wheel selection)
+        probabilities = np.array(fitness_scores) / np.sum(fitness_scores)
+        selected_indices = np.random.choice(population_size, size=population_size, p=probabilities)
+        selected_population = [population[i] for i in selected_indices]
+
+        # Crossover
+        new_population = []
+        for i in range(0, population_size, 2):
+            parent1 = selected_population[i]
+            parent2 = selected_population[i + 1] if i + 1 < population_size else selected_population[i]
+            child1 = crossover(parent1, parent2)
+            child2 = crossover(parent2, parent1)
+            new_population.extend([child1, child2])
+
+        # Mutation
+        mutated_population = [mutate(permutation) for permutation in new_population]
+        population = mutated_population
+
+    # Construct heuristic matrix from best solutions
+    num_best = 10
+    fitness_scores = [calculate_fitness(permutation) for permutation in population]
+    best_indices = np.argsort(fitness_scores)[-num_best:]
+    best_solutions = [population[i] for i in best_indices]
+
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    for permutation in best_solutions:
+        for i in range(n):
+            node1 = permutation[i]
+            node2 = permutation[(i + 1) % n]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+    heuristics_matrix /= num_best
+    return heuristics_matrix

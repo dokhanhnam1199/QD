@@ -1,0 +1,96 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a biased random sampling approach with adaptive pheromone updates and a local search component to refine edge importance estimation.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone_matrix = np.ones_like(distance_matrix)
+
+    num_samples = 500
+    learning_rate = 0.1
+    discount_factor = 0.9
+    local_search_iterations = 5
+
+    for _ in range(num_samples):
+        current_node = 0
+        route = [0]
+        remaining_nodes = set(range(1, n))
+        current_capacity = capacity
+        total_distance = 0
+
+        while remaining_nodes:
+            probabilities = {}
+            for node in remaining_nodes:
+                if current_capacity >= demands[node]:
+                    distance_heuristic = 1 / (distance_matrix[current_node, node] + 1e-6)
+                    demand_heuristic = (current_capacity - demands[node]) / capacity
+                    probabilities[node] = distance_heuristic * (demand_heuristic + 0.1) * pheromone_matrix[current_node, node]
+
+            if not probabilities:
+                break
+
+            total_prob = sum(probabilities.values())
+            if total_prob == 0:
+                next_node = remaining_nodes.pop()
+            else:
+                normalized_probabilities = {node: prob / total_prob for node, prob in probabilities.items()}
+                next_node = np.random.choice(list(normalized_probabilities.keys()), p=list(normalized_probabilities.values()))
+                
+            if current_capacity >= demands[next_node]:
+                route.append(next_node)
+                total_distance += distance_matrix[current_node, next_node]
+                current_capacity -= demands[next_node]
+                remaining_nodes.remove(next_node)
+                heuristics_matrix[current_node, next_node] += 1
+                heuristics_matrix[next_node, current_node] += 1
+                
+                pheromone_matrix[current_node, next_node] = (1 - learning_rate) * pheromone_matrix[current_node, next_node] + learning_rate * (1 / (distance_matrix[current_node, next_node] + 1e-6))
+                pheromone_matrix[next_node, current_node] = (1 - learning_rate) * pheromone_matrix[next_node, current_node] + learning_rate * (1 / (distance_matrix[next_node, current_node] + 1e-6))
+                
+                current_node = next_node
+            else:
+                route.append(0)
+                total_distance += distance_matrix[current_node, 0]
+                heuristics_matrix[current_node, 0] += 1
+                heuristics_matrix[0, current_node] += 1
+
+                pheromone_matrix[current_node, 0] = (1 - learning_rate) * pheromone_matrix[current_node, 0]
+                pheromone_matrix[0, current_node] = (1 - learning_rate) * pheromone_matrix[0, current_node]
+                
+                current_node = 0
+                current_capacity = capacity
+        
+        if current_node != 0:
+            total_distance += distance_matrix[current_node, 0]
+            heuristics_matrix[current_node, 0] += 1
+            heuristics_matrix[0, current_node] += 1
+
+        # Local Search (2-opt within route)
+        for _ in range(local_search_iterations):
+            if len(route) > 3:
+                i = random.randint(1, len(route) - 2)
+                j = random.randint(i + 1, len(route) - 1)
+
+                old_distance = distance_matrix[route[i - 1], route[i]] + distance_matrix[route[j], route[(j + 1) % len(route)]]
+                new_distance = distance_matrix[route[i - 1], route[j]] + distance_matrix[route[i], route[(j + 1) % len(route)]]
+
+                if new_distance < old_distance:
+                    route[i:j+1] = reversed(route[i:j+1])
+                    
+                    #Update heuristic matrix after local search improvement
+                    heuristics_matrix = np.zeros_like(distance_matrix)
+                    for k in range(len(route) - 1):
+                        heuristics_matrix[route[k], route[k+1]] += 1
+                        heuristics_matrix[route[k+1], route[k]] += 1
+                    if route[-1] != 0:
+                         heuristics_matrix[route[-1], 0] += 1
+                         heuristics_matrix[0, route[-1]] += 1
+                    
+
+    for i in range(n):
+        for j in range(n):
+            if heuristics_matrix[i, j] > 0:
+               heuristics_matrix[i, j] /= (distance_matrix[i, j] + 1e-6)
+            
+    return heuristics_matrix

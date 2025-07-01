@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (shape: n by n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n by 2).
+        demands (np.ndarray): Vector of customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (shape: n by n).
+    """
+    n = distance_matrix.shape[0]
+
+    # Initialize the heuristic matrix with inverse distance
+    heuristic_matrix = 1 / (distance_matrix + 1e-9)  # Adding a small constant to avoid division by zero
+
+    # Incorporate demand considerations
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+            else:
+                # Penalize edges connecting nodes with high combined demand
+                demand_penalty = (demands[i] + demands[j]) / (2 * capacity)
+                heuristic_matrix[i, j] /= (1 + demand_penalty)
+
+                #Prioritize connections to/from the depot
+                if i == 0 or j == 0:
+                    heuristic_matrix[i,j] *= 1.5  #Boost connections to depot
+
+    # Sparsify the matrix: keep only the top k edges for each node
+    k = int(np.sqrt(n))  # Adjust k based on problem size
+    for i in range(n):
+        row = heuristic_matrix[i, :].copy()  #create a copy to avoid modifying during iteration
+        indices = np.argsort(row)[-k:]  # Indices of the top k elements
+        mask = np.ones(n, dtype=bool)
+        mask[indices] = False # True for elements to zero out
+        heuristic_matrix[i, mask] = 0 #Zero out
+        #heuristic_matrix[i, np.argsort(heuristic_matrix[i, :])[:-k]] = 0
+
+    #Normalize heuristic matrix between 0 and 1
+    heuristic_matrix = (heuristic_matrix - np.min(heuristic_matrix)) / (np.max(heuristic_matrix) - np.min(heuristic_matrix) + 1e-9)
+
+    return heuristic_matrix
+```

@@ -1,0 +1,64 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm combines edge frequency from nearest neighbor tours and inverse distance weighting from good random tours to create a hybrid heuristic matrix.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_samples_nn = 50
+    num_tours_rand = 50
+    best_tours_fraction = 0.1
+
+    # Nearest Neighbor Component
+    nn_matrix = np.zeros_like(distance_matrix, dtype=float)
+    for _ in range(num_samples_nn):
+        start_node = np.random.randint(n)
+        current_node = start_node
+        unvisited = set(range(n))
+        unvisited.remove(current_node)
+        path = [current_node]
+
+        while unvisited:
+            nearest_neighbor = min(unvisited, key=lambda x: distance_matrix[current_node, x])
+            nn_matrix[current_node, nearest_neighbor] += 1
+            nn_matrix[nearest_neighbor, current_node] += 1
+            current_node = nearest_neighbor
+            path.append(current_node)
+            unvisited.remove(current_node)
+        
+        nn_matrix[current_node, start_node] += 1
+        nn_matrix[start_node, current_node] += 1
+
+    # Random Tour Component
+    tours = []
+    tour_lengths = []
+    
+    for _ in range(num_tours_rand):
+        tour = np.random.permutation(n)
+        tour_length = 0
+        for i in range(n - 1):
+            tour_length += distance_matrix[tour[i], tour[i+1]]
+        tour_length += distance_matrix[tour[n-1], tour[0]]
+        tours.append(tour)
+        tour_lengths.append(tour_length)
+    
+    num_best_tours = int(num_tours_rand * best_tours_fraction)
+    best_tour_indices = np.argsort(tour_lengths)[:num_best_tours]
+    best_tours = [tours[i] for i in best_tour_indices]
+    
+    rand_matrix = np.zeros_like(distance_matrix, dtype=float)
+    
+    for tour in best_tours:
+        for i in range(n - 1):
+            u = tour[i]
+            v = tour[i+1]
+            rand_matrix[u, v] += 1.0 / distance_matrix[u, v] if distance_matrix[u, v] > 0 else 0
+            rand_matrix[v, u] += 1.0 / distance_matrix[v, u] if distance_matrix[v, u] > 0 else 0
+        u = tour[n-1]
+        v = tour[0]
+        rand_matrix[u, v] += 1.0 / distance_matrix[u, v] if distance_matrix[u, v] > 0 else 0
+        rand_matrix[v, u] += 1.0 / distance_matrix[v, u] if distance_matrix[v, u] > 0 else 0
+
+    # Combine the two components
+    heuristics_matrix = nn_matrix + rand_matrix
+
+    return heuristics_matrix

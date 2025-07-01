@@ -1,0 +1,67 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for Capacitated Vehicle Routing Problem (CVRP) using a combination of factors and stochastic solution sampling.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Demand of each customer (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (n x n).
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # 1. Distance factor
+    distance_factor = 1 / (distance_matrix + 1e-6)
+
+    # 2. Angle factor
+    angle_factor = np.ones((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                vector1 = coordinates[i] - coordinates[0]
+                vector2 = coordinates[j] - coordinates[i]
+                norm1 = np.linalg.norm(vector1)
+                norm2 = np.linalg.norm(vector2)
+                if norm1 > 0 and norm2 > 0:
+                    vector1 = vector1 / norm1
+                    vector2 = vector2 / norm2
+                    dot_product = np.dot(vector1, vector2)
+                    angle = np.arccos(np.clip(dot_product, -1.0, 1.0))
+                    angle_factor[i, j] = 1 - (angle / np.pi)
+
+    # 3. Demand factor
+    demand_factor = np.ones((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != j and i != 0 and j != 0:
+                demand_factor[i, j] = np.exp(- (demands[i] + demands[j]) / capacity)
+
+    # Combined heuristic
+    heuristic_matrix = distance_factor * angle_factor * demand_factor
+
+    # Sparsification using quantile-based thresholding
+    flat_heuristic = heuristic_matrix.flatten()
+    quantile_threshold = np.quantile(flat_heuristic[flat_heuristic > 0], 0.50)  # Adaptive: 50th quantile
+    heuristic_matrix[heuristic_matrix < quantile_threshold] = 0
+    np.fill_diagonal(heuristic_matrix, 0)
+
+    # Stochasticity: Add small random noise to avoid getting stuck
+    noise = np.random.normal(0, 0.01, size=(n, n)) # Scale the noise by 0.01
+    heuristic_matrix = heuristic_matrix + noise
+    heuristic_matrix = np.clip(heuristic_matrix, 0, 1)
+
+    # Normalize heuristic matrix
+    max_heuristic = np.max(heuristic_matrix)
+    if max_heuristic > 0:
+        heuristic_matrix = heuristic_matrix / max_heuristic
+
+    return heuristic_matrix
+```

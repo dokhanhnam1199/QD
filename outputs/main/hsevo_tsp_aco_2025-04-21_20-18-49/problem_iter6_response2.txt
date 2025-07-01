@@ -1,0 +1,41 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray,
+                  attractiveness_exponent: float = 2.0,
+                  sparsification_factor: float = 4.733362140013519,
+                  centrality_exponent: float = 1.0,
+                  temperature_scaling: float = 1.0) -> np.ndarray:
+    """Enhanced heuristics using inverse distance, centrality, attractiveness, and adaptive temperature."""
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix, dtype=float)
+
+    # Adaptive temperature based on quantiles
+    temperature = np.quantile(distance_matrix[distance_matrix > 0], 0.25) * temperature_scaling # avoid zero values
+
+    inverse_distance = 1.0 / (distance_matrix + np.eye(n))
+
+    # Node attractiveness based on sum of inverse distances, normalized
+    node_attractiveness = np.sum(inverse_distance, axis=0)
+    node_attractiveness = node_attractiveness / np.mean(node_attractiveness)
+
+    # Node centrality, normalized and exponentiated
+    node_centrality = np.sum(inverse_distance, axis=1)
+    node_centrality = node_centrality / np.mean(node_centrality)
+    node_centrality_factor = node_centrality ** centrality_exponent
+
+    # Edge attractiveness: combination of factors
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                heuristics[i, j] = (inverse_distance[i, j]**attractiveness_exponent) * \
+                                   (node_attractiveness[i] * node_attractiveness[j]) * \
+                                   (node_centrality_factor[i] * node_centrality_factor[j]) * \
+                                   np.exp(-distance_matrix[i, j] / temperature)
+
+    # Adaptive sparsification based on quantiles
+    threshold = np.quantile(heuristics[heuristics > 0], 1.0 / sparsification_factor) # Avoid zero value
+    heuristics[heuristics < threshold] = 0
+
+    return heuristics
+```

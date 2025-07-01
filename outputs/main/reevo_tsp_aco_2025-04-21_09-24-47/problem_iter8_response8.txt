@@ -1,0 +1,63 @@
+```python
+import numpy as np
+from scipy.sparse.csgraph import minimum_spanning_tree
+from scipy.sparse import csr_matrix
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for TSP based on distance, node degree, and global connectivity,
+    with adaptive, node-specific sparsification and normalization.
+
+    Args:
+        distance_matrix: A numpy array representing the distance matrix.
+
+    Returns:
+        A numpy array of the same shape as distance_matrix,
+        representing the heuristic values for each edge.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # 1. Inverse Distance Heuristic
+    inverse_distance = 1.0 / (distance_matrix + 1e-9)
+    inverse_distance = inverse_distance / np.max(inverse_distance) if np.max(inverse_distance) != 0 else inverse_distance
+
+    # 2. Node Degree Heuristic (Penalize High Degree - Less Aggressively)
+    degree_penalty = np.zeros((n, n), dtype=float)
+    avg_degree = 2
+    for i in range(n):
+        for j in range(n):
+            degree_penalty[i, j] = max(0, 1 - (np.argsort(distance_matrix[i, :]).tolist().index(j) / avg_degree))
+    degree_penalty = degree_penalty / np.max(degree_penalty) if np.max(degree_penalty) != 0 else degree_penalty
+
+    # 3. Global Connectivity Heuristic (MST-like approximation)
+    mst_heuristic = np.zeros((n, n), dtype=float)
+    mst = minimum_spanning_tree(csr_matrix(distance_matrix))
+    for i in range(n):
+        for j in range(n):
+            if mst[i, j] > 0:
+                mst_heuristic[i, j] = 1.0
+    mst_heuristic = mst_heuristic / np.max(mst_heuristic) if np.max(mst_heuristic) != 0 else mst_heuristic
+
+    # Combine heuristics (Adjusted Weights)
+    heuristic_matrix = (0.5 * inverse_distance +
+                        0.3 * degree_penalty +
+                        0.2 * mst_heuristic)
+
+    # Adaptive Sparsification (Node-Specific k)
+    for i in range(n):
+        k = min(max(2, int(np.sqrt(n))), n - 1)
+        row = heuristic_matrix[i].copy()
+        indices_to_keep = np.argsort(row)[-k:]
+        mask = np.zeros(n, dtype=bool)
+        mask[indices_to_keep] = True
+        heuristic_matrix[i, ~mask] = 0
+
+    # Normalize Rows
+    row_sums = heuristic_matrix.sum(axis=1, keepdims=True)
+    heuristic_matrix = np.nan_to_num(heuristic_matrix / (row_sums + 1e-9))
+
+    heuristic_matrix[np.diag_indices_from(heuristic_matrix)] = 0
+
+    return heuristic_matrix
+```

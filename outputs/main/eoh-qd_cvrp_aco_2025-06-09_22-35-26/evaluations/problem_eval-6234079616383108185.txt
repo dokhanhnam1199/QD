@@ -1,0 +1,77 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively refines edge probabilities by sampling routes, penalizing edges in infeasible routes and rewarding edges in feasible routes with a cost improvement.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.ones_like(distance_matrix)  # Initialize with ones to avoid zero probabilities
+    learning_rate = 0.1
+    num_iterations = 50
+    num_samples = 50
+
+    for iteration in range(num_iterations):
+        for _ in range(num_samples):
+            # Sample a route based on current heuristics
+            route = list(range(1, n))
+            random.shuffle(route)
+            
+            current_route = []
+            current_demand = 0
+            total_cost = 0
+            is_feasible = True
+            vehicle_routes = []
+
+            for node in route:
+                if current_demand + demands[node] <= capacity:
+                    current_route.append(node)
+                    current_demand += demands[node]
+                else:
+                    if len(current_route) > 0:
+                        total_cost += distance_matrix[0, current_route[0]]
+                        for i in range(len(current_route) - 1):
+                            total_cost += distance_matrix[current_route[i], current_route[i+1]]
+                        total_cost += distance_matrix[current_route[-1], 0]
+                        vehicle_routes.append(current_route)
+                    else:
+                        is_feasible = False
+                        break
+
+                    current_route = [node]
+                    current_demand = demands[node]
+
+            if is_feasible:
+                if len(current_route) > 0:
+                    total_cost += distance_matrix[0, current_route[0]]
+                    for i in range(len(current_route) - 1):
+                        total_cost += distance_matrix[current_route[i], current_route[i + 1]]
+                    total_cost += distance_matrix[current_route[-1], 0]
+                    vehicle_routes.append(current_route)
+
+                # Reward edges in feasible route
+                total_route = []
+                for r in vehicle_routes:
+                    total_route.extend([0] + r + [0])
+
+                current_cost = 0
+                for i in range(len(total_route) - 1):
+                    current_cost += distance_matrix[total_route[i], total_route[i+1]]
+                
+                if current_cost < np.sum(distance_matrix): # A very basic condition, improve cost.
+                    for i in range(len(total_route) - 1):
+                        heuristics_matrix[total_route[i], total_route[i+1]] += learning_rate
+                        heuristics_matrix[total_route[i+1], total_route[i]] += learning_rate
+            else:
+                # Penalize edges in infeasible route
+                total_route = []
+                for r in vehicle_routes:
+                    total_route.extend([0] + r + [0])
+                    
+                for i in range(len(total_route) - 1):
+                    heuristics_matrix[total_route[i], total_route[i+1]] -= learning_rate
+                    heuristics_matrix[total_route[i+1], total_route[i]] -= learning_rate
+
+            heuristics_matrix = np.clip(heuristics_matrix, 0.01, 10)  # Keep probabilities within a reasonable range
+
+    return heuristics_matrix

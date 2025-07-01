@@ -1,0 +1,114 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm starts with a random route, iteratively improves it by swapping nodes within and between routes based on a stochastic acceptance criterion considering distance and capacity constraints, and builds a heuristics matrix from the accepted routes.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    def create_initial_routes():
+        nodes = list(range(1, n))
+        random.shuffle(nodes)
+        routes = []
+        current_route = [0]
+        current_capacity = 0
+        for node in nodes:
+            if current_capacity + demands[node] <= capacity:
+                current_route.append(node)
+                current_capacity += demands[node]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, node]
+                current_capacity = demands[node]
+        current_route.append(0)
+        routes.append(current_route)
+        return routes
+
+    def calculate_total_cost(routes):
+        total_cost = 0
+        for route in routes:
+            total_cost += calculate_route_cost(route)
+        return total_cost
+    
+    routes = create_initial_routes()
+    best_routes = routes
+    best_cost = calculate_total_cost(routes)
+    
+    TEMP = 100
+    COOLING_RATE = 0.95
+
+    for _ in range(10000):
+        TEMP *= COOLING_RATE
+        
+        # Choose a random route
+        route_index = random.randint(0, len(routes) - 1)
+        route = routes[route_index]
+
+        # Choose a random operation (swap within route or between routes)
+        if random.random() < 0.5 and len(route) > 3:  # Swap within route
+            i = random.randint(1, len(route) - 2)
+            j = random.randint(1, len(route) - 2)
+            
+            new_route = route[:]
+            new_route[i], new_route[j] = new_route[j], new_route[i]
+            
+            new_routes = routes[:]
+            new_routes[route_index] = new_route
+            new_cost = calculate_total_cost(new_routes)
+            
+            delta_cost = new_cost - calculate_total_cost(routes)
+            
+        else: # Swap between routes
+            if len(routes) > 1:
+                other_route_index = random.randint(0, len(routes) - 1)
+                while other_route_index == route_index:
+                     other_route_index = random.randint(0, len(routes) - 1)
+                
+                other_route = routes[other_route_index]
+                
+                i = random.randint(1, len(route) - 2)
+                j = random.randint(1, len(other_route) - 2)
+
+                new_route = route[:]
+                new_other_route = other_route[:]
+
+                new_route[i], new_other_route[j] = new_other_route[j], new_route[i]
+                
+                new_route_capacity = sum([demands[node] for node in new_route if node != 0])
+                new_other_route_capacity = sum([demands[node] for node in new_other_route if node != 0])
+                
+                if new_route_capacity <= capacity and new_other_route_capacity <= capacity:
+
+                  new_routes = routes[:]
+                  new_routes[route_index] = new_route
+                  new_routes[other_route_index] = new_other_route
+                
+                  new_cost = calculate_total_cost(new_routes)
+                  delta_cost = new_cost - calculate_total_cost(routes)
+                else:
+                    delta_cost = 0
+            else:
+                delta_cost = 0 #Only one route, skip to next iteration.
+
+        if delta_cost < 0 or random.random() < np.exp(-delta_cost / TEMP):
+            if delta_cost < 0:
+                routes = new_routes
+                
+                if calculate_total_cost(routes) < best_cost:
+                    best_cost = calculate_total_cost(routes)
+                    best_routes = routes
+    
+    # Build heuristic matrix based on best routes
+    for route in best_routes:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] = 1
+            heuristics_matrix[route[i+1], route[i]] = 1
+
+    return heuristics_matrix

@@ -1,0 +1,67 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    This version incorporates distance, demand, and angle considerations to guide edge selection.
+
+    Args:
+        distance_matrix: Distance matrix between nodes (shape: n x n).
+        coordinates: Euclidean coordinates of nodes (shape: n x 2).
+        demands: Demand of each node (shape: n).
+        capacity: Vehicle capacity.
+
+    Returns:
+        A matrix of the same shape as distance_matrix, indicating the attractiveness of each edge.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Parameters (can be tuned)
+    alpha = 1.0  # Weight for distance
+    beta = 1.0   # Weight for demand
+    gamma = 1.0  # Weight for angle
+    delta = 1.0  # Weight for capacity slack
+
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Distance factor: Shorter distances are more attractive
+                distance_factor = alpha / distance_matrix[i, j]
+
+                # Demand factor: Prefer nodes with demands that fit well within vehicle capacity
+                demand_factor = beta / (demands[j] + 1e-6) # Add small value to avoid division by zero
+
+                # Angle factor: Penalize sharp turns
+                if i == 0:  # Depot case - angle is less relevant
+                    angle_factor = 1.0
+                else:
+                    # Compute angles
+                    vector_ij = coordinates[j] - coordinates[i]
+                    vector_0i = coordinates[i] - coordinates[0]  # Depot at node 0
+
+                    # Normalize vectors to get cosine
+                    norm_ij = np.linalg.norm(vector_ij)
+                    norm_0i = np.linalg.norm(vector_0i)
+
+                    if norm_ij > 0 and norm_0i > 0:
+                         cos_angle = np.dot(vector_ij, vector_0i) / (norm_ij * norm_0i)
+                         # Map cosine (-1 to 1) to a score (0 to 1), higher is better
+                         angle_factor = gamma * (cos_angle + 1) / 2
+                    else:
+                         angle_factor = gamma # Avoid zero norm case
+                # Capacity slack factor: Higher slack is more desirable for exploration
+                capacity_slack_factor = delta # Initialize
+                # Consider current node i and potential next node j, if node i is the depot, then consider only j's demand
+                if i==0:
+                  capacity_slack_factor = delta * np.exp(-demands[j] / capacity)
+                else:
+                   capacity_slack_factor = delta
+
+                # Combine factors to create the heuristic value
+                heuristic_matrix[i, j] = distance_factor + demand_factor + angle_factor + capacity_slack_factor
+
+    return heuristic_matrix
+```

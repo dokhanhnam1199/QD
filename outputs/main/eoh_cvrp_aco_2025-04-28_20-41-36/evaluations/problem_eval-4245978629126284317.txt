@@ -1,0 +1,66 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm adaptively adjusts edge weights based on distance, demand, and route feasibility, learning from successful and unsuccessful route combinations.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    edge_weights = np.ones_like(distance_matrix)  # Initialize edge weights
+    learning_rate = 0.1
+
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            # Initial heuristic based on distance and demand
+            heuristics_matrix[i, j] = (1 / distance_matrix[i, j]) * (1 / (demands[i] + demands[j] + 1e-6)) * edge_weights[i, j]
+            heuristics_matrix[j, i] = heuristics_matrix[i, j]
+            
+    # Simulate route construction and update edge weights
+    num_simulations = 100
+    for _ in range(num_simulations):
+        current_route_demand = 0
+        current_node = 0
+        route = [0]
+        
+        while len(route) < n:
+          
+            eligible_nodes = [node for node in range(1, n) if node not in route and current_route_demand + demands[node] <= capacity]
+            
+            if not eligible_nodes:
+              if current_node != 0:
+                route.append(0)
+                current_route_demand = 0
+                current_node = 0
+                eligible_nodes = [node for node in range(1, n) if node not in route and current_route_demand + demands[node] <= capacity]
+              else:
+                break
+
+            if not eligible_nodes:
+              break
+            
+            probabilities = [heuristics_matrix[current_node, node] for node in eligible_nodes]
+            probabilities = np.exp(probabilities) / np.sum(np.exp(probabilities))
+            
+            next_node = random.choices(eligible_nodes, probabilities)[0]
+            
+            route.append(next_node)
+            current_route_demand += demands[next_node]
+            current_node = next_node
+            
+        if len(route) == n:
+            # Reward edges in successful route
+            for i in range(len(route) - 1):
+                edge_weights[route[i], route[i+1]] += learning_rate
+                edge_weights[route[i+1], route[i]] += learning_rate
+        else:
+            # Penalize edges in unsuccessful route
+            for i in range(len(route) - 1):
+                edge_weights[route[i], route[i+1]] -= learning_rate
+                edge_weights[route[i+1], route[i]] -= learning_rate
+
+    # Update heuristic matrix based on learned edge weights
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            heuristics_matrix[i, j] = (1 / distance_matrix[i, j]) * (1 / (demands[i] + demands[j] + 1e-6)) * edge_weights[i, j]
+            heuristics_matrix[j, i] = heuristics_matrix[i, j]
+
+    return heuristics_matrix

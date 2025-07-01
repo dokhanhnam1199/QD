@@ -1,0 +1,74 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """Combines distance, demand density, depot proximity, and angle."""
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Normalize distance
+    max_distance = np.max(distance_matrix[distance_matrix != np.inf])
+    normalized_distance = distance_matrix / (max_distance + 1e-6)
+
+    # Demand density
+    demand_density = np.zeros(n)
+    for i in range(1, n):
+        nearby_demand = 0
+        for j in range(1, n):
+            if i != j and distance_matrix[i, j] < np.mean(distance_matrix):
+                nearby_demand += demands[j]
+        demand_density[i] = nearby_demand
+    max_demand_density = np.max(demand_density) if np.max(demand_density) > 0 else 1
+    normalized_demand_density = demand_density / (max_demand_density + 1e-6)
+
+    # Depot proximity
+    depot_distances = distance_matrix[0, :]
+    max_depot_distance = np.max(depot_distances)
+    normalized_depot_distances = depot_distances / (max_depot_distance + 1e-6)
+
+    # Angles relative to depot
+    depot_x, depot_y = coordinates[0]
+    angles = np.arctan2(coordinates[:, 1] - depot_y, coordinates[:, 0] - depot_x)
+
+    # Adaptive weights (initialized)
+    distance_weight = 0.4
+    demand_weight = 0.2
+    depot_weight = 0.2
+    angle_weight = 0.2 # Introduced angle weight
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+
+            # Distance component
+            distance_component = 1 / (normalized_distance[i, j] + 1e-6)
+
+            # Demand component
+            demand_component = 1.0
+            if i != 0 and j != 0:
+                demand_component = np.sqrt(normalized_demand_density[i] * normalized_demand_density[j])
+
+            # Depot proximity component
+            depot_proximity_i = 1 / (normalized_depot_distances[i] + 0.1) if i != 0 else 1.0
+            depot_proximity_j = 1 / (normalized_depot_distances[j] + 0.1) if j != 0 else 1.0
+            depot_component = (depot_proximity_i + depot_proximity_j) / 2.0
+
+            # Angle component
+            angle_diff = abs(angles[i] - angles[j])
+            angle_component = np.exp(-2 * angle_diff)
+
+            # Combined heuristic - multiplicative combination
+            heuristic_value = (distance_component**distance_weight) * \
+                              (demand_component**demand_weight) * \
+                              (depot_component**depot_weight) * \
+                              (angle_component**angle_weight)
+
+            heuristic_matrix[i, j] = heuristic_value
+
+    # Adaptive sparsification
+    threshold = np.mean(heuristic_matrix[heuristic_matrix > 0]) * 0.1
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    return heuristic_matrix
+```

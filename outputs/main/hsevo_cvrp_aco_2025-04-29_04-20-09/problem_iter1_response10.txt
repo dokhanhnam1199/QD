@@ -1,0 +1,81 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    This version incorporates several factors to estimate the desirability of including an edge
+    in a solution: distance, demand, depot proximity, and node centrality.
+
+    Args:
+        distance_matrix: Distance matrix between nodes (n x n).
+        coordinates: Euclidean coordinates of nodes (n x 2).
+        demands: Demand of each node (n).
+        capacity: Vehicle capacity.
+
+    Returns:
+        A matrix of the same shape as distance_matrix, representing the prior indicators
+        of how promising it is to include each edge in a solution.  Higher values indicate
+        more promising edges.
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros((n, n))
+
+    # Parameters (tuned for reasonable behavior)
+    distance_weight = 1.0
+    demand_weight = 0.5
+    depot_proximity_weight = 0.7
+    centrality_weight = 0.3  # Increased slightly
+    capacity_penalty = 2.0
+    connection_penalty = 0.1 # Penalizes too many short connections
+    near_depot_bonus = 0.8
+
+    # 1. Distance component: Inverse of distance
+    distance_heuristic = 1 / (distance_matrix + 1e-6)  # Avoid division by zero
+
+    # 2. Demand component: Penalize edges connecting nodes with high demands if it exceeds vehicle capacity.
+    demand_heuristic = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                if demands[i] + demands[j] > capacity:
+                    demand_heuristic[i, j] = -capacity_penalty
+                else:
+                    demand_heuristic[i, j] = 1.0
+
+    # 3. Depot proximity component: Favor edges connected to the depot early on.
+    depot_proximity_heuristic = np.zeros((n, n))
+    for i in range(n):
+        depot_proximity_heuristic[0, i] = near_depot_bonus  # Slight bonus for direct connections
+        depot_proximity_heuristic[i, 0] = near_depot_bonus
+
+    # 4. Node centrality:  Prefer edges connecting to "central" nodes (nodes close to many others)
+    centrality = np.sum(1 / (distance_matrix + 1e-6), axis=1)
+    centrality_normalized = (centrality - np.min(centrality)) / (np.max(centrality) - np.min(centrality) + 1e-6)  # Normalize to [0, 1]
+
+    centrality_heuristic = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            centrality_heuristic[i, j] = centrality_normalized[i] + centrality_normalized[j]
+
+    # 5. Avoid many short connections between distant points
+    connection_count = np.zeros((n,n))
+    for i in range(n):
+      for j in range(n):
+        if distance_matrix[i,j] < np.mean(distance_matrix) / 3: #Short distance connection
+          connection_count[i,j] = - connection_penalty
+    # Combine the heuristics
+    heuristics = (distance_weight * distance_heuristic +
+                  demand_weight * demand_heuristic +
+                  depot_proximity_weight * depot_proximity_heuristic +
+                  centrality_weight * centrality_heuristic +
+                  connection_count) # Add Connection Penalties
+
+    # Ensure depot is always connected to some node.
+    for i in range(1, n): # Exclude depot to itself
+        heuristics[0, i] = max(heuristics[0, i], 1e-3)  # Give a small, non-zero probability
+        heuristics[i, 0] = max(heuristics[i, 0], 1e-3)
+
+    return heuristics
+```

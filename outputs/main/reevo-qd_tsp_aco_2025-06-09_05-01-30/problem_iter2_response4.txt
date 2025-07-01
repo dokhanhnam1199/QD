@@ -1,0 +1,68 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Improved heuristic function for TSP using a combination of factors, sparsification, and normalization.
+
+    Args:
+        distance_matrix (np.ndarray): A 2D numpy array representing the distance matrix.
+
+    Returns:
+        np.ndarray: A 2D numpy array of the same shape as distance_matrix,
+                    representing the heuristic values (prior indicators) for each edge.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Calculate nearest neighbors for each node (excluding itself)
+    nearest_neighbors = np.argsort(distance_matrix, axis=1)[:, 1:] # Exclude the first element, which is itself
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                distance = distance_matrix[i, j]
+
+                # Heuristic factor 1: Inverse distance
+                heuristic_factor_1 = 1 / distance if distance > 0 else 0  # Avoid division by zero
+
+                # Heuristic factor 2:  Is j among i's nearest neighbors?  Prioritize connections to nearer neighbours.
+                # The nearer the neighbor, the higher the value.
+                nn_rank = np.where(nearest_neighbors[i] == j)[0]
+                if len(nn_rank) > 0:
+                    heuristic_factor_2 = 1 / (nn_rank[0] + 1)  # Rank from 1 to N-1
+                else:
+                    heuristic_factor_2 = 0  # Not a nearest neighbor
+
+                # Heuristic factor 3:  Consider the "average distance" of the nodes involved
+                # If both i and j are relatively "close" to other nodes, connect them early.
+                # Averaging accounts for scenarios where one node is generally very far away from everything.
+                avg_dist_i = np.mean(distance_matrix[i, :])
+                avg_dist_j = np.mean(distance_matrix[j, :])
+                heuristic_factor_3 = 1 / (avg_dist_i + avg_dist_j) if (avg_dist_i + avg_dist_j) > 0 else 0
+
+                # Combine the factors
+                heuristic_matrix[i, j] = heuristic_factor_1 * heuristic_factor_2 * heuristic_factor_3
+
+    # Sparsify the matrix: keep only top K edges for each node
+    k = int(np.sqrt(n))  # Keep sqrt(n) nearest edges to each node (parameter can be tuned)
+
+    for i in range(n):
+        row = heuristic_matrix[i, :]
+        indices = np.argsort(row)[::-1]  # Indices of the highest values in descending order
+        keep_indices = indices[:k]       # Indices to retain
+
+        mask = np.zeros(n, dtype=bool)
+        mask[keep_indices] = True
+        heuristic_matrix[i, ~mask] = 0  # Set other entries to zero, to allow efficient sampling later
+    
+
+    # Normalize the heuristic values for better sampling behavior.  This can potentially
+    # improve the initial probabilities when sampling for the solution.
+    max_heuristic = np.max(heuristic_matrix)
+    if max_heuristic > 0:
+        heuristic_matrix = heuristic_matrix / max_heuristic
+
+    return heuristic_matrix
+```

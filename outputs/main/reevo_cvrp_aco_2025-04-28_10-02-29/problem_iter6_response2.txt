@@ -1,0 +1,98 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+
+    """
+    Heuristic function for Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    Refined with geometric mean demand, inverse angle, distance penalization, robust sparsification,
+    and capacity-aware edge penalization.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Vector of customer demands (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+
+    # Calculate savings matrix (Clarke-Wright Savings)
+    savings_matrix = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings_matrix[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings_matrix[j, i] = savings_matrix[i, j]
+
+    # Node proximity to depot
+    depot_proximity = np.zeros(n)
+    for i in range(1, n):
+        depot_proximity[i] = 1 / (distance_matrix[0, i] + 1e-6)
+
+    # Demand factor (geometric mean)
+    demand_factor = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                demand_factor[i, j] = 1 / (np.sqrt(demands[i] * demands[j]) + 1e-6)
+
+    # Angle Factor (angle between nodes i and j w.r.t the depot)
+    angle_factor = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            vector_i = coordinates[i] - coordinates[0]
+            vector_j = coordinates[j] - coordinates[0]
+            norm_i = np.linalg.norm(vector_i)
+            norm_j = np.linalg.norm(vector_j)
+            if norm_i > 0 and norm_j > 0:
+                cos_angle = np.dot(vector_i, vector_j) / (norm_i * norm_j)
+                angle = np.arccos(np.clip(cos_angle, -1.0, 1.0))  # Clip to avoid domain errors
+                angle_factor[i, j] = 1 / (angle + 1e-6)  # Inverse angle
+                angle_factor[j, i] = angle_factor[i, j]
+
+    # Normalize factors
+    savings_matrix = (savings_matrix - np.min(savings_matrix)) / (np.max(savings_matrix) - np.min(savings_matrix) + 1e-6)
+    depot_proximity = (depot_proximity - np.min(depot_proximity)) / (np.max(depot_proximity) - np.min(depot_proximity) + 1e-6)
+    demand_factor = (demand_factor - np.min(demand_factor)) / (np.max(demand_factor) - np.min(demand_factor) + 1e-6)
+    angle_factor = (angle_factor - np.min(angle_factor)) / (np.max(angle_factor) - np.min(angle_factor) + 1e-6)
+
+    # Combine factors with weights and distance penalization
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                heuristics_matrix[i, j] = (
+                    0.4 * savings_matrix[i, j]
+                    + 0.2 * (depot_proximity[i] + depot_proximity[j])
+                    + 0.2 * demand_factor[i, j]
+                    + 0.2 * angle_factor[i, j]
+                ) / (distance_matrix[i, j] + 1e-6)
+
+    # Prioritize depot connections
+    for i in range(1, n):
+        heuristics_matrix[0, i] *= 1.2  # Boost depot edges
+        heuristics_matrix[i, 0] *= 1.2
+
+    # Dynamic Sparsification using a more robust percentile calculation
+    non_zero_values = heuristics_matrix[heuristics_matrix > 0]
+    if non_zero_values.size > 0:  # Ensure there are non-zero values
+        threshold = np.percentile(non_zero_values, 40)
+        heuristics_matrix[heuristics_matrix < threshold] = 0
+    else:
+        # If all values are zero, skip sparsification
+        pass
+    
+    # Capacity-aware edge penalization
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j and demands[i] + demands[j] > capacity:
+                heuristics_matrix[i, j] *= 0.6  # Reduce the desirability of edges exceeding capacity
+
+    # Set diagonal to zero
+    for i in range(n):
+        heuristics_matrix[i, i] = 0
+
+    return heuristics_matrix
+```

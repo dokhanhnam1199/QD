@@ -1,0 +1,103 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm uses a nearest neighbor approach to generate initial tours, improves them with 3-opt, and aggregates edge frequencies weighted by exponential decay based on their lengths.}"""
+    n = distance_matrix.shape[0]
+    num_tours = 50
+    edge_counts = np.zeros_like(distance_matrix)
+
+    tours = []
+    tour_lengths = []
+
+    for _ in range(num_tours):
+        # Generate initial tour using nearest neighbor
+        start_node = np.random.randint(n)
+        tour = [start_node]
+        unvisited = set(range(n))
+        unvisited.remove(start_node)
+
+        while unvisited:
+            last_node = tour[-1]
+            nearest_node = min(unvisited, key=lambda x: distance_matrix[last_node, x])
+            tour.append(nearest_node)
+            unvisited.remove(nearest_node)
+        tour.append(tour[0])
+
+        # 3-opt local search
+        improved = True
+        while improved:
+            improved = False
+            for i in range(1, n - 2):
+                for j in range(i + 1, n - 1):
+                    for k in range(j + 1, n):
+                        # Define indices
+                        a, b, c, d, e, f = tour[i - 1], tour[i], tour[j], tour[j + 1], tour[k], tour[k + 1 if k + 1 < n else 0]
+
+                        # Calculate costs
+                        cost_original = distance_matrix[a, b] + distance_matrix[c, d] + distance_matrix[e, f]
+                        cost_swap_1 = distance_matrix[a, c] + distance_matrix[b, d] + distance_matrix[e, f]
+                        cost_swap_2 = distance_matrix[a, b] + distance_matrix[c, e] + distance_matrix[d, f]
+                        cost_swap_3 = distance_matrix[a, c] + distance_matrix[b, e] + distance_matrix[d, f]
+                        cost_swap_4 = distance_matrix[a, e] + distance_matrix[d, c] + distance_matrix[b, f]
+                        cost_swap_5 = distance_matrix[a, e] + distance_matrix[d, b] + distance_matrix[c, f]
+
+                        # Find best swap
+                        best_cost = cost_original
+                        best_swap = None
+                        if cost_swap_1 < best_cost:
+                            best_cost = cost_swap_1
+                            best_swap = (i, j, k, 1)
+                        if cost_swap_2 < best_cost:
+                            best_cost = cost_swap_2
+                            best_swap = (i, j, k, 2)
+                        if cost_swap_3 < best_cost:
+                            best_cost = cost_swap_3
+                            best_swap = (i, j, k, 3)
+                        if cost_swap_4 < best_cost:
+                            best_cost = cost_swap_4
+                            best_swap = (i, j, k, 4)
+                        if cost_swap_5 < best_cost:
+                            best_cost = cost_swap_5
+                            best_swap = (i, j, k, 5)
+                            
+                        if best_swap is not None:
+                            improved = True
+                            if best_swap[3] == 1:
+                                tour[i:j+1] = tour[i:j+1][::-1]
+                            elif best_swap[3] == 2:
+                                tour[j+1:k+1] = tour[j+1:k+1][::-1]
+                            elif best_swap[3] == 3:
+                                tour[i:k+1] = tour[i:k+1][::-1]
+                            elif best_swap[3] == 4:
+                                tour[i:j+1], tour[j+1:k+1] = tour[j+1:k+1][::-1], tour[i:j+1][::-1]
+                            elif best_swap[3] == 5:
+                                tour[i:k+1] = tour[i:k+1][::-1]
+
+
+        tour_length = sum(distance_matrix[tour[i], tour[i+1]] for i in range(n))
+        tours.append(tour)
+        tour_lengths.append(tour_length)
+
+    # Rank tours based on length
+    ranked_indices = np.argsort(tour_lengths)
+
+    for rank, index in enumerate(ranked_indices):
+        tour = tours[index]
+        # Weight edge counts by exponential decay
+        weight = np.exp(-rank * 0.1)  # Exponential decay
+
+        for i in range(n):
+            node1 = tour[i]
+            node2 = tour[i+1]
+            edge_counts[node1, node2] += weight
+            edge_counts[node2, node1] += weight
+
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(n):
+        for j in range(n):
+            if distance_matrix[i, j] > 0:
+                heuristics_matrix[i, j] = edge_counts[i, j] / distance_matrix[i, j]
+            else:
+                heuristics_matrix[i, j] = 0
+
+    return heuristics_matrix

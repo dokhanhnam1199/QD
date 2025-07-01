@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    This version incorporates distance, demand, and spatial relationships into the heuristic score.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (shape: n by n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n by 2).
+        demands (np.ndarray): Vector of customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution,
+                    of the same shape as the distance_matrix.
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Normalize distance matrix for better numerical stability
+    normalized_distance = distance_matrix / np.max(distance_matrix) if np.max(distance_matrix) > 0 else np.zeros_like(distance_matrix)
+
+    # Prioritize edges connecting to the depot (node 0) and edges between nodes with high demands
+    depot_priority = 1.5  # Higher value, to prioritize nodes near depot
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # Avoid self-loops
+                continue
+
+            # Base heuristic based on inverse distance
+            heuristic_matrix[i, j] = 1 / (normalized_distance[i, j] + 1e-9)  # Adding a small constant to prevent division by zero.
+
+            # Incorporate demand considerations
+            demand_factor = (demands[i] + demands[j]) / (2 * capacity) # Demand is with respect to total capacity
+            heuristic_matrix[i, j] *= np.exp(-demand_factor)  # Discourage selecting links if the demand is high
+
+            # Boost priority for edges connected to the depot, unless it's a self loop
+            if i == 0 or j == 0:
+              heuristic_matrix[i, j] *= depot_priority
+
+            # Encourage edges connecting spatially close nodes.
+            # The coordinates are crucial to reflect spatial proximity.
+            spatial_distance = np.linalg.norm(coordinates[i] - coordinates[j])
+            normalized_spatial_distance = spatial_distance / (np.max(np.linalg.norm(coordinates - coordinates[0], axis = 1)) + 1e-9) if np.max(np.linalg.norm(coordinates - coordinates[0], axis = 1)) > 0 else 0
+            heuristic_matrix[i, j] *= np.exp(-normalized_spatial_distance) # Favor spatially nearby edges
+
+    return heuristic_matrix
+```

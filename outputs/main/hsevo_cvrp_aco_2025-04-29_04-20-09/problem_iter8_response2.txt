@@ -1,0 +1,55 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """Combines normalized distance, demand, depot proximity, and centrality with dynamic threshold."""
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Normalize distance
+    max_distance = np.max(distance_matrix[distance_matrix != np.inf])
+    normalized_distance = distance_matrix / (max_distance + 1e-9)
+
+    # Demand component
+    demand_matrix = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            demand_matrix[i, j] = demands[i] + demands[j]
+    demand_component = np.clip(1 - (demand_matrix / capacity), 0, 1)
+
+    # Centrality (degree centrality)
+    centrality = np.sum(1 / (distance_matrix + 1e-9), axis=1)
+    normalized_centrality = centrality / np.max(centrality + 1e-9)
+    centrality_matrix = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            centrality_matrix[i, j] = (normalized_centrality[i] + normalized_centrality[j]) / 2
+
+    # Depot proximity
+    depot_distances = distance_matrix[0, :]
+    depot_proximity_matrix = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            depot_proximity_matrix[i, j] = 1 / (depot_distances[i] + depot_distances[j] + 1e-9)
+    max_val = np.max(depot_proximity_matrix)
+    if max_val > 0:
+        depot_proximity_matrix = depot_proximity_matrix / max_val
+
+    # Combine components with weights
+    heuristic_matrix = (
+        0.4 * (1 / (normalized_distance + 1e-9)) +  # Distance
+        0.3 * demand_component +  # Demand
+        0.15 * centrality_matrix + #Centrality
+        0.15 * depot_proximity_matrix # Depot Proximity
+    )
+
+    # Sparsification with dynamic threshold
+    threshold = np.mean(heuristic_matrix[heuristic_matrix > 0]) * 0.2
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    # Ensure no self-loops
+    for i in range(n):
+        heuristic_matrix[i, i] = 0
+
+    return heuristic_matrix
+```

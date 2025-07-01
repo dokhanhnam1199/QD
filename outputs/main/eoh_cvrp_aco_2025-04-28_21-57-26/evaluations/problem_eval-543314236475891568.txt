@@ -1,0 +1,65 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively refines edge importance scores based on a combination of simulated annealing and Monte Carlo sampling, probabilistically favoring edges that lead to feasible and shorter routes while penalizing edges that result in infeasibility or longer routes.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    temperature = 1.0
+    cooling_rate = 0.995
+    num_iterations = 500
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i]][route[i+1]]
+        return cost
+
+    for iteration in range(num_iterations):
+        # Construct a random route
+        route = [0]
+        unvisited = set(range(1, n))
+        current_load = 0
+
+        while unvisited:
+            possible_nodes = [node for node in unvisited if current_load + demands[node] <= capacity]
+            if not possible_nodes:
+                route.append(0)
+                current_load = 0
+                possible_nodes = [node for node in unvisited if current_load + demands[node] <= capacity]
+
+                if not possible_nodes:
+                    break
+
+            probabilities = [np.exp(-distance_matrix[route[-1], node] / temperature) for node in possible_nodes]
+            total_prob = sum(probabilities)
+            if total_prob == 0:
+                next_node = random.choice(possible_nodes)
+            else:
+                normalized_probabilities = [prob / total_prob for prob in probabilities]
+                next_node = random.choices(possible_nodes, weights=normalized_probabilities, k=1)[0]
+
+            route.append(next_node)
+            current_load += demands[next_node]
+            unvisited.remove(next_node)
+
+        if route[-1]!=0:
+            route.append(0) # Return to depot
+
+        cost = calculate_route_cost(route)
+        
+        # Update heuristics matrix based on route and cost
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            heuristics_matrix[node1, node2] += np.exp(-cost / temperature)
+            heuristics_matrix[node2, node1] += np.exp(-cost / temperature)
+
+        temperature *= cooling_rate
+
+    # Normalize heuristics matrix
+    max_val = np.max(heuristics_matrix)
+    if max_val > 0:
+        heuristics_matrix /= max_val
+
+    return heuristics_matrix

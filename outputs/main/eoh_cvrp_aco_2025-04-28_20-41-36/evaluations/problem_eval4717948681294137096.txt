@@ -1,0 +1,86 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses an ant colony optimization approach, where pheromone levels on edges are updated based on route quality, guiding the search towards promising solutions.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone_matrix = np.ones_like(distance_matrix)  # Initialize pheromone levels
+    alpha = 1  # Influence of pheromone
+    beta = 2  # Influence of heuristic information
+    rho = 0.1  # Evaporation rate
+    Q = 100  # Pheromone deposit constant
+
+    # Heuristic information (visibility)
+    eta = 1 / (distance_matrix + np.eye(n))  # Avoid division by zero
+
+    # Ant colony optimization iterations
+    num_iterations = 100
+    for _ in range(num_iterations):
+        all_routes = []
+        all_route_lengths = []
+
+        num_ants = n  # Number of ants
+        for ant in range(num_ants):
+            current_route_demand = 0
+            current_node = 0
+            route = [0]
+
+            while len(route) < n:
+                eligible_nodes = [node for node in range(1, n) if node not in route and current_route_demand + demands[node] <= capacity]
+
+                if not eligible_nodes:
+                    if current_node != 0:
+                        route.append(0)
+                        current_route_demand = 0
+                        current_node = 0
+                        eligible_nodes = [node for node in range(1, n) if node not in route and current_route_demand + demands[node] <= capacity]
+                    else:
+                        break
+
+                if not eligible_nodes:
+                    break
+
+                probabilities = []
+                for node in eligible_nodes:
+                    probabilities.append((pheromone_matrix[current_node, node]**alpha) * (eta[current_node, node]**beta))
+
+                if sum(probabilities) == 0:
+                  probabilities = [1/len(eligible_nodes)] * len(eligible_nodes)
+                else:
+                  probabilities = probabilities / np.sum(probabilities)
+
+                next_node = random.choices(eligible_nodes, probabilities)[0]
+
+                route.append(next_node)
+                current_route_demand += demands[next_node]
+                current_node = next_node
+
+            if len(route) == n:
+                route.append(0)
+                all_routes.append(route)
+                route_length = 0
+                for i in range(len(route) - 1):
+                    route_length += distance_matrix[route[i], route[i+1]]
+                all_route_lengths.append(route_length)
+
+        # Update pheromone levels
+        pheromone_matrix *= (1 - rho)  # Evaporation
+
+        if all_routes:
+          best_route_index = np.argmin(all_route_lengths)
+          best_route = all_routes[best_route_index]
+          best_route_length = all_route_lengths[best_route_index]
+          
+          for i in range(len(best_route) - 1):
+              pheromone_matrix[best_route[i], best_route[i+1]] += Q / best_route_length
+              pheromone_matrix[best_route[i+1], best_route[i]] += Q / best_route_length
+
+
+    # Update heuristic matrix based on learned pheromone levels and heuristic information
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            heuristics_matrix[i, j] = pheromone_matrix[i, j] * eta[i, j]
+            heuristics_matrix[j, i] = heuristics_matrix[i, j]
+
+    return heuristics_matrix

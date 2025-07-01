@@ -1,0 +1,72 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm adaptively samples routes, prioritizing edges from shorter, feasible routes and using reinforcement learning to dynamically adjust edge probabilities based on route feasibility and length.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    edge_probabilities = np.ones_like(distance_matrix) / n  # Initialize probabilities
+    learning_rate = 0.1
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        # Generate a route based on edge probabilities
+        route = list(range(1, n))
+        random.shuffle(route)
+        
+        # Split route into feasible vehicle routes
+        vehicle_routes = []
+        current_route = []
+        current_demand = 0
+        
+        for node in route:
+            if current_demand + demands[node] <= capacity:
+                current_route.append(node)
+                current_demand += demands[node]
+            else:
+                vehicle_routes.append(current_route)
+                current_route = [node]
+                current_demand = demands[node]
+                
+        if current_route:
+            vehicle_routes.append(current_route)
+        
+        # Calculate total route length
+        total_length = 0
+        full_route = [0]  # Start from depot
+        for vr in vehicle_routes:
+            full_route += vr + [0] # depot to vr and back to depot
+
+        for i in range(len(full_route)-1):
+             total_length += distance_matrix[full_route[i], full_route[i+1]]
+
+        # Update heuristics and edge probabilities
+        if vehicle_routes:
+            reward = 1.0 / (total_length + 1e-9) # Shorter routes get higher reward
+            
+            for i in range(len(full_route) - 1):
+                node1 = full_route[i]
+                node2 = full_route[i+1]
+                
+                heuristics_matrix[node1, node2] += reward
+                heuristics_matrix[node2, node1] += reward
+                
+                # Reinforce edges that led to feasible and short routes
+                edge_probabilities[node1, node2] += learning_rate * reward
+                edge_probabilities[node2, node1] += learning_rate * reward
+        else:
+            # Punish edges that led to infeasible routes
+            for i in range(len(full_route) - 1):
+                node1 = full_route[i]
+                node2 = full_route[i+1]
+                
+                edge_probabilities[node1, node2] -= learning_rate * 0.1  # Slight penalty
+                edge_probabilities[node2, node1] -= learning_rate * 0.1
+        
+        # Normalize edge probabilities
+        edge_probabilities = np.maximum(edge_probabilities, 1e-6)  # Avoid zero probabilities
+        edge_probabilities /= np.sum(edge_probabilities) # ensures that probabilities sum to 1
+
+    return heuristics_matrix

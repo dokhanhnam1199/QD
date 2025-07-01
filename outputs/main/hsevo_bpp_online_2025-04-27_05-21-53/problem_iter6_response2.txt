@@ -1,0 +1,92 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray,
+                 exploration_weight: float = 0.3482592920692952,
+                 almost_full_boost: float = 2.3120758085100395,
+                 small_remainder_penalty: float = 1.048883701071912,
+                 near_perfect_fit_penalty: float = 1.5814163090985471,
+                 moderate_fit_bonus: float = 0.97011540494973,
+                 almost_full_threshold: float = 0.073331980441882,
+                 small_remainder_threshold: float = 0.02524284985386266,
+                 near_perfect_fit_threshold: float = 0.04468113355144796,
+                 moderate_fit_threshold_low: float = 0.33776523602030956,
+                 moderate_fit_threshold_high: float = 0.7785575931513438,
+                 bin_diversity_penalty: float = 0.5,
+                 utilization_exponent: float = 1.5,
+                 random_factor: float = 0.01) -> np.ndarray:
+    """
+    Prioritizes bins based on a combination of factors, incorporating bin diversity,
+    a stochastic element, and adaptive exploration.
+
+    Args:
+        item (float): The size of the item to be packed.
+        bins_remain_cap (np.ndarray): An array containing the remaining capacity of each bin.
+        exploration_weight (float): Weight for exploration factor.
+        almost_full_boost (float): Boost for almost full bins.
+        small_remainder_penalty (float): Penalty for small remainders.
+        near_perfect_fit_penalty (float): Penalty for near perfect fits.
+        moderate_fit_bonus (float): Bonus for moderate fits.
+        almost_full_threshold (float): Threshold for considering a bin almost full (fraction of bin size).
+        small_remainder_threshold (float): Threshold for considering a remainder small (fraction of bin size).
+        near_perfect_fit_threshold (float): Threshold for considering a fit near perfect (fraction of bin size).
+        moderate_fit_threshold_low: Lower threshold for moderate fit.
+        moderate_fit_threshold_high: Higher threshold for moderate fit.
+        bin_diversity_penalty (float): Penalty to encourage the algorithm to use bins with different fill levels.
+        utilization_exponent (float): Exponent to adjust the impact of bin utilization.
+        random_factor (float): A small random number to break ties and encourage exploration.
+
+    Returns:
+        np.ndarray: An array containing the priority score for each bin.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    remaining_capacity = bins_remain_cap - item
+
+    # Infeasible bins get the lowest priority
+    priorities[remaining_capacity < 0] = -np.inf
+
+    feasible_bins = remaining_capacity >= 0
+
+    if np.any(feasible_bins):
+        # 1. Base Priority: Bin Utilization (Fill Ratio) - Increased importance with exponent
+        utilization = (item / bins_remain_cap) ** utilization_exponent
+        priorities[feasible_bins] += utilization[feasible_bins]
+
+        # 2. Encourage Exploration (Adaptive): Prioritize less-utilized bins initially.
+        exploration_factor = (bins_remain_cap[feasible_bins] / np.max(bins_remain_cap[feasible_bins]))
+        priorities[feasible_bins] += exploration_weight * exploration_factor
+
+        # 3. Fill-Optimization (Later Stage): Prioritize bins that are closer to being full.
+        almost_full = feasible_bins & (remaining_capacity <= almost_full_threshold * bins_remain_cap)
+        priorities[almost_full] += almost_full_boost
+
+        # 4. Fragmentation Penalty: Discourage creating small remaining fragments.
+        small_remainder = feasible_bins & (remaining_capacity > 0) & (remaining_capacity <= small_remainder_threshold * bins_remain_cap)
+        priorities[small_remainder] -= small_remainder_penalty
+
+        # 5. Near-Perfect Fit Penalty
+        near_perfect_fit = feasible_bins & (remaining_capacity > (1 - near_perfect_fit_threshold) * bins_remain_cap)
+        priorities[near_perfect_fit] -= near_perfect_fit_penalty
+
+        # 6. Moderate-Fit Bonus
+        moderate_fit = feasible_bins & ~almost_full & ~small_remainder & ~near_perfect_fit
+        moderate_fit = moderate_fit & (remaining_capacity >= moderate_fit_threshold_low * bins_remain_cap) & (remaining_capacity <= moderate_fit_threshold_high * bins_remain_cap)
+        priorities[moderate_fit] += moderate_fit_bonus
+
+        # 7. Bin Diversity Penalty: Discourage packing into bins with similar fill levels.
+        #    This is calculated based on the standard deviation of the utilization of bins
+        #    that are not empty. High standard deviation means more diversity. We *subtract*
+        #    a value that is inversely proportional to the standard deviation.
+
+        filled_bins = bins_remain_cap < 1  # Assuming bin capacity is 1.0.  Adapt as needed.
+        if np.sum(filled_bins) > 1:  # Only apply if there are at least two bins filled
+            filled_bin_utilizations = 1 - bins_remain_cap[filled_bins]  # utilization is 1 - remaining cap
+            utilization_std = np.std(filled_bin_utilizations)
+            priorities[feasible_bins] -= bin_diversity_penalty / (utilization_std + 1e-6)  # Avoid division by zero
+
+        # 8. Stochastic Element: Add a small random number to break ties and explore alternatives.
+        priorities[feasible_bins] += random_factor * np.random.rand(np.sum(feasible_bins))
+
+    return priorities
+```

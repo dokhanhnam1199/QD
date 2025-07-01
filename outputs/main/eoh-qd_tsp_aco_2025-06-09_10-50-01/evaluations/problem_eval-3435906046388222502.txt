@@ -1,0 +1,86 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm refines edge probabilities through iterative sampling, selection based on a combination of tour length and edge diversity, and reinforcement of edges from diverse, high-quality tours.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones_like(distance_matrix) / n  # Initialize with uniform probabilities
+
+    num_iterations = 100
+    num_samples = 50
+    diversity_weight = 0.5
+
+    for _ in range(num_iterations):
+        solutions = []
+        solution_scores = []
+
+        for _ in range(num_samples):
+            current_node = np.random.randint(n)
+            unvisited_nodes = list(range(n))
+            unvisited_nodes.remove(current_node)
+
+            solution = [current_node]
+            tour_length = 0
+
+            while unvisited_nodes:
+                probabilities = heuristics_matrix[current_node, :]
+                probabilities[current_node] = 0  # Avoid self-loops
+                probabilities[list(set(range(n)) - set(solution))] # consider only the unvisited nodes
+                probabilities /= np.sum(probabilities)
+
+                next_node = np.random.choice(n, p=probabilities)
+                
+                if next_node not in unvisited_nodes:
+                  available_nodes = list(set(range(n)) & set(unvisited_nodes))
+                  if len(available_nodes) == 0:
+                    next_node = solution[0]
+                  else:
+                    next_node = available_nodes[0]
+                
+                solution.append(next_node)
+                tour_length += distance_matrix[current_node, next_node]
+                current_node = next_node
+                unvisited_nodes.remove(next_node)
+
+            tour_length += distance_matrix[solution[-1], solution[0]]
+            solutions.append(solution)
+
+            # Calculate diversity score: penalize edges frequently seen in other solutions
+            edge_fingerprint = np.zeros_like(distance_matrix)
+            for i in range(n):
+                u = solution[i]
+                v = solution[(i + 1) % n]
+                edge_fingerprint[u, v] = 1
+                edge_fingerprint[v, u] = 1
+
+            diversity_score = 0
+            for other_solution in solutions:
+              if other_solution != solution:
+                other_fingerprint = np.zeros_like(distance_matrix)
+                for i in range(n):
+                  u = other_solution[i]
+                  v = other_solution[(i + 1) % n]
+                  other_fingerprint[u, v] = 1
+                  other_fingerprint[v, u] = 1
+
+                diversity_score += np.sum(edge_fingerprint * other_fingerprint)
+            diversity_score /= (len(solutions)-1) if len(solutions) > 1 else 1
+
+            solution_scores.append(tour_length + diversity_weight * diversity_score)
+
+        # Select best solutions based on combined score (tour length + diversity)
+        top_solutions_indices = np.argsort(solution_scores)[:num_samples // 5]
+        edge_counts = np.zeros_like(distance_matrix)
+
+        for solution_index in top_solutions_indices:
+            solution = solutions[solution_index]
+            for i in range(n):
+                u = solution[i]
+                v = solution[(i + 1) % n]
+                edge_counts[u, v] += 1
+                edge_counts[v, u] += 1
+
+        # Update heuristic matrix
+        edge_counts /= np.max(edge_counts) if np.max(edge_counts) > 0 else 1
+        heuristics_matrix = 0.9 * heuristics_matrix + 0.1 * edge_counts
+
+    return heuristics_matrix

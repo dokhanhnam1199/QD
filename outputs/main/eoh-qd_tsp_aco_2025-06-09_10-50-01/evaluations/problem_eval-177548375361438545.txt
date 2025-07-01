@@ -1,0 +1,79 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm employs a genetic algorithm to evolve a population of TSP solutions, using edge appearance frequency in the best solutions as a heuristic.}"""
+    n = distance_matrix.shape[0]
+    population_size = 50
+    num_generations = 100
+    mutation_rate = 0.01
+
+    def create_initial_population(size):
+        population = []
+        for _ in range(size):
+            path = np.random.permutation(n)
+            population.append(path)
+        return population
+
+    def calculate_fitness(path):
+        cost = 0
+        for i in range(n):
+            cost += distance_matrix[path[i], path[(i + 1) % n]]
+        return cost
+
+    def crossover(parent1, parent2):
+        start = np.random.randint(n)
+        length = np.random.randint(1, n // 2)
+        child = np.zeros(n, dtype=int) - 1
+
+        # Copy a segment from parent1
+        for i in range(length):
+            child[(start + i) % n] = parent1[(start + i) % n]
+
+        # Fill in the remaining positions from parent2, maintaining order
+        parent2_idx = 0
+        for i in range(n):
+            if child[i] == -1:
+                while parent2[parent2_idx] in child:
+                    parent2_idx += 1
+                child[i] = parent2[parent2_idx]
+                parent2_idx += 1
+        return child
+
+    def mutate(path):
+        if np.random.rand() < mutation_rate:
+            idx1, idx2 = np.random.choice(n, 2, replace=False)
+            path[idx1], path[idx2] = path[idx2], path[idx1]
+        return path
+
+    population = create_initial_population(population_size)
+    
+    edge_counts = np.zeros_like(distance_matrix, dtype=int)
+
+    for generation in range(num_generations):
+        # Evaluate fitness
+        fitness_scores = np.array([calculate_fitness(path) for path in population])
+        
+        # Selection (tournament selection)
+        selected_indices = np.argsort(fitness_scores)[:population_size // 2]
+        selected_population = [population[i] for i in selected_indices]
+
+        # Update edge counts based on the best solutions
+        for path in selected_population:
+            for i in range(n):
+                node1 = path[i]
+                node2 = path[(i + 1) % n]
+                edge_counts[node1, node2] += 1
+                edge_counts[node2, node1] += 1
+
+        # Crossover and Mutation
+        new_population = selected_population[:]
+        while len(new_population) < population_size:
+            parent1 = np.random.choice(selected_population)
+            parent2 = np.random.choice(selected_population)
+            child = crossover(parent1, parent2)
+            child = mutate(child)
+            new_population.append(child)
+        population = new_population
+
+    heuristics_matrix = edge_counts / (num_generations * (population_size//2))
+    return heuristics_matrix

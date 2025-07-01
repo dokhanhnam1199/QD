@@ -1,0 +1,94 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively refines routes by probabilistically swapping edges based on their impact on route length and capacity feasibility, generating a heuristic matrix that reflects edge usage in improved routes.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 500
+    num_routes = 5
+
+    def create_initial_routes():
+        routes = []
+        for _ in range(num_routes):
+            unvisited = set(range(1, n))
+            current_route = [0]
+            current_load = 0
+
+            while unvisited:
+                feasible_nodes = [node for node in unvisited if current_load + demands[node] <= capacity]
+                if not feasible_nodes:
+                    current_route.append(0)
+                    routes.append(current_route)
+                    current_route = [0]
+                    current_load = 0
+                    feasible_nodes = [node for node in unvisited if current_load + demands[node] <= capacity]
+                    if not feasible_nodes:
+                        break
+
+                next_node = min(feasible_nodes, key=lambda node: distance_matrix[current_route[-1], node])
+                current_route.append(next_node)
+                current_load += demands[next_node]
+                unvisited.remove(next_node)
+
+            current_route.append(0)
+            routes.append(current_route)
+        return routes
+    
+    def calculate_route_distance(route):
+        distance = 0
+        for i in range(len(route) - 1):
+            distance += distance_matrix[route[i], route[i+1]]
+        return distance
+
+    routes = create_initial_routes()
+
+    for _ in range(num_iterations):
+        for route_index in range(len(routes)):
+            route = routes[route_index]
+            if len(route) <= 3:
+              continue
+            
+            i = random.randint(1, len(route) - 2)
+            j = random.randint(1, len(route) - 2)
+
+            if i == j:
+                continue
+            
+            new_route = route[:min(i,j)] + route[min(i,j):max(i,j)+1][::-1] + route[max(i,j)+1:]
+            
+            new_route_load = [0] * len(new_route)
+            for k in range(1,len(new_route)):
+              if new_route[k] == 0:
+                continue
+              new_route_load[k] = new_route_load[k-1] + demands[new_route[k]]
+
+            is_feasible = True
+            max_load = 0
+            temp_load = 0
+            for k in range(1, len(new_route)):
+              if new_route[k] == 0:
+                max_load = max(max_load, temp_load)
+                temp_load = 0
+                continue
+              temp_load += demands[new_route[k]]
+            max_load = max(max_load, temp_load)
+            
+            if max_load > capacity:
+                is_feasible = False
+
+            if is_feasible:
+                old_distance = calculate_route_distance(route)
+                new_distance = calculate_route_distance(new_route)
+
+                if new_distance < old_distance:
+                    routes[route_index] = new_route
+
+    for route in routes:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i]][route[i+1]] += 1
+            heuristics_matrix[route[i+1]][route[i]] += 1
+
+    heuristics_matrix = heuristics_matrix / (num_iterations * num_routes) if (num_iterations * num_routes) > 0 else heuristics_matrix
+
+    return heuristics_matrix

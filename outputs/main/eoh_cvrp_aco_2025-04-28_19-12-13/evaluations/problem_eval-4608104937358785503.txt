@@ -1,0 +1,68 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs solutions by iteratively inserting unrouted customers into existing routes based on a regret-insertion criterion and edge frequency information.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 100
+
+    for iteration in range(num_iterations):
+        routes = []
+        unrouted_customers = set(range(1, n))
+        
+        while unrouted_customers:
+            if not routes:
+                # Create initial route with a random customer
+                customer = random.choice(list(unrouted_customers))
+                routes.append([0, customer, 0])
+                unrouted_customers.remove(customer)
+            else:
+                # Find best insertion for each unrouted customer
+                best_customer_to_insert = None
+                best_route_index = None
+                best_insertion_index = None
+                best_insertion_cost = float('inf')
+
+                for customer in unrouted_customers:
+                    for route_index, route in enumerate(routes):
+                        if sum(demands[i] for i in route[1:-1]) + demands[customer] <= capacity:
+                            for insertion_index in range(1, len(route)): # Insert within the route
+                                new_route = route[:insertion_index] + [customer] + route[insertion_index:]
+                                insertion_cost = 0
+                                for i in range(len(new_route) - 1):
+                                    insertion_cost += distance_matrix[new_route[i], new_route[i+1]]
+                                
+                                original_cost = 0
+                                for i in range(len(route) - 1):
+                                    original_cost += distance_matrix[route[i], route[i+1]]
+                                    
+                                if insertion_cost < best_insertion_cost:
+                                    best_insertion_cost = insertion_cost
+                                    best_customer_to_insert = customer
+                                    best_route_index = route_index
+                                    best_insertion_index = insertion_index
+
+                # If a valid insertion is found, insert the customer
+                if best_customer_to_insert is not None:
+                    routes[best_route_index] = routes[best_route_index][:best_insertion_index] + \
+                                                [best_customer_to_insert] + \
+                                                routes[best_route_index][best_insertion_index:]
+                    unrouted_customers.remove(best_customer_to_insert)
+                else:
+                    # If no valid insertion, create new route
+                    customer = random.choice(list(unrouted_customers))
+                    routes.append([0, customer, 0])
+                    unrouted_customers.remove(customer)
+        
+        # Update heuristics matrix
+        for route in routes:
+            for i in range(len(route) - 1):
+                heuristics_matrix[route[i], route[i+1]] += 1
+                heuristics_matrix[route[i+1], route[i]] += 1
+
+    #Normalize heuristic matrix
+    total_visits = np.sum(heuristics_matrix)
+    if total_visits > 0:
+      heuristics_matrix = heuristics_matrix / total_visits
+    return heuristics_matrix

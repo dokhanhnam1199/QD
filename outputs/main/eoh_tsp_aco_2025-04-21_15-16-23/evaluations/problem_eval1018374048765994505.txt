@@ -1,0 +1,86 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm estimates edge desirability by constructing tours using random insertion, improving them with 3-opt swaps, and applying a softmax function to prioritize shorter tour edges.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_trials = 50
+    temperature = 1.0
+
+    def calculate_tour_length(tour):
+        length = 0
+        for i in range(n):
+            length += distance_matrix[tour[i], tour[(i + 1) % n]]
+        return length
+
+    def random_insertion_tour(start_node):
+        unvisited = set(range(n))
+        unvisited.remove(start_node)
+        tour = [start_node]
+
+        while unvisited:
+            node_to_insert = np.random.choice(list(unvisited))
+            insertion_point = np.random.randint(0, len(tour))
+            tour.insert(insertion_point, node_to_insert)
+            unvisited.remove(node_to_insert)
+        return tour
+
+    def three_opt_swap(tour, i, j, k):
+        # Consider edge (i, i+1), (j, j+1) and (k, k+1) where i < j < k
+        a, b, c, d, e, f = tour[i], tour[i + 1], tour[j], tour[j + 1], tour[k], tour[(k + 1) % n]
+
+        # There are 8 possible 3-opt moves, here are just a few to demonstrate
+        option1 = tour[:i + 1] + tour[i + 1:j + 1][::-1] + tour[j + 1:k + 1][::-1] + tour[k + 1:]
+        option2 = tour[:i + 1] + tour[j + 1:k + 1] + tour[i + 1:j + 1] + tour[k + 1:]
+        option3 = tour[:i + 1] + tour[j + 1:k + 1][::-1] + tour[j+1:i+1:-1] + tour[k + 1:]
+        
+        lengths = [calculate_tour_length(option1), calculate_tour_length(option2), calculate_tour_length(option3)]
+        
+        best_option_index = np.argmin(lengths)
+        
+        if best_option_index == 0:
+          return option1
+        elif best_option_index == 1:
+          return option2
+        else:
+          return option3
+    
+    def three_opt(tour):
+        best_tour = tour
+        best_length = calculate_tour_length(tour)
+        improved = True
+
+        while improved:
+            improved = False
+            for i in range(n - 2):
+                for j in range(i + 1, n - 1):
+                    for k in range(j + 1, n):
+                        new_tour = three_opt_swap(best_tour, i, j, k)
+                        new_length = calculate_tour_length(new_tour)
+                        if new_length < best_length:
+                            best_tour = new_tour
+                            best_length = new_length
+                            improved = True
+        return best_tour, best_length
+
+    for _ in range(num_trials):
+        start_node = np.random.randint(0, n)
+        initial_tour = random_insertion_tour(start_node)
+        best_tour, best_length = three_opt(initial_tour)
+
+        edge_strengths = np.zeros(n)
+        for i in range(n):
+            node1 = best_tour[i]
+            node2 = best_tour[(i + 1) % n]
+            edge_strengths[i] = -distance_matrix[node1, node2] / temperature
+        
+        edge_probabilities = np.exp(edge_strengths - np.max(edge_strengths)) / np.sum(np.exp(edge_strengths - np.max(edge_strengths)))
+
+        for i in range(n):
+            node1 = best_tour[i]
+            node2 = best_tour[(i + 1) % n]
+            heuristics_matrix[node1, node2] += edge_probabilities[i]
+            heuristics_matrix[node2, node1] += edge_probabilities[i]
+
+    heuristics_matrix /= num_trials
+    return heuristics_matrix

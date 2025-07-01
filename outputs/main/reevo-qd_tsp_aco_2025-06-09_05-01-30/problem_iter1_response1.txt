@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristic function for TSP that combines multiple factors to assess edge suitability.
+    It sparsifies the matrix by setting low-promise edges to zero.
+
+    Args:
+        distance_matrix: A numpy array representing the distance matrix.
+
+    Returns:
+        A numpy array of the same shape as distance_matrix, representing the
+        heuristic values for each edge. Higher values indicate more promising edges.
+    """
+
+    n = distance_matrix.shape[0]
+
+    # Avoid division by zero by adding a small constant
+    distance_matrix = distance_matrix + np.eye(n) * 1e-9  # Add a small value to the diagonal
+
+    # 1. Inverse distance: Shorter edges are generally better
+    heuristic_matrix = 1 / distance_matrix
+
+    # 2. Nearest neighbor consideration:  Encourage edges to connect to nearest neighbors
+    nearest_neighbors = np.argsort(distance_matrix, axis=1)[:, 1:4] #Top 3 nearest neighbors
+    nearest_neighbor_bonus = np.zeros((n, n))
+    for i in range(n):
+        for neighbor in nearest_neighbors[i]:
+            nearest_neighbor_bonus[i, neighbor] = 1
+            nearest_neighbor_bonus[neighbor, i] = 1
+
+
+    # 3. Penalize edges connecting to nodes with many close neighbors (discourage high degree nodes)
+    degree_penalty = np.zeros((n, n))
+    for i in range(n):
+        num_close_neighbors = np.sum(distance_matrix[i, :] < np.median(distance_matrix[i, :])) #Number of neighbors whose distance is below median
+        for j in range(n):
+             degree_penalty[i, j] = num_close_neighbors #Penalty according to how connected are the two nodes
+             degree_penalty[j, i] = num_close_neighbors
+
+
+    # Combine the factors with weights
+    heuristic_matrix = (
+        heuristic_matrix
+        + 0.5 * nearest_neighbor_bonus
+        - 0.1 * degree_penalty #Subtracting, so positive coeff. means penality.
+    )
+
+    # Sparsify the matrix: Zero out edges with low heuristic values
+    threshold = np.percentile(heuristic_matrix[np.triu_indices_from(heuristic_matrix, k=1)], 20)  # Keep top 80% edges
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    np.fill_diagonal(heuristic_matrix, 0)  # Ensure no self-loops
+
+    return heuristic_matrix
+```

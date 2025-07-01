@@ -1,0 +1,73 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses stochastic solution sampling with a Clarke-Wright savings heuristic to estimate the probability of each edge being in a good CVRP solution, using these probabilities as heuristics.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        # Calculate savings for all node pairs
+        savings = np.zeros((n, n))
+        for i in range(1, n):
+            for j in range(i + 1, n):
+                savings[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+                savings[j, i] = savings[i, j]
+
+        # Initialize routes and loads
+        routes = {i: [i] for i in range(1, n)}
+        loads = {i: demands[i] for i in range(1, n)}
+        available_nodes = set(range(1, n))
+
+        # Sort savings in descending order
+        savings_list = []
+        for i in range(1, n):
+            for j in range(i + 1, n):
+                savings_list.append((savings[i, j], i, j))
+        savings_list.sort(reverse=True)
+
+        # Merge routes based on savings
+        for saving, i, j in savings_list:
+            if i in available_nodes and j in available_nodes and routes[i] != routes[j]:
+                route_i = routes[i]
+                route_j = routes[j]
+                load_i = loads[i]
+                load_j = loads[j]
+
+                # Check if merging exceeds capacity
+                if load_i + load_j <= capacity:
+                    # Merge routes
+                    new_route = route_i + route_j
+                    new_load = load_i + load_j
+
+                    # Update routes and loads
+                    for node in new_route:
+                        routes[node] = new_route
+                        loads[node] = new_load
+
+                    # Remove merged routes from available nodes
+                    available_nodes.discard(i)
+                    available_nodes.discard(j)
+
+        # Construct tours from routes
+        vehicle_tours = []
+        used_nodes = set()
+        for i in range(1, n):
+            if i not in used_nodes:
+                route = routes[i]
+                tour = [0] + route + [0]
+                vehicle_tours.append(tour)
+                used_nodes.update(route)
+
+        # Update heuristics based on edges in the tours
+        for tour in vehicle_tours:
+            for i in range(len(tour) - 1):
+                heuristics_matrix[tour[i], tour[i+1]] += 1
+                heuristics_matrix[tour[i+1], tour[i]] += 1
+
+    # Normalize the heuristic matrix
+    heuristics_matrix /= num_samples
+
+    return heuristics_matrix

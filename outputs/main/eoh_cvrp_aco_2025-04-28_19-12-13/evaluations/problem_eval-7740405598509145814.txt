@@ -1,0 +1,83 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively samples diverse routes using a randomized nearest-neighbor approach with probabilistic acceptance based on route cost and a temperature parameter, updating edge frequencies based on accepted solutions.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 100
+    initial_temperature = 100
+    cooling_rate = 0.95
+
+    def calculate_route_load(route):
+        load = 0
+        for node in route[1:-1]:
+            load += demands[node]
+        return load
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    def nearest_neighbor(start_node, unvisited):
+        nearest = -1
+        min_dist = float('inf')
+        for node in unvisited:
+            if distance_matrix[start_node, node] < min_dist:
+                min_dist = distance_matrix[start_node, node]
+                nearest = node
+        return nearest
+
+    for iteration in range(num_iterations):
+        temperature = initial_temperature * (cooling_rate ** iteration)
+        routes = []
+        unassigned_nodes = set(range(1, n))
+
+        while unassigned_nodes:
+            current_node = 0
+            route = [0]
+            current_load = 0
+            
+            while True:
+                eligible_nodes = [node for node in unassigned_nodes if current_load + demands[node] <= capacity]
+                if not eligible_nodes:
+                    route.append(0)
+                    routes.append(route)
+                    break
+                
+                next_node = nearest_neighbor(current_node, eligible_nodes)
+                
+                if next_node == -1:
+                  route.append(0)
+                  routes.append(route)
+                  break
+
+                new_route = route + [next_node]
+                new_cost = calculate_route_cost(new_route + [0]) if 0 not in new_route else 0
+                current_cost = calculate_route_cost(route + [0])  if 0 not in route else 0
+
+                cost_difference = new_cost - current_cost
+                
+                if cost_difference <= 0 or random.random() < np.exp(-cost_difference / temperature):
+                    route.append(next_node)
+                    current_load += demands[next_node]
+                    unassigned_nodes.remove(next_node)
+                    current_node = next_node
+                else:
+                    route.append(0)
+                    routes.append(route)
+                    break
+
+    # Update heuristics matrix
+    for route in routes:
+        for i in range(len(route) - 1):
+            heuristics_matrix[route[i], route[i+1]] += 1
+            heuristics_matrix[route[i+1], route[i]] += 1
+
+    #Normalize heuristic matrix
+    total_visits = np.sum(heuristics_matrix)
+    if total_visits > 0:
+      heuristics_matrix = heuristics_matrix / total_visits
+    return heuristics_matrix

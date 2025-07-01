@@ -1,0 +1,55 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Improves the heuristic for the Traveling Salesman Problem (TSP) by
+    considering both distance and connectivity.
+
+    Args:
+        distance_matrix (np.ndarray): A square matrix representing the distances
+                                     between cities. distance_matrix[i, j] is the
+                                     distance from city i to city j.
+
+    Returns:
+        np.ndarray: A matrix of the same shape as distance_matrix, where each
+                    element represents the desirability of including the
+                    corresponding edge in the TSP tour.  Higher values
+                    indicate more desirable edges.
+    """
+    n = distance_matrix.shape[0]
+
+    # 1. Inverse Distance: Closer cities are more desirable.  Use a capped
+    # inverse to avoid extreme values for very small distances. Add a small
+    # constant to avoid division by zero.
+    inverse_distance = 1 / (distance_matrix + 1e-9)  # Add a small number
+    inverse_distance = np.clip(inverse_distance, 0, 10)
+
+    # 2. Nearest Neighbor Consideration:  For each city, find its nearest neighbors
+    #    and boost the heuristic value for edges connected to those neighbors.
+    nearest_neighbors = np.argsort(distance_matrix, axis=1)[:, 1:4] #top 3 nearest neighbors
+    neighbor_bonus = np.zeros((n, n))
+    for i in range(n):
+        for neighbor in nearest_neighbors[i]:
+            neighbor_bonus[i, neighbor] = 1
+            neighbor_bonus[neighbor, i] = 1
+
+    # 3. Global connectivity measure: penalize edges connecting nodes with high degrees (might introduce premature closing). Use mean distance as proxy.
+    mean_distance = np.mean(distance_matrix)
+    connectivity_penalty = np.zeros((n, n))
+
+    node_degree_proxy = np.sum(distance_matrix < mean_distance, axis = 0)
+
+    for i in range(n):
+      for j in range(n):
+        connectivity_penalty[i, j] = (node_degree_proxy[i] + node_degree_proxy[j])
+    connectivity_penalty = connectivity_penalty / np.max(connectivity_penalty) # Normalise to [0,1]
+    connectivity_penalty = 1 - connectivity_penalty  # Lower penalty for lower degree (more appealing to select these edges)
+
+    # 4. Combine the factors: Weight them according to their importance.
+    heuristic_matrix = (0.6 * inverse_distance +
+                         0.3 * neighbor_bonus +
+                         0.1 * connectivity_penalty) #tune weightings
+
+    return heuristic_matrix
+```

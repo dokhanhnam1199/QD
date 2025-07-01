@@ -1,0 +1,43 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, newtonian_weight: float = 0.08482154091073002, inverse_distance_weight: float = 0.35992585708244984,
+                  degree_factor_weight: float = 0.38242460481270324, sparsification_percentile: float = 0.7747814437579876,
+                  epsilon: float = 9.021753177471389e-07) -> np.ndarray:
+    """
+    Combines Newtonian attraction, inverse distance, node degree, and sparsification.
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+    safe_distance_matrix = distance_matrix + epsilon
+
+    # 1. Newtonian Attraction
+    attraction = 1 / (safe_distance_matrix**2)
+    mass = np.sum(1 / safe_distance_matrix, axis=1)
+    M = np.outer(mass, mass)
+    potential_energy = safe_distance_matrix / np.mean(safe_distance_matrix)
+    newtonian = (attraction * M) / potential_energy
+
+    # 2. Inverse Distance
+    inverse_distance = 1 / safe_distance_matrix
+
+    # 3. Node Degree: Favor edges connecting to nodes with fewer connections
+    degree = np.sum(distance_matrix < np.mean(distance_matrix), axis=1)
+    degree_matrix = np.outer(degree, degree)
+    degree_factor = 1 / (degree_matrix + epsilon)
+
+    # 4. Combine Components
+    heuristics = newtonian_weight * newtonian + inverse_distance_weight * inverse_distance + degree_factor_weight * degree_factor
+
+    # 5. Normalize
+    min_heuristic = np.min(heuristics)
+    max_heuristic = np.max(heuristics)
+    heuristics = (heuristics - min_heuristic) / (max_heuristic - min_heuristic)
+
+    # 6. Sparsification: Dynamic threshold
+    threshold = np.percentile(heuristics, sparsification_percentile)
+    heuristics[heuristics < threshold] = 0
+
+    # Ensure diagonal is zero.
+    np.fill_diagonal(heuristics, 0)
+
+    return heuristics

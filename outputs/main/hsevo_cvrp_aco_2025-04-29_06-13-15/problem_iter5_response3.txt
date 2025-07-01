@@ -1,0 +1,91 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Combines distance, demand, spatial clustering, and depot attraction with adaptive scaling.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Avoid division by zero.
+    distance_matrix = np.where(distance_matrix == 0, np.inf, distance_matrix)
+
+    # Define weights for combining heuristics
+    alpha = 0.4  # Importance of distance
+    beta = 0.35  # Importance of demand feasibility
+    gamma = 0.25  # Importance of cluster affinity
+    depot_weight = 0.1 #Importance of depot_attraction
+
+    # Heuristic based on inverse distance
+    distance_heuristic = 1 / distance_matrix
+
+    # Heuristic based on demand feasibility
+    demand_heuristic = np.ones_like(distance_matrix, dtype=float)
+    for i in range(1, n):  # Skip depot
+        for j in range(1, n):  # Skip depot
+            if i != j:
+                if demands[i] + demands[j] > capacity:
+                    demand_heuristic[i, j] = 0.1  # severely penalize
+                else:
+                    demand_heuristic[i, j] = 1 - (demands[i] + demands[j]) / (2 * capacity)
+
+    # Heuristic based on spatial clustering
+    cluster_heuristic = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                # Density based on inverse distance to other nodes
+                density_i = np.sum(1 / distance_matrix[i, 1:]) - (1 / distance_matrix[i, i]) if np.sum(
+                    1 / distance_matrix[i, 1:]) < np.inf else 0  # Avoid division by zero
+                density_j = np.sum(1 / distance_matrix[j, 1:]) - (1 / distance_matrix[j, j]) if np.sum(
+                    1 / distance_matrix[j, 1:]) < np.inf else 0  # Avoid division by zero
+                # penalize connections to nodes with much lower density
+                cluster_heuristic[i, j] = min(density_i, density_j) / max(
+                    density_i, density_j) if max(density_i, density_j) > 0 else 0  # Between 0 and 1
+
+    # Gravitational attraction to the depot
+    depot_attraction = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(1, n):
+        depot_attraction[0, i] = 1 / (distance_matrix[0, i])
+        depot_attraction[i, 0] = 1 / (distance_matrix[i, 0])  # Symmetric
+    
+    #angle to depot
+    angle_heuristic = np.zeros_like(distance_matrix, dtype=float)
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                vector_ij = coordinates[j] - coordinates[i]
+                vector_0j = coordinates[j] - coordinates[0]
+                dot_product = np.dot(vector_ij, vector_0j)
+                magnitude_ij = np.linalg.norm(vector_ij)
+                magnitude_0j = np.linalg.norm(vector_0j)
+
+                if magnitude_ij > 0 and magnitude_0j > 0:
+                    cos_angle = dot_product / (magnitude_ij * magnitude_0j)
+                    cos_angle = np.clip(cos_angle, -1.0, 1.0)
+                    angle = np.arccos(cos_angle)
+                    angle_factor = 1 - (angle / np.pi)
+                    angle_heuristic[i, j] = (0.5 + angle_factor)/1.5 #angle factor 0.5 to 1.5
+    
+
+    # Combine heuristics with weights
+    heuristic_matrix = (alpha * distance_heuristic +
+                        beta * demand_heuristic +
+                        gamma * cluster_heuristic +
+                        depot_weight * depot_attraction +
+                        0.05 * angle_heuristic)
+
+    # Depot edges should be generally favored to return to depot
+    for i in range(1, n):
+        heuristic_matrix[0, i] *= 1.2  # Favor leaving the depot
+        heuristic_matrix[i, 0] *= 1.2  # Favor returning to the depot
+
+    # Normalize the heuristic matrix to [0, 1]
+    max_heuristic = np.max(heuristic_matrix)
+    min_heuristic = np.min(heuristic_matrix)
+    heuristic_matrix = (heuristic_matrix - min_heuristic) / (
+        max_heuristic - min_heuristic) if max_heuristic > min_heuristic else np.zeros_like(heuristic_matrix)
+
+    return heuristic_matrix
+```

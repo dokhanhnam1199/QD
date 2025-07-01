@@ -1,0 +1,59 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm adaptively adjusts edge weights based on the success rate of routes incorporating those edges, encouraging exploration of diverse route structures.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    edge_success_counts = np.zeros_like(distance_matrix)
+    edge_attempt_counts = np.zeros_like(distance_matrix)
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        customer_permutation = list(range(1, n))
+        random.shuffle(customer_permutation)
+
+        routes = []
+        current_route = [0]
+        current_capacity = 0
+
+        for customer in customer_permutation:
+            if current_capacity + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_capacity += demands[customer]
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0, customer]
+                current_capacity = demands[customer]
+        
+        current_route.append(0)
+        routes.append(current_route)
+
+        feasible = True
+        for route in routes:
+            total_demand = sum(demands[i] for i in route if i != 0)
+            if total_demand > capacity:
+                feasible = False
+                break
+
+        for route in routes:
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                edge_attempt_counts[node1, node2] += 1
+                edge_attempt_counts[node2, node1] += 1
+
+                if feasible:
+                    edge_success_counts[node1, node2] += 1
+                    edge_success_counts[node2, node1] += 1
+
+        # Update heuristic matrix based on success rate
+        for i in range(n):
+            for j in range(n):
+                if edge_attempt_counts[i, j] > 0:
+                    heuristics_matrix[i, j] = edge_success_counts[i, j] / edge_attempt_counts[i, j]
+                else:
+                    heuristics_matrix[i, j] = 0  # Avoid division by zero
+
+    return heuristics_matrix

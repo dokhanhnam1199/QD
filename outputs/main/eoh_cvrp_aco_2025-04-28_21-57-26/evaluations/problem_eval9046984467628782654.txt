@@ -1,0 +1,74 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm prioritizes demand satisfaction and route diversification with adjusted pheromone influence and stochastic route construction to create the heuristics matrix.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone_matrix = np.ones_like(distance_matrix)
+    
+    num_samples = 500
+    alpha = 0.5  # Pheromone influence
+    beta = 1.0  # Distance influence
+    gamma = 2.0 # Demand influence
+    rho = 0.2   # Evaporation rate
+    Q = 100.0   # Pheromone deposit constant
+
+    for _ in range(num_samples):
+        current_node = 0
+        route = [0]
+        remaining_nodes = set(range(1, n))
+        current_capacity = capacity
+        route_distance = 0
+
+        while remaining_nodes:
+            probabilities = {}
+            for node in remaining_nodes:
+                if current_capacity >= demands[node]:
+                    eta = 1.0 / (distance_matrix[current_node, node] + 1e-6)
+                    tau = pheromone_matrix[current_node, node]
+                    demand_priority = demands[node] / capacity
+                    probabilities[node] = (tau**alpha) * (eta**beta) * (demand_priority**gamma)
+
+            if not probabilities:
+                break
+
+            total_prob = sum(probabilities.values())
+            if total_prob == 0:
+                next_node = remaining_nodes.pop()
+            else:
+                normalized_probabilities = {node: prob / total_prob for node, prob in probabilities.items()}
+                next_node = np.random.choice(list(normalized_probabilities.keys()), p=list(normalized_probabilities.values()))
+                
+            if current_capacity >= demands[next_node]:
+                route.append(next_node)
+                route_distance += distance_matrix[current_node, next_node]
+                current_capacity -= demands[next_node]
+                remaining_nodes.remove(next_node)
+                heuristics_matrix[current_node, next_node] += 1
+                heuristics_matrix[next_node, current_node] += 1
+                current_node = next_node
+            else:
+                route.append(0)
+                route_distance += distance_matrix[current_node, 0]
+                heuristics_matrix[current_node, 0] += 1
+                heuristics_matrix[0, current_node] += 1
+                current_node = 0
+                current_capacity = capacity
+        
+        if current_node != 0:
+            route_distance += distance_matrix[current_node, 0]
+            heuristics_matrix[current_node, 0] += 1
+            heuristics_matrix[0, current_node] += 1
+        
+        # Pheromone update
+        for i in range(len(route) - 1):
+            pheromone_matrix[route[i], route[i+1]] = (1-rho) * pheromone_matrix[route[i], route[i+1]] + rho * (Q / route_distance)
+            pheromone_matrix[route[i+1], route[i]] = pheromone_matrix[route[i], route[i+1]]
+
+    for i in range(n):
+        for j in range(n):
+            if heuristics_matrix[i, j] > 0:
+               heuristics_matrix[i, j] /= (distance_matrix[i, j] + 1e-6)
+
+    return heuristics_matrix

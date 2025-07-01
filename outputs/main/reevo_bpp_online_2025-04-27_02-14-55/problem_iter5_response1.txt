@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    bin_count = bins_remain_cap.size
+
+    # 1. Infeasibility penalty: Huge negative value if bin cannot accommodate item.
+    infeasible = bins_remain_cap < item
+    priorities[infeasible] = -1e9
+
+    # 2. Exact Fit: Extremely high priority.
+    exact_fit = (bins_remain_cap == item)
+    priorities[exact_fit] = 1e9
+
+    # 3. Near Fit: High priority, with a score based on closeness.
+    near_fit = (bins_remain_cap >= item) & (bins_remain_cap <= 1.05 * item) #tolerate up to 5% waste
+    priorities[near_fit] = 1e8 * (1 - (bins_remain_cap[near_fit] - item) / item)  # Higher if closer to exact
+
+    # 4. Gaussian Reward for utilization: Reward bins with capacity close to item size
+    can_accommodate = bins_remain_cap >= item
+    if np.any(can_accommodate):
+        utilization = item / bins_remain_cap[can_accommodate]
+        # Gaussian centered around ideal utilization (close to 1), scaled by item size.
+        gaussian_reward = 1e7 * np.exp(-0.5 * ((utilization - 0.95) / 0.1) ** 2) * item #aiming 95% capacity
+        priorities[can_accommodate] += gaussian_reward
+
+
+    # 5. Penalty for large empty space if the item is small relative to the bin size
+    small_item_large_bin = (bins_remain_cap >= item) & (item < 0.5 * np.max(bins_remain_cap))
+    if np.any(small_item_large_bin):
+      empty_space_ratio = (bins_remain_cap[small_item_large_bin] - item) / bins_remain_cap[small_item_large_bin]
+      priorities[small_item_large_bin] -= 1e6 * empty_space_ratio  # Penalize more if more space wasted
+
+    #6. Prioritize using existing bins: small additive constant.
+    non_empty = bins_remain_cap < np.max(bins_remain_cap)
+    priorities[non_empty] += 1000
+
+    return priorities
+```

@@ -1,0 +1,83 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for CVRP using stochastic solution sampling, considering distance,
+    node demand, and angular relationships to promote depot returns and avoid
+    overloading vehicles.
+
+    Args:
+        distance_matrix: Distance matrix (n x n).
+        coordinates: Node coordinates (n x 2).
+        demands: Node demands (n).
+        capacity: Vehicle capacity.
+
+    Returns:
+        Prior indicators (n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics = np.zeros_like(distance_matrix)
+
+    # Parameters (tuned by experiment, replace with actual tuning)
+    alpha = 1.0  # Distance influence
+    beta = 2.0   # Demand influence
+    gamma = 0.5  # Depot proximity influence
+    delta = 0.2 # angle influence. High angle means it should be avoided, i.e. small score
+    
+    depot_index = 0
+    
+    # Compute angles between each pair of nodes and the depot.
+    #angle_matrix = np.zeros((n, n))
+    depot_coord = coordinates[depot_index]
+    
+    def angle(p1, p2):
+        """Computes the angle between two vectors from a common origin."""
+        v1 = p1 - depot_coord
+        v2 = p2 - depot_coord
+        
+        dot_product = np.dot(v1, v2)
+        magn1 = np.linalg.norm(v1)
+        magn2 = np.linalg.norm(v2)
+        
+        if magn1 == 0 or magn2 == 0:
+            return 0
+        
+        cosine_angle = dot_product / (magn1 * magn2)
+        angle_rad = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
+        return angle_rad # returns radians
+
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristics[i, j] = 0  # No self-loops
+                continue
+
+            distance = distance_matrix[i, j]
+            
+            # Demand factor: penalize edges that connect nodes with high demands,
+            # making it harder to overload vehicles.
+            demand_factor = (1 + demands[i] / capacity) * (1 + demands[j] / capacity)
+            
+            # Proximity to Depot: incentivize returns to the depot by prioritizing edges
+            # where at least one node is close to the depot.
+            depot_proximity = (distance_matrix[i, depot_index] + distance_matrix[j, depot_index])
+            
+            # Angle: Incentivize route change from left to right if from depot perspective
+            angle_ij = angle(coordinates[i], coordinates[j])
+            angle_factor = np.cos(angle_ij)
+
+            # Combine factors
+            heuristics[i, j] = (
+                (1 / (distance**alpha)) *
+                (1 / demand_factor**beta) *
+                (1 / (1 + depot_proximity)**gamma) *
+                (1 + angle_factor)**delta # adding one for making it nonnegative, since angle_factor is cosine
+            )
+    
+    # Normalize heuristics.  Avoids any single edge dominating.
+    heuristics = heuristics / np.max(heuristics)
+    
+    return heuristics
+```

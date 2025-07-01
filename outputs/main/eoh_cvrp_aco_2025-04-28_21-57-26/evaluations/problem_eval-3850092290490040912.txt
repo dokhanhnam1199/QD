@@ -1,0 +1,91 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs routes using a savings-based approach, sampling from candidate edges weighted by savings and feasibility, then refines the heuristic matrix based on the frequency of edges in high-quality solutions.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 1000
+    alpha = 0.5
+
+    for _ in range(num_iterations):
+        savings = np.zeros_like(distance_matrix)
+        for i in range(1, n):
+            for j in range(i + 1, n):
+                savings[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+                savings[j, i] = savings[i, j]
+
+        edges = []
+        for i in range(1, n):
+            for j in range(i + 1, n):
+                edges.append((i, j, savings[i, j]))
+
+        edges.sort(key=lambda x: x[2], reverse=True)
+
+        routes = []
+        unvisited = set(range(1, n))
+        
+        while unvisited:
+            best_route = None
+            best_route_quality = -1e9  # Initialize with a very low value
+            
+            for _ in range(10):  # Try a few random route constructions
+                current_route = [0]
+                current_load = 0
+                remaining_nodes = list(unvisited)
+                random.shuffle(remaining_nodes)
+                
+                while remaining_nodes:
+                    best_node = None
+                    best_saving = -1
+                    
+                    for node in remaining_nodes:
+                        if current_load + demands[node] <= capacity:
+                            saving = 0
+                            if len(current_route) > 1:
+                                saving = savings[current_route[-1], node]
+                            if saving > best_saving:
+                                best_saving = saving
+                                best_node = node
+                    
+                    if best_node is not None:
+                        current_route.append(best_node)
+                        current_load += demands[best_node]
+                        remaining_nodes.remove(best_node)
+                        unvisited.remove(best_node)
+                    else:
+                        break
+                
+                current_route.append(0)
+                route_distance = 0
+                for i in range(len(current_route) - 1):
+                    route_distance += distance_matrix[current_route[i], current_route[i+1]]
+                route_quality = -route_distance  # Penalize longer routes
+
+                if len(current_route) > 2 and route_quality > best_route_quality:
+                    best_route_quality = route_quality
+                    best_route = current_route
+            
+            if best_route:
+                routes.append(best_route)
+            else:
+                # If no route can be formed, pick a random unvisited node and create a route
+                if unvisited:
+                    node = random.choice(list(unvisited))
+                    routes.append([0, node, 0])
+                    unvisited.remove(node)
+
+        total_distance = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_distance += distance_matrix[route[i], route[i+1]]
+
+        quality = -total_distance  # Higher is better
+
+        for route in routes:
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                heuristics_matrix[node1, node2] += 1 * (1 + alpha * quality)  # Reinforce based on solution quality
+                heuristics_matrix[node2, node1] += 1 * (1 + alpha * quality)  # Symmetric
+    return heuristics_matrix

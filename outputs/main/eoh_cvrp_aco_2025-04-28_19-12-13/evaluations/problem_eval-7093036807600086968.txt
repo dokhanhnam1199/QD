@@ -1,0 +1,76 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively refines routes by probabilistically accepting or rejecting edge swaps based on their impact on total route cost and feasibility, accumulating edge usage frequencies to guide solution construction.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 500
+    temperature = 100.0
+    cooling_rate = 0.99
+
+    for _ in range(num_iterations):
+        unvisited = set(range(1, n))
+        routes = []
+
+        while unvisited:
+            current_route = [0]
+            current_load = 0
+            
+            while unvisited:
+                best_customer = None
+                best_insertion_cost = float('inf')
+
+                for customer in unvisited:
+                    if current_load + demands[customer] <= capacity:
+                        insertion_cost = distance_matrix[current_route[-1]][customer] + distance_matrix[customer][0] - distance_matrix[current_route[-1]][0]
+
+                        if insertion_cost < best_insertion_cost:
+                            best_insertion_cost = insertion_cost
+                            best_customer = customer
+
+                if best_customer is None:
+                    break
+
+                current_route.append(best_customer)
+                current_load += demands[best_customer]
+                unvisited.remove(best_customer)
+            
+            current_route.append(0)
+            routes.append(current_route)
+        
+        #Improvement via probabilistic edge swaps
+        for _ in range(50):
+            route1_idx = random.randint(0, len(routes) - 1)
+            route2_idx = random.randint(0, len(routes) - 1)
+            
+            route1 = routes[route1_idx]
+            route2 = routes[route2_idx]
+
+            if len(route1) > 2 and len(route2) > 2:
+                i = random.randint(1, len(route1) - 2)
+                j = random.randint(1, len(route2) - 2)
+
+                node1_a = route1[i-1]
+                node1_b = route1[i]
+                node2_a = route2[j-1]
+                node2_b = route2[j]
+                
+                delta_distance = (distance_matrix[node1_a, node2_b] + distance_matrix[node2_a, node1_b]) - (distance_matrix[node1_a, node1_b] + distance_matrix[node2_a, node2_b])
+
+                if delta_distance < 0 or random.random() < np.exp(-delta_distance / temperature):
+                    route1[i], route2[j] = route2[j], route1[i]
+        
+        for route in routes:
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                heuristics_matrix[node1, node2] += 1
+                heuristics_matrix[node2, node1] += 1
+        
+        temperature *= cooling_rate
+
+    heuristics_matrix /= num_iterations
+    return heuristics_matrix

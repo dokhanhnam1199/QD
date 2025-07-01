@@ -1,0 +1,98 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a simulated annealing approach to explore the solution space, starting with an initial solution and iteratively perturbing it, accepting moves based on a temperature-dependent probability to escape local optima, and focusing edge frequency in accepted solutions.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 500
+    initial_temperature = 100
+    cooling_rate = 0.99
+
+    # Initialize a random feasible solution
+    routes = []
+    unvisited = set(range(1, n))
+    while unvisited:
+        route = [0]
+        current_capacity = capacity
+
+        while unvisited and current_capacity >= min(demands[node] for node in unvisited):
+            possible_nodes = [node for node in unvisited if demands[node] <= current_capacity]
+            if not possible_nodes:
+                break
+            next_node = random.choice(possible_nodes)
+            route.append(next_node)
+            unvisited.remove(next_node)
+            current_capacity -= demands[next_node]
+        route.append(0)
+        routes.append(route)
+
+    current_routes = routes[:]
+    best_routes = routes[:]
+    current_cost = sum(sum(distance_matrix[current_routes[i][j]][current_routes[i][j+1]] for j in range(len(current_routes[i])-1)) for i in range(len(current_routes)))
+    best_cost = current_cost
+    temperature = initial_temperature
+
+    # Simulated Annealing iterations
+    for iteration in range(num_iterations):
+        # Perturb the current solution
+        perturbed_routes = [route[:] for route in current_routes] # create a deep copy
+        route_index = random.randint(0, len(perturbed_routes) - 1)
+
+        # Destruction: Remove a random node
+        if len(perturbed_routes[route_index]) > 2:
+            removed_node = random.choice(perturbed_routes[route_index][1:-1])
+            perturbed_routes[route_index].remove(removed_node)
+
+            # Repair: Re-insert the removed node (Greedy insertion)
+            best_insert_cost = float('inf')
+            best_route_index = None
+            best_insert_position = None
+            
+            for r_index in range(len(perturbed_routes)):
+                current_capacity = capacity
+                route_demand = sum(demands[node] for node in perturbed_routes[r_index][1:-1])
+                if route_demand + demands[removed_node] > capacity:
+                    continue
+                    
+                for insert_position in range(1, len(perturbed_routes[r_index])):
+                    
+                    cost_increase = distance_matrix[perturbed_routes[r_index][insert_position-1]][removed_node] + distance_matrix[removed_node][perturbed_routes[r_index][insert_position]] - distance_matrix[perturbed_routes[r_index][insert_position-1]][perturbed_routes[r_index][insert_position]]
+                    
+                    if cost_increase < best_insert_cost:
+                        best_insert_cost = cost_increase
+                        best_route_index = r_index
+                        best_insert_position = insert_position
+            
+            if best_route_index is not None:
+                perturbed_routes[best_route_index].insert(best_insert_position, removed_node)
+            else:
+                #create a new route if no feasible insertion
+                new_route = [0, removed_node, 0]
+                perturbed_routes.append(new_route)
+
+
+        # Evaluate the perturbed solution
+        perturbed_cost = sum(sum(distance_matrix[perturbed_routes[i][j]][perturbed_routes[i][j+1]] for j in range(len(perturbed_routes[i])-1)) for i in range(len(perturbed_routes)))
+
+        # Acceptance Criterion (Simulated Annealing)
+        cost_delta = perturbed_cost - current_cost
+        if cost_delta < 0 or random.random() < np.exp(-cost_delta / temperature):
+            current_routes = [route[:] for route in perturbed_routes]
+            current_cost = perturbed_cost
+
+            if current_cost < best_cost:
+                best_cost = current_cost
+                best_routes = [route[:] for route in current_routes]
+
+        # Cool down the temperature
+        temperature *= cooling_rate
+
+        #Update Heuristics Matrix (Edge Frequency in Best Solution)
+        heuristics_matrix = np.zeros_like(distance_matrix)
+        for route in best_routes:
+            for i in range(len(route) - 1):
+                heuristics_matrix[route[i]][route[i+1]] += 1
+                heuristics_matrix[route[i+1]][route[i]] += 1
+
+    return heuristics_matrix

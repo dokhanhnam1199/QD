@@ -1,0 +1,127 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm starts with a random initial solution, iteratively improves it by using a combination of 2-opt swaps and node relocation moves between routes, and returns a matrix representing the frequency of each edge's appearance in sampled solutions as a heuristic indicator.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 100
+
+    def calculate_route_demand(route):
+        return sum(demands[i] for i in route)
+
+    def construct_random_solution():
+        nodes = list(range(1, n))
+        np.random.shuffle(nodes)
+        routes = []
+        current_route = [0]
+        current_demand = 0
+
+        for node in nodes:
+            if current_demand + demands[node] <= capacity:
+                current_route.append(node)
+                current_demand += demands[node]
+            else:
+                routes.append(current_route + [0])
+                current_route = [0, node]
+                current_demand = demands[node]
+        routes.append(current_route + [0])
+        return routes
+
+    def calculate_total_distance(routes):
+        total_distance = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_distance += distance_matrix[route[i]][route[i+1]]
+        return total_distance
+
+    def two_opt_swap(route, i, k):
+        new_route = route[:i] + route[i:k+1][::-1] + route[k+1:]
+        return new_route
+
+    def relocate_node(routes, route_index, node_index, new_route_index):
+        node = routes[route_index].pop(node_index)
+        routes[new_route_index].append(node)
+        return routes
+    
+    def is_feasible(routes):
+        for route in routes:
+            if calculate_route_demand(route) > capacity:
+                return False
+        return True
+
+    def improve_solution(routes):
+        improved_routes = [route[:] for route in routes]
+        
+        for _ in range(50):
+            # 2-opt within routes
+            for route_index in range(len(improved_routes)):
+                route = improved_routes[route_index][:]
+                if len(route) > 3:
+                    i = np.random.randint(1, len(route) - 2)
+                    k = np.random.randint(i + 1, len(route) - 1)
+                    new_route = two_opt_swap(route, i, k)
+                    
+                    improved_routes[route_index] = new_route
+
+            # Relocate node between routes
+            route_index_1 = np.random.randint(0, len(improved_routes))
+            if len(improved_routes[route_index_1]) > 2:
+                node_index = np.random.randint(1, len(improved_routes[route_index_1]) - 1)
+                route_index_2 = np.random.randint(0, len(improved_routes))
+                
+                if route_index_1 != route_index_2:
+                    
+                    temp_routes = [route[:] for route in improved_routes]
+                    node_to_move = temp_routes[route_index_1].pop(node_index)
+                    temp_routes[route_index_2].append(node_to_move)
+                    
+                    if calculate_route_demand(temp_routes[route_index_2]) <= capacity:
+                        improved_routes = [route[:] for route in temp_routes]
+                    
+        return improved_routes
+
+    initial_solution = construct_random_solution()
+    best_solution = improve_solution(initial_solution)
+
+    for _ in range(num_samples):
+        sampled_routes = [route[:] for route in best_solution]
+        
+        #Apply perturbation: 2-opt or relocate
+        if np.random.rand() < 0.5:
+          #2-opt
+          route_index = np.random.randint(0, len(sampled_routes))
+          route = sampled_routes[route_index]
+          if len(route) > 3:
+            i = np.random.randint(1,len(route) -2)
+            k = np.random.randint(i+1,len(route)-1)
+                
+            new_route = two_opt_swap(route, i, k)
+            sampled_routes[route_index] = new_route
+        else:
+          #Relocate
+          route_index_1 = np.random.randint(0, len(sampled_routes))
+          if len(sampled_routes[route_index_1]) > 2:
+            node_index = np.random.randint(1, len(sampled_routes[route_index_1]) - 1)
+            route_index_2 = np.random.randint(0, len(sampled_routes))
+
+            if route_index_1 != route_index_2:
+              temp_routes = [route[:] for route in sampled_routes]
+              node_to_move = temp_routes[route_index_1].pop(node_index)
+              temp_routes[route_index_2].append(node_to_move)
+
+              if calculate_route_demand(temp_routes[route_index_2]) <= capacity and is_feasible(temp_routes):
+                  sampled_routes = [route[:] for route in temp_routes]
+        
+        sampled_routes = improve_solution(sampled_routes)
+
+        if calculate_total_distance(sampled_routes) < calculate_total_distance(best_solution):
+            best_solution = sampled_routes
+
+        for route in sampled_routes:
+            for i in range(len(route) - 1):
+                heuristics_matrix[route[i]][route[i+1]] += 1
+                heuristics_matrix[route[i+1]][route[i]] += 1
+
+    return heuristics_matrix

@@ -1,0 +1,68 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses an ant colony optimization approach to probabilistically construct routes, updating pheromone levels based on route feasibility and distance.}
+    """
+    n = distance_matrix.shape[0]
+    pheromone_matrix = np.ones((n, n))
+    heuristic_matrix = 1 / (distance_matrix + np.eye(n))  # Avoid division by zero
+    alpha = 1
+    beta = 2
+    rho = 0.5
+    num_ants = 50
+    num_iterations = 200
+
+    for iteration in range(num_iterations):
+        all_routes = []
+        for ant in range(num_ants):
+            current_node = 0
+            route = [0]
+            remaining_nodes = list(range(1, n))
+            vehicle_load = 0
+
+            while remaining_nodes:
+                probabilities = np.zeros(len(remaining_nodes))
+                for i, node in enumerate(remaining_nodes):
+                    if vehicle_load + demands[node] <= capacity:
+                        probabilities[i] = (pheromone_matrix[current_node, node]**alpha) * (heuristic_matrix[current_node, node]**beta)
+                    else:
+                        probabilities[i] = 0  # Cannot visit this node due to capacity
+
+                if np.sum(probabilities) == 0:
+                    route.append(0)
+                    current_node = 0
+                    vehicle_load = 0
+                    continue
+                
+                probabilities /= np.sum(probabilities)
+                next_node = random.choices(remaining_nodes, weights=probabilities, k=1)[0]
+
+                route.append(next_node)
+                vehicle_load += demands[next_node]
+                remaining_nodes.remove(next_node)
+                current_node = next_node
+
+            route.append(0)
+            all_routes.append(route)
+
+        # Update pheromone levels
+        delta_pheromone_matrix = np.zeros((n, n))
+        for route in all_routes:
+            route_distance = 0
+            for i in range(len(route) - 1):
+                route_distance += distance_matrix[route[i], route[i+1]]
+            
+            if route_distance > 0:
+                pheromone_deposit = 1 / route_distance
+            else:
+                pheromone_deposit = 0
+            
+            for i in range(len(route) - 1):
+                delta_pheromone_matrix[route[i], route[i+1]] += pheromone_deposit
+                delta_pheromone_matrix[route[i+1], route[i]] += pheromone_deposit
+        
+        pheromone_matrix = (1 - rho) * pheromone_matrix + delta_pheromone_matrix
+
+    return heuristics_matrix

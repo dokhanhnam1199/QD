@@ -1,0 +1,78 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristics for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+
+    This version combines several factors to determine how promising it is to select an edge,
+    and sparsifies the matrix by setting unpromising elements to zero.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (shape: n by n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n by 2).
+        demands (np.ndarray): Vector of customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution
+                   (shape: n by n).
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix)
+
+    # Parameters (tuned for performance)
+    alpha = 1.0   # Distance factor
+    beta = 0.5    # Demand factor
+    gamma = 0.2   # Angle factor (preference for direct return to depot)
+    delta = 0.3 # Closeness to depot factor
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+            else:
+                # Distance factor: Shorter distances are preferred
+                distance_factor = 1 / distance_matrix[i, j] if distance_matrix[i,j] > 0 else 0 #Avoid division by zero and disconnected nodes
+
+                # Demand factor: Penalize edges between nodes with large demands to prevent exceeding capacity
+                demand_factor = 1 - (demands[i] + demands[j]) / (2 * capacity) if (demands[i] + demands[j]) < (2*capacity) else 0
+                demand_factor = max(0, demand_factor)  # Ensure non-negativity
+
+                # Angle factor: Encourages returning to the depot (node 0) by checking the angle i-j-0 or j-i-0. Lower angle means more direct.
+                if i != 0 and j != 0:
+                  v1 = coordinates[i] - coordinates[j]
+                  v2 = coordinates[0] - coordinates[j]
+                  angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-9) #Adding small number for stability
+
+                  angle_factor = (1 + angle)/2 # map [-1,1] to [0,1], higher means approaching 180 degrees (bad for direct depot return)
+                  angle_factor = 1-angle_factor #invert to make lower angle more desirable
+
+                  v3 = coordinates[j] - coordinates[i]
+                  v4 = coordinates[0] - coordinates[i]
+                  angle2 = np.dot(v3, v4) / (np.linalg.norm(v3) * np.linalg.norm(v4) + 1e-9)
+                  angle2_factor = (1 + angle2)/2 # map [-1,1] to [0,1], higher means approaching 180 degrees (bad for direct depot return)
+                  angle2_factor = 1 - angle2_factor #invert to make lower angle more desirable
+
+
+                  angle_factor = min(angle_factor, angle2_factor) #pick better angle to the depot
+                else:
+                  angle_factor = 1.0
+
+                #Closeness to Depot Factor.  Prefer links close to depot
+                depot_distance = (distance_matrix[i,0] + distance_matrix[j,0]) / (2*np.max(distance_matrix))
+                depot_proximity = 1-depot_distance
+
+                # Combine factors
+                heuristic_matrix[i, j] = (alpha * distance_factor +
+                                            beta * demand_factor +
+                                            gamma * angle_factor +
+                                            delta * depot_proximity)
+
+
+    # Sparsify the matrix: keep only the most promising edges
+    threshold = np.percentile(heuristic_matrix[heuristic_matrix > 0], 70)  # Keep top 30%
+
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+    return heuristic_matrix
+```

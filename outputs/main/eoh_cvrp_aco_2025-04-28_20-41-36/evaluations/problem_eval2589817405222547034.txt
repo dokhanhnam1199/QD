@@ -1,0 +1,62 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm employs a clustering-first, routing-second approach: It first clusters nodes based on demand and proximity, then solves a traveling salesperson problem (TSP) on each cluster using a stochastic sampling approach to generate a heuristic matrix.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_clusters = int(np.ceil(np.sum(demands[1:]) / capacity))  # Estimate number of clusters
+
+    # Initialize clusters randomly
+    clusters = [[] for _ in range(num_clusters)]
+    nodes = list(range(1, n))
+    random.shuffle(nodes)
+
+    # Assign nodes to clusters based on demand and distance to cluster center.
+    cluster_centers = random.sample(nodes, num_clusters) # Select initial cluster centers randomly
+    
+    for node in nodes:
+        best_cluster = -1
+        min_dist = float('inf')
+        
+        for i in range(num_clusters):
+            dist_to_center = distance_matrix[node, cluster_centers[i]]
+            if best_cluster == -1 or dist_to_center < min_dist:
+                
+                # Check if adding the node exceeds capacity
+                cluster_demand = sum([demands[c] for c in clusters[i]])
+                if cluster_demand + demands[node] <= capacity:
+                  min_dist = dist_to_center
+                  best_cluster = i
+        
+        if best_cluster != -1:
+            clusters[best_cluster].append(node)
+        else:
+            #If no cluster satisfies the demand constraint, add the node to the least loaded cluster
+            min_load = float('inf')
+            least_loaded_cluster = 0
+            for i in range(num_clusters):
+              cluster_demand = sum([demands[c] for c in clusters[i]])
+              if cluster_demand < min_load:
+                min_load = cluster_demand
+                least_loaded_cluster = i
+            clusters[least_loaded_cluster].append(node)
+    
+    # TSP within each cluster with stochastic sampling
+    num_samples_per_cluster = 50
+    for cluster in clusters:
+        if not cluster:
+            continue
+        
+        for _ in range(num_samples_per_cluster):
+            # Generate a random route within the cluster, starting and ending at the depot
+            route = [0] + random.sample(cluster, len(cluster)) + [0]
+
+            # Update heuristics matrix
+            for i in range(len(route) - 1):
+                u = route[i]
+                v = route[i+1]
+                heuristics_matrix[u, v] += 1
+                heuristics_matrix[v, u] += 1  # Assuming symmetric distance matrix
+
+    return heuristics_matrix

@@ -1,0 +1,80 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm learns edge importance by iteratively constructing routes, probabilistically selecting nodes based on a combination of distance, demand, pheromone trails, and node centrality, and updating pheromone trails based on route feasibility and length.}
+    """
+    n = distance_matrix.shape[0]
+    pheromone_matrix = np.ones((n, n))
+    centrality = np.sum(distance_matrix, axis=0)  # Node centrality (sum of distances to other nodes)
+    heuristics_matrix = np.zeros((n, n))
+    
+    num_samples = 1000
+    evaporation_rate = 0.1
+    pheromone_deposit = 1.0
+    alpha = 1.0  # Pheromone influence
+    beta = 2.0  # Distance influence
+    gamma = 0.5  # Centrality influence
+
+    for _ in range(num_samples):
+        current_node = 0
+        route = [0]
+        remaining_nodes = list(range(1, n))
+        vehicle_load = 0
+        current_route = []
+
+        while remaining_nodes:
+            # Calculate probabilities for each remaining node
+            probabilities = []
+            for node_idx in remaining_nodes:
+                demand = demands[node_idx]
+                if vehicle_load + demand <= capacity:
+                    distance = distance_matrix[current_node, node_idx]
+                    pheromone = pheromone_matrix[current_node, node_idx]
+                    centrality_score = centrality[node_idx]  # Use pre-calculated centrality
+
+                    # Calculate a score combining pheromone, distance, and centrality
+                    score = (pheromone**alpha) * ((1 / (distance + 1e-9))**beta) * ((1 / (centrality_score + 1e-9))**gamma)
+                    probabilities.append((score, node_idx))
+                else:
+                    probabilities.append((0, node_idx))  # Impossible to add due to capacity
+
+            # Normalize probabilities
+            total_score = sum(score for score, _ in probabilities)
+            if total_score > 0:
+                probabilities = [(score / total_score, node_idx) for score, node_idx in probabilities]
+            else: # all scores are zero, assign equal probability
+                probabilities = [(1/len(remaining_nodes), node_idx) for _, node_idx in probabilities]
+            
+            # Select next node probabilistically
+            next_node = np.random.choice([node_idx for _, node_idx in probabilities], p=[score for score, _ in probabilities])
+            
+            # Update route information
+            route.append(next_node)
+            current_route.append(next_node)
+            vehicle_load += demands[next_node]
+
+            # Remove node from remaining nodes
+            remaining_nodes.remove(next_node)
+            current_node = next_node
+
+        # Return to depot
+        route.append(0)
+
+        # Update pheromone trails
+        route_length = 0
+        for i in range(len(route) - 1):
+            route_length += distance_matrix[route[i], route[i+1]]
+
+        for i in range(len(route) - 1):
+            pheromone_matrix[route[i], route[i+1]] *= (1 - evaporation_rate)
+            pheromone_matrix[route[i+1], route[i]] *= (1 - evaporation_rate)
+            pheromone_matrix[route[i], route[i+1]] += pheromone_deposit / route_length
+            pheromone_matrix[route[i+1], route[i]] += pheromone_deposit / route_length
+
+    # Accumulate heuristic values based on pheromone trails
+    for i in range(n):
+        for j in range(n):
+            heuristics_matrix[i, j] = pheromone_matrix[i, j]
+
+    return heuristics_matrix

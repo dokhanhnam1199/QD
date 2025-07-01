@@ -1,0 +1,83 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs routes using a savings-based approach with stochastic selection, penalizing edges that lead to capacity violations, and returns a heuristic matrix reflecting edge selection frequencies.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        savings = np.zeros((n, n))
+        for i in range(1, n):
+            for j in range(1, n):
+                if i != j:
+                    savings[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+
+        route_ends = {i: i for i in range(1, n)}
+        route_loads = {i: demands[i] for i in range(1, n)}
+        routes = {i: [i] for i in range(1, n)}
+        
+        sorted_savings = []
+        for i in range(1, n):
+            for j in range(1, n):
+                if i != j:
+                    sorted_savings.append((i, j, savings[i, j]))
+
+        sorted_savings.sort(key=lambda x: x[2], reverse=True)
+        
+        merged = True
+        while merged:
+            merged = False
+            
+            # Stochastic selection of a savings pair
+            if sorted_savings:
+                idx = random.randint(0, len(sorted_savings) - 1)
+                i, j, _ = sorted_savings.pop(idx)
+            else:
+                break
+            
+            if route_ends[i] != route_ends[j] and \
+               route_loads[route_ends[i]] + route_loads[route_ends[j]] <= capacity:
+
+                # Merge routes
+                route_i = routes[route_ends[i]]
+                route_j = routes[route_ends[j]]
+
+                # Update heuristics matrix based on the edges formed by merging
+                heuristics_matrix[route_i[-1]][route_j[0]] +=1
+                heuristics_matrix[route_j[0]][route_i[-1]] +=1
+
+                new_route = route_i + route_j
+                new_load = route_loads[route_ends[i]] + route_loads[route_ends[j]]
+                
+                for node in new_route:
+                    route_ends[node] = route_ends[i]  # Update route ends to the same value
+                    routes[node] = new_route # Update route to the same one
+                
+                for node in routes:
+                    if route_ends[node] == route_ends[j]:
+                        route_ends[node] = route_ends[i]
+
+                route_loads[route_ends[i]] = new_load
+                
+                merged = True
+
+        # Add depot to the beginning and end of each route and construct the final route set.
+        final_routes = []
+        visited = set()
+        for node in range(1, n):
+            root = route_ends[node]
+            if root not in visited:
+                final_routes.append([0] + routes[node] + [0])
+                visited.add(root)
+
+        # Update heuristic matrix based on edge frequencies in the constructed routes
+        for route in final_routes:
+            for i in range(len(route) - 1):
+                heuristics_matrix[route[i]][route[i + 1]] += 1
+                heuristics_matrix[route[i + 1]][route[i]] += 1
+
+    return heuristics_matrix

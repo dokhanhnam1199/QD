@@ -1,0 +1,61 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm estimates edge probabilities by repeatedly sampling routes with a construction heuristic, evaluating their feasibility, and updating edge scores based on their inclusion in feasible routes, biased by route length.}"""
+    n = len(demands)
+    heuristics_matrix = np.zeros((n, n))
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        # Initialize route construction with a nearest neighbor approach
+        current_node = 0
+        unvisited = set(range(1, n))
+        routes = []
+        current_route = [0]
+        current_demand = 0
+
+        while unvisited:
+            # Find the nearest unvisited neighbor
+            nearest_neighbor = None
+            min_distance = float('inf')
+            for neighbor in unvisited:
+                distance = distance_matrix[current_node, neighbor]
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest_neighbor = neighbor
+
+            # Add the nearest neighbor to the route if feasible
+            if current_demand + demands[nearest_neighbor] <= capacity:
+                current_route.append(nearest_neighbor)
+                current_demand += demands[nearest_neighbor]
+                unvisited.remove(nearest_neighbor)
+                current_node = nearest_neighbor
+            else:
+                current_route.append(0)
+                routes.append(current_route)
+                current_route = [0]
+                current_demand = 0
+                current_node = 0  # Back to the depot
+
+        current_route.append(0)
+        routes.append(current_route)
+
+        # Evaluate feasibility and update heuristics matrix, weighting by route length
+        for route in routes:
+            total_demand = sum(demands[customer] for customer in route[1:-1])
+
+            if total_demand <= capacity:
+                route_length = 0
+                for i in range(len(route) - 1):
+                    route_length += distance_matrix[route[i], route[i+1]]
+
+                # Bias heuristic update by the inverse of route length (shorter routes are better)
+                weight = 1.0 / (route_length + 1e-6)  # Avoid division by zero
+
+                for i in range(len(route) - 1):
+                    u = route[i]
+                    v = route[i+1]
+                    heuristics_matrix[u, v] += weight
+                    heuristics_matrix[v, u] += weight
+    return heuristics_matrix

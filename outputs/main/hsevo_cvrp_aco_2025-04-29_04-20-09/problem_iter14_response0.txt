@@ -1,0 +1,73 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """Combines adaptive distance, demand, centrality, depot attraction and angle, sparsifies the matrix."""
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix)
+    center_x = np.mean(coordinates[1:, 0])
+    center_y = np.mean(coordinates[1:, 1])
+    total_demand = np.sum(demands[1:])
+    demand_weighted_dist_to_depot = np.sum(demands[1:] * distance_matrix[0, 1:]) / total_demand if total_demand > 0 else np.mean(distance_matrix[0,1:])
+
+    avg_dist_to_depot = np.mean(distance_matrix[0, 1:])
+
+    depot_x, depot_y = coordinates[0]
+    angles = np.arctan2(coordinates[:, 1] - depot_y, coordinates[:, 0] - depot_x)
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+
+            distance = distance_matrix[i, j]
+            distance_component = np.exp(-distance / avg_dist_to_depot) if avg_dist_to_depot > 0 else 1.0
+
+            demand_component = 1.0
+            if i != 0 and j != 0 and demands[i] + demands[j] > capacity:
+                demand_component = 0.01
+
+            center_distance = (np.sqrt((coordinates[i, 0] - center_x)**2 + (coordinates[i, 1] - center_y)**2) +
+                               np.sqrt((coordinates[j, 0] - center_x)**2 + (coordinates[j, 1] - center_y)**2)) / 2
+            centrality_component = np.exp(-center_distance / demand_weighted_dist_to_depot) if demand_weighted_dist_to_depot > 0 else 1.0
+
+            depot_component = 1.0
+            if i!=0 and j!=0:
+                depot_attraction_i = np.exp(-distance_matrix[i, 0] / avg_dist_to_depot) if avg_dist_to_depot>0 else 1.0
+                depot_attraction_j = np.exp(-distance_matrix[j, 0] / avg_dist_to_depot) if avg_dist_to_depot>0 else 1.0
+                depot_component = (depot_attraction_i + depot_attraction_j) / 2
+
+            elif i==0:
+                depot_component = np.exp(-distance_matrix[j,0]/ avg_dist_to_depot) if avg_dist_to_depot>0 else 1.0
+            elif j==0:
+                 depot_component = np.exp(-distance_matrix[i,0]/ avg_dist_to_depot) if avg_dist_to_depot>0 else 1.0
+
+            angle_diff = abs(angles[i] - angles[j])
+            angle_component = np.exp(-2 * angle_diff)
+
+            heuristic_value = distance_component * demand_component * centrality_component * depot_component * angle_component
+
+            # Adding a power to angle_component
+            heuristic_value = heuristic_value * (1 - angle_diff)**0.5
+
+            heuristic_matrix[i, j] = heuristic_value
+
+    # Adaptive thresholding
+    threshold = np.mean(heuristic_matrix[heuristic_matrix > 0]) * 0.2
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    # Additional sparsification based on capacity and depot proximity
+    for i in range(n):
+        for j in range(n):
+            if i != 0 and j != 0 and (demands[i] + demands[j]) > 1.5 * capacity:
+                heuristic_matrix[i, j] = 0
+            if i!=0 and j!=0 and (demands[i] > capacity or demands[j] > capacity) :
+                heuristic_matrix[i, j] = 0
+            if (i==0 and distance_matrix[i,j] > 2*avg_dist_to_depot):
+                heuristic_matrix[i, j] = 0
+            if (j==0 and distance_matrix[i,j] > 2*avg_dist_to_depot):
+                heuristic_matrix[i, j] = 0
+
+
+    return heuristic_matrix
+```

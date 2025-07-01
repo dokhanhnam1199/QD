@@ -78,13 +78,12 @@ class EOH:
         for individual in population:
             try:
                 bd_values = tuple(
-                    individual[self.cfg.bd_list[i]] // div
+                    (individual.get(self.cfg.bd_list[i]) or 0) // div
                     for i, div in enumerate(self.cfg.bd_step)
                 )
                 obj = individual['objective']  # Replace 'objective' with your actual objective key
 
-                if (bd_values not in bd_to_best_individual or
-                    obj > bd_to_best_individual[bd_values]['objective']):
+                if (bd_values not in bd_to_best_individual or obj < bd_to_best_individual[bd_values]['objective']):
                     bd_to_best_individual[bd_values] = individual
             except KeyError as e:
                 missing_key = str(e)

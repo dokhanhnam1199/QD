@@ -1,0 +1,107 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a greedy randomized construction, followed by a local search phase guided by a cost function considering distance and capacity, and updates a heuristics matrix based on the edges used in the improved solutions.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    
+    def calculate_cost(route):
+        total_distance = 0
+        current_capacity = capacity
+        cost = 0
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            total_distance += distance_matrix[node1, node2]
+
+            if node2 != 0:
+                current_capacity -= demands[node2]
+            if current_capacity < 0:
+                cost += abs(current_capacity) * 10  # Large penalty for exceeding capacity
+                current_capacity = capacity  # Reset capacity
+
+        cost += total_distance
+        return cost
+
+    def generate_neighbor(route):
+        # Swap two random nodes in the route (excluding the depot)
+        route_copy = route[:]
+        indices = range(1, len(route_copy) - 1)
+        if len(indices) < 2:
+            return route_copy
+
+        i, j = random.sample(indices, 2)
+        route_copy[i], route_copy[j] = route_copy[j], route_copy[i]
+        return route_copy
+
+    def construct_initial_solution():
+        routes = []
+        remaining_nodes = set(range(1, n))
+        current_route = [0]
+        current_capacity = capacity
+        
+        while remaining_nodes:
+            candidate_nodes = [node for node in remaining_nodes if demands[node] <= current_capacity]
+            if not candidate_nodes:
+                routes.append(current_route + [0])
+                current_route = [0]
+                current_capacity = capacity
+                continue
+
+            # Randomized selection of the next node
+            probabilities = [1 / distance_matrix[current_route[-1], node] for node in candidate_nodes]
+            probabilities = [p / sum(probabilities) for p in probabilities] # Normalize to create a probability distribution.
+            
+            next_node = random.choices(candidate_nodes, probabilities)[0]
+
+            current_route.append(next_node)
+            current_capacity -= demands[next_node]
+            remaining_nodes.remove(next_node)
+            
+        routes.append(current_route + [0])
+        
+        return routes
+
+    def local_search(routes):
+        best_routes = routes[:]
+        best_cost = sum(calculate_cost(route) for route in best_routes)
+
+        for _ in range(500): # Limit number of iterations
+            #Select a random route in routes for modification
+            route_index = random.randint(0, len(routes)-1)
+            current_route = routes[route_index]
+            neighbor_route = generate_neighbor(current_route)
+            neighbor_cost = calculate_cost(neighbor_route)
+
+            if neighbor_cost < calculate_cost(current_route):
+                routes[route_index] = neighbor_route
+                new_cost = sum(calculate_cost(route) for route in routes)
+                if new_cost < best_cost:
+                  best_routes = routes[:]
+                  best_cost = new_cost
+        return best_routes
+    
+    # Construct multiple initial solutions
+    all_routes = []
+    for _ in range(5): # Number of initial solutions
+        all_routes.extend(construct_initial_solution())
+    
+    # Perform local search on the initial solutions
+    best_routes = local_search(all_routes)
+
+    # Update Heuristics Matrix based on the best route found
+    for route in best_routes:
+        for i in range(len(route) - 1):
+            node1 = route[i]
+            node2 = route[i+1]
+            heuristics_matrix[node1, node2] += 1
+            heuristics_matrix[node2, node1] += 1
+
+    # Normalize by Distance
+    for i in range(n):
+        for j in range(n):
+            if heuristics_matrix[i, j] > 0:
+                heuristics_matrix[i, j] /= distance_matrix[i, j]
+
+    return heuristics_matrix

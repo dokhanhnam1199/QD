@@ -1,0 +1,83 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+
+    """
+    Heuristics function for solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    This version prioritizes savings, proximity, and demand, with adaptive thresholds and careful factor weighting.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (shape: n by n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n by 2).
+        demands (np.ndarray): Customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (shape: n by n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+
+    # Calculate savings matrix (Clarke-Wright Savings Algorithm)
+    savings_matrix = np.zeros_like(distance_matrix)
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings_matrix[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings_matrix[j, i] = savings_matrix[i, j]
+
+    # Depot proximity - inverse distance to depot, squared to emphasize closer nodes
+    depot_proximity = np.zeros(n)
+    for i in range(1, n):
+        depot_proximity[i] = 1 / (distance_matrix[0, i] + 1e-9)  # Closer is better; avoid division by zero
+    depot_proximity = (depot_proximity / np.max(depot_proximity))**2 if np.max(depot_proximity) > 0 else np.zeros(n) # Emphasize proximity by squaring
+
+    # Demand factor - ratio of demand to capacity, with a sigmoid-like transformation
+    demand_factor = demands / capacity  # Ratio of demand to capacity. Smaller is generally better
+    demand_factor = np.clip(demand_factor, 0, 1)
+    demand_penalty = 1 / (1 + np.exp(5 * (demand_factor - 0.5)))  # Sigmoid to penalize high demand more sharply
+
+
+    # Combine factors to create the heuristics matrix
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Primary factor: savings
+                heuristics_matrix[i, j] = savings_matrix[i, j]
+
+                # Secondary factors: depot proximity and demand. Do not consider depot proximity for depot itself.
+                proximity_factor = 1.0
+                if i != 0 and j != 0:
+                    proximity_factor = (0.5 + 0.5 * depot_proximity[i] * depot_proximity[j]) # Weight depot proximity less, adjusted range
+
+                demand_component = 1.0
+                if i != 0 and j != 0:
+                     demand_component = (demand_penalty[i] * demand_penalty[j])  # Geometric mean to penalize if either is high
+
+                # Distance penalty. Further distances are less attractive
+                distance_penalty = (distance_matrix[i, j] + 1e-9)**0.75 # Reduce impact by square root, adjusted exponent
+
+                heuristics_matrix[i, j] = heuristics_matrix[i, j] * proximity_factor * demand_component / distance_penalty # Savings * Proximity * Demand / Distance
+
+    # Sparsify the matrix: zero out edges that are too long (less promising) - Adaptive threshold based on Savings
+    savings_threshold = np.percentile(savings_matrix[savings_matrix > 0], 60) if np.any(savings_matrix > 0) else 0 # Base distance filter off savings
+    distance_threshold = np.mean(distance_matrix) * 1.3  # Adjusted threshold, further reducing the impact
+
+    heuristics_matrix[(distance_matrix > distance_threshold) & (savings_matrix < savings_threshold)] = 0.0  # Apply to edges beyond distance threshold but also low savings
+
+    # Additional Sparsification based on demand - remove edges between high demand nodes if distance is large
+    demand_threshold = 0.7 # Define high demand as exceeding this fraction of capacity
+    large_distance_threshold = np.mean(distance_matrix) * 1.0 # Threshold for considering distances 'large'
+    for i in range(n):
+        for j in range(i+1, n):
+            if demands[i]/capacity > demand_threshold and demands[j]/capacity > demand_threshold and distance_matrix[i,j] > large_distance_threshold:
+                heuristics_matrix[i,j] = heuristics_matrix[j,i] = 0.0
+
+
+    # Normalize the heuristics matrix
+    max_heuristic = np.max(heuristics_matrix)
+    if max_heuristic > 0:
+        heuristics_matrix = heuristics_matrix / max_heuristic
+
+    return heuristics_matrix
+```

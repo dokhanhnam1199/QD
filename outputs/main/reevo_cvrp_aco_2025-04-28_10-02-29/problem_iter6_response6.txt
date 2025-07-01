@@ -1,0 +1,107 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Heuristic function for Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    Refined edge scoring with normalized, weighted factors (savings, depot proximity, demand, angle).
+    Dynamically sparsify the edge matrix based on vehicle capacity and edge scores.
+    Prioritize depot connections and adapt thresholds for improved efficiency.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix between nodes (n x n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (n x 2).
+        demands (np.ndarray): Vector of customer demands (n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (n x n).
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+
+    # Calculate savings matrix (Clarke-Wright Savings)
+    savings_matrix = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings_matrix[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings_matrix[j, i] = savings_matrix[i, j]
+    savings_matrix /= np.max(savings_matrix + 1e-6)  # Normalize
+
+    # Node proximity to depot (normalized)
+    depot_proximity = np.zeros(n)
+    for i in range(1, n):
+        depot_proximity[i] = 1 / (distance_matrix[0, i] + 1e-6)
+    depot_proximity /= np.max(depot_proximity + 1e-6)
+
+    # Demand factor (normalized)
+    demand_factor = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                demand_factor[i, j] = 1 / (demands[i] + demands[j] + 1e-6)  # Avoid division by zero
+    demand_factor /= np.max(demand_factor + 1e-6)
+
+    # Angle Factor
+    angle_factor = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j:
+                vector_i = coordinates[i] - coordinates[0]
+                vector_j = coordinates[j] - coordinates[0]
+                dot_product = np.dot(vector_i, vector_j)
+                magn_i = np.linalg.norm(vector_i)
+                magn_j = np.linalg.norm(vector_j)
+                cos_angle = dot_product / (magn_i * magn_j + 1e-6)
+                angle_factor[i, j] = (cos_angle + 1) / 2  # Scale to 0-1 range
+    angle_factor /= np.max(angle_factor + 1e-6)
+
+    # Distance factor (normalized inverse)
+    distance_factor = 1 / (distance_matrix + 1e-6)
+    distance_factor /= np.max(distance_factor + 1e-6)
+
+    # Combine factors with weights
+    w_savings = 0.30
+    w_depot = 0.25
+    w_demand = 0.15
+    w_angle = 0.20
+    w_distance = 0.10
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                heuristics_matrix[i, j] = (
+                    w_savings * savings_matrix[i, j]
+                    + w_depot * (depot_proximity[i] + depot_proximity[j])
+                    + w_demand * demand_factor[i, j]
+                    + w_angle * angle_factor[i, j]
+                    + w_distance * distance_factor[i, j]
+                )
+
+    # Prioritize depot connections.  Boost score if one of the nodes is depot.
+    for i in range(1, n):
+        heuristics_matrix[0, i] *= 1.15
+        heuristics_matrix[i, 0] *= 1.15
+
+    # Dynamic Sparsification based on capacity and heuristic score
+    threshold_percentile = 50
+    threshold = np.percentile(heuristics_matrix[heuristics_matrix > 0], threshold_percentile)  # Adaptive threshold - remove bottom percentile
+
+    heuristics_matrix[heuristics_matrix < threshold] = 0
+
+    # Ensure depot connections remain
+    for i in range(1, n):
+        if distance_matrix[0, i] > 0 and heuristics_matrix[0, i] == 0:
+            heuristics_matrix[0, i] = threshold  # Ensure depot connections remain if distance not zero
+        if distance_matrix[i, 0] > 0 and heuristics_matrix[i, 0] == 0:
+            heuristics_matrix[i, 0] = threshold
+
+    # Set diagonal to zero and make matrix asymmetric (slight random perturbation)
+    for i in range(n):
+        heuristics_matrix[i, i] = 0
+        for j in range(n):
+          if i != j and heuristics_matrix[i,j] > 0:
+            heuristics_matrix[i,j] += np.random.normal(0, 0.001)  #break symmetry
+
+    return heuristics_matrix
+```

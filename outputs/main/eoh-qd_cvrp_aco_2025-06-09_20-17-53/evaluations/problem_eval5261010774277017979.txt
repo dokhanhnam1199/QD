@@ -1,0 +1,82 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm iteratively refines routes by swapping nodes based on cost improvement and feasibility, recording edge usage in promising solutions to build a heuristic matrix.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 100
+    num_routes = 5
+
+    routes = []
+    for _ in range(num_routes):
+        route = list(range(1, n))
+        np.random.shuffle(route)
+        
+        current_route = [0]
+        current_demand = 0
+        all_routes = []
+        
+        for node in route:
+            if current_demand + demands[node] <= capacity:
+                current_route.append(node)
+                current_demand += demands[node]
+            else:
+                current_route.append(0)
+                all_routes.append(current_route)
+                current_route = [0, node]
+                current_demand = demands[node]
+        current_route.append(0)
+        all_routes.append(current_route)
+        routes.append(all_routes)
+
+    for _ in range(num_iterations):
+        for route_index in range(num_routes):
+            all_routes = routes[route_index]
+            for route_i in range(len(all_routes)):
+                route = all_routes[route_i]
+                if len(route) <= 2:
+                    continue
+
+                for i in range(1, len(route) - 1):
+                    for j in range(i + 1, len(route) - 1):
+                        # Attempt swap
+                        temp_route = route[:]
+                        temp_route[i], temp_route[j] = temp_route[j], temp_route[i]
+
+                        # Check feasibility
+                        temp_demand = 0
+                        feasible = True
+                        for node_index in range(1, len(temp_route) - 1):
+                            temp_demand += demands[temp_route[node_index]]
+                        if temp_demand > capacity and len(all_routes) > 1:
+                                feasible = False
+                        
+                        # Calculate cost
+                        original_cost = distance_matrix[route[i-1], route[i]] + distance_matrix[route[i], route[i+1]] + distance_matrix[route[j-1], route[j]] + distance_matrix[route[j], route[j+1]] if i > 0 and j < len(route) - 1 else 0
+                        new_cost = distance_matrix[temp_route[i-1], temp_route[i]] + distance_matrix[temp_route[i], temp_route[i+1]] + distance_matrix[temp_route[j-1], temp_route[j]] + distance_matrix[temp_route[j], temp_route[j+1]] if i > 0 and j < len(route) - 1 else 0
+                        if not feasible:
+                            continue
+                        # Accept swap if cost improves
+                        if new_cost < original_cost:
+                            route[:] = temp_route[:]
+
+                all_routes[route_i] = route
+            routes[route_index] = all_routes
+
+    # Aggregate edge frequencies
+    for all_routes in routes:
+        for current_route in all_routes:
+            for i in range(len(current_route) - 1):
+                node1 = current_route[i]
+                node2 = current_route[i+1]
+                heuristics_matrix[node1, node2] += 1
+                heuristics_matrix[node2, node1] += 1
+
+    # Normalize
+    total_counts = np.sum(heuristics_matrix)
+    if total_counts > 0:
+        heuristics_matrix = heuristics_matrix / total_counts
+    
+    return heuristics_matrix

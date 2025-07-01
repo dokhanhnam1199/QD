@@ -1,0 +1,87 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+
+    """
+    A heuristics function for Solving Capacitated Vehicle Routing Problem (CVRP) via stochastic solution sampling.
+    Improved version prioritizing proximity, simplifying demand impact, and refining sparsification scaling.
+
+    Args:
+        distance_matrix (np.ndarray): Distance matrix (shape: n by n).
+        coordinates (np.ndarray): Euclidean coordinates of nodes (shape: n by 2).
+        demands (np.ndarray): Customer demands (shape: n).
+        capacity (int): Vehicle capacity.
+
+    Returns:
+        np.ndarray: Prior indicators of how promising it is to include each edge in a solution (same shape as distance_matrix).
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Calculate savings for each pair of nodes (Clarke-Wright Savings Heuristic)
+    savings_matrix = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(i + 1, n):
+            savings_matrix[i, j] = distance_matrix[0, i] + distance_matrix[0, j] - distance_matrix[i, j]
+            savings_matrix[j, i] = savings_matrix[i, j]
+
+    # Node Proximity Factor (encourage connections between nearby nodes)
+    proximity_matrix = np.zeros((n, n))
+    max_distance = np.max(distance_matrix)
+    for i in range(n):
+        for j in range(n):
+            proximity_matrix[i, j] = 1 - (distance_matrix[i, j] / max_distance)
+
+    # Simplified Load Balancing Factor (penalize edges that lead to exceeding capacity)
+    load_balance_matrix = np.ones((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            if i != j and demands[i] + demands[j] > capacity:
+                load_balance_matrix[i, j] = 0.2  # Penalize more gently
+
+    # Combine distance, savings, proximity and load balancing considerations
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+            else:
+                # Distance factor (shorter distances are preferred) - Inverse Distance
+                distance_factor = 1 / (distance_matrix[i, j] + 1e-6)
+
+                # Savings factor (higher savings are preferred)
+                savings_factor = savings_matrix[i, j] / (np.max(savings_matrix) + 1e-6)
+
+                # Proximity factor (Prioritized more)
+                proximity_factor = proximity_matrix[i, j]**2 # Increased weight
+
+                # Load balancing factor
+                load_factor = load_balance_matrix[i, j]
+
+                # Combine the factors - adjusted weights
+                heuristic_matrix[i, j] = distance_factor**0.8 * savings_factor**0.6 * proximity_factor * load_factor # Prioritizing Proximity
+
+    # Adaptive sparsification: adjust k based on problem size - Refined Scaling
+    k = int(1.2 * np.sqrt(n))  # Further refined scaling.
+    # Ensure k is at least 1 and less than n
+    k = max(1, min(k, n - 1))
+
+    for i in range(n):
+        # Get the indices of the top k promising edges for node i
+        top_k_indices = np.argsort(heuristic_matrix[i, :])[::-1][:k]
+
+        # Set the heuristic value to 0 for all other edges
+        for j in range(n):
+            if j not in top_k_indices:
+                heuristic_matrix[i, j] = 0
+
+    # Learned Component (simple example: boost edges connected to nodes with high demand) - Reduced Impact
+    demand_boost = np.zeros((n, n))
+    for i in range(1, n):
+        for j in range(1, n):
+            demand_boost[i, j] = (demands[i] + demands[j]) / (2 * capacity)  # Scaled
+
+    heuristic_matrix = heuristic_matrix + 0.025 * demand_boost # Reduced Demand Boost
+
+    return heuristic_matrix
+```

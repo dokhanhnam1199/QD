@@ -1,0 +1,82 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses an Ant Colony Optimization approach to iteratively construct solutions and update pheromone trails based on solution quality and edge usage.}
+    """
+    n = distance_matrix.shape[0]
+    pheromone_matrix = np.ones_like(distance_matrix)  # Initialize pheromone trails
+    heuristic_matrix = 1 / (distance_matrix + 1e-6)   # Heuristic desirability (inverse distance)
+    alpha = 1.0  # Pheromone influence
+    beta = 2.0   # Heuristic influence
+    rho = 0.5    # Evaporation rate
+    Q = 100.0    # Pheromone deposit constant
+    num_ants = 50
+    num_iterations = 100
+
+    for iteration in range(num_iterations):
+        ant_routes = []
+        ant_costs = []
+
+        for ant in range(num_ants):
+            route = [0]  # Start at the depot
+            current_load = 0
+            unvisited = list(range(1, n))
+            
+            while unvisited:
+                probabilities = []
+                for node in unvisited:
+                    if current_load + demands[node] <= capacity:
+                        prob = (pheromone_matrix[route[-1], node]**alpha) * (heuristic_matrix[route[-1], node]**beta)
+                        probabilities.append(prob)
+                    else:
+                        probabilities.append(0) #Cannot visit
+
+                if sum(probabilities) == 0:  #If the ant cannot visit any unvisited customers without exceeding capacity, it returns to depot.
+                    route.append(0)
+                    current_load = 0
+                    probabilities = []
+                    unvisited_2 = list(range(1, n))
+                    for node in unvisited_2:
+                        if current_load + demands[node] <= capacity:
+                            prob = (pheromone_matrix[route[-1], node]**alpha) * (heuristic_matrix[route[-1], node]**beta)
+                            probabilities.append(prob)
+                        else:
+                            probabilities.append(0)
+                    if sum(probabilities) == 0:
+                      break #If after returning to the depot, there are no viable options, exit the loop.
+                    else:
+                      probabilities = [p / sum(probabilities) for p in probabilities]  
+                      next_node = random.choices(unvisited_2, weights=probabilities, k=1)[0]
+                      route.append(next_node)
+                      unvisited.remove(next_node)
+                      current_load += demands[next_node]
+
+                else: #Regular selection
+                    probabilities = [p / sum(probabilities) for p in probabilities]  # Normalize probabilities
+                    next_node = random.choices(unvisited, weights=probabilities, k=1)[0]
+                    
+                    route.append(next_node)
+                    unvisited.remove(next_node)
+                    current_load += demands[next_node]
+
+            route.append(0)  # Return to depot
+            ant_routes.append(route)
+
+            # Calculate route cost
+            cost = 0
+            for i in range(len(route) - 1):
+                cost += distance_matrix[route[i], route[i+1]]
+            ant_costs.append(cost)
+
+        # Update pheromone trails
+        pheromone_matrix *= (1 - rho)  # Evaporation
+
+        for ant in range(num_ants):
+            route = ant_routes[ant]
+            cost = ant_costs[ant]
+            for i in range(len(route) - 1):
+                pheromone_matrix[route[i], route[i+1]] += Q / cost
+
+    return heuristics_matrix

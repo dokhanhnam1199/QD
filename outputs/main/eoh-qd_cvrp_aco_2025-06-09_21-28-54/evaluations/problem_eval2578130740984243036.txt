@@ -1,0 +1,87 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs an initial solution using a greedy approach, then iteratively improves it by randomly swapping nodes between routes and accepting the swap if it reduces the total distance.}"""
+
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_iterations = 1000
+
+    # 1. Greedy Initial Solution
+    unvisited = set(range(1, n))
+    routes = []
+    current_route = [0]
+    current_capacity = 0
+
+    while unvisited:
+        best_customer = None
+        best_distance = float('inf')
+        
+        for customer in unvisited:
+            if current_capacity + demands[customer] <= capacity:
+                dist = distance_matrix[current_route[-1], customer]
+                if dist < best_distance:
+                    best_distance = dist
+                    best_customer = customer
+
+        if best_customer is not None:
+            current_route.append(best_customer)
+            current_capacity += demands[best_customer]
+            unvisited.remove(best_customer)
+        else:
+            current_route.append(0)
+            routes.append(current_route)
+            current_route = [0]
+            current_capacity = 0
+
+    current_route.append(0)
+    routes.append(current_route)
+
+    # 2. Iterative Improvement (Node Swapping)
+    for _ in range(num_iterations):
+        # Select two random routes
+        if len(routes) < 2:
+            continue
+        route_index1, route_index2 = random.sample(range(len(routes)), 2)
+        route1 = routes[route_index1]
+        route2 = routes[route_index2]
+
+        # Select two random nodes from different routes (excluding depot)
+        if len(route1) < 2 or len(route2) < 2:
+          continue
+        
+        node_index1 = random.randint(1, len(route1) - 2)
+        node_index2 = random.randint(1, len(route2) - 2)
+
+        node1 = route1[node_index1]
+        node2 = route2[node_index2]
+
+        # Check capacity constraints after swap
+        capacity_route1 = sum([demands[c] for c in route1 if c != 0]) - demands[node1] + demands[node2]
+        capacity_route2 = sum([demands[c] for c in route2 if c != 0]) - demands[node2] + demands[node1]
+
+        if capacity_route1 > capacity or capacity_route2 > capacity:
+            continue
+
+        # Calculate distance change after swap
+        old_distance = distance_matrix[route1[node_index1-1], node1] + distance_matrix[node1, route1[node_index1+1]] + distance_matrix[route2[node_index2-1], node2] + distance_matrix[node2, route2[node_index2+1]]
+        new_distance = distance_matrix[route1[node_index1-1], node2] + distance_matrix[node2, route1[node_index1+1]] + distance_matrix[route2[node_index2-1], node1] + distance_matrix[node1, route2[node_index2+1]]
+
+        # Accept swap if it reduces the total distance
+        if new_distance < old_distance:
+            route1[node_index1] = node2
+            route2[node_index2] = node1
+
+            routes[route_index1] = route1
+            routes[route_index2] = route2
+
+    # 3. Update Heuristics Matrix based on final routes
+    for route in routes:
+        for i in range(len(route) - 1):
+            u = route[i]
+            v = route[i+1]
+            heuristics_matrix[u, v] += 1
+            heuristics_matrix[v, u] += 1
+
+    return heuristics_matrix

@@ -1,0 +1,81 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm constructs solutions via a greedy randomized adaptive search procedure (GRASP), probabilistically selecting edges based on a combination of distance, demand, and pheromone information, and iteratively updating pheromone values based on solution quality.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    pheromone_matrix = np.ones_like(distance_matrix)
+    alpha = 1.0  # Influence of pheromone
+    beta = 2.0   # Influence of distance
+    gamma = 0.5 # Influence of demand
+    num_iterations = 500
+    rcl_size = 10 # Restricted Candidate List size
+
+    for iteration in range(num_iterations):
+        routes = []
+        remaining_nodes = set(range(1, n))
+        while remaining_nodes:
+            route = [0]
+            current_capacity = capacity
+            current_node = 0
+            while True:
+                candidates = []
+                for next_node in remaining_nodes:
+                    if current_capacity >= demands[next_node]:
+                        candidates.append(next_node)
+                if not candidates:
+                    break
+
+                # Calculate desirability scores
+                desirabilities = {}
+                for node in candidates:
+                    desirability = (pheromone_matrix[current_node, node]**alpha) / \
+                                   ((distance_matrix[current_node, node]**beta) * ((demands[node]/capacity)**gamma))
+                    desirabilities[node] = desirability
+
+                # Create restricted candidate list (RCL)
+                sorted_candidates = sorted(desirabilities.items(), key=lambda item: item[1], reverse=True)
+                rcl = sorted_candidates[:min(rcl_size, len(sorted_candidates))]
+
+                if not rcl:
+                    break
+
+                # Select next node probabilistically from RCL
+                probs = [item[1] for item in rcl]
+                total_prob = sum(probs)
+                if total_prob == 0:
+                    next_node = random.choice([item[0] for item in rcl])
+                else:
+                    normalized_probs = [p / total_prob for p in probs]
+                    next_node = random.choices([item[0] for item in rcl], weights=normalized_probs, k=1)[0]
+
+                route.append(next_node)
+                current_capacity -= demands[next_node]
+                remaining_nodes.remove(next_node)
+                heuristics_matrix[current_node, next_node] += 1
+                heuristics_matrix[next_node, current_node] += 1
+                current_node = next_node
+            route.append(0)
+            routes.append(route)
+            heuristics_matrix[current_node,0] += 1
+            heuristics_matrix[0,current_node] += 1
+
+        # Update pheromone matrix (simple reward)
+        total_distance = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_distance += distance_matrix[route[i], route[i+1]]
+        
+        # Evaporation
+        pheromone_matrix *= 0.9
+
+        #Deposit pheromones
+        pheromone_deposit = 100/total_distance
+
+        for route in routes:
+            for i in range(len(route)-1):
+                pheromone_matrix[route[i], route[i+1]] += pheromone_deposit
+                pheromone_matrix[route[i+1], route[i]] += pheromone_deposit
+
+    return heuristics_matrix

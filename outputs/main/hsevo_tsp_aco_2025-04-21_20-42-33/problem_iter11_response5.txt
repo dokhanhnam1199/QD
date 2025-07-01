@@ -1,0 +1,52 @@
+```python
+import numpy as np
+import scipy.sparse
+from scipy.sparse.csgraph import dijkstra
+
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """TSP heuristic: Combines inverse distance, degree bias, shortest paths,
+    and controlled randomness with sparsification and normalization.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Inverse distance
+    inverse_distance = 1 / (distance_matrix + 1e-9)
+
+    # Shortest path estimate (Dijkstra)
+    graph = scipy.sparse.csr_matrix(distance_matrix)
+    shortest_paths = dijkstra(graph, directed=False, indices=range(n))
+
+    # Adaptive degree bias
+    degree_penalty = np.ones_like(distance_matrix)
+    degrees = np.sum(inverse_distance, axis=1)
+    avg_degree = np.mean(degrees)
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                penalty_i = max(0.5, avg_degree / (degrees[i] + 1e-9))
+                penalty_j = max(0.5, avg_degree / (degrees[j] + 1e-9))
+                degree_penalty[i, j] = penalty_i * penalty_j
+            else:
+                degree_penalty[i, j] = 0
+
+    # Randomized component (scaled inverse distance) - controlled randomness
+    random_component = np.random.rand(n, n) * inverse_distance * 0.05
+
+    # Combine heuristics (weighted combination)
+    heuristic_matrix = (0.5 * inverse_distance * degree_penalty / (shortest_paths + 1e-9) +
+                         0.5 * random_component) # Balance exploration/exploitation
+
+    # Sparsification (adaptive threshold) - emphasizes salient edges
+    threshold = np.percentile(heuristic_matrix[heuristic_matrix > 0], 30)
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    # Normalize
+    max_heuristic = np.max(heuristic_matrix)
+    if max_heuristic > 0:
+        heuristic_matrix /= max_heuristic
+
+    return heuristic_matrix
+```

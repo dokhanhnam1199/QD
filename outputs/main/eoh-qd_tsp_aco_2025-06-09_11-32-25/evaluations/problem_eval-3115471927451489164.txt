@@ -1,0 +1,81 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm combines edge sampling based on shortest distances with local search (2-opt) and dynamically adjusts edge sampling probability based on the improvement achieved by 2-opt to create a heuristic matrix.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_samples = 500
+    alpha = 0.1  # Learning rate for adjusting edge probabilities
+
+    def calculate_tour_length(tour):
+        length = 0
+        for i in range(len(tour) - 1):
+            length += distance_matrix[tour[i], tour[i+1]]
+        length += distance_matrix[tour[-1], tour[0]]
+        return length
+
+    def two_opt_swap(tour, i, k):
+        new_tour = tour[:i] + tour[i:k+1][::-1] + tour[k+1:]
+        return new_tour
+
+    def two_opt(tour):
+        best_tour = tour
+        improved = True
+        while improved:
+            improved = False
+            for i in range(1, n - 1):
+                for k in range(i + 1, n):
+                    new_tour = two_opt_swap(best_tour, i, k)
+                    if calculate_tour_length(new_tour) < calculate_tour_length(best_tour):
+                        best_tour = new_tour
+                        improved = True
+        return best_tour
+    
+    # Initialize edge probabilities based on inverse distance
+    edge_probabilities = 1 / (distance_matrix + np.eye(n))
+    edge_probabilities /= np.sum(edge_probabilities)
+
+    for _ in range(num_samples):
+        # Sample a tour based on edge probabilities
+        tour = [np.random.randint(n)]
+        unvisited_nodes = set(range(n))
+        unvisited_nodes.remove(tour[0])
+
+        while unvisited_nodes:
+            current_node = tour[-1]
+            probabilities = np.zeros(n)
+            for node in unvisited_nodes:
+              probabilities[node] = edge_probabilities[current_node, node]
+            probabilities /= np.sum(probabilities)
+            
+            next_node = np.random.choice(list(unvisited_nodes), p=probabilities[list(unvisited_nodes)])
+            tour.append(next_node)
+            unvisited_nodes.remove(next_node)
+        tour.append(tour[0])
+        
+        original_tour = tour[:-1]
+        original_length = calculate_tour_length(tour)
+
+        # Refine the tour using 2-opt
+        refined_tour = two_opt(list(original_tour))
+        refined_tour.append(refined_tour[0])
+        refined_length = calculate_tour_length(refined_tour)
+
+        # Update the heuristic matrix
+        for i in range(n):
+            heuristics_matrix[refined_tour[i], refined_tour[i+1]] += 1
+            heuristics_matrix[refined_tour[i+1], refined_tour[i]] += 1
+
+        # Adjust edge probabilities based on improvement
+        improvement = original_length - refined_length
+        if improvement > 0:
+            for i in range(n):
+                node1 = refined_tour[i]
+                node2 = refined_tour[i+1]
+                edge_probabilities[node1, node2] += alpha * improvement
+                edge_probabilities[node2, node1] += alpha * improvement
+                
+            edge_probabilities /= np.sum(edge_probabilities)
+
+    heuristics_matrix /= num_samples
+    return heuristics_matrix

@@ -1,0 +1,49 @@
+import numpy as np
+import scipy.sparse.csgraph as csgraph
+from scipy.sparse import csr_matrix
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm combines edge frequency from short random tours with a bias towards edges connecting nodes with dissimilar degree in a minimum spanning tree.}"""
+    n = distance_matrix.shape[0]
+    num_samples = 500
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    
+    shortest_tour_length = np.inf
+    
+    for _ in range(num_samples):
+        # Generate a random tour
+        tour = np.random.permutation(n)
+        tour_length = 0
+        for i in range(n - 1):
+            tour_length += distance_matrix[tour[i], tour[i+1]]
+        tour_length += distance_matrix[tour[-1], tour[0]]
+        
+        # Update shortest tour length
+        shortest_tour_length = min(shortest_tour_length, tour_length)
+        
+        # Dynamic threshold - allows more edges in earlier tours.
+        threshold = shortest_tour_length * (1 + 0.1 * (1 - (_ / num_samples)))
+
+        if tour_length < threshold:
+            # Update heuristics_matrix if the tour is good
+            for i in range(n - 1):
+                heuristics_matrix[tour[i], tour[i+1]] += 1
+                heuristics_matrix[tour[i+1], tour[i]] += 1  # Symmetric
+            heuristics_matrix[tour[-1], tour[0]] += 1
+            heuristics_matrix[tour[0], tour[-1]] += 1  # Symmetric
+    
+    # MST degree heuristic
+    mst = csgraph.minimum_spanning_tree(csr_matrix(distance_matrix))
+    degrees = np.array(mst.sum(axis=0))[0]
+    degree_diff_matrix = np.abs(np.expand_dims(degrees, axis=0) - np.expand_dims(degrees, axis=1))
+    
+    # Combine heuristics
+    heuristics_matrix = 0.7 * heuristics_matrix + 0.3 * degree_diff_matrix
+
+    # Normalize the heuristics matrix
+    min_val = np.min(heuristics_matrix)
+    max_val = np.max(heuristics_matrix)
+    if max_val > min_val:
+        heuristics_matrix = (heuristics_matrix - min_val) / (max_val - min_val)
+    
+    return heuristics_matrix

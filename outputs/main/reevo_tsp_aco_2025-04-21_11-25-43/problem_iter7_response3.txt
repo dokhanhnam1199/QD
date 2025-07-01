@@ -1,0 +1,51 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+    """
+    Heuristics for TSP based on distance, degree centrality, and sparsification.
+    """
+    n = distance_matrix.shape[0]
+
+    # Initialize the heuristic matrix with the inverse square of the distance
+    heuristic_matrix = 1 / (distance_matrix**2 + 1e-9)
+
+    # Degree centrality heuristic (scaled inverse distance sum)
+    degree_centrality = np.sum(1 / (distance_matrix + 1e-9), axis=1) / n
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                heuristic_matrix[i, j] *= (degree_centrality[i] + degree_centrality[j]) / 2
+
+    # Local normalization (row-wise)
+    row_sums = np.sum(heuristic_matrix, axis=1, keepdims=True)
+    heuristic_matrix = np.where(row_sums > 0, heuristic_matrix / row_sums, 0)
+
+    # Adaptive sparsification based on average distance and degree centrality
+    avg_distance = np.mean(distance_matrix)
+    sparsification_threshold = avg_distance * (1 + 0.5 * np.std(degree_centrality))
+
+    for i in range(n):
+        for j in range(n):
+            if distance_matrix[i, j] > sparsification_threshold:
+                heuristic_matrix[i, j] = 0
+
+    # Geometric mean centrality penalty (dampened)
+    centrality_product = np.sqrt(degree_centrality[np.newaxis, :] * degree_centrality[:, np.newaxis])
+    heuristic_matrix /= (1 + 0.1 * centrality_product)
+
+    # Control randomness: add a small amount of uniform noise
+    noise = 0.01 * np.random.rand(n, n)
+    heuristic_matrix += noise
+
+    # Normalize the heuristic matrix to a range of 0 to 1
+    max_val = np.max(heuristic_matrix)
+    min_val = np.min(heuristic_matrix)
+
+    if max_val > min_val:
+        heuristic_matrix = (heuristic_matrix - min_val) / (max_val - min_val)
+    else:
+        heuristic_matrix = np.ones_like(heuristic_matrix) * 0.5
+
+    return heuristic_matrix
+```

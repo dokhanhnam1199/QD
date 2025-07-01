@@ -1,0 +1,77 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm constructs solutions by iteratively inserting unrouted nodes into existing partial routes based on a probabilistic selection favoring shorter distances and penalizing routes exceeding capacity, then uses these solutions to build a heuristic matrix representing edge selection frequencies.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+    num_iterations = 500
+
+    def calculate_route_load(route):
+        load = 0
+        for node in route[1:-1]:
+            load += demands[node]
+        return load
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    for _ in range(num_iterations):
+        routes = []
+        unassigned_nodes = set(range(1, n))
+
+        while unassigned_nodes:
+            route = [0]
+            current_load = 0
+            
+            while unassigned_nodes:
+                # Calculate probabilities for each unassigned node
+                probabilities = []
+                for node in unassigned_nodes:
+                    distance = distance_matrix[route[-1], node]
+                    
+                    # Adjust probability based on capacity constraint
+                    if current_load + demands[node] <= capacity:
+                        prob = 1 / (distance + 1e-6) # avoid zero division
+                    else:
+                        prob = 0  # Not feasible
+
+                    probabilities.append(prob)
+
+                # Normalize probabilities
+                if sum(probabilities) == 0:
+                    break
+                probabilities = np.array(probabilities) / sum(probabilities)
+
+                # Select next node based on probabilities
+                try:
+                  next_node = random.choices(list(unassigned_nodes), weights=probabilities, k=1)[0]
+                except:
+                  break #if no choice, break
+
+                # Update route and unassigned nodes
+                route.append(next_node)
+                current_load += demands[next_node]
+                unassigned_nodes.remove(next_node)
+            
+            route.append(0)
+            if len(route) > 2:
+                routes.append(route)
+
+        # Update heuristic matrix based on the generated routes
+        for route in routes:
+            for i in range(len(route) - 1):
+                heuristics_matrix[route[i], route[i+1]] += 1
+                heuristics_matrix[route[i+1], route[i]] += 1
+
+    # Normalize heuristic matrix
+    total_visits = np.sum(heuristics_matrix)
+    if total_visits > 0:
+        heuristics_matrix = heuristics_matrix / total_visits
+
+    return heuristics_matrix

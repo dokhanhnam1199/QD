@@ -1,0 +1,82 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray) -> np.ndarray:
+
+    """
+    Heuristic function for TSP using a combination of factors and adaptive sparsification.
+    Version 3: Enhanced normalization, robust handling of edge cases, and parameter tuning.
+    Includes additional diversification and uses a more focused nearest neighbor consideration.
+
+    Args:
+        distance_matrix (np.ndarray): A 2D numpy array representing the distance matrix.
+
+    Returns:
+        np.ndarray: A 2D numpy array of the same shape as distance_matrix,
+                     representing the heuristic values (prior indicators).
+    """
+
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Calculate nearest neighbors for each node, limiting to top k.
+    k_nearest = min(5, n - 1)  # Consider only a limited number of nearest neighbors
+    nearest_neighbors = []
+    for i in range(n):
+        distances = distance_matrix[i].copy()
+        distances[i] = np.inf  # Exclude self-loop
+        nearest_neighbors.append(np.argsort(distances)[:k_nearest])
+
+    # Calculate a centrality measure (degree of connectivity).
+    degree_centrality = np.sum(1 / (distance_matrix + 1e-9), axis=0)
+    degree_centrality = (degree_centrality - np.min(degree_centrality)) / (np.max(degree_centrality) - np.min(degree_centrality) + 1e-9) # Normalize to [0,1]
+
+    # Inverse distance factor
+    inverse_distance = 1 / (distance_matrix + 1e-9)
+    inverse_distance = (inverse_distance - np.min(inverse_distance)) / (np.max(inverse_distance) - np.min(inverse_distance) + 1e-9)  # Normalize to [0,1]
+
+    # Combine factors: inverse distance, nearest neighbor rank, and centrality.
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                # Rank of j in i's nearest neighbors and vice versa
+                try:
+                    rank_i = np.where(nearest_neighbors[i] == j)[0][0] + 1  # Rank starts from 1
+                except IndexError:
+                    rank_i = k_nearest + 1 # Assign worst rank if not in top k
+
+                try:
+                    rank_j = np.where(nearest_neighbors[j] == i)[0][0] + 1
+                except IndexError:
+                    rank_j = k_nearest + 1
+
+                rank_factor = 1 / (rank_i + rank_j)
+
+                centrality_factor = (degree_centrality[i] + degree_centrality[j]) / 2 # Avg centrality
+
+                # Geometric mean of factors for robustness
+                heuristic_matrix[i, j] = (inverse_distance[i,j] * rank_factor * centrality_factor)**(1/3)
+
+                # Introduce a small diversification factor
+                heuristic_matrix[i, j] *= (1 + 0.01 * np.random.rand())
+
+    # Adaptive Sparsification
+    quantile_level = 0.75  # Adjust as needed - more aggressive sparsification
+    non_zero_values = heuristic_matrix[heuristic_matrix > 0]
+    threshold = np.quantile(non_zero_values, quantile_level) if non_zero_values.size > 0 else 0
+
+    heuristic_matrix[heuristic_matrix < threshold] = 0 #sparsify
+
+    # Row-wise normalization to avoid zero rows after sparsification
+    for i in range(n):
+        row_sum = np.sum(heuristic_matrix[i])
+        if row_sum > 0:
+            heuristic_matrix[i] = heuristic_matrix[i] / row_sum
+        else:
+            # Assign equal probability if all edges are zero after sparsification
+            heuristic_matrix[i] = np.ones(n) / n
+            heuristic_matrix[i,i] = 0 # Self loop should have zero probability
+
+
+    return heuristic_matrix
+```

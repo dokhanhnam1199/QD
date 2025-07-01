@@ -1,0 +1,81 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    A heuristic function for the Capacitated Vehicle Routing Problem (CVRP) using
+    a combination of distance, demand, and angle considerations.
+
+    Args:
+        distance_matrix (np.ndarray): A matrix of pairwise distances between nodes.
+        coordinates (np.ndarray): Coordinates of each node (x, y).
+        demands (np.ndarray): Demand of each node.
+        capacity (int): Capacity of each vehicle.
+
+    Returns:
+        np.ndarray: A matrix of heuristic values, indicating the desirability
+                  of including each edge in a route.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros((n, n))
+
+    # Parameters to control the influence of different factors
+    distance_weight = 0.5
+    demand_weight = 0.3
+    angle_weight = 0.2
+    capacity_threshold = 0.9  # Prune edges if demand exceeds this fraction of capacity
+    sparsification_threshold = 0.1  # Threshold to sparsify heuristic values
+
+    depot_idx = 0
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+                continue
+
+            distance_factor = 1 / (distance_matrix[i, j] + 1e-6)  # Avoid division by zero
+
+            # Demand factor: Penalize edges that lead to exceeding vehicle capacity
+            demand_factor = 1.0
+            if i == depot_idx:  # Outgoing edge from depot
+                if demands[j] > capacity_threshold * capacity:
+                    demand_factor = 0.0  # Prevent using edges to very large demands from the start.
+                else:
+                     demand_factor = 1/(demands[j] + 1e-6)
+
+            elif j == depot_idx:
+                demand_factor = 1.0  #Edge ending at depot
+
+            else:
+                demand_factor = 1.0
+
+            # Angle factor: Favor edges that form "smoother" turns, prevents sharp turns
+            angle_factor = 1.0
+            if i != depot_idx and j != depot_idx: #Ignore angle factor on depot edges since they always form a hard angle
+                # Calculate angle at node i between edge to j and edge from depot to i.
+                vector1 = coordinates[j] - coordinates[i]
+                vector2 = coordinates[depot_idx] - coordinates[i]
+                dot_product = np.dot(vector1, vector2)
+                magnitudes = np.linalg.norm(vector1) * np.linalg.norm(vector2)
+                if magnitudes == 0:
+                    angle_factor = 1.0
+                else:
+                    angle = np.arccos(dot_product / magnitudes)
+                    angle_factor = 1/(np.abs(angle - np.pi/2) + 1e-6) # try to make 90 degrees angle
+
+
+            # Combine the factors
+            heuristic_matrix[i, j] = (
+                distance_weight * distance_factor +
+                demand_weight * demand_factor +
+                angle_weight * angle_factor
+            )
+
+    # Sparsify the matrix: Remove less promising edges
+    max_heuristic = np.max(heuristic_matrix)
+    if max_heuristic > 0:
+      heuristic_matrix[heuristic_matrix < sparsification_threshold * max_heuristic] = 0
+
+    return heuristic_matrix
+```

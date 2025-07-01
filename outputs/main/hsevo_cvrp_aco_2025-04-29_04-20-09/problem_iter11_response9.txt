@@ -1,0 +1,74 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """Adaptive heuristic combining distance, demand, angle, centrality,
+    and depot attraction with dynamic sparsification."""
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix)
+    center_x = np.mean(coordinates[1:, 0])
+    center_y = np.mean(coordinates[1:, 1])
+    total_demand = np.sum(demands[1:])
+    demand_weighted_dist_to_depot = np.sum(demands[1:] * distance_matrix[0, 1:]) / total_demand if total_demand > 0 else np.mean(distance_matrix[0, 1:])
+
+    #Adaptive weights initialization
+    weight_distance = 0.4
+    weight_demand = 0.2
+    weight_angle = 0.1
+    weight_centrality = 0.2
+    weight_depot = 0.1
+
+    #Normalize distance
+    max_distance = np.max(distance_matrix[distance_matrix != np.inf])
+    normalized_distance = distance_matrix / max_distance if max_distance > 0 else np.ones_like(distance_matrix)
+    normalized_distance = np.where(normalized_distance == 0, 1e-6, normalized_distance)
+
+    # Calculate angles relative to depot
+    depot_x, depot_y = coordinates[0]
+    angles = np.arctan2(coordinates[:, 1] - depot_y, coordinates[:, 0] - depot_x)
+
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+
+            # Distance component
+            distance = normalized_distance[i, j]
+            distance_component = 1 / (distance + 1e-6)
+
+            # Capacity component with smoother transition
+            demand_component = np.exp(-((demands[i] + demands[j]) / (capacity + 1e-6))**2)  # Gaussian penalty
+
+
+            # Angle component - prefer edges that don't cause sharp turns
+            angle_component = 1.0
+            if i != 0 and j != 0:
+                angle_diff = abs(angles[i] - angles[j])
+                angle_component = np.exp(-2 * angle_diff)
+
+
+            # Centrality component - attract towards the center of gravity
+            center_distance = (np.sqrt((coordinates[i, 0] - center_x)**2 + (coordinates[i, 1] - center_y)**2) +
+                               np.sqrt((coordinates[j, 0] - center_x)**2 + (coordinates[j, 1] - center_y)**2)) / 2
+            centrality_component = np.exp(-center_distance / (demand_weighted_dist_to_depot + 1e-6))
+
+            # Depot attraction component - nodes with high demand should be closer to the depot
+            depot_component = 1.0
+            if i!=0 and j!=0:
+                depot_dist_i = distance_matrix[0, i] / max_distance
+                depot_dist_j = distance_matrix[0, j] / max_distance
+                depot_component = np.exp(-5 * (depot_dist_i + depot_dist_j))
+
+            heuristic_matrix[i, j] = (weight_distance * distance_component +
+                                     weight_demand * demand_component +
+                                     weight_angle * angle_component +
+                                     weight_centrality * centrality_component +
+                                     weight_depot * depot_component)
+
+    # Sparsify the matrix
+    threshold = np.mean(heuristic_matrix) * 0.2
+    heuristic_matrix[heuristic_matrix < threshold] = 0
+
+    return heuristic_matrix
+```

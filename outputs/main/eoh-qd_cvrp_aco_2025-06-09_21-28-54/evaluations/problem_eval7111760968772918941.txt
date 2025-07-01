@@ -1,0 +1,72 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm samples multiple routes with a biased random selection based on distance and capacity, then updates a heuristic matrix based on the inverse of the average route length containing each edge.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    edge_counts = np.zeros((n, n))
+    num_samples = 1000
+
+    for _ in range(num_samples):
+        customer_indices = list(np.arange(1, n))
+        routes = []
+        current_route = [0]
+        current_load = 0
+        
+        while customer_indices:
+            # Calculate selection probabilities based on distance and capacity
+            probabilities = []
+            for customer in customer_indices:
+                if current_load + demands[customer] <= capacity:
+                    probabilities.append(1 / distance_matrix[current_route[-1], customer])
+                else:
+                    probabilities.append(0)
+            
+            # Normalize probabilities
+            total_prob = sum(probabilities)
+            if total_prob > 0:
+                probabilities = [p / total_prob for p in probabilities]
+            else:
+                # If no customer can be added, return to depot and start a new route
+                routes.append(current_route + [0])
+                current_route = [0]
+                current_load = 0
+                continue  # Restart the loop
+
+            # Select the next customer based on probabilities
+            next_customer_index = np.random.choice(len(customer_indices), p=probabilities)
+            next_customer = customer_indices[next_customer_index]
+            
+            if current_load + demands[next_customer] <= capacity:
+                current_route.append(next_customer)
+                current_load += demands[next_customer]
+                customer_indices.pop(next_customer_index)
+            else:
+                 routes.append(current_route + [0])
+                 current_route = [0]
+                 current_load = 0
+                 
+        routes.append(current_route + [0])
+
+        # Update edge counts for the heuristic matrix
+        route_length = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                node1 = route[i]
+                node2 = route[i+1]
+                edge_counts[node1, node2] += 1
+                edge_counts[node2, node1] += 1
+                route_length += distance_matrix[node1, node2]
+        
+        if route_length > 0:
+            for route in routes:
+                for i in range(len(route) - 1):
+                    node1 = route[i]
+                    node2 = route[i+1]
+
+                    heuristics_matrix[node1, node2] += 1/route_length
+                    heuristics_matrix[node2, node1] += 1/route_length
+
+
+
+    return heuristics_matrix

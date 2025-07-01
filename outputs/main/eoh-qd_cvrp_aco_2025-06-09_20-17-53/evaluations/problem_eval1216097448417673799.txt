@@ -1,0 +1,99 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm iteratively refines routes by probabilistically accepting edge swaps that improve route cost and feasibility, building a heuristic matrix based on edge inclusion frequency in accepted routes.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_iterations = 1000
+    temperature = 100.0
+    cooling_rate = 0.99
+
+    # Initialize a random solution (routes)
+    customer_indices = list(range(1, n))
+    random.shuffle(customer_indices)
+    routes = []
+    current_route = [0]
+    current_demand = 0
+    for customer in customer_indices:
+        if current_demand + demands[customer] <= capacity:
+            current_route.append(customer)
+            current_demand += demands[customer]
+        else:
+            current_route.append(0)
+            routes.append(current_route)
+            current_route = [0, customer]
+            current_demand = demands[customer]
+    current_route.append(0)
+    routes.append(current_route)
+
+    def calculate_route_cost(route):
+        cost = 0
+        for i in range(len(route) - 1):
+            cost += distance_matrix[route[i], route[i+1]]
+        return cost
+
+    def calculate_total_cost(routes):
+        total_cost = 0
+        for route in routes:
+            total_cost += calculate_route_cost(route)
+        return total_cost
+
+    current_cost = calculate_total_cost(routes)
+
+    for iteration in range(num_iterations):
+        # Choose two random edges to swap
+        route1_index = random.randint(0, len(routes) - 1)
+        route1 = routes[route1_index]
+        if len(route1) < 3:
+            continue
+        edge1_index = random.randint(0, len(route1) - 2)
+
+        route2_index = random.randint(0, len(routes) - 1)
+        route2 = routes[route2_index]
+        if len(route2) < 3:
+            continue
+        edge2_index = random.randint(0, len(route2) - 2)
+
+        node1a = route1[edge1_index]
+        node1b = route1[edge1_index + 1]
+        node2a = route2[edge2_index]
+        node2b = route2[edge2_index + 1]
+
+        # Create new routes with swapped edges
+        new_route1 = route1[:edge1_index+1] + [node2b] + route1[edge1_index+2:]
+        new_route2 = route2[:edge2_index+1] + [node1b] + route2[edge2_index+2:]
+
+        # Check feasibility of new routes
+        route1_demand = sum([demands[node] for node in new_route1[1:-1]])
+        route2_demand = sum([demands[node] for node in new_route2[1:-1]])
+
+        if route1_demand > capacity or route2_demand > capacity:
+            continue
+
+        # Calculate cost of new routes
+        new_cost1 = calculate_route_cost(new_route1)
+        new_cost2 = calculate_route_cost(new_route2)
+        new_cost = calculate_total_cost(routes[:route1_index]+ [new_route1]+routes[route1_index+1:route2_index] +[new_route2]+ routes[route2_index+1:])
+        cost_difference = new_cost - current_cost
+
+        # Accept the swap with probability based on cost difference and temperature
+        if cost_difference < 0 or random.random() < np.exp(-cost_difference / temperature):
+            routes[route1_index] = new_route1
+            routes[route2_index] = new_route2
+            current_cost = calculate_total_cost(routes)
+
+            # Update heuristics matrix
+            heuristics_matrix[node1a, node1b] += 1
+            heuristics_matrix[node1b, node1a] += 1
+            heuristics_matrix[node2a, node2b] += 1
+            heuristics_matrix[node2b, node2a] += 1
+
+        # Cool down the temperature
+        temperature *= cooling_rate
+
+    # Normalize heuristics matrix
+    total_edge_count = np.sum(heuristics_matrix)
+    if total_edge_count > 0:
+        heuristics_matrix /= total_edge_count
+    return heuristics_matrix

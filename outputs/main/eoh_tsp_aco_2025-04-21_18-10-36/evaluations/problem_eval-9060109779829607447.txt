@@ -1,0 +1,68 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """
+    {This algorithm samples multiple near-optimal TSP solutions using a greedy approach with a dynamically adjusted subset size for stochastic node selection, path refinement with 2-opt swaps, and weighted edge usage averaging based on tour length to create a heuristic matrix.}
+    """
+    n = distance_matrix.shape[0]
+    num_samples = 100
+    heuristics_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    for _ in range(num_samples):
+        # Initialize tour with a random starting node
+        start_node = np.random.randint(n)
+        tour = [start_node]
+        unvisited = set(range(n))
+        unvisited.remove(start_node)
+
+        # Greedy construction with stochastic node selection and dynamic subset size
+        subset_size = 5  # Initial subset size
+        while unvisited:
+            # Adjust subset size based on remaining unvisited nodes
+            subset_size = min(len(unvisited), subset_size)
+            subset = np.random.choice(list(unvisited), size=subset_size, replace=False)
+
+            # Find the nearest neighbor within the subset
+            nearest_neighbor = None
+            min_distance = float('inf')
+            for neighbor in subset:
+                distance = distance_matrix[tour[-1], neighbor]
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest_neighbor = neighbor
+
+            # Add the nearest neighbor to the tour
+            tour.append(nearest_neighbor)
+            unvisited.remove(nearest_neighbor)
+
+            # Decrease subset size
+            subset_size = max(1, subset_size -1 )
+
+
+        # Path refinement: 2-opt swap
+        improved = True
+        while improved:
+            improved = False
+            for i in range(n):
+                for j in range(i + 2, n):
+                    if distance_matrix[tour[i], tour[i + 1]] + distance_matrix[tour[j], tour[(j + 1) % n]] > \
+                       distance_matrix[tour[i], tour[j]] + distance_matrix[tour[i + 1], tour[(j + 1) % n]]:
+                        tour[i + 1:j + 1] = reversed(tour[i + 1:j + 1])
+                        improved = True
+
+        # Calculate tour length
+        tour_length = 0
+        for i in range(n):
+            tour_length += distance_matrix[tour[i], tour[(i + 1) % n]]
+
+        # Weighting factor based on tour length (shorter tours get higher weights)
+        weight = 1.0 / (tour_length + 1e-6)  # Add a small constant to avoid division by zero
+
+        # Update heuristics matrix
+        for i in range(n):
+            heuristics_matrix[tour[i], tour[(i + 1) % n]] += weight
+            heuristics_matrix[tour[(i + 1) % n], tour[i]] += weight  # Ensure symmetry
+
+    heuristics_matrix /= num_samples
+
+    return heuristics_matrix

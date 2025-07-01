@@ -1,0 +1,74 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm samples a large number of random routes, evaluates their feasibility and cost, and uses the frequency of edges in feasible, low-cost routes to construct a heuristic matrix favoring edges that appear in good solutions.}"""
+
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    num_samples = 1000  # Increase this for better results
+    best_cost = float('inf')
+    best_routes = []
+
+    for _ in range(num_samples):
+        # Generate a random permutation of customers (excluding the depot)
+        customer_indices = list(range(1, n))
+        random.shuffle(customer_indices)
+
+        # Create routes based on vehicle capacity
+        routes = []
+        current_route = [0]  # Start at the depot
+        current_capacity = 0
+
+        for customer in customer_indices:
+            if current_capacity + demands[customer] <= capacity:
+                current_route.append(customer)
+                current_capacity += demands[customer]
+            else:
+                current_route.append(0)  # Return to depot
+                routes.append(current_route)
+                current_route = [0, customer]  # Start a new route from depot
+                current_capacity = demands[customer]
+
+        current_route.append(0) # close last route
+        routes.append(current_route)
+
+
+        # Calculate the total cost of the routes
+        total_cost = 0
+        for route in routes:
+            for i in range(len(route) - 1):
+                total_cost += distance_matrix[route[i]][route[i+1]]
+        
+        # If route is infeasible, give it very high cost
+        total_demand = 0
+        is_feasible = True
+        for route in routes:
+            current_demand = 0
+            for customer in route:
+                current_demand += demands[customer]
+            if current_demand > capacity:
+                is_feasible = False
+                break
+        if not is_feasible:
+            total_cost = float('inf')
+
+        # Update heuristic matrix if cost is better than current best
+        if total_cost < best_cost and is_feasible:
+            best_cost = total_cost
+            best_routes = routes
+
+        # Update heuristic matrix based on the routes.  Favor low cost routes.
+        if is_feasible and total_cost < float('inf'): # exclude infeasible routes
+
+            # Scale factor to prioritize routes that are better than average
+            scale_factor = max(0, (2*best_cost - total_cost)/best_cost)
+
+            for route in routes:
+                for i in range(len(route) - 1):
+                    u = route[i]
+                    v = route[i+1]
+                    heuristics_matrix[u][v] += scale_factor
+                    heuristics_matrix[v][u] += scale_factor
+
+    return heuristics_matrix

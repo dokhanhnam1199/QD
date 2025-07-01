@@ -1,0 +1,139 @@
+import numpy as np
+import random
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """
+    {This algorithm uses a genetic algorithm approach to evolve a population of routes, selecting and mutating routes based on their fitness (cost and feasibility), and uses the frequency of edges in the best routes to build the heuristics matrix.}
+    """
+    n = len(demands)
+    heuristics_matrix = np.zeros_like(distance_matrix)
+    population_size = 50
+    num_generations = 100
+    mutation_rate = 0.1
+    tournament_size = 5
+    
+    def create_individual():
+        route = list(range(1, n))
+        random.shuffle(route)
+        return route
+    
+    def evaluate_individual(individual):
+        current_route = []
+        current_demand = 0
+        total_cost = 0
+        is_feasible = True
+        vehicle_routes = []
+        
+        for node in individual:
+            if current_demand + demands[node] <= capacity:
+                current_route.append(node)
+                current_demand += demands[node]
+            else:
+                if len(current_route) > 0:
+                    total_cost += distance_matrix[0, current_route[0]]
+                    for i in range(len(current_route) - 1):
+                        total_cost += distance_matrix[current_route[i], current_route[i+1]]
+                    total_cost += distance_matrix[current_route[-1], 0]
+                    vehicle_routes.append(current_route)
+                else:
+                    is_feasible = False
+                    return float('inf'), False
+
+                current_route = [node]
+                current_demand = demands[node]
+
+        if is_feasible:
+            if len(current_route) > 0:
+                total_cost += distance_matrix[0, current_route[0]]
+                for i in range(len(current_route) - 1):
+                    total_cost += distance_matrix[current_route[i], current_route[i + 1]]
+                total_cost += distance_matrix[current_route[-1], 0]
+                vehicle_routes.append(current_route)
+            return total_cost, True
+        else:
+            return float('inf'), False
+
+    def crossover(parent1, parent2):
+        start = random.randint(0, n - 2)
+        end = random.randint(start + 1, n - 1)
+        
+        child = [-1] * (n - 1)
+        child[start:end] = parent1[start:end]
+
+        remaining = [node for node in parent2 if node not in child]
+        
+        child_index = 0
+        for i in range(n-1):
+            if child[i] == -1:
+                child[i] = remaining[child_index]
+                child_index += 1
+        return child
+    
+    def mutate(individual):
+        if random.random() < mutation_rate:
+            i = random.randint(0, n - 2)
+            j = random.randint(0, n - 2)
+            individual[i], individual[j] = individual[j], individual[i]
+        return individual
+    
+    def selection(population_fitness):
+        selected = []
+        for _ in range(population_size):
+            tournament = random.sample(range(population_size), tournament_size)
+            winner = min(tournament, key=lambda i: population_fitness[i][0])
+            selected.append(population[winner])
+        return selected
+    
+    # Initialize population
+    population = [create_individual() for _ in range(population_size)]
+
+    # Evolve population
+    for _ in range(num_generations):
+        population_fitness = [evaluate_individual(individual) for individual in population]
+        
+        #Select parents
+        selected_parents = selection(population_fitness)
+        
+        #Create new population
+        new_population = []
+        for _ in range(population_size // 2):
+            parent1 = random.choice(selected_parents)
+            parent2 = random.choice(selected_parents)
+            child1 = crossover(parent1, parent2)
+            child2 = crossover(parent2, parent1)
+            new_population.append(mutate(child1))
+            new_population.append(mutate(child2))
+
+        if len(new_population) < population_size:
+            new_population.append(create_individual())
+
+        population = new_population[:population_size]
+        
+    # Get best individual and update heuristics
+    population_fitness = [evaluate_individual(individual) for individual in population]
+    best_individual = min(range(population_size), key=lambda i: population_fitness[i][0])
+    best_route = population[best_individual]
+
+    current_route = []
+    current_demand = 0
+    vehicle_routes = []
+    
+    for node in best_route:
+        if current_demand + demands[node] <= capacity:
+            current_route.append(node)
+            current_demand += demands[node]
+        else:
+            vehicle_routes.append(current_route)
+            current_route = [node]
+            current_demand = demands[node]
+            
+    if len(current_route) > 0:
+        vehicle_routes.append(current_route)
+
+    for route in vehicle_routes:
+        route_with_depot = [0] + route + [0]
+        for i in range(len(route_with_depot) - 1):
+            heuristics_matrix[route_with_depot[i], route_with_depot[i+1]] += 1
+            heuristics_matrix[route_with_depot[i+1], route_with_depot[i]] += 1
+
+    return heuristics_matrix

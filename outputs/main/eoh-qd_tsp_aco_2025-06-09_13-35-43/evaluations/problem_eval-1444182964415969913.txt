@@ -1,0 +1,63 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """
+    {This algorithm uses an ant colony optimization (ACO) inspired approach, where pheromones are deposited on edges based on tour quality and evaporation occurs to avoid premature convergence.}
+    """
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.ones_like(distance_matrix, dtype=float)  # Initialize with ones to avoid division by zero
+    num_ants = 50
+    num_iterations = 100
+    evaporation_rate = 0.1
+    alpha = 1.0  # Pheromone influence
+    beta = 2.0   # Heuristic influence (inverse distance)
+
+    for _ in range(num_iterations):
+        ant_tours = []
+        ant_tour_lengths = []
+
+        for _ in range(num_ants):
+            # Construct tour for each ant
+            start_node = np.random.randint(n)
+            unvisited = set(range(n))
+            unvisited.remove(start_node)
+            tour = [start_node]
+            current_node = start_node
+
+            while unvisited:
+                probabilities = []
+                for next_node in unvisited:
+                    heuristic_value = 1.0 / (distance_matrix[current_node, next_node] + 1e-6)
+                    pheromone_value = heuristics_matrix[current_node, next_node]
+                    probabilities.append((pheromone_value ** alpha) * (heuristic_value ** beta))
+
+                probabilities = np.array(probabilities)
+                probabilities /= np.sum(probabilities)  # Normalize
+
+                next_node = np.random.choice(list(unvisited), p=probabilities)
+                tour.append(next_node)
+                unvisited.remove(next_node)
+                current_node = next_node
+
+            tour_length = 0
+            for i in range(n - 1):
+                tour_length += distance_matrix[tour[i], tour[i+1]]
+            tour_length += distance_matrix[tour[-1], tour[0]]
+
+            ant_tours.append(tour)
+            ant_tour_lengths.append(tour_length)
+
+        # Update pheromones
+        for i in range(n):
+            for j in range(n):
+                heuristics_matrix[i, j] *= (1.0 - evaporation_rate)  # Evaporation
+
+        for tour, tour_length in zip(ant_tours, ant_tour_lengths):
+            reward = 1.0 / (tour_length + 1e-6)
+            for i in range(n - 1):
+                heuristics_matrix[tour[i], tour[i+1]] += reward
+                heuristics_matrix[tour[i+1], tour[i]] += reward
+            heuristics_matrix[tour[-1], tour[0]] += reward
+            heuristics_matrix[tour[0], tour[-1]] += reward
+                
+    return heuristics_matrix

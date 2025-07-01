@@ -1,0 +1,84 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix):
+    """{This algorithm utilizes a genetic algorithm approach to evolve a population of TSP solutions, selecting and mutating routes to converge towards an optimal path.}"""
+    n = distance_matrix.shape[0]
+    population_size = 50
+    mutation_rate = 0.05
+    generations = 100
+
+    # Initialize population
+    population = []
+    for _ in range(population_size):
+        route = np.random.permutation(n)
+        population.append(route)
+
+    def calculate_fitness(route):
+        fitness = 0
+        for i in range(n - 1):
+            fitness += distance_matrix[route[i], route[i + 1]]
+        fitness += distance_matrix[route[-1], route[0]]
+        return fitness
+
+    def crossover(parent1, parent2):
+        start = np.random.randint(0, n)
+        end = np.random.randint(start + 1, n + 1)
+        
+        child1 = np.zeros(n, dtype=int) - 1
+        child1[start:end] = parent1[start:end]
+        
+        index = 0
+        for gene in parent2:
+            if gene not in child1:
+                while child1[index] != -1:
+                    index += 1
+                child1[index] = gene
+        return child1
+    
+
+    def mutate(route):
+        for i in range(n):
+            if np.random.rand() < mutation_rate:
+                j = np.random.randint(0, n)
+                route[i], route[j] = route[j], route[i]
+        return route
+
+    # Genetic algorithm
+    for _ in range(generations):
+        # Evaluate fitness
+        fitness_scores = np.array([calculate_fitness(route) for route in population])
+        
+        # Selection (roulette wheel selection)
+        probabilities = 1 / fitness_scores
+        probabilities /= np.sum(probabilities)
+        
+        new_population = []
+        for _ in range(population_size):
+            parent1_index = np.random.choice(population_size, p=probabilities)
+            parent2_index = np.random.choice(population_size, p=probabilities)
+            parent1 = population[parent1_index]
+            parent2 = population[parent2_index]
+            
+            # Crossover
+            child = crossover(parent1, parent2)
+            
+            # Mutation
+            child = mutate(child)
+            new_population.append(child)
+        
+        population = new_population
+
+    # Best route
+    fitness_scores = np.array([calculate_fitness(route) for route in population])
+    best_route = population[np.argmin(fitness_scores)]
+    best_route_length = calculate_fitness(best_route)
+
+    # Heuristics matrix: favoring edges from the best route
+    heuristics_matrix = np.zeros((n, n))
+    for i in range(n):
+        node1 = best_route[i]
+        node2 = best_route[(i + 1) % n]
+        heuristics_matrix[node1, node2] = 1 / best_route_length
+        heuristics_matrix[node2, node1] = 1 / best_route_length  # Symmetry
+
+    return heuristics_matrix

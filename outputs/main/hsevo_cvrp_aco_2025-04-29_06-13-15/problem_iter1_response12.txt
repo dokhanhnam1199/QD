@@ -1,0 +1,69 @@
+```python
+import numpy as np
+
+def heuristics_v2(distance_matrix: np.ndarray, coordinates: np.ndarray, demands: np.ndarray, capacity: int) -> np.ndarray:
+    """
+    Implements a heuristic for the Capacitated Vehicle Routing Problem (CVRP) based on:
+    1. Distance: Shorter distances are preferred.
+    2. Demand: Edges connecting to nodes with larger demands are penalized if they lead to exceeding vehicle capacity quickly.
+    3. Angle: Edges forming sharper turns are penalized, encouraging smoother routes.
+    4. Capacity-aware adjustments to the base distance score, considering how much "space" is left.
+    """
+    n = distance_matrix.shape[0]
+    heuristic_matrix = np.zeros_like(distance_matrix, dtype=float)
+
+    # Adjust demand vector: Exclude depot demand (node 0) from calculations
+    adjusted_demands = demands[1:]
+
+    # Compute average demand: If demands is small, assign equal probability
+    if np.sum(adjusted_demands) > 0.00001:
+        average_demand = np.mean(adjusted_demands)
+    else:
+        average_demand = 1.0
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                heuristic_matrix[i, j] = 0  # No self-loops
+                continue
+
+            distance = distance_matrix[i, j]
+
+            # Initialize base heuristic score with inverse distance
+            heuristic_score = 1 / (distance + 1e-9)  # Adding a small constant to avoid division by zero
+
+            # Demand adjustment: Apply the penality to non-depot edges
+            if i != 0 and j != 0:
+              demand_i = demands[i]
+              demand_j = demands[j]
+              demand_penalty = np.exp( (demand_i + demand_j) / capacity ) #Exponential to be robust to smaller problems
+              heuristic_score /= demand_penalty
+
+            # Angle adjustment: Penalize sharp turns.  Consider adjacent nodes.
+            angle_penalty = 1.0  # Default no penalty
+            for k in range(n):
+                if k != i and k != j and i != 0 and j!= 0: #Exclude depot and not include the edge
+                    # Calculate angles: Using law of cosines. Small penalty to long distance.
+                    a = distance_matrix[i, j]
+                    b = distance_matrix[j, k]
+                    c = distance_matrix[i, k]
+
+                    #Cosine Law to avoid numerical issues
+                    try:
+                      cos_angle = (a**2 + b**2 - c**2) / (2 * a * b + 1e-9) # Avoid possible divisions by zero, even tho 'if'
+                      cos_angle = np.clip(cos_angle, -1.0, 1.0)  # Ensure within valid range for arccos
+                      angle = np.arccos(cos_angle)
+                      angle_penalty += (np.pi - angle)/ np.pi *0.1   #Normalize penality weight is small (0.1). Angle near 0, very sharp turns.
+                    except:
+                      angle_penalty += 0.01 # Small penality.
+                      continue
+            heuristic_score /= angle_penalty
+
+            # Capacity Adjustment (Simplistic, but useful if we have additional info on load):
+            # Reduce score further when getting closer to capacity: Assume equal demand in a route.
+            heuristic_score /= np.exp( demands[j] / capacity)
+
+            heuristic_matrix[i, j] = heuristic_score
+
+    return heuristic_matrix
+```

@@ -1,0 +1,75 @@
+import numpy as np
+
+def heuristics_v2(distance_matrix, coordinates, demands, capacity):
+    """{This algorithm uses a clustering approach based on node proximity and demand to create initial routes, and then iteratively refines routes by swapping nodes between routes to improve feasibility and reduce distance.}"""
+    n = distance_matrix.shape[0]
+    heuristics_matrix = np.zeros((n, n))
+    num_clusters = int(np.sqrt(n))  # Rule of thumb for initial clusters
+
+    # 1. Clustering (Simplified - Proximity Based)
+    depot = 0
+    clusters = [[] for _ in range(num_clusters)]
+    cluster_centers = np.random.choice(range(1, n), size=num_clusters, replace=False)
+
+    for i in range(1, n):
+        closest_cluster = np.argmin([distance_matrix[i, center] for center in cluster_centers])
+        clusters[closest_cluster].append(i)
+
+    # 2. Initial Route Construction
+    routes = []
+    for cluster in clusters:
+        route = [depot] + cluster + [depot]
+        routes.append(route)
+
+    # 3. Iterative Improvement (Node Swapping)
+    num_iterations = 500
+
+    for _ in range(num_iterations):
+        # Select two random routes
+        route_idx1, route_idx2 = np.random.choice(range(len(routes)), size=2, replace=False)
+        route1 = routes[route_idx1]
+        route2 = routes[route_idx2]
+
+        # Select two random nodes from the routes (excluding depot)
+        if len(route1) > 2 and len(route2) > 2:
+            node_idx1 = np.random.randint(1, len(route1) - 1)
+            node_idx2 = np.random.randint(1, len(route2) - 1)
+
+            node1 = route1[node_idx1]
+            node2 = route2[node_idx2]
+
+            # Check capacity constraints after swapping
+            route1_load = sum([demands[node] for node in route1[1:-1]])
+            route2_load = sum([demands[node] for node in route2[1:-1]])
+
+            if (route1_load - demands[node1] + demands[node2] <= capacity) and \
+               (route2_load - demands[node2] + demands[node1] <= capacity):
+
+                # Calculate cost change
+                cost_change = (distance_matrix[route1[node_idx1 - 1], node2] + distance_matrix[node2, route1[node_idx1 + 1]] -
+                               distance_matrix[route1[node_idx1 - 1], node1] - distance_matrix[node1, route1[node_idx1 + 1]] +
+                               distance_matrix[route2[node_idx2 - 1], node1] + distance_matrix[node1, route2[node_idx2 + 1]] -
+                               distance_matrix[route2[node_idx2 - 1], node2] - distance_matrix[node2, route2[node_idx2 + 1]])
+
+                # Accept swap if it reduces cost
+                if cost_change < 0:
+                    route1[node_idx1] = node2
+                    route2[node_idx2] = node1
+                    routes[route_idx1] = route1
+                    routes[route_idx2] = route2
+    
+    # 4. Update Heuristics Matrix
+    for route in routes:
+        for i in range(len(route) - 1):
+            u = route[i]
+            v = route[i+1]
+            heuristics_matrix[u, v] += 1
+            heuristics_matrix[v, u] += 1
+
+    # Normalize the matrix
+    total_edges = np.sum(heuristics_matrix)
+    if total_edges > 0:
+        heuristics_matrix = heuristics_matrix / total_edges
+    else:
+        heuristics_matrix = heuristics_matrix/num_iterations
+    return heuristics_matrix
