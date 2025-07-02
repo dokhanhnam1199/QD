@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines near-fit, fragmentation avoidance, and dynamic weighting."""
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    near_fit_threshold = 0.95
+    near_fit_bonus = 15.0
+    small_fragment_threshold = 0.1
+    large_fragment_penalty = -7.0
+    complete_fill_bonus = 25.0
+    capacity_ratio_weight = 3.0
+    bin_utilization_weight = 1.5
+    empty_bin_penalty = -10.0
+
+    avg_bin_capacity = np.mean(bins_remain_cap[bins_remain_cap > 0]) if np.any(bins_remain_cap > 0) else 1.0
+    total_items_size = np.sum(item) if isinstance(item, np.ndarray) else item
+
+    # Dynamic Adjustment
+    if np.sum(bins_remain_cap) > 3 * total_items_size * avg_bin_capacity:
+        near_fit_bonus *= 1.2
+        complete_fill_bonus *= 1.3
+    elif np.sum(bins_remain_cap) < total_items_size * avg_bin_capacity:
+        large_fragment_penalty *= 1.5
+
+    for i, remaining_cap in enumerate(bins_remain_cap):
+        if remaining_cap < item:
+            priorities[i] = -np.inf
+            continue
+        
+        if item == remaining_cap:
+            priorities[i] += complete_fill_bonus
+            continue
+
+        near_fit_ratio = item / remaining_cap
+        if near_fit_ratio >= near_fit_threshold:
+            priorities[i] += near_fit_bonus
+
+        new_remaining = remaining_cap - item
+        if new_remaining > 0 and (new_remaining / avg_bin_capacity) < small_fragment_threshold:
+            priorities[i] += large_fragment_penalty
+
+        priorities[i] += near_fit_ratio * capacity_ratio_weight
+
+        bin_utilization = (avg_bin_capacity - remaining_cap) / avg_bin_capacity if avg_bin_capacity > 0 else 0
+        priorities[i] += bin_utilization * bin_utilization_weight
+
+    empty_bins = bins_remain_cap == bins_remain_cap.max()
+    if np.any(empty_bins):
+        priorities[empty_bins] += empty_bin_penalty
+
+    possible_bins = bins_remain_cap >= item
+    if not np.any(priorities[possible_bins] > -np.inf):
+        priorities[possible_bins] += 0.001
+    
+    return priorities
+```

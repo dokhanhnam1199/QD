@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.  Inspired by the path integral formalism; consider all possible paths (bins) with weights based on a 'cost' (how much space is wasted), and 'amplitude' proportional to the likelihood of a good fit. Introduce a little randomness, like thermal fluctuations.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    waste = bins_remain_cap - item
+    waste[waste < 0] = np.inf  # Make infeasible bins have infinite waste
+
+    # "Action" or "cost" -- penalize high waste quadratically for good sensitivity and convergence
+    action = waste**2
+
+    # Introduce a "temperature" parameter for exploration. Lower temperature means more exploitation,
+    # higher means more exploration (more randomness).
+    temperature = np.mean(bins_remain_cap) / item #scale with problem params
+
+    # Boltzmann-like distribution
+    amplitudes = np.exp(-action / temperature)
+
+    # A bit of "quantum tunneling" -- favor bins which are almost full *even if* there's slight overflow.
+    # This may help escape local optima and prevent lots of near-empty bins.
+    # Apply only if we have bins almost perfectly fitting the items.
+    almost_full = np.abs(waste) < 0.1 * item
+    amplitudes[almost_full] *= 1.2 #increase by 20%
+
+    #Add another tunneling for the overflow cases
+
+    overflow = waste < 0
+    overflow_mag = np.abs(waste[overflow])
+
+    # Small overflow, boost its score such it can explore the neighborhood.
+
+    very_slight_overflow = np.logical_and(waste < 0, np.abs(waste) < item*0.2)
+    amplitudes[very_slight_overflow] *= (1/(overflow_mag[very_slight_overflow]))+1
+
+    # Normalize
+    amplitudes /= np.sum(amplitudes)
+
+    #introduce small probability of picking randomly for better exploration:
+    exploration_prob = 0.05 #5% chances of randomly picking one
+
+    random_priorities = np.random.rand(len(bins_remain_cap))
+
+    if np.random.rand() < exploration_prob:
+      amplitudes = random_priorities/ np.sum(random_priorities)
+
+
+
+    return amplitudes # these should represent the probability/priorities.
+```

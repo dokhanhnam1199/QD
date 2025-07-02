@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Dynamically adjust weights based on remaining capacity."""
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Define base values; these can be tuned.
+    near_fit_threshold_base = 0.9
+    near_fit_bonus_base = 10.0
+    small_fragment_threshold_base = 0.1
+    large_fragment_penalty_base = -5.0
+    complete_fill_bonus_base = 20.0
+    capacity_ratio_weight_base = 2.0
+
+    valid_bins = bins_remain_cap > 0
+    if not np.any(valid_bins):
+        return priorities
+    
+    possible_bins = bins_remain_cap >= item
+
+    for i, remaining_cap in enumerate(bins_remain_cap):
+        if remaining_cap < item:
+            priorities[i] = -np.inf
+            continue
+
+        # Dynamic Adjustment of Near Fit Threshold & Bonus:
+        near_fit_threshold = near_fit_threshold_base #*(1 - (item/bins_remain_cap[0])) #Scale near_fit to item size
+        near_fit_bonus = near_fit_bonus_base * (1+ (bins_remain_cap[0] - remaining_cap)/bins_remain_cap[0]) #scale to the bin occupancy rate
+
+        # Near Fit
+        if item / remaining_cap >= near_fit_threshold:
+            priorities[i] += near_fit_bonus
+        
+        if item == remaining_cap:
+            priorities[i] += complete_fill_bonus_base
+
+        # Fragmentation: Adaptive penalty
+        new_remaining = remaining_cap - item
+        if new_remaining > 0 and (new_remaining / bins_remain_cap[0]) < small_fragment_threshold_base:
+            #Scale the penalty to the item size to avoid overly penalizing small items
+            large_fragment_penalty = large_fragment_penalty_base * (item / bins_remain_cap[0])
+            priorities[i] += large_fragment_penalty
+
+        # Capacity Ratio
+        priorities[i] += (item / remaining_cap) * capacity_ratio_weight_base
+
+    # If no possible bins are good, make all possible bins minimally acceptable.
+    if not np.any(priorities[possible_bins] > -np.inf):
+        priorities[possible_bins] += 0.001
+        
+    return priorities
+```

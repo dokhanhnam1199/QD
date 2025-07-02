@@ -1,0 +1,55 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines waste minimization, near-full bonuses, adaptive weighting,
+    fragmentation avoidance, and stochastic exploration with numerical stability."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    remaining_after_add = bins_remain_cap - item
+    epsilon = 1e-9
+
+    # Infeasible bins get strongly negative priority, more severe than v1
+    infeasible_mask = remaining_after_add < 0
+    priorities[infeasible_mask] = -np.inf * 10  # Increased penalty
+
+    valid_mask = remaining_after_add >= 0
+
+    if np.any(valid_mask):
+        # Waste priority, use reciprocal of waste, scaled and shifted
+        waste = np.abs(remaining_after_add[valid_mask])
+        waste_priority = 1.0 / (waste + epsilon)
+        waste_priority = (waste_priority - np.min(waste_priority)) / (np.max(waste_priority) - np.min(waste_priority) + epsilon) # Normalize waste priority to [0,1]
+        waste_priority *= 0.5 #reduce its weight
+
+        # Near-full bonus, give bonus to near full bins, using sigmoid for smooth transition
+        near_full_bonus = np.zeros_like(bins_remain_cap[valid_mask], dtype=float)
+        near_full_mask = (bins_remain_cap[valid_mask] > item) & (bins_remain_cap[valid_mask] <= 2 * item)
+        if np.any(near_full_mask):
+            near_full_bonus[near_full_mask] = 1.0 / (1 + np.exp(-10 * (bins_remain_cap[valid_mask][near_full_mask] / item - 1.5))) # Sigmoid centered at 1.5 * item
+
+        # Fragmentation avoidance: penalize bins that leave small remaining space
+        frag_threshold = 0.1 #threshold for small remaining space, can be tuned
+        fragmentation_penalty = np.where((remaining_after_add[valid_mask] > 0) & (remaining_after_add[valid_mask] < frag_threshold), -1, 0)
+        # Adaptive weighting based on remaining capacity distribution, using a robust scaler
+        capacity_mean = np.mean(bins_remain_cap[valid_mask]) if np.any(valid_mask) else np.mean(bins_remain_cap)
+        capacity_std = np.std(bins_remain_cap[valid_mask]) if np.any(valid_mask) and len(bins_remain_cap[valid_mask]) > 1 else 0.1 #avoid zero std
+
+        waste_weight = 0.4
+        near_full_weight = 0.4
+        capacity_weight = 0.2
+        frag_weight = 0.8
+
+        if capacity_std > 0.0:
+            capacity_normalized = (bins_remain_cap[valid_mask] - capacity_mean) / capacity_std
+            capacity_score = np.tanh(capacity_normalized)
+        else:
+            capacity_score = np.zeros_like(bins_remain_cap[valid_mask])
+
+        priorities[valid_mask] = waste_weight * waste_priority + near_full_weight * near_full_bonus + capacity_weight * capacity_score + frag_weight * fragmentation_penalty
+
+        # Stochastic exploration: introduce small random noise to break ties
+        noise = np.random.normal(0, 0.01, size=len(priorities[valid_mask]))
+        priorities[valid_mask] += noise
+    return priorities
+```

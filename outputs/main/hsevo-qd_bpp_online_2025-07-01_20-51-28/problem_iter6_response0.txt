@@ -1,0 +1,81 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    num_bins = len(bins_remain_cap)
+
+    # Heuristic 1: "Near Fit" - Prefer bins where the item fills a significant portion
+    near_fit_threshold_upper = 0.95
+    near_fit_threshold_lower = 0.7  #Added lower bound for near fit to prevent too much space waste
+    near_fit_bonus = 15.0
+
+    # Heuristic 2: Avoid Fragmentation - Penalize bins that would become highly fragmented
+    fragmentation_penalty_exponent = 2
+    small_fragment_threshold = 0.1
+    large_fragment_penalty = -10.0
+
+    # Heuristic 3: Try to completely fill
+    complete_fill_bonus = 30.0
+
+    # Heuristic 4: Reward bins with higher remaining capacity slightly, so that if other heuristics do not make a strong choice, the item will go to a more empty bin
+    capacity_reward_factor = 0.1
+
+    # Heuristic 5: Penalize bins that, after packing, would leave a space smaller than the average item size (across all bins' remaining capacity)
+    avg_item_size = np.mean(bins_remain_cap) / 2 # Estimate average size with very basic mean
+    too_small_fragment_penalty = -5.0
+    
+    # Heuristic 6: Use a limited number of bins at the beginning to reduce bin usage.
+    start_up_bins = min(5, num_bins) # Start with a maximum of 5 bins
+    start_up_penalty = -2.0
+    
+    valid_bins = bins_remain_cap > 0
+    if not np.any(valid_bins):
+        return priorities
+    
+    possible_bins = bins_remain_cap >= item
+
+    for i, remaining_cap in enumerate(bins_remain_cap):
+        
+        if remaining_cap < item:
+            priorities[i] = -np.inf
+            continue
+
+        # Near Fit
+        fit_ratio = item / remaining_cap
+        if near_fit_threshold_lower <= fit_ratio <= near_fit_threshold_upper:
+            priorities[i] += near_fit_bonus
+
+        if item == remaining_cap:
+            priorities[i] += complete_fill_bonus
+            
+        # Fragmentation
+        new_remaining = remaining_cap - item
+        if new_remaining > 0:
+            if (new_remaining / bins_remain_cap[0]) < small_fragment_threshold:
+                priorities[i] += large_fragment_penalty
+            if new_remaining < avg_item_size:
+                priorities[i] += too_small_fragment_penalty
+
+        # Capacity Reward
+        priorities[i] += remaining_cap * capacity_reward_factor
+
+        # Startup Penalty
+        if i >= start_up_bins:
+            priorities[i] += start_up_penalty
+            
+    # If no bins can contain the item (after applying fragmentation penalty), slightly raise score of potential bins for placement
+    if not np.any(priorities[possible_bins] > -np.inf):
+        priorities[possible_bins] += 0.001
+
+    return priorities
+```

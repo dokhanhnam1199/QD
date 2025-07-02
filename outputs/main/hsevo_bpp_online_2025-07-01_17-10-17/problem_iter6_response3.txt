@@ -1,0 +1,47 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Assign priorities to bins, focusing on a balance between waste minimization,
+    bin utilization, and avoiding near-empty bins.
+    """
+    epsilon = 1e-9
+    priorities = np.zeros_like(bins_remain_cap)
+
+    # 1. Feasibility Check: Eliminate bins that are too small.
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        return priorities  # No suitable bin
+
+    # 2. Waste Minimization: Prioritize bins with minimal waste, but avoid perfect fit.
+    waste = bins_remain_cap - item
+    
+    # Avoid near perfect fits which can cause issues with later items
+    near_perfect_fit = np.abs(waste) < epsilon * 10
+
+    waste_priority = 1 / (waste + epsilon)
+    waste_priority[near_perfect_fit] = 0 # Reduce the priority
+    waste_priority[waste < 0] = 0  # Should be redundant due to feasibility but be safe
+
+    # 3. Bin Utilization: Encourage filling bins to a reasonable level, but not completely.
+    utilization_target = 0.75  # Aim for bins to be 75% full after packing the item.
+
+    utilization_diff = np.abs((bins_remain_cap - item) - (bins_remain_cap * (1 - utilization_target)))
+    utilization_priority = 1 / (utilization_diff + epsilon)
+    
+    # 4. Avoid Near-Empty Bins: Discourage placing items in almost-empty bins, reserving them for larger items.
+
+    empty_threshold = 0.9  # Consider a bin "near-empty" if it's more than 90% full
+    near_empty = bins_remain_cap > (empty_threshold)
+    empty_penalty = np.where(near_empty, 0.1, 1.0)  # Penalize near-empty bins
+   
+    # Combine priorities, normalizing waste priority to improve the balance with Utilization
+    priorities = (waste_priority / np.max(waste_priority + epsilon))  + utilization_priority * empty_penalty
+
+    # Apply feasibility mask to set priorities to 0 for invalid bins.
+    priorities[~feasible_bins] = 0
+
+    return priorities
+```

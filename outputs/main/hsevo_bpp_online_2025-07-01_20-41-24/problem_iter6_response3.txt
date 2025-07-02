@@ -1,0 +1,54 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priority = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # 1. Feasibility check and immediate disqualification.
+    feasible = bins_remain_cap >= item
+    priority[~feasible] = -np.inf  # Disqualify infeasible bins immediately
+    if not np.any(feasible):
+        return priority #Return all bins with -inf if there is no feasible bins.
+
+    # 2. Remaining capacity after placing the item.
+    remaining_capacity = bins_remain_cap - item
+
+    # 3. Prioritize bins with smaller waste but not too small. Avoid almost full bins
+    # unless no better choice exists. We use a scaled reciprocal of waste.
+    # Avoid zero division
+
+    waste = remaining_capacity[feasible]
+    min_waste = np.min(waste) #Find min waste
+    eps = 1e-6
+    priority[feasible] = (1 / (waste + eps)) * 10 # Scale the priority
+
+    # 4. Adjust for Fill Ratio: a balance favoring fuller bins, but avoid tiny remaining space.
+    fill_ratio = item / bins_remain_cap
+    fill_ratio[~feasible] = 0 #Setting fill ratio of infeasible bins to 0.
+
+    priority[feasible] += fill_ratio[feasible] * 5 # Scale the fill ratio effect.
+
+    # 5. Moderate penalty for bins that are *almost* full after placing the item.
+    #  This encourages using bins with more spare capacity when available.
+    almost_full_threshold = 0.10 # e.g., less than 10% remaining capacity is considered "almost full".
+
+    almost_full = (remaining_capacity > 0) & (remaining_capacity <= bins_remain_cap * almost_full_threshold) #check if there are bins with almost full after placing item
+    priority[almost_full] -= 2 # Moderate penalty
+
+
+    # 6. Adjust the priority with the best bin if we are desperate to fit this item
+    if(np.max(priority) == -np.inf):
+        priority[np.argmax(bins_remain_cap)] = 1 #Choosing the bin with the most capcity, if nothing else works.
+
+
+    return priority
+```

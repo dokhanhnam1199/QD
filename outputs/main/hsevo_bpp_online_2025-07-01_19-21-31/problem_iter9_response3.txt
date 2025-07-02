@@ -1,0 +1,59 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines waste minimization, near-full bonuses, adaptive weighting,
+    and explicit penalties for creating small remaining gaps.
+
+    Prioritizes bins that:
+    1. Fit the item (strongly penalizes infeasible bins)
+    2. Minimize waste after packing
+    3. Avoid creating very small gaps which are hard to fill later
+    4. Adapts to capacity distribution.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    remaining_after_add = bins_remain_cap - item
+    epsilon = 1e-9
+
+    # --- Infeasibility Penalty ---
+    infeasible_mask = remaining_after_add < 0
+    priorities[infeasible_mask] = -1e9  # Very strong penalty
+
+    valid_mask = remaining_after_add >= 0
+
+    if np.any(valid_mask):
+        # --- Waste Minimization ---
+        waste = remaining_after_add[valid_mask]
+        waste_priority = -waste  # Lower waste is better (negative waste)
+
+        # --- Small Gap Penalty ---
+        small_gap_threshold = 0.1  #tunable, prevents creating small gaps
+        small_gap_penalty = np.where((remaining_after_add[valid_mask] > 0) & (remaining_after_add[valid_mask] < small_gap_threshold), -100, 0)  # Penalty for creating tiny gaps. tunable scalar
+       
+
+        # --- Adaptive Weighting based on Capacity Distribution ---
+        capacity_mean = np.mean(bins_remain_cap[valid_mask]) if np.any(valid_mask) else np.mean(bins_remain_cap)
+        capacity_std = np.std(bins_remain_cap[valid_mask]) if np.any(valid_mask) and len(bins_remain_cap[valid_mask]) > 1 else 0.1
+
+        capacity_normalized = (bins_remain_cap[valid_mask] - capacity_mean) / (capacity_std + epsilon)
+        capacity_priority = np.tanh(capacity_normalized) # Prioritize bins further from the mean, normalized
+        
+        # --- Near-Full Bonus (weaker)---
+        near_full_bonus = np.where((bins_remain_cap[valid_mask] > item) & (bins_remain_cap[valid_mask] <= 2 * item), item / bins_remain_cap[valid_mask] * 10, 0)
+
+        # --- Combine Priorities ---
+        waste_weight = 1.0
+        small_gap_weight = 1.0
+        capacity_weight = 0.5 # Lower importance
+        near_full_weight = 0.1
+
+        priorities[valid_mask] = (
+            waste_weight * waste_priority +
+            small_gap_weight * small_gap_penalty +
+            capacity_weight * capacity_priority +
+            near_full_weight * near_full_bonus
+        )
+
+    return priorities
+```

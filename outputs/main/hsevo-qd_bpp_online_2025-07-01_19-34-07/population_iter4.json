@@ -1,0 +1,71 @@
+[
+  {
+    "stdout_filepath": "problem_iter0_stdout0.txt",
+    "code_path": "problem_iter0_code0.py",
+    "code": "import numpy as np\nimport random\nimport math\nimport scipy\nimport torch\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n    ratios = item / bins_remain_cap\n    log_ratios = np.log(ratios)\n    priorities = -log_ratios\n    return priorities",
+    "response_id": 0,
+    "obj": 149.30195452732352,
+    "SLOC": 5.0,
+    "cyclomatic_complexity": 1.0,
+    "halstead": 11.60964047443681,
+    "mi": 94.04446327225541,
+    "token_count": 47.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter1_response1.txt_stdout.txt",
+    "code_path": "problem_iter1_code1.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n    Inspired by space-time curvature, we prioritize bins where the\n    item \"bends\" the remaining capacity the most significantly.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n    # Avoid division by zero\n    bins_remain_cap = np.where(bins_remain_cap <= 0, 1e-9, bins_remain_cap)\n\n    # Calculate the \"gravitational effect\" based on item size and remaining capacity.\n    # A larger item has a stronger effect; smaller remaining capacity implies higher urgency.\n    gravitational_effect = item / bins_remain_cap**2 # Inverse square relationship, reminiscent of gravity\n\n    # Introduce a term that favors bins that are reasonably full, but can still accomodate the item.\n    # This prevents premature exhaustion of some bins and promotes better overall packing.\n    fill_factor = (1 - (bins_remain_cap - item) / bins_remain_cap)\n    fill_factor = np.where(bins_remain_cap < item, -np.inf, fill_factor) #make inelligible when not fitting\n\n    # Combine gravitational effect and fill factor\n    priorities = gravitational_effect + fill_factor\n    return priorities",
+    "response_id": 1,
+    "tryHS": true,
+    "obj": 4.048663741523748,
+    "SLOC": 8.0,
+    "cyclomatic_complexity": 1.0,
+    "halstead": 72.0,
+    "mi": 72.1751337710446,
+    "token_count": 105.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response1.txt_stdout.txt",
+    "code_path": "problem_iter2_code1.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines gravitational effect and fill factor with a capacity scaling.\"\"\"\n    bins_remain_cap = np.where(bins_remain_cap <= 0, 1e-9, bins_remain_cap)\n\n    gravitational_effect = item / bins_remain_cap**2\n\n    fill_factor = (1 - (bins_remain_cap - item) / bins_remain_cap)\n    fill_factor = np.where(bins_remain_cap < item, -np.inf, fill_factor)\n\n    capacity_scaling = np.exp(-bins_remain_cap) # scale by remaining capacity\n\n    priorities = gravitational_effect + fill_factor + capacity_scaling\n    return priorities",
+    "response_id": 1,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 7.0,
+    "cyclomatic_complexity": 1.0,
+    "halstead": 51.89147427955947,
+    "mi": 96.72730566296343,
+    "token_count": 79.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter3_response0.txt_stdout.txt",
+    "code_path": "problem_iter3_code0.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n    This version incorporates multiple factors, non-linear relationships,\n    and adaptive scaling to improve bin packing efficiency.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n    epsilon = 1e-9  # Small constant to avoid division by zero and numerical instability\n\n    # 1. Basic Feasibility Check: Eliminate bins that cannot fit the item.\n    feasible_bins = bins_remain_cap >= item\n    priorities = np.zeros_like(bins_remain_cap, dtype=float) - np.inf  # Initialize to -inf\n\n    # 2. Capacity Utilization Factor: Favor bins that are already reasonably full.\n    #    This encourages filling bins and reduces fragmentation.\n    utilization = (1 - bins_remain_cap / (np.max(bins_remain_cap) + epsilon))\n    utilization = np.clip(utilization, 0, 1)  # Ensure values are within [0, 1]\n    utilization_factor = utilization**2 # Non-linear, emphasize already full bins\n\n\n    # 3. Item Fit Score: How well the item fits into the remaining space.\n    #    A tighter fit is generally preferred, but not if it leads to excessive fragmentation.\n    fit_score = np.exp(-np.abs(bins_remain_cap - item) / (item + epsilon))\n\n    # 4. Balance Factor: Discourage near-empty bins from being used too early.\n    #    This helps to keep options open for larger items later on.\n    balance_factor = np.sqrt(bins_remain_cap / (np.max(bins_remain_cap) + epsilon))\n\n    # 5. Remaining Capacity Penalty: Penalize bins with very little remaining capacity\n    #    after placing the current item.  This avoids creating slivers.\n    remaining_capacity_penalty = np.exp(-10 * np.maximum(0, bins_remain_cap - item) / (np.max(bins_remain_cap)+epsilon))\n\n\n    # Adaptive Scaling: Adjust the weights of the factors based on the item size.\n    #  - For smaller items, prioritize utilization and fit.\n    #  - For larger items, prioritize feasibility and balance.\n    item_scale = np.clip(item / (np.mean(bins_remain_cap) + epsilon), 0, 1)\n    \n    #6. Combine the Factors:  Weighted sum of the individual factors.\n    priority_weights = {\n        'utilization': 0.3 + 0.1*item_scale,\n        'fit': 0.4 - 0.2 * item_scale,\n        'balance': 0.1+ 0.4*item_scale,\n        'penalty': 0.2 - 0.1*item_scale\n    }\n\n    # Assign priorities to feasible bins\n    priorities[feasible_bins] = (\n        priority_weights['utilization'] * utilization_factor[feasible_bins] +\n        priority_weights['fit'] * fit_score[feasible_bins] +\n        priority_weights['balance'] * balance_factor[feasible_bins] +\n        priority_weights['penalty'] * remaining_capacity_penalty[feasible_bins]\n    )\n\n    return priorities",
+    "response_id": 0,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 22.0,
+    "cyclomatic_complexity": 2.0,
+    "halstead": 340.6033980727912,
+    "mi": 77.3207695610882,
+    "token_count": 230.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter4_response0.txt_stdout.txt",
+    "code_path": "problem_iter4_code0.py",
+    "code": "import numpy as np\nimport random\nimport math\nimport scipy\nimport torch\ndef priority_v2(item: float, bins_remain_cap: np.ndarray, min_capacity: float = 8.686332855593976e-09, gravity_power: float = 1.521412081849916) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n    Inspired by space-time curvature, we prioritize bins where the\n    item \"bends\" the remaining capacity the most significantly.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n        min_capacity: Minimum capacity to avoid division by zero.\n        gravity_power: power of bins_remain_cap in gravitational_effect\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n    # Avoid division by zero\n    bins_remain_cap = np.where(bins_remain_cap <= 0, min_capacity, bins_remain_cap)\n\n    # Calculate the \"gravitational effect\" based on item size and remaining capacity.\n    # A larger item has a stronger effect; smaller remaining capacity implies higher urgency.\n    gravitational_effect = item / bins_remain_cap**gravity_power # Inverse square relationship, reminiscent of gravity\n\n    # Introduce a term that favors bins that are reasonably full, but can still accomodate the item.\n    # This prevents premature exhaustion of some bins and promotes better overall packing.\n    fill_factor = (1 - (bins_remain_cap - item) / bins_remain_cap)\n    fill_factor = np.where(bins_remain_cap < item, -np.inf, fill_factor) #make inelligible when not fitting\n\n    # Combine gravitational effect and fill factor\n    priorities = gravitational_effect + fill_factor\n    return priorities",
+    "response_id": 0,
+    "tryHS": true,
+    "obj": 4.048663741523748,
+    "SLOC": 7.0,
+    "cyclomatic_complexity": 1.0,
+    "halstead": 108.41805003750011,
+    "mi": 58.05526468691778,
+    "token_count": 117.0,
+    "exec_success": true
+  }
+]

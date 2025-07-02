@@ -1,0 +1,46 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, fit_score_epsilon: float = 0.08360861073422976, size_ratio_target: float = 0.45160249651379814, size_ratio_penalty_weight: float = 1.31884206857992) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This priority function considers both the remaining capacity of the bin
+    and how well the item fits relative to that capacity. Bins with capacity
+    slightly larger than the item are preferred (best fit). It penalizes
+    bins where the item would result in very little space left or bins where
+    the item is too small relative to the available space.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+        fit_score_epsilon: small constant to avoid division by zero problems or infinite penalties
+        size_ratio_target: target value for the size ratio (item/remaining_capacity)
+        size_ratio_penalty_weight: Weight of the size ratio penalty.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Iterate through each bin and calculate its priority
+    for i, remaining_capacity in enumerate(bins_remain_cap):
+        if item <= remaining_capacity:
+            # Calculate the remaining space after placing the item
+            remaining_space = remaining_capacity - item
+
+            # Calculate a 'fit' score.  Smaller remaining space implies better fit, but we add a small
+            # constant to avoid division by zero problems or infinite penalties
+            fit_score = 1.0 / (remaining_space + fit_score_epsilon)
+
+            # Optionally, we can also incentivize the use of bins that aren't 'too full' to start,
+            # and/or penalize overly small item relative to the bins capacity.
+            # This part prevents extremely small items constantly getting stuffed into bins due to high `fit_score`
+            #  due to little `remaining_space` because an item of ~ 0 size was added to that bin.
+            size_ratio_penalty = size_ratio_penalty_weight * np.abs(item/remaining_capacity - size_ratio_target) # Prefer capacities close to 2x the item.
+
+            priorities[i] = fit_score - size_ratio_penalty
+            #priorities[i] = fit_score # Removed size ratio penalty since it caused worse packing.
+        else:
+            # If the item doesn't fit, give a very low priority
+            priorities[i] = -np.inf
+
+    return priorities

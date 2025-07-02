@@ -1,0 +1,46 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines waste minimization, near-full bonus & penalty, adaptive capacity weighting, and fill percentage."""
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    remaining_after_add = bins_remain_cap - item
+    epsilon = 1e-9
+
+    # Infeasible bins get strongly negative priority
+    infeasible_mask = remaining_after_add < 0
+    priorities[infeasible_mask] = -np.inf
+
+    valid_mask = remaining_after_add >= 0
+
+    if np.any(valid_mask):
+        # Waste priority, use reciprocal of waste
+        waste = np.abs(remaining_after_add[valid_mask])
+        waste_priority = 1.0 / (waste + epsilon)
+
+        # Near-full bonus and penalty
+        near_full_bonus = np.where((bins_remain_cap[valid_mask] > item) & (bins_remain_cap[valid_mask] <= 2 * item), item / bins_remain_cap[valid_mask] * 10, 0)
+        near_full_penalty = np.where((bins_remain_cap[valid_mask] <= item), -item / bins_remain_cap[valid_mask] * 5, 0)  #Added penalty
+
+        # Adaptive capacity weighting
+        capacity_mean = np.mean(bins_remain_cap[valid_mask]) if np.any(valid_mask) else np.mean(bins_remain_cap)
+        capacity_std = np.std(bins_remain_cap[valid_mask]) if np.any(valid_mask) and len(bins_remain_cap[valid_mask]) > 1 else 0.1
+
+        capacity_weight = np.sqrt(bins_remain_cap[valid_mask]) / (item + epsilon) #Capacity based priority from v1
+
+        waste_weight = 0.4
+        near_full_weight = 0.3
+        capacity_weight_adaptive = 0.3 # Renamed to avoid conflict
+
+        if capacity_std > 0.0: # Adaptive capacity weight
+            capacity_normalized = (bins_remain_cap[valid_mask] - capacity_mean) / capacity_std
+            capacity_weight_adaptive = 0.5 + np.tanh(capacity_normalized)  # Adaptive weighting
+
+        # Fill percentage score
+        fill_percentage = item / bins_remain_cap[valid_mask]
+        fill_score = np.exp(-np.abs(fill_percentage - 0.8))
+
+        # Combine priorities
+        priorities[valid_mask] = waste_weight * waste_priority + near_full_weight * (near_full_bonus + near_full_penalty) + capacity_weight * capacity_weight_adaptive + 0.5 * fill_score
+    return priorities
+```
