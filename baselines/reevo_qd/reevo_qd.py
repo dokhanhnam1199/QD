@@ -584,7 +584,7 @@ class ReEvo_QD:
         return population
 
     def evolve(self):
-        while (self.prompt_tokens + self.completion_tokens) < self.cfg.max_token:
+        while (self.prompt_tokens + self.completion_tokens) < self.cfg.max_token or self.iteration < 180:
             # If all individuals are invalid, stop
             if all([not individual["exec_success"] for individual in self.population]):
                 raise RuntimeError(f"All individuals are invalid. Please check the stdout files in {os.getcwd()}.")

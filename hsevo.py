@@ -341,6 +341,10 @@ class HSEvo:
             self.elitist = population[best_sample_idx]
             logging.info(f"Iteration {self.iteration}: Elitist: {self.elitist['obj']}")
 
+        # Dump the current population to a JSON file for inspection
+        with open(f"population_iter{self.iteration}.json", "w") as f:
+            json.dump(self.population, f, indent=2)
+
         logging.info(f"Iteration {self.iteration} finished...")
         logging.info(f"Best obj: {self.best_obj_overall}, Best Code Path: {self.best_code_path_overall}")
         logging.info(f"LLM usage: prompt_tokens = {self.prompt_tokens}, completion_tokens = {self.completion_tokens}")
@@ -666,7 +670,7 @@ class HSEvo:
         return population_hs[best_obj_id]
 
     def evolve(self):
-        while self.function_evals < self.cfg.max_fe:
+        while (self.prompt_tokens + self.completion_tokens) < self.cfg.max_token or self.iteration < 180:
             # If all individuals are invalid, stop
             if all([not individual["exec_success"] for individual in self.population]):
                 raise RuntimeError(f"All individuals are invalid. Please check the stdout files in {os.getcwd()}.")
