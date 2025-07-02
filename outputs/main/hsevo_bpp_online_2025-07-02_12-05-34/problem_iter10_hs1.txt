@@ -1,0 +1,64 @@
+import numpy as np
+
+def priority_v2(item: float,
+                bins_remain_cap: np.ndarray,
+                tightness_weight_small_item: float = 0.8060155080394588,
+                tightness_weight_large_item: float = 0.9320193523321534,
+                target_fill_level_ratio: float = 0.8814110470809557,
+                fill_score_sensitivity: float = 0.2856309733840233,
+                fill_weight: float = 0.6235518784809593,
+                near_full_threshold_ratio: float = 0.10187815246254317,
+                near_full_penalty: float = -0.9591066582571859,
+                near_full_weight: float = 0.565735762987166,
+                large_item_threshold_ratio: float = 0.7552123628117128,
+                almost_empty_threshold_ratio: float = 0.9446654398653674,
+                large_item_penalty: float = -0.5878966311815651,
+                large_item_weight: float = 0.8877760172850596,
+                randomness_scale: float = 0.007154993925755334) -> np.ndarray:
+    """
+    A refined priority function for online bin packing, incorporating adaptive weighting,
+    edge case handling, and stochastic elements.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    can_fit = bins_remain_cap >= item
+
+    if not np.any(can_fit):
+        return np.full_like(priorities, 0.0)
+
+    valid_bins = np.where(can_fit)[0]
+    remaining_after = bins_remain_cap[can_fit] - item
+
+    # Waste minimization with adaptive weighting based on item size
+    waste = remaining_after
+    tightness = 1 / (waste + 0.0001)
+    tightness_weight = tightness_weight_large_item if item > bins_remain_cap.max() * 0.5 else tightness_weight_small_item  # Smaller items, less emphasis on tightness
+
+    # Target fill level with dynamic target
+    target_fill_level = target_fill_level_ratio * bins_remain_cap.max()
+    fill_level = bins_remain_cap[can_fit]
+    fill_diff = np.abs(fill_level - target_fill_level)
+    fill_score = np.exp(-fill_diff / (bins_remain_cap.max() * fill_score_sensitivity))
+
+    # Near-full penalty adjusted
+    near_full_threshold = near_full_threshold_ratio * bins_remain_cap.max()
+    near_full_penalty_applied = np.where(remaining_after < near_full_threshold, near_full_penalty, 0.0) #Increased penalty
+
+    # Large item penalty: discourage placing large items into almost empty bins.
+    large_item_threshold = bins_remain_cap.max() * large_item_threshold_ratio
+    if item > large_item_threshold:
+        almost_empty_threshold = bins_remain_cap.max() * almost_empty_threshold_ratio
+        large_item_penalty_applied = np.where(bins_remain_cap[can_fit] > almost_empty_threshold, large_item_penalty, 0.0)
+    else:
+        large_item_penalty_applied = 0.0
+
+    # Introduce stochasticity: slight random perturbation
+    randomness = np.random.normal(0, randomness_scale, len(valid_bins))
+
+    priorities[valid_bins] = (tightness_weight * tightness +
+                               fill_weight * fill_score +
+                               near_full_weight * near_full_penalty_applied +
+                               large_item_weight * large_item_penalty_applied +
+                               randomness)
+
+    return priorities

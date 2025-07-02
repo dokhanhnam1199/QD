@@ -1,0 +1,53 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, 
+                division_avoidance: float = -6.680524683262081e-05, 
+                half_empty_weight: float = 0.9512065865505973, 
+                fullness_weight: float = 2.6784231657981827, 
+                too_close_fraction: float = 0.18895208051575996, 
+                too_close_penalty: float = 0.8586972525562037) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+        division_avoidance: small value to avoid division by zero
+        half_empty_weight: weight of the half empty score
+        fullness_weight: weight of the fullness score
+        too_close_fraction: The percentage of item size to determine 'too close'.
+        too_close_penalty: Reduction factor for bins that are too close in size to the item.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # First, identify bins that can actually fit the item
+    valid_bins = bins_remain_cap >= item
+
+    if not np.any(valid_bins):
+        # If no bins can fit, assign low priority to all (might need a new bin)
+        return priorities
+
+    # For valid bins, calculate a "fit score"
+    fit_score = bins_remain_cap[valid_bins] - item  # Remaining space after placing the item
+
+    # Give higher priority to bins where the item fits snugly (minimize wasted space)
+    # We can use the inverse of the remaining space as a priority
+    priorities[valid_bins] = 1.0 / (fit_score + division_avoidance) # Avoid division by zero
+
+    #Boost priority for bins close to being half empty, could potentially improve packing next items
+    half_empty_score = np.abs(bins_remain_cap[valid_bins] - bins_remain_cap.max()/2)
+    priorities[valid_bins] += half_empty_weight/(half_empty_score+division_avoidance)
+
+    # Prioritize bins that are relatively full to consolidate items
+    fullness_score = bins_remain_cap[valid_bins] / bins_remain_cap.max()  # Fraction of capacity remaining
+    priorities[valid_bins] += fullness_weight* (1 - fullness_score) # Higher score for fuller bins (lower remaining capacity)
+
+    # Introduce a slight penalty for bins that are *too* close in size to the item
+    # This can sometimes prevent very tight fits that block future, potentially better fits.
+    too_close_threshold = item * too_close_fraction  # e.g., if item is 10, penalize if remaining space is less than 1
+    too_close = fit_score < too_close_threshold
+    priorities[valid_bins][too_close] *= too_close_penalty  # Reduce priority if too close.
+
+    return priorities
