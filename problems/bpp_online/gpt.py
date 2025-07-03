@@ -11,37 +11,22 @@ def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
         Array of same size as bins_remain_cap with priority score of each bin.
     """
     priorities = np.zeros_like(bins_remain_cap, dtype=float)
-
-    # Feasibility check: eliminate bins that can't fit the item
-    feasible_bins = bins_remain_cap >= item
-    priorities[~feasible_bins] = -np.inf  # Set priority to negative infinity if not feasible
-    priorities[bins_remain_cap == 0] = -np.inf # Never pick a full bin
-
-    # Minimize waste (Best Fit): prioritize bins with the least remaining space after placement
-    waste = bins_remain_cap - item
-    waste[~feasible_bins] = np.inf  # Ignore infeasible bins for waste calculation
     
-    # Inverse Waste
-    inverse_waste = 1 / (waste + 0.0001)  # Adding a small constant to avoid division by zero
-    inverse_waste[~feasible_bins] = 0
-    priorities += inverse_waste
+    # Rule 1: If the item fits perfectly, highest priority
+    perfect_fit = np.isclose(item, bins_remain_cap)
+    priorities[perfect_fit] = np.inf
 
-    # Capacity utilization
-    capacity_utilization = item / (bins_remain_cap + 0.0001) #avoid div by 0
-    capacity_utilization[~feasible_bins] = 0
-    priorities += capacity_utilization
+    # Rule 2: Higher priority if the item almost fits, minimizing waste
+    almost_fit = (item < bins_remain_cap) & (bins_remain_cap < item * 1.05) # within 5%
+    if np.any(almost_fit):
+        priorities[almost_fit] = 100 / (bins_remain_cap[almost_fit] - item + 0.0001) # Inverse of remaining space. smaller the better. Add a small number to avoid division by zero
 
-    # Perfect fills
-    perfect_fit = np.isclose(waste, 0)
-    priorities[perfect_fit] += 10  # Increased perfect fit bonus
+    # Rule 3: Give some priority for bins that fit, scaled to remaining capacity and a penalty for too much free space.
+    fits = (item <= bins_remain_cap) & ~perfect_fit & ~almost_fit
+    if np.any(fits):
+        priorities[fits] = (bins_remain_cap[fits] - item) / bins_remain_cap[fits] - 0.5 * (bins_remain_cap[fits] / np.max(bins_remain_cap)) # penalize bins with high remaining capacity
 
-    # Dynamic Adjustment: Encourage filling bins closer to the average fill level
-    average_fill = np.mean(np.where(bins_remain_cap>0, 1 - bins_remain_cap / np.max(bins_remain_cap),0 )) #avg fill level
-    fill_levels = np.where(bins_remain_cap>0,1 - bins_remain_cap / np.max(bins_remain_cap),0)
+    # Rule 4: zero priority for items that doesn't fit.
+    priorities[item > bins_remain_cap] = -np.inf
     
-    fill_level_diff = np.abs(fill_levels - average_fill)
-    priority_adjustment = -fill_level_diff * 2
-    priorities += priority_adjustment
-    
-
     return priorities

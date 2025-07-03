@@ -17,6 +17,7 @@ class HSEvo:
         self.function_evals = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
+        self.llm_request = 0
         self.elitist = None
         self.best_obj_overall = float("inf")
         self.long_term_reflection_str = ""
@@ -99,6 +100,7 @@ class HSEvo:
     def cal_usage_LLM(self, lst_prompt, lst_completion, encoding_name="cl100k_base"):
         """Returns the number of tokens in a text string."""
         encoding = tiktoken.get_encoding(encoding_name)
+        self.llm_request += len(lst_prompt)
         for i in range(len(lst_prompt)):
             for message in lst_prompt[i]:
                 for key, value in message.items():
@@ -348,6 +350,7 @@ class HSEvo:
         logging.info(f"Iteration {self.iteration} finished...")
         logging.info(f"Best obj: {self.best_obj_overall}, Best Code Path: {self.best_code_path_overall}")
         logging.info(f"LLM usage: prompt_tokens = {self.prompt_tokens}, completion_tokens = {self.completion_tokens}")
+        logging.info(f"LLM Requests: {self.function_evals}")
         logging.info(f"Function Evals: {self.function_evals}")
         self.iteration += 1
 
@@ -670,7 +673,7 @@ class HSEvo:
         return population_hs[best_obj_id]
 
     def evolve(self):
-        while (self.prompt_tokens + self.completion_tokens) < self.cfg.max_token and self.iteration < 180:
+        while (self.prompt_tokens + self.completion_tokens) < self.cfg.max_token:
             # If all individuals are invalid, stop
             if all([not individual["exec_success"] for individual in self.population]):
                 raise RuntimeError(f"All individuals are invalid. Please check the stdout files in {os.getcwd()}.")
