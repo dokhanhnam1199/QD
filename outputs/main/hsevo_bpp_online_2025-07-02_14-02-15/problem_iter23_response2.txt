@@ -1,0 +1,40 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes best-fit, adaptive exploration, frag. penalty, sweet spot."""
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if np.any(feasible_bins):
+        waste = bins_remain_cap[feasible_bins] - item
+
+        # Best-fit
+        priorities[feasible_bins] = 1 / (waste + 1e-6)
+
+        # Adaptive exploration
+        relative_item_size = item / bins_remain_cap[feasible_bins]
+        exploration_factor = 0.1 * (1 - relative_item_size)
+        exploration_factor = np.clip(exploration_factor, 0.01, 0.2)
+        priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * exploration_factor
+
+        # Fragmentation Penalty (Capacity-Aware)
+        common_item_sizes = np.array([0.2, 0.3, 0.4])
+        remaining_capacity_after_packing = waste
+        fragmentation_penalty = np.zeros_like(remaining_capacity_after_packing)
+        for size in common_item_sizes:
+            fragmentation_penalty += np.exp(-np.abs(remaining_capacity_after_packing - size) / 0.05)
+        priorities[feasible_bins] -= 0.05 * fragmentation_penalty
+        
+        # Sweet Spot Incentive: Simplified and robust.
+        utilization_lower = 0.7
+        utilization_upper = 0.9
+        utilization = (bins_remain_cap[feasible_bins] - waste)  # No need to divide by bin size if bin size == 1
+        sweet_spot = (utilization > utilization_lower) & (utilization < utilization_upper)
+        priorities[feasible_bins][sweet_spot] += 0.4
+
+    else:
+        priorities[:] = -np.inf
+
+    return priorities
+```

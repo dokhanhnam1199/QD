@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes best-fit with adaptive penalties and dynamic exploration.
+    Emphasizes a balance between bin utilization and preventing extreme fragmentation,
+    adjusting strategies based on item size and bin availability. Includes bin history.
+    This version prioritizes simplicity and demonstrable impact, validated empirically.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if np.any(feasible_bins):
+        waste = bins_remain_cap[feasible_bins] - item
+        
+        # Core: Prioritize best fit (minimize waste).
+        priorities[feasible_bins] = 1 / (waste + 1e-9)  # Tiny constant to avoid division by zero
+
+        # Adaptive Exploration:  Simple exploration scaled by item size and feasibility.
+        exploration_factor = 0.05 * item * np.sum(feasible_bins) # Keep exploration simple initially.
+        priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * exploration_factor
+
+        # Fragmentation Penalty: Focus on almost-full bins with a simple penalty.
+        almost_full_threshold = 0.1  # Define "almost full" as remaining capacity <= 10% of bin size
+        wasted_space_ratio = waste / bins_remain_cap[feasible_bins]
+        almost_full = wasted_space_ratio < almost_full_threshold
+        priorities[feasible_bins][almost_full] *= 0.5  # Simple penalty: reduce priority by half.
+
+        # Sweet Spot Incentive: Prioritize bins within a desirable utilization range.
+        sweet_spot_lower = 0.6
+        sweet_spot_upper = 0.9
+        utilization = (bins_remain_cap[feasible_bins] - waste)
+        sweet_spot = (utilization > sweet_spot_lower) & (utilization < sweet_spot_upper)
+        priorities[feasible_bins][sweet_spot] += 0.3  # Add a reward for bins in the sweet spot.
+
+        # Bin Usage History: Penalize recently used bins (if available).
+        try:
+            bin_usage_history  # Check if bin_usage_history exists
+            usage_penalty = bin_usage_history[feasible_bins] * 0.1  # Simple penalty.
+            priorities[feasible_bins] -= usage_penalty
+        except NameError:
+            pass  # If bin_usage_history doesn't exist, skip this step.
+
+    else:
+        priorities[:] = -np.inf  # No feasible bins
+
+    return priorities
+```

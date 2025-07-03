@@ -1,0 +1,42 @@
+```python
+import numpy as np
+
+small_number = 1e-6
+tight_fit_weight = 1.0
+fill_ratio_weight = 1.0
+random_priority_scale = 0.01
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins based on a combination of factors, including remaining capacity,
+    fill ratio, and a bin utilization target. Also adds a small penalty for bins that are very empty.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    infeasible = item > bins_remain_cap
+    priorities[infeasible] = -np.inf
+    feasible = ~infeasible
+
+    if np.any(feasible):
+        remaining_capacity = bins_remain_cap[feasible]
+        # Tight-fit prioritization
+        tight_fit_score = tight_fit_weight / (np.abs(remaining_capacity - item) + small_number)
+
+        # Fill ratio prioritization, with emphasis on better utilization
+        fill_ratio = (remaining_capacity - item) / remaining_capacity
+        fill_ratio_score = fill_ratio_weight * (1 - fill_ratio) # Prefer higher fill ratios
+        
+        # Introduce bin utilization target.  Let's say we want bins to be around 75% full on average.
+        target_utilization = 0.75
+        bin_size = 1.0  # Assuming bins have size 1
+        target_remaining = bin_size * (1 - target_utilization)
+        utilization_score = -np.abs(remaining_capacity - target_remaining)
+
+        # Small penalty for almost empty bins. This encourages using already partially filled bins.
+        empty_bin_penalty = -np.exp(-remaining_capacity * 10) # Exponential penalty
+
+        priorities[feasible] = tight_fit_score + fill_ratio_score + utilization_score + empty_bin_penalty
+
+    else:
+        priorities = bins_remain_cap + np.random.rand(len(bins_remain_cap)) * random_priority_scale
+
+    return priorities
+```

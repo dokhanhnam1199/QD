@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins considering waste, overflow, fullness, and bin diversity,
+    with adaptive elements and hyperparameter tuning.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    waste = bins_remain_cap - item
+    max_cap = np.max(bins_remain_cap) if len(bins_remain_cap) > 0 else 1.0
+    avg_cap = np.mean(bins_remain_cap) if len(bins_remain_cap) > 0 else 1.0
+
+    # Hyperparameters (tune these!)
+    fit_reward = 1.0
+    overflow_penalty_factor = 0.5
+    fullness_bonus_factor = 0.15
+    close_fit_threshold = 0.2
+    close_fit_ratio_boost = 0.75
+    diversity_boost_threshold = 0.5  # Fraction of avg cap
+    diversity_boost_factor = 0.2
+    empty_bin_penalty = 0.1 # Reduce the chance of selecting bins with very small remaining capacity
+
+
+    # Reward bins where the item fits
+    fit_mask = waste >= 0
+    priorities[fit_mask] = fit_reward / (waste[fit_mask] + 0.000001)
+
+    # Penalize overflow, relative to the maximum bin capacity
+    overflow_mask = ~fit_mask
+    overflow = item - bins_remain_cap[overflow_mask]
+    priorities[overflow_mask] = - overflow_penalty_factor * overflow / (max_cap + 0.000001)
+
+    # Bonus for bins that are already relatively full
+    fullness = 1 - bins_remain_cap / (max_cap + 0.000001)
+    priorities += fullness_bonus_factor * fullness
+
+    # Further boost bins with small waste, using a ratio-based approach
+    close_fit_mask = fit_mask & (waste <= (close_fit_threshold * max_cap))
+    if np.any(close_fit_mask):
+        ratios = item / bins_remain_cap[close_fit_mask]
+        priorities[close_fit_mask] += close_fit_ratio_boost * np.log(ratios)
+
+    # Encourage diversity in bin usage - prioritize bins with remaining capacity
+    # around a target value (e.g., average capacity) if there is a significant
+    # number of them. This can prevent excessive fragmentation.
+    diversity_mask = (bins_remain_cap >= diversity_boost_threshold * avg_cap) & fit_mask # only consider the ones which the item fits
+    if np.any(diversity_mask):
+         priorities[diversity_mask] += diversity_boost_factor
+
+    #Penalize almost empty bins to encourage filling partially used bins
+    small_capacity_mask = bins_remain_cap > (0.95*max_cap)
+    priorities[small_capacity_mask] -= empty_bin_penalty
+
+    return priorities
+```

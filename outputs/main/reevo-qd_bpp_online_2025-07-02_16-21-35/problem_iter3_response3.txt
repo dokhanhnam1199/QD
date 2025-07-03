@@ -1,0 +1,48 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Eligibility check: bins that can accommodate the item
+    eligible_bins = bins_remain_cap >= item
+    if not np.any(eligible_bins):
+        return priorities #If there is no eligible bin, then all the priorites are zero.
+
+    priorities[eligible_bins] += 1  # Base priority for eligible bins
+
+    # Waste minimization: prioritize bins with minimal wasted space
+    waste = bins_remain_cap - item
+    waste[waste < 0] = np.inf  # Ignore bins where item doesn't fit.
+    min_waste = np.min(waste[eligible_bins]) #Get the minimum waste, only considering the eligible bins
+
+    best_fit_bins = np.isclose(waste, min_waste) & eligible_bins #Check each bin that satisfies the min_waste and eligibility
+    priorities[best_fit_bins] += 3  # Higher priority for minimal waste
+    
+
+    # Capacity utilization: prioritize bins that are already somewhat full, but avoid filling completely
+    # unless its best fit. This will keep a few bins partially empty to give better packing for later items.
+
+    capacity_utilization = item / bins_remain_cap
+    capacity_utilization[~eligible_bins] = 0  # Ignore ineligible bins
+
+    priorities += capacity_utilization * 0.5 #Scale this parameter down to avoid making bins completely full
+
+    # Small adjustment to prevent overfilling, but encourage near-full packing
+    almost_full = (bins_remain_cap - item) < 0.1 * bins_remain_cap.max() #Bins that becomes almost full after adding the item
+    priorities[almost_full & eligible_bins] += 1 #Give more priority to bins that would become almost full
+    
+    # Edge case: prevent selection of full bins
+    priorities[bins_remain_cap == 0] = -np.inf  # Never pick a bin that's already full.
+
+    return priorities
+```

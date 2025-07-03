@@ -1,0 +1,51 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Initialize with a very small negative value for bins that can't fit the item.
+    infeasible_bins = bins_remain_cap < item
+    priorities[infeasible_bins] = -1e9
+
+    # Calculate remaining capacity after placing item.
+    remaining_capacities = bins_remain_cap - item
+
+    # Identify bins where the item fits.
+    available_bins = ~infeasible_bins
+
+    # Prioritize bins based on "good fit" using relative remaining capacity and item size.
+    # The goal is to minimize waste (small remaining capacity) without overcrowding (item too large relative to bin size).
+    fit_threshold_waste = 0.3  # Allow up to 30% waste relative to item size.
+    fit_threshold_frag = 0.8 #Allow item to fill almost the entire bin
+    
+    waste_penalty = np.zeros_like(bins_remain_cap, dtype=float)
+    fragmentation_penalty = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Waste penalty: higher penalty for more waste relative to item size.
+    waste_penalty[available_bins] = np.clip(remaining_capacities[available_bins] / item, 0, fit_threshold_waste)
+    
+    # Fragmentation penalty: higher penalty if the item fills a small portion of the bin, creating fragmentation
+    fragmentation_penalty[available_bins] = np.clip(1 - (item / bins_remain_cap[available_bins]), 0, fit_threshold_frag)
+    
+    # Combine waste and fragmentation penalties and invert to create priority
+    priorities[available_bins] = 1 - (waste_penalty[available_bins] + fragmentation_penalty[available_bins])
+    
+    # Scale by inverse bin size to prefer filling smaller bins first, and add a bias
+    priorities[available_bins] /= (bins_remain_cap[available_bins] + 0.1)
+    priorities[available_bins] += 0.1
+
+    # Add small noise to break ties.
+    priorities[available_bins] += np.random.normal(0, 1e-6, size=np.sum(available_bins))
+
+    return priorities
+```

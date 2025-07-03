@@ -1,0 +1,48 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes best-fit, adds moderate stochasticity, actively manages fragmentation,
+    dynamically adjusts based on item size, and encourages balanced bin utilization.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if np.any(feasible_bins):
+        waste = bins_remain_cap[feasible_bins] - item
+        
+        # Prioritize based on inverse waste (best fit), with a slight smoothing factor
+        priorities[feasible_bins] = 1 / (waste + 0.001)
+        
+        # Moderate stochasticity for exploration, scaled by item size.  Smaller items get more stochasticity.
+        priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * (0.05 / (item + 0.1))
+
+        # Aggressively penalize almost full bins to combat fragmentation, relative to item size.
+        wasted_space_ratio = waste / bins_remain_cap[feasible_bins]
+        almost_full = wasted_space_ratio < (0.1 + 0.05*item) #Dynamic threshold based on item size
+        priorities[feasible_bins][almost_full] *= 0.2  # Further reduce priority of almost full bins
+
+        # Reward filling up larger bins, but only if the item is reasonably large. This mitigates issues of tiny items over-filling large bins
+        if item > 0.2:
+            large_cap_reward = np.where(bins_remain_cap[feasible_bins] > (1 - item)*0.8, 0.4, 0)
+            priorities[feasible_bins] += large_cap_reward
+        
+        # Incentivize bins towards a target utilization range, adjusted dynamically
+        target_utilization_low = 0.6 - 0.1 * item  # Target lower for larger items
+        target_utilization_high = 0.8 - 0.05*item #Target higher for smaller items.
+        
+        utilization = (bins_remain_cap[feasible_bins] - waste) 
+        utilization /= 1.0 #Assuming bin size is 1
+        sweet_spot = (utilization >= target_utilization_low) & (utilization <= target_utilization_high)
+        priorities[feasible_bins][sweet_spot] += 0.3  # Give a boost to bins in the sweet spot.
+
+        # Small Items to empty bins:
+        empty_ish = bins_remain_cap[feasible_bins] > 0.9
+        if item < 0.1:
+             priorities[feasible_bins][empty_ish] += 0.2
+
+    else:
+        priorities[:] = -np.inf # Assign negative infinity priority to infeasible bins
+
+    return priorities
+```

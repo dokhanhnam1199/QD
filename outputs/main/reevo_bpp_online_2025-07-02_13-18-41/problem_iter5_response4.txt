@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Infeasible bins get a large negative priority
+    infeasible_bins = bins_remain_cap < item
+    priorities[infeasible_bins] = -1e9
+
+    # Calculate remaining space after placing the item
+    remaining_space = bins_remain_cap - item
+    remaining_space[remaining_space < 0] = np.inf  # Mark infeasible bins
+
+    # Capacity ratio
+    capacity_ratio = item / bins_remain_cap
+
+    # Reward near-full bins, penalize large gaps
+    near_full_threshold = 0.9
+    large_gap_threshold = 0.1
+
+    near_full_bonus = 5.0
+    large_gap_penalty = -3.0
+
+    near_full_bins = (remaining_space / bins_remain_cap) < (1 - near_full_threshold)
+    large_gap_bins = (remaining_space / bins_remain_cap) > large_gap_threshold
+    
+    priorities[near_full_bins & ~infeasible_bins] += near_full_bonus
+    priorities[large_gap_bins & ~infeasible_bins] += large_gap_penalty
+
+    # Fill density reward
+    priorities[~infeasible_bins] += capacity_ratio[~infeasible_bins] * 2
+
+    # Adaptive penalty for excessive waste relative to item size
+    waste_ratio = remaining_space / item
+    excessive_waste = waste_ratio > 1.0
+    priorities[excessive_waste & ~infeasible_bins] -= 2 * waste_ratio[excessive_waste & ~infeasible_bins]
+
+    # Adaptive bonus for filling close to the bin's capacity
+    fullness_ratio = item / bins_remain_cap
+    high_fullness = fullness_ratio > 0.7
+    priorities[high_fullness & ~infeasible_bins] += 3 * fullness_ratio[high_fullness & ~infeasible_bins]
+
+    # Noise for tie-breaking
+    priorities[~infeasible_bins] += np.random.normal(0, 1e-6, size=np.sum(~infeasible_bins))
+
+    return priorities
+```

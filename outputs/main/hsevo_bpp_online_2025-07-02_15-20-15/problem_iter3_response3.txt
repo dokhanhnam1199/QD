@@ -1,0 +1,55 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This version introduces several improvements over v1:
+    1.  Capacity threshold: Bins with remaining capacity significantly larger than the item size are penalized.
+    2.  Bin Utilization: Encourages packing into bins that, after the item is added, have a utilization rate close to a target utilization (e.g., 70-80%).
+    3.  Handling Empty Bins: Provides a more controlled approach for selecting new empty bins.
+    4.  Prioritizes the best fit but also takes into account bin utilization to improve overall packing density.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Infeasible bins are strictly penalized
+    infeasible = item > bins_remain_cap
+    priorities[infeasible] = -np.inf
+
+    feasible = item <= bins_remain_cap
+    if not np.any(feasible):
+        # if no bins are available, slightly penalize lower indexes to add to the end of list of empty bins.
+        priorities = -np.arange(len(bins_remain_cap))
+        return priorities
+
+    remaining_capacity_after_placement = bins_remain_cap[feasible] - item
+    initial_capacity = bins_remain_cap[feasible] + remaining_capacity_after_placement  # Infer initial bin capacity
+
+    # Calculate bin utilization after placing the item
+    bin_utilization = (initial_capacity - remaining_capacity_after_placement) / initial_capacity
+
+    # Target utilization (e.g., 75%)
+    target_utilization = 0.75
+
+    # Utilization score: Higher score for bins closer to target utilization.  Gaussian-like function.
+    utilization_score = np.exp(-((bin_utilization - target_utilization) ** 2) / (2 * 0.1 ** 2))  # Adjust std dev (0.1) to control score spread.
+
+    # Fit score: Prioritize bins that fit the item well (smaller remaining space)
+    fit_score = np.exp(-5 * remaining_capacity_after_placement / np.max(initial_capacity)) if np.max(initial_capacity) > 0 else 1 #Prevent division by zero.
+
+    # Combine utilization and fit scores. Adjust weights as needed.
+    priorities[feasible] = 0.7 * fit_score + 0.3 * utilization_score
+
+    # Penalize bins with too much remaining capacity (relative to item size).  This encourages filling partially filled bins.
+    too_much_space = remaining_capacity_after_placement > 2 * item
+    priorities[feasible][too_much_space] *= 0.5  # Reduce priority if too much space is left.
+
+    return priorities
+```

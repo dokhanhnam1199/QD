@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+    Adaptive Capacity Matching Heuristic: Prioritizes bins based on a combination
+    of remaining capacity, the 'fit' of the item into the bin (how much space is
+    left over), and a penalty for bins that are too full already.  Uses a dynamic
+    scaling factor based on the distribution of bin capacities to adapt to different
+    problem instances.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+
+    valid_bins = bins_remain_cap > 0
+    if not np.any(valid_bins):
+        return np.zeros_like(bins_remain_cap)
+
+    # Calculate remaining space after placing the item
+    remaining_space = bins_remain_cap - item
+
+    # Fit score: Smaller remaining space after placing the item is better, but only if it fits
+    fit_score = np.where(remaining_space >= 0, 1 / (remaining_space + 1e-6), -np.inf)  # Avoid division by zero
+
+    # Capacity score: Bins with larger remaining capacity are generally preferred, but scaled
+    # to prevent dominating the fit score, especially when capacities are very different
+    capacity_score = bins_remain_cap / (np.max(bins_remain_cap) + 1e-6)
+
+    # Fullness penalty: Penalize bins that are already quite full (e.g., more than 80% full) *before* placing the item.
+    fullness_threshold = 0.8
+    fullness_penalty = np.where(bins_remain_cap / np.max(bins_remain_cap) < (1 - fullness_threshold), 1, 0.1) # give a small weight
+
+    # Adaptive scaling: Dynamically scale the scores based on the distribution of bin capacities.
+    capacity_std = np.std(bins_remain_cap)
+    scaling_factor = 1 + (capacity_std / (np.max(bins_remain_cap) + 1e-6)) # Scale based on capacity variation.
+
+    # Combine scores to create a priority
+    priorities = fullness_penalty * (fit_score + scaling_factor * capacity_score)
+
+    priorities = np.where(~valid_bins, -np.inf, priorities) # Ensure initially invalid bins have -inf priorities
+    priorities = np.nan_to_num(priorities, neginf=-np.inf) # Handle any potential NaN or inf values
+
+    return priorities
+```

@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+
+    # 1. Feasibility: Only consider bins that can accommodate the item
+    feasible_bins = bins_remain_cap >= item
+    priorities[~feasible_bins] = -np.inf  # Mark infeasible bins with negative infinity
+
+    # 2. Remaining capacity as a priority: Smaller remaining capacity is better, but avoid perfect fits unless necessary
+    remaining_space = bins_remain_cap - item
+    
+    #Smallest feasible remaining space
+    smallest_remaining = np.min(remaining_space[feasible_bins]) if np.any(feasible_bins) else np.inf
+    
+    
+    # Penalize too tight of fits unless that is the best feasible bin
+    tight_fit_penalty = 0.1
+    near_perfect_fit = np.isclose(remaining_space,0) #Perfect fit means bin_remain_cap = item
+
+    #Perfect fit gives huge incentive
+    perfect_fit_bonus = 10
+
+    #Bins with near perfect fits should get a huge boost
+
+    priorities[near_perfect_fit] += perfect_fit_bonus
+
+    # 3. Normalize the remaining capacity scores so its on the scale of 0-1
+    normalized_remaining_space = remaining_space / np.max(bins_remain_cap)
+
+    #Bins with significant remaining space after placing item should be rewarded, we will reward by a log score
+    log_remaining_space = np.log(np.clip(1 - normalized_remaining_space, a_min = 0.001, a_max = 1.0))
+    
+    priorities[feasible_bins] +=  -log_remaining_space[feasible_bins]
+    
+    #If it is very tight fit, penalize if that bin is not the best feasible bin
+    almost_full = (remaining_space > 0) & (remaining_space < 0.1 * np.max(bins_remain_cap))
+
+    best_feasible_index = np.argmin(remaining_space[feasible_bins]) if np.any(feasible_bins) else -1
+
+    if best_feasible_index != -1:
+        #Determine index of best bin in full list
+        true_best_feasible_index = np.where(feasible_bins)[0][best_feasible_index]
+        
+        #Loop through each bin
+        for i, bin_is_almost_full in enumerate(almost_full):
+            #Determine if it is a tight fit
+            if bin_is_almost_full:
+                #If it is and it is not the best feasible bin, penalize it.
+                if i != true_best_feasible_index:
+                  priorities[i] -= tight_fit_penalty
+
+    return priorities
+```

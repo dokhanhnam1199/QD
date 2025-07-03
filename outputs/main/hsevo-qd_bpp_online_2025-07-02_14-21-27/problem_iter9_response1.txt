@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines several factors (remaining capacity, item size ratio, and a bin usage score)
+    with adaptive weighting and exploration to improve bin packing decisions.
+    """
+    valid_bins = bins_remain_cap > 0
+    if not np.any(valid_bins):
+        return np.zeros_like(bins_remain_cap)
+
+    safe_bins_remain_cap = np.where(valid_bins, bins_remain_cap, np.inf)
+
+    # 1. Remaining Capacity Component (Similar to First-Fit Decreasing)
+    capacity_priority = safe_bins_remain_cap
+
+    # 2. Item Size Ratio Component (How well the item fits)
+    ratio_priority = np.clip(safe_bins_remain_cap / item, 0.001, 1000)
+    ratio_priority = np.log(ratio_priority)  # Stabilize with log
+
+    # 3. Bin Usage Score (Encourage filling partially empty bins)
+    bin_usage = 1 - (safe_bins_remain_cap / np.max(bins_remain_cap))  # Normalize and invert
+    bin_usage_priority = np.nan_to_num(bin_usage, nan=0.0)  # Handle potential NaN if all bins are empty
+
+    # 4. First-Fit Heuristic (Small bias towards using the first available bin)
+    first_fit_priority = np.arange(len(bins_remain_cap), 0, -1) # Prioritize smaller indexes
+
+    # 5. Adaptive Weighting (Based on item size and bin capacities)
+    item_fraction = np.clip(item / (np.mean(bins_remain_cap) + 1e-9), 0.0, 1.0)
+    capacity_weight = 1 - item_fraction
+    ratio_weight = item_fraction
+    usage_weight = 0.5 * item_fraction
+    first_fit_weight = 0.1 # Give some weight to first fit to break ties
+
+    # Combine the priorities with adaptive weights
+    combined_priority = (
+        capacity_weight * capacity_priority +
+        ratio_weight * ratio_priority +
+        usage_weight * bin_usage_priority +
+        first_fit_weight * first_fit_priority
+    )
+
+    # Exploration: Add a small random value to encourage exploring different options
+    exploration_factor = 0.001
+    exploration_noise = np.random.normal(0, exploration_factor, size=len(bins_remain_cap))
+    combined_priority += exploration_noise
+
+    combined_priority = np.nan_to_num(combined_priority, neginf=-np.inf)
+    priorities = np.where(~valid_bins, -np.inf, combined_priority)
+
+    return priorities
+```

@@ -1,0 +1,66 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Infeasibility penalty
+    infeasible_bins = bins_remain_cap < item
+    priorities[infeasible_bins] = -1e9
+
+    available_bins = bins_remain_cap >= item
+
+    if np.any(available_bins):
+        # Calculate wasted space
+        wasted_space = bins_remain_cap[available_bins] - item
+
+        # Relative wasted space priority.
+        relative_wasted_space = wasted_space / (item + 1e-9)
+        priorities[available_bins] = -relative_wasted_space
+
+        # Target fullness bonus. Adaptive target based on item size.
+        max_cap = np.max(bins_remain_cap)
+        target_fullness = max_cap - 0.25 * max_cap # Aim for 75% fullness post-packing.
+        target_range = 0.15 * max_cap  # Allowable deviation.
+        bonus_strength = 1.0
+        target_bonus = bonus_strength * np.exp(-((bins_remain_cap[available_bins] - item - target_fullness) ** 2) / (2 * target_range ** 2))
+        priorities[available_bins] += target_bonus
+
+        # Adaptive large gap penalty based on item and bin size.
+        large_gap_threshold = 0.4 * item
+        large_gap_penalty_strength = 0.5
+        large_gap_penalty = (wasted_space > large_gap_threshold) * (wasted_space / max_cap) * large_gap_penalty_strength if max_cap > 0 else (wasted_space > large_gap_threshold) * wasted_space * large_gap_penalty_strength
+        priorities[available_bins] -= large_gap_penalty
+
+        # Adaptive tight fit bonus.
+        tight_fit_threshold = 0.15 * item
+        tight_fit_bonus_strength = 0.75
+        tight_fit_bonus = (wasted_space <= tight_fit_threshold) * (item / max_cap) * tight_fit_bonus_strength if max_cap > 0 else (wasted_space <= tight_fit_threshold) * item * tight_fit_bonus_strength
+        priorities[available_bins] += tight_fit_bonus
+
+        # Almost full bonus: increase the chance to fill a bin completely
+        almost_full_threshold = 0.1 * max_cap
+        almost_full = (bins_remain_cap[available_bins] >= item) & (wasted_space < almost_full_threshold)
+        priorities[available_bins][almost_full] += 5
+
+        # Bin utilization bonus to utilize most of the available bins
+
+        bin_utilization = (max_cap - bins_remain_cap[available_bins]) / max_cap if max_cap > 0 else 0.0
+        priorities[available_bins] += bin_utilization * 0.1
+
+        # Random noise for tie-breaking.  Reduced magnitude.
+        noise_std = 1e-7 * max_cap if max_cap > 0 else 1e-7
+        priorities[available_bins] += np.random.normal(0, noise_std, size=np.sum(available_bins))
+
+    return priorities
+```

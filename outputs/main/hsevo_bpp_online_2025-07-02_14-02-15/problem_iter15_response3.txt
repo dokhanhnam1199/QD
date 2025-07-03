@@ -1,0 +1,74 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes bins based on a combination of best-fit, fragmentation avoidance,
+    item-size awareness, and bin-utilization targets.  This version incorporates
+    a learning rate to adapt the penalty for fragmentation, and adjusts the
+    exploration factor based on bin fullness and the number of feasible bins.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if np.any(feasible_bins):
+        waste = bins_remain_cap[feasible_bins] - item
+        
+        # Best-Fit Priority: Inverted waste, with a small constant to prevent division by zero
+        priorities[feasible_bins] = 1 / (waste + 0.00001)
+
+        # Adaptive Exploration: Adjust exploration based on feasibility and bin fullness.
+        num_feasible = np.sum(feasible_bins)
+        avg_bin_utilization = np.mean((1 - bins_remain_cap[feasible_bins])) if num_feasible > 0 else 0
+        exploration_factor = min(0.3, 0.05 * num_feasible * (1 - avg_bin_utilization))  # Increased Base, reduced max. Adjust based on fullness.
+        priorities[feasible_bins] += np.random.rand(num_feasible) * exploration_factor
+
+        # Fragmentation Penalty: Dynamic penalty based on remaining capacity ratio.
+        wasted_space_ratio = waste / bins_remain_cap[feasible_bins]
+        almost_full = wasted_space_ratio < 0.05
+        penalty = 0.3
+
+        # Introduce a Learning Rate (simple exponentially weighted average)
+        # This is a placeholder. In a real-world scenario, this would be persisted
+        # and updated over multiple calls to the function.  It simulates feedback
+        # on past bin choices and their impact on fragmentation.  We'll assume
+        # that excessive fragmentation leads to a higher penalty.
+        global fragmentation_penalty_adjustment
+        if 'fragmentation_penalty_adjustment' not in globals():
+            fragmentation_penalty_adjustment = 0.0  # Initialize penalty
+
+        # Simulate fragmentation feedback (replace with real-world feedback).
+        # Here, we reduce the adjustment if the bin is almost full; this incentivizes
+        # using the bin (reducing the penality) as long as it does not lead to much waste.
+        # The adjustment is for the NEXT iteraction!
+        if np.any(almost_full):
+            fragmentation_penalty_adjustment = 0.9 * fragmentation_penalty_adjustment  # Decay
+        else:
+            fragmentation_penalty_adjustment = 0.9 * fragmentation_penalty_adjustment + 0.01  # Increase
+
+        penalty -= fragmentation_penalty_adjustment  # Apply the adjustment. Make penalty smaller if fragmentation is low.
+        penalty = max(0, penalty) #Ensure Penalty non-negative.
+        
+        priorities[feasible_bins][almost_full] *= (1 - penalty)
+
+        # Reward Larger Bins for Smaller Items
+        small_item_threshold = 0.3  # Items smaller than this are considered "small"
+        large_bin_threshold = 1.5 * item #Define "large" bin based on item size.
+        if item < small_item_threshold:
+            large_bin = bins_remain_cap[feasible_bins] > large_bin_threshold
+            priorities[feasible_bins][large_bin] += 0.5  # Stronger reward for small items in large bins
+        
+        #Dynamic "Sweet Spot" Incentive - refined
+        sweet_spot_lower = 0.7 - (item * 0.25) #More aggressive adjustment
+        sweet_spot_upper = 0.9 - (item * 0.15)  #Less aggressive adjustment
+
+        utilization = (bins_remain_cap[feasible_bins] - waste) / 1.0  # Assuming bin size is 1
+        sweet_spot = (utilization >= sweet_spot_lower) & (utilization <= sweet_spot_upper) #Use >= and <=
+        priorities[feasible_bins][sweet_spot] += 0.6  # Boost "sweet spot"
+
+    else:
+        priorities[:] = -np.inf  # No feasible bins
+
+    return priorities
+```

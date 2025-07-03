@@ -1,0 +1,45 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins considering waste, overflow, fullness, and bin diversity."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    waste = bins_remain_cap - item
+    max_cap = np.max(bins_remain_cap) if len(bins_remain_cap) > 0 else 1.0
+    avg_cap = np.mean(bins_remain_cap) if len(bins_remain_cap) > 0 else 1.0
+
+
+    # Reward bins where the item fits
+    fit_mask = waste >= 0
+    priorities[fit_mask] = 1 / (waste[fit_mask] + 0.000001)
+
+    # Penalize overflow, relative to the maximum bin capacity, but scale based on average capacity
+    overflow_mask = ~fit_mask
+    overflow = item - bins_remain_cap[overflow_mask]
+    priorities[overflow_mask] = - overflow / (avg_cap + 0.000001)
+
+    # Bonus for bins that are already relatively full, boosted with sigmoid function
+    fullness = 1 - bins_remain_cap / (max_cap+0.000001)
+    priorities += 0.2 * (1 / (1 + np.exp(-10 * (fullness - 0.5)))) # Sigmoid centered at 0.5 fullness
+
+    # Further boost bins with small waste, using a ratio-based approach and adaptive threshold
+    close_fit_mask = fit_mask & (waste <= (0.2 * max_cap)) #tune threshold
+    if np.any(close_fit_mask):  # Check if close_fit_mask is not empty
+        ratios = item / bins_remain_cap[close_fit_mask]
+        priorities[close_fit_mask] += 0.7 * np.log(ratios)  # Boost priority, increased weight
+
+
+    # Introduce a diversity factor: Prefer bins with remaining capacity closest to the average
+    diversity_score = -np.abs(bins_remain_cap - avg_cap) / (max_cap + 0.000001)
+    priorities += 0.05 * diversity_score # Lower weight to diversity
+
+    #Adaptive Waste Threshold: Adjust based on the average remaining capacity
+    adaptive_waste_threshold = 0.1 * avg_cap
+    very_close_fit_mask = fit_mask & (waste <= adaptive_waste_threshold)
+    if np.any(very_close_fit_mask):
+        priorities[very_close_fit_mask] += 0.3 #Additional boost to bins where the item almost perfectly fits
+
+
+    return priorities
+```

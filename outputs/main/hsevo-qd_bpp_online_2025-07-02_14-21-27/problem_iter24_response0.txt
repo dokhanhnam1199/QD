@@ -1,0 +1,70 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    An enhanced priority function that dynamically adjusts weights based on bin occupancy
+    and item size, while also incorporating a penalty for near-misses and a probabilistic
+    selection boost for bins with remaining capacity close to the item size.
+    """
+
+    valid_bins = bins_remain_cap > 0
+    if not np.any(valid_bins):
+        return np.zeros_like(bins_remain_cap)
+
+    safe_bins_remain_cap = np.where(valid_bins, bins_remain_cap, np.inf)
+
+    # 1. Capacity-Aware Newtonian Potential (Similar to v1)
+    potential = safe_bins_remain_cap / np.abs(safe_bins_remain_cap - item + 1e-9)
+    newtonian_priority = np.where(safe_bins_remain_cap >= item, potential, -np.inf)
+
+    # 2. Remaining Capacity Ratio (Similar to v1, but with a floor and ceiling)
+    capacity_ratio = np.clip(safe_bins_remain_cap / (item + 1e-9), 0.01, 100)
+    capacity_priority = np.log(capacity_ratio)
+
+    # 3. Bin Utilization with Adaptive Weight
+    max_capacity = np.max(bins_remain_cap)
+    bin_utilization = 1 - (safe_bins_remain_cap / max_capacity)  # Normalize to 0-1
+    # Adaptive weight based on overall bin occupancy.  If most bins are full, prioritize utilization more.
+    average_utilization = np.mean(1 - (bins_remain_cap[valid_bins] / max_capacity)) if np.any(valid_bins) else 0.5
+    utilization_weight = np.clip(average_utilization * 2, 0.1, 0.8)  # Adjust range as needed
+    utilization_priority = np.where(safe_bins_remain_cap >= item, bin_utilization * utilization_weight, -np.inf)
+
+    # 4. Near-Miss Penalty (Discourage leaving very small remaining space)
+    near_miss_threshold = item * 0.1  # Define "near miss" as 10% of item size. Can be tuned
+    near_miss_penalty = np.where((safe_bins_remain_cap >= item) & (safe_bins_remain_cap - item <= near_miss_threshold), -1, 0)  # High penalty
+
+    # 5. Item Size Relative to Average Capacity (Adaptive Weighting - Improved)
+    avg_capacity = np.mean(bins_remain_cap[valid_bins]) if np.any(valid_bins) else 1e-9
+    item_ratio = item / (avg_capacity + 1e-9)
+    weight_newtonian = np.clip(1 - item_ratio, 0.1, 0.9)  # Inverse relationship
+    weight_capacity = np.clip(item_ratio, 0.1, 0.9)
+
+    # 6. Probabilistic "Just Fit" Bonus
+    just_fit_range = item * 0.05  # Range within which a bin is considered a "just fit"
+    just_fit_bonus = np.where(
+        (safe_bins_remain_cap >= item) & (safe_bins_remain_cap <= item + just_fit_range),
+        np.random.uniform(0.1, 0.5),  # Small probabilistic bonus
+        0
+    )
+
+    # 7. Combine Priorities with Adaptive Weights and Bonuses
+    combined_priority = (
+        weight_newtonian * newtonian_priority +
+        weight_capacity * capacity_priority +
+        utilization_priority +
+        near_miss_penalty +
+        just_fit_bonus
+    )
+
+    # 8. Stochastic Exploration (Reduced level)
+    exploration_factor = 0.005  # Reduced Exploration
+    random_noise = np.random.normal(0, exploration_factor, size=bins_remain_cap.shape)
+    combined_priority += random_noise
+
+    # 9. Handle Invalid Bins and NaN values (Same as v1)
+    combined_priority = np.nan_to_num(combined_priority, neginf=-np.inf)
+    priorities = np.where(~valid_bins, -np.inf, combined_priority)
+
+    return priorities
+```

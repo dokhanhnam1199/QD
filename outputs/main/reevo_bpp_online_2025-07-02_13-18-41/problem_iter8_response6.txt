@@ -1,0 +1,58 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    max_bin_cap = np.max(bins_remain_cap)
+
+    # Handle edge case where all bins are empty or max cap is zero
+    if max_bin_cap == 0:
+        max_bin_cap = 1.0  # Avoid division by zero
+
+    # Rule 1: Infeasible bins get a very negative priority.
+    infeasible_bins = bins_remain_cap < item
+    priorities[infeasible_bins] = -1e9
+
+    # Rule 2: Quantify "good fit" using relative wasted space and bin capacity ratio.
+    available_bins = bins_remain_cap >= item
+    if np.any(available_bins):
+        wasted_space = bins_remain_cap[available_bins] - item
+        relative_wasted_space = wasted_space / (item + 1e-9)  # avoid division by zero if item is 0
+
+        # Bin capacity ratio (remaining capacity / total capacity)
+        bin_capacity_ratio = bins_remain_cap[available_bins] / max_bin_cap
+
+        # Good fit = low relative wasted space and moderate to high bin capacity ratio. Invert and scale.
+        priorities[available_bins] = (1.0 / (0.01 + relative_wasted_space)) + bin_capacity_ratio * 0.3
+
+        # Penalize bins which are almost full or empty, scaled by item size ratio and emphasizing almost full
+        occupancy = 1.0 - bin_capacity_ratio
+        occupancy_penalty = np.abs(occupancy - 0.5) * (item / max_bin_cap)
+        priorities[available_bins] -= occupancy_penalty * 0.4  # Increased penalty
+
+        # Reward bins approaching a target fullness (e.g., 75%), scaled by item size. Using a Gaussian distribution for smoother reward
+        target_fullness = 0.75 * max_bin_cap
+        target_range = 0.15 * max_bin_cap  # Increased range for more bins to be in target
+        target_bonus = np.exp(-((bins_remain_cap[available_bins] - item - target_fullness) ** 2) / (2 * target_range ** 2))
+        priorities[available_bins] += target_bonus * 0.7 * (item / max_bin_cap) #Increased bonus
+
+    # Rule 3: Prioritize almost full bins to complete them, scale based on remaining cap
+    almost_full = (bins_remain_cap >= item) & (bins_remain_cap - item < 0.1 * max_bin_cap)
+    if np.any(almost_full):
+        priorities[almost_full] += 12 * (1 - bins_remain_cap[almost_full] / max_bin_cap) #Increased base reward
+
+    # Rule 4: Add some noise to break ties randomly, scaled by item size. Reduce overall noise
+    available_bins = bins_remain_cap >= item
+    priorities[available_bins] += np.random.normal(0, 1e-7 * (item / max_bin_cap), size=np.sum(available_bins))
+
+    return priorities
+```

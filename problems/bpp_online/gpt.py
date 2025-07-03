@@ -1,62 +1,47 @@
 import numpy as np
 
 def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
-    """Combines waste minimization, target fill, adaptive weighting, and stochasticity.
-    Improved by adding small item bonus and dynamic bin count penalty.
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
     """
     priorities = np.zeros_like(bins_remain_cap, dtype=float)
-    can_fit = bins_remain_cap >= item
 
-    if not np.any(can_fit):
-        return np.full_like(priorities, -1.0)
+    # Feasibility check: eliminate bins that can't fit the item
+    feasible_bins = bins_remain_cap >= item
+    priorities[~feasible_bins] = -np.inf  # Set priority to negative infinity if not feasible
+    priorities[bins_remain_cap == 0] = -np.inf # Never pick a full bin
 
-    valid_bins = np.where(can_fit)[0]
-    remaining_after = bins_remain_cap[can_fit] - item
-    bin_capacity = bins_remain_cap.max()
-    num_bins = len(bins_remain_cap)
+    # Minimize waste (Best Fit): prioritize bins with the least remaining space after placement
+    waste = bins_remain_cap - item
+    waste[~feasible_bins] = np.inf  # Ignore infeasible bins for waste calculation
+    
+    # Inverse Waste
+    inverse_waste = 1 / (waste + 0.0001)  # Adding a small constant to avoid division by zero
+    inverse_waste[~feasible_bins] = 0
+    priorities += inverse_waste
 
-    # Waste Minimization
-    waste = remaining_after
-    tightness = 1 / (waste + 0.0001)
+    # Capacity utilization
+    capacity_utilization = item / (bins_remain_cap + 0.0001) #avoid div by 0
+    capacity_utilization[~feasible_bins] = 0
+    priorities += capacity_utilization
 
-    # Target Fill Level
-    target_fill_level = 0.8 * bin_capacity
-    fill_level = bins_remain_cap[can_fit]
-    fill_diff = np.abs(fill_level - target_fill_level)
-    fill_score = np.exp(-fill_diff / (bin_capacity * 0.2))
+    # Perfect fills
+    perfect_fit = np.isclose(waste, 0)
+    priorities[perfect_fit] += 10  # Increased perfect fit bonus
 
-    # Near-Full Penalty (Slightly reduced penalty)
-    near_full_threshold = 0.1 * bin_capacity
-    near_full_penalty = np.where(remaining_after < near_full_threshold, -0.6, 0.0)
-
-    # Small Item Bonus
-    small_item_threshold = bin_capacity * 0.2
-    if item < small_item_threshold:
-        almost_full_threshold = bin_capacity * 0.1
-        almost_full_bonus = np.exp(-remaining_after / (almost_full_threshold + 0.0001))
-    else:
-        almost_full_bonus = 0
-
-    # Adaptive Weighting
-    item_size_factor = item / bin_capacity
-    tightness_weight = 0.5 * (1 - item_size_factor)
-    fill_weight = 0.4 * (1 + item_size_factor)
-    near_full_weight = 0.1
-
-    # Dynamic Bin Count Penalty
-    bins_used = np.sum(bins_remain_cap < bin_capacity)
-    target_bins = int(np.ceil(np.sum(item) / bin_capacity)) if isinstance(item, float) else int(np.ceil(np.sum(item)/bin_capacity))
-
-    over_bins = max(0, bins_used - target_bins)
-    bin_count_penalty = -0.05 * over_bins
-    # Randomness
-    randomness = np.random.rand(len(valid_bins)) * 0.01
-
-    priorities[valid_bins] = (tightness_weight * tightness +
-                               fill_weight * fill_score +
-                               near_full_weight * near_full_penalty +
-                               almost_full_bonus * 0.2 +
-                               bin_count_penalty +
-                               randomness)
+    # Dynamic Adjustment: Encourage filling bins closer to the average fill level
+    average_fill = np.mean(np.where(bins_remain_cap>0, 1 - bins_remain_cap / np.max(bins_remain_cap),0 )) #avg fill level
+    fill_levels = np.where(bins_remain_cap>0,1 - bins_remain_cap / np.max(bins_remain_cap),0)
+    
+    fill_level_diff = np.abs(fill_levels - average_fill)
+    priority_adjustment = -fill_level_diff * 2
+    priorities += priority_adjustment
+    
 
     return priorities

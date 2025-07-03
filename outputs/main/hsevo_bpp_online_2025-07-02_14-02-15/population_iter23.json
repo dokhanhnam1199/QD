@@ -1,0 +1,92 @@
+[
+  {
+    "stdout_filepath": "problem_iter23_response0.txt_stdout.txt",
+    "code_path": "problem_iter23_code0.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes best-fit with adaptive exploration.\n    Balances bin utilization and prevents fragmentation.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    feasible_bins = bins_remain_cap >= item\n\n    if np.any(feasible_bins):\n        waste = bins_remain_cap[feasible_bins] - item\n\n        # Best-fit prioritization\n        tiny_constant = 1e-06\n        priorities[feasible_bins] = 1 / (waste + tiny_constant)\n\n        # Adaptive Exploration: Item size and bin fill level\n        num_feasible = np.sum(feasible_bins)\n        exploration_base = 0.05\n        max_exploration = 0.2\n        exploration_factor = min(max_exploration, exploration_base * (1- bins_remain_cap[feasible_bins].mean()) * item )\n        priorities[feasible_bins] += np.random.rand(num_feasible) * exploration_factor\n\n        # Dynamic Sweet Spot Incentive\n        sweet_spot_lower = 0.6 - (item * 0.2)\n        sweet_spot_upper = 0.9 - (item * 0.1)\n        utilization = (bins_remain_cap[feasible_bins] - waste) / 1.0\n        sweet_spot = (utilization > sweet_spot_lower) & (utilization < sweet_spot_upper)\n        priorities[feasible_bins][sweet_spot] += 0.5\n\n\n        # Fragmentation Penalty: Target almost-full bins, tuned threshold and penalty\n        almost_full_threshold = 0.1  #Slightly higher threshold.\n        almost_full_penalty = 0.2 #Increase the penalty\n        wasted_space_ratio = waste / bins_remain_cap[feasible_bins]\n        almost_full = wasted_space_ratio < almost_full_threshold\n        priorities[feasible_bins][almost_full] *= (1-almost_full_penalty)  # Apply Penalty\n    else:\n        priorities[:] = -np.inf\n\n    return priorities",
+    "response_id": 0,
+    "tryHS": false,
+    "obj": 30.09573195053849,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter23_response1.txt_stdout.txt",
+    "code_path": "problem_iter23_code1.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray, bin_usage_history: np.ndarray = None) -> np.ndarray:\n    \"\"\"Prioritizes best-fit, adaptive exploration, and sweet spot with bin history.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    feasible_bins = bins_remain_cap >= item\n\n    if np.any(feasible_bins):\n        waste = bins_remain_cap[feasible_bins] - item\n\n        # Best-fit prioritization (modified scaling)\n        priorities[feasible_bins] = 5 / (waste + 0.0001)  # Reduced scale\n        priorities[feasible_bins] = np.minimum(priorities[feasible_bins], 25)  # Cap the priority\n\n        # Adaptive exploration (item-dependent, num_feasible bins)\n        num_feasible = np.sum(feasible_bins)\n        stochasticity_factor = 0.05 * (1 - item) / (num_feasible + 0.1)  # Further scaled down\n        priorities[feasible_bins] += np.random.rand(num_feasible) * stochasticity_factor\n\n        # Dynamic sweet spot incentive (item-dependent)\n        sweet_spot_lower = 0.6 - (item * 0.05) # Reduced sensitivity to item size\n        sweet_spot_upper = 0.8 - (item * 0.025) # Reduced sensitivity to item size\n\n        utilization = (bins_remain_cap[feasible_bins] - waste) / 1.0\n        sweet_spot = (utilization > sweet_spot_lower) & (utilization < sweet_spot_upper)\n        priorities[feasible_bins][sweet_spot] += 0.3  # Reduced reward\n\n        # Bin History: Penalize bins that have been filled recently.\n        if bin_usage_history is not None:\n            usage_penalty = bin_usage_history[feasible_bins] * 0.03 #Scaling factor can be tuned. Reduce scale\n            priorities[feasible_bins] -= usage_penalty #Penalize using this bin more.\n\n    else:\n        priorities[:] = -np.inf\n\n    return priorities",
+    "response_id": 1,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter23_response2.txt_stdout.txt",
+    "code_path": "problem_iter23_code2.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes best-fit, adaptive exploration, frag. penalty, sweet spot.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    feasible_bins = bins_remain_cap >= item\n\n    if np.any(feasible_bins):\n        waste = bins_remain_cap[feasible_bins] - item\n\n        # Best-fit\n        priorities[feasible_bins] = 1 / (waste + 1e-6)\n\n        # Adaptive exploration\n        relative_item_size = item / bins_remain_cap[feasible_bins]\n        exploration_factor = 0.1 * (1 - relative_item_size)\n        exploration_factor = np.clip(exploration_factor, 0.01, 0.2)\n        priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * exploration_factor\n\n        # Fragmentation Penalty (Capacity-Aware)\n        common_item_sizes = np.array([0.2, 0.3, 0.4])\n        remaining_capacity_after_packing = waste\n        fragmentation_penalty = np.zeros_like(remaining_capacity_after_packing)\n        for size in common_item_sizes:\n            fragmentation_penalty += np.exp(-np.abs(remaining_capacity_after_packing - size) / 0.05)\n        priorities[feasible_bins] -= 0.05 * fragmentation_penalty\n        \n        # Sweet Spot Incentive: Simplified and robust.\n        utilization_lower = 0.7\n        utilization_upper = 0.9\n        utilization = (bins_remain_cap[feasible_bins] - waste)  # No need to divide by bin size if bin size == 1\n        sweet_spot = (utilization > utilization_lower) & (utilization < utilization_upper)\n        priorities[feasible_bins][sweet_spot] += 0.4\n\n    else:\n        priorities[:] = -np.inf\n\n    return priorities",
+    "response_id": 2,
+    "tryHS": false,
+    "obj": 7.54886318308736,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter23_response3.txt_stdout.txt",
+    "code_path": "problem_iter23_code3.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines best-fit, adaptive exploration, dynamic sweet spot, and fragmentation control.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    feasible_bins = bins_remain_cap >= item\n\n    if np.any(feasible_bins):\n        waste = bins_remain_cap[feasible_bins] - item\n        priorities[feasible_bins] = 1 / (waste + 1e-9)\n\n        exploration_factor = 0.01 * item\n        priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * exploration_factor\n\n        sweet_spot_lower = 0.6 - (0.1 * item)\n        sweet_spot_upper = 0.9 - (0.05 * item)\n        utilization = (bins_remain_cap[feasible_bins] - waste) / 1.0\n        sweet_spot = (utilization > sweet_spot_lower) & (utilization < sweet_spot_upper)\n        priorities[feasible_bins][sweet_spot] += 0.2\n\n        almost_full_threshold = 0.1\n        wasted_space_ratio = waste / bins_remain_cap[feasible_bins]\n        almost_full = wasted_space_ratio < almost_full_threshold\n        priorities[feasible_bins][almost_full] *= 0.5\n\n    else:\n        priorities[:] = -np.inf\n\n    return priorities",
+    "response_id": 3,
+    "tryHS": false,
+    "obj": 3.1013163143199183,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter23_response4.txt_stdout.txt",
+    "code_path": "problem_iter23_code4.py",
+    "code": "import numpy as np\n\nbin_usage_history = None # Initialize bin_usage_history outside the function\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes best-fit, adaptive exploration, sweet spot, & bin history.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    feasible_bins = bins_remain_cap >= item\n\n    if np.any(feasible_bins):\n        waste = bins_remain_cap[feasible_bins] - item\n        \n        # Best-fit prioritization\n        priorities[feasible_bins] = 1 / (waste + 1e-6)\n\n        # Adaptive exploration\n        num_feasible = np.sum(feasible_bins)\n        exploration_factor = 0.02 * min(1, num_feasible * item)\n        priorities[feasible_bins] += np.random.rand(num_feasible) * exploration_factor\n\n        # Sweet spot incentive\n        utilization_lower = 0.7 - (item * 0.05)  # Adaptive sweet spot\n        utilization_upper = 0.9 - (item * 0.025)\n        utilization = bins_remain_cap[feasible_bins] - waste\n        sweet_spot = (utilization > utilization_lower) & (utilization < utilization_upper)\n        priorities[feasible_bins][sweet_spot] += 0.4\n\n        # Bin history penalty\n        global bin_usage_history\n        if bin_usage_history is not None:\n            usage_penalty = bin_usage_history[feasible_bins] * 0.05\n            priorities[feasible_bins] -= usage_penalty\n\n    else:\n        priorities[:] = -np.inf\n\n    return priorities",
+    "response_id": 4,
+    "tryHS": false,
+    "obj": 3.9888312724371757,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter23_response5.txt_stdout.txt",
+    "code_path": "problem_iter23_code5.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines best-fit, adaptive exploration, and dynamic sweet spot.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    feasible_bins = bins_remain_cap >= item\n\n    if np.any(feasible_bins):\n        waste = bins_remain_cap[feasible_bins] - item\n        priorities[feasible_bins] = 1 / (waste + 1e-6)\n\n        num_feasible = np.sum(feasible_bins)\n        exploration_factor = 0.02 * min(1, num_feasible * item)\n        priorities[feasible_bins] += np.random.rand(num_feasible) * exploration_factor\n\n        utilization_lower = 0.7 - (0.1 * item)\n        utilization_upper = 0.9 - (0.05 * item)\n        utilization = bins_remain_cap[feasible_bins] - waste\n        sweet_spot = (utilization > utilization_lower) & (utilization < utilization_upper)\n        priorities[feasible_bins][sweet_spot] += 0.4\n\n        try:\n            bin_usage_history\n            usage_penalty = bin_usage_history[feasible_bins] * 0.05\n            priorities[feasible_bins] -= usage_penalty\n        except NameError:\n            pass\n    else:\n        priorities[:] = -np.inf\n\n    return priorities",
+    "response_id": 5,
+    "tryHS": false,
+    "obj": 4.01874750698045,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter23_response6.txt_stdout.txt",
+    "code_path": "problem_iter23_code6.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes best-fit with adaptive exploration and sweet spot incentive.\n    Balances bin utilization and prevents fragmentation, adjusting strategies based on item size.\n    \"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    feasible_bins = bins_remain_cap >= item\n\n    if np.any(feasible_bins):\n        waste = bins_remain_cap[feasible_bins] - item\n\n        # Best-Fit Core\n        priorities[feasible_bins] = 1 / (waste + 1e-5)\n\n        # Adaptive Exploration: Scaled by item size and feasible bins\n        num_feasible = np.sum(feasible_bins)\n        exploration_factor = min(0.2, 0.05 * num_feasible * item)\n        priorities[feasible_bins] += np.random.rand(num_feasible) * exploration_factor\n\n        # Sweet Spot Incentive: Dynamic range based on item size.\n        sweet_spot_lower = 0.6 - (item * 0.2)\n        sweet_spot_upper = 0.9 - (item * 0.1)\n        utilization = (bins_remain_cap[feasible_bins] - waste) / 1.0\n        sweet_spot = (utilization > sweet_spot_lower) & (utilization < sweet_spot_upper)\n        priorities[feasible_bins][sweet_spot] += 0.4\n\n        # Fragmentation Penalty: Target almost-full bins, more targeted for small bins\n        wasted_space_ratio = waste / bins_remain_cap[feasible_bins]\n        almost_full = (wasted_space_ratio < 0.08) & (bins_remain_cap[feasible_bins] < 0.5)\n        priorities[feasible_bins][almost_full] *= 0.7\n\n    else:\n        priorities[:] = -np.inf\n\n    return priorities",
+    "response_id": 6,
+    "tryHS": false,
+    "obj": 3.6597526924611135,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter23_response7.txt_stdout.txt",
+    "code_path": "problem_iter23_code7.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Best-fit, adaptive exploration, sweet spot, fragmentation control.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    feasible_bins = bins_remain_cap >= item\n\n    if np.any(feasible_bins):\n        waste = bins_remain_cap[feasible_bins] - item\n\n        # Best-Fit\n        priorities[feasible_bins] = 1 / (waste + 1e-5)\n\n        # Adaptive Exploration: item size relative to bin capacity\n        relative_item_size = item / bins_remain_cap[feasible_bins]\n        exploration_factor = 0.1 * (1 - relative_item_size)\n        exploration_factor = np.clip(exploration_factor, 0.01, 0.2)\n        priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * exploration_factor\n\n\n        # Sweet Spot Incentive: Dynamic sweet spot based on item size\n        sweet_spot_lower = 0.6 - (item * 0.2)\n        sweet_spot_upper = 0.9 - (item * 0.1)\n        utilization = (bins_remain_cap[feasible_bins] - waste) / 1.0\n        sweet_spot = (utilization > sweet_spot_lower) & (utilization < sweet_spot_upper)\n        priorities[feasible_bins][sweet_spot] += 0.4\n\n        # Fragmentation Penalty: Target almost-full bins\n        wasted_space_ratio = waste / bins_remain_cap[feasible_bins]\n        almost_full = wasted_space_ratio < 0.08\n        priorities[feasible_bins][almost_full] *= 0.7\n\n    else:\n        priorities[:] = -np.inf\n\n    return priorities",
+    "response_id": 7,
+    "tryHS": false,
+    "obj": 7.110091743119263,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter23_response8.txt_stdout.txt",
+    "code_path": "problem_iter23_code8.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Best-fit, adaptive exploration, item-aware fragmentation,\n    and sweet spot incentive. Balance exploration and exploitation.\n    \"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    feasible_bins = bins_remain_cap >= item\n\n    if np.any(feasible_bins):\n        waste = bins_remain_cap[feasible_bins] - item\n\n        # Best-fit prioritization\n        priorities[feasible_bins] = 1 / (waste + 1e-5)\n\n        # Adaptive Exploration: Item-dependent scale.\n        num_feasible = np.sum(feasible_bins)\n        exploration_scale = min(0.2, 0.05 * item * num_feasible)\n        priorities[feasible_bins] += np.random.rand(num_feasible) * exploration_scale\n\n        # Sweet Spot Incentive: Dynamic, item-related range.\n        sweet_spot_lower = 0.6 - (item * 0.2)\n        sweet_spot_upper = 0.9 - (item * 0.1)\n        utilization = (bins_remain_cap[feasible_bins] - waste) / 1.0\n        sweet_spot = (utilization > sweet_spot_lower) & (utilization < sweet_spot_upper)\n        priorities[feasible_bins][sweet_spot] += 0.4\n\n        # Item-aware Fragmentation Penalty: Adaptive scaling.\n        wasted_space_ratio = waste / bins_remain_cap[feasible_bins]\n        almost_full = wasted_space_ratio < 0.08\n        penalty_factor = 0.3 + 0.2 * item # Item aware\n        priorities[feasible_bins][almost_full] *= max(0, 1 - penalty_factor)\n\n    else:\n        priorities[:] = -np.inf\n\n    return priorities",
+    "response_id": 8,
+    "tryHS": false,
+    "obj": 3.689668927004388,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter23_response9.txt_stdout.txt",
+    "code_path": "problem_iter23_code9.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes best-fit with dynamic exploration and item-aware adjustments.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    feasible_bins = bins_remain_cap >= item\n\n    if np.any(feasible_bins):\n        waste = bins_remain_cap[feasible_bins] - item\n\n        # Best-fit prioritization\n        priorities[feasible_bins] = 1 / (waste + 1e-6)\n\n        # Adaptive exploration\n        num_feasible = np.sum(feasible_bins)\n        exploration_scale = 0.1 * item * num_feasible\n        priorities[feasible_bins] += np.random.rand(num_feasible) * exploration_scale\n\n        # Item-aware fragmentation penalty\n        wasted_space_ratio = waste / bins_remain_cap[feasible_bins]\n        almost_full = wasted_space_ratio < 0.1\n        penalty = 0.3 + 0.2 * item\n        priorities[feasible_bins][almost_full] *= max(0, 1 - penalty)\n\n        # Dynamic sweet spot\n        sweet_spot_lower = 0.6 - (item * 0.2)\n        sweet_spot_upper = 0.9 - (item * 0.1)\n        utilization = (bins_remain_cap[feasible_bins] - waste) / 1.0\n        sweet_spot = (utilization > sweet_spot_lower) & (utilization < sweet_spot_upper)\n        priorities[feasible_bins][sweet_spot] += 0.25\n\n    else:\n        priorities[:] = -np.inf\n\n    return priorities",
+    "response_id": 9,
+    "tryHS": false,
+    "obj": 35.82967690466693,
+    "exec_success": true
+  }
+]

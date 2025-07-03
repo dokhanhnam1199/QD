@@ -1,0 +1,40 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines Newtonian, ratio, and fragmentation for online bin packing."""
+
+    valid_bins = bins_remain_cap > 0
+    safe_bins_remain_cap = np.where(valid_bins, bins_remain_cap, np.inf)
+
+    # Newtonian component
+    potential = (safe_bins_remain_cap / np.abs(safe_bins_remain_cap - item))
+    newton_priorities = np.where(safe_bins_remain_cap >= item, potential, -np.inf)
+    newton_priorities = np.nan_to_num(newton_priorities, neginf=-np.inf)
+    newton_priorities = np.where(~valid_bins, -np.inf, newton_priorities)
+
+    # Ratio component
+    ratios = item / bins_remain_cap
+    ratios = np.clip(ratios, 0.01, 100)
+    log_ratios = np.log(ratios)
+    ratio_priorities = -log_ratios
+
+    # Fragmentation penalty
+    fragmentation = (bins_remain_cap - item)**2
+    fragmentation_priorities = -fragmentation
+    fragmentation_priorities = np.where(bins_remain_cap < item, -np.inf, fragmentation_priorities)
+
+
+    # Adaptive weight
+    mean_cap = np.mean(bins_remain_cap) if bins_remain_cap.size > 0 else 0
+    weight = np.clip(item / (mean_cap + 1e-9), 0, 1)
+
+    # Combine priorities with adaptive weights. Reduce fragmentation impact.
+    combined_priorities = (1 - weight) * newton_priorities + weight * ratio_priorities + 0.1 * fragmentation_priorities
+
+    # Stochastic exploration
+    noise = np.random.normal(0, 0.01, size=bins_remain_cap.shape)
+    combined_priorities += noise
+
+    return combined_priorities
+```

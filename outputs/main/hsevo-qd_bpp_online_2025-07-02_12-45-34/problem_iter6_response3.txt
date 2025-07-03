@@ -1,0 +1,46 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This version incorporates several improvements:
+    1. Bin Utilization: Prioritizes bins that are already relatively full.
+    2. Item Size Awareness: Adjusts the priority based on the item's size relative to the bin capacity.
+    3. Overflow Penalty: More aggressively penalizes overflow to minimize item splitting.
+    4. Adaptive Waste Minimization: Fine-tunes waste minimization based on remaining capacity.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    bin_capacity = np.max(bins_remain_cap)  # Assuming all bins have the same initial capacity
+
+    # Calculate waste if item is placed in each bin
+    waste = bins_remain_cap - item
+
+    # Fit Mask: Item fits into the bin
+    fit_mask = waste >= 0
+    if np.any(fit_mask):
+        # Prioritize bins that are already relatively full, but also minimize waste
+        utilization = (bin_capacity - bins_remain_cap[fit_mask]) / bin_capacity
+        waste_penalty = waste[fit_mask] / bin_capacity
+        priorities[fit_mask] = (utilization + 1e-6) / (waste_penalty + 1e-6) # Increased utilization weight
+
+        # Adaptive waste minimization: Favour bins with smaller waste, especially for larger items.
+        item_ratio = item / bin_capacity
+        priorities[fit_mask] *= (1 + item_ratio)  # Give higher priority to smaller waste for larger items
+
+    # Overflow Mask: Item doesn't fit
+    overflow_mask = ~fit_mask
+    if np.any(overflow_mask):
+        overflow = item - bins_remain_cap[overflow_mask]
+        # Heavily penalize overflow to avoid splitting items unless absolutely necessary.
+        priorities[overflow_mask] = -overflow / (bin_capacity * (1 + item_ratio)) # Normalize overflow, increase penalty for larger items
+
+    return priorities
+```

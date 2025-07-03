@@ -1,0 +1,147 @@
+[
+  {
+    "stdout_filepath": "problem_iter2_response0.txt_stdout.txt",
+    "code_path": "problem_iter2_code0.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes bins based on fill ratio after placing item, \n    bonus for partially filled bins, and remaining capacity tie-breaker.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n\n    # Infeasible bins get -inf priority\n    infeasible_bins = bins_remain_cap < item\n    priorities[infeasible_bins] = -np.inf\n\n    # Remaining capacities after placing item (inf for infeasible bins)\n    remaining_capacities = bins_remain_cap - item\n    remaining_capacities[infeasible_bins] = np.inf\n\n    # Fill ratios after placing item\n    fill_ratios = 1 - (remaining_capacities / np.max(bins_remain_cap))\n    priorities[~infeasible_bins] = fill_ratios[~infeasible_bins]\n\n    # Bonus for partially filled bins\n    already_filled = bins_remain_cap < np.max(bins_remain_cap)\n    priorities[already_filled & ~infeasible_bins] += 0.1\n\n    # Tie-breaker: prioritize smaller remaining capacity\n    priorities[~infeasible_bins] -= 0.0001 * remaining_capacities[~infeasible_bins]\n    \n    #Add small penalty for bins almost full after placement, encourage other bins.\n    almost_full = remaining_capacities < 0.1\n    priorities[almost_full & ~infeasible_bins] -= 0.2\n\n    return priorities",
+    "response_id": 0,
+    "tryHS": false,
+    "obj": 4.956122856003196,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response1.txt_stdout.txt",
+    "code_path": "problem_iter2_code1.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes bins based on fill ratio after placing the item and bonuses.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    infeasible_bins = bins_remain_cap < item\n    priorities[infeasible_bins] = -np.inf\n    remaining_capacities = bins_remain_cap - item\n    remaining_capacities[infeasible_bins] = np.inf\n\n    fill_ratios = 1 - (remaining_capacities / np.max(bins_remain_cap))\n    priorities[~infeasible_bins] = fill_ratios[~infeasible_bins]\n\n    already_filled = bins_remain_cap < np.max(bins_remain_cap)\n    priorities[already_filled & ~infeasible_bins] += 0.1\n\n    near_full_mask = (remaining_capacities > 0) & (remaining_capacities < 0.1* np.max(bins_remain_cap))\n    priorities[near_full_mask] -= 0.2\n\n    substantial_remain_mask = (remaining_capacities >= 0.3* np.max(bins_remain_cap))\n    priorities[substantial_remain_mask] += 0.1\n    \n    return priorities",
+    "response_id": 1,
+    "tryHS": false,
+    "obj": 4.646988432389324,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response2.txt_stdout.txt",
+    "code_path": "problem_iter2_code2.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Calculates priority scores for bins based on remaining capacity and fill ratio.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap)\n    feasible_bins = bins_remain_cap >= item\n\n    if np.any(feasible_bins):\n        remaining_capacities = bins_remain_cap[feasible_bins] - item\n        fill_ratio = (bins_remain_cap[feasible_bins] - remaining_capacities) / bins_remain_cap[feasible_bins]\n        priorities[feasible_bins] = fill_ratio / (remaining_capacities + 1e-9) #Balance filling and min waste\n        almost_full_threshold = 0.1\n        almost_full = remaining_capacities / bins_remain_cap[feasible_bins] < almost_full_threshold\n        priorities[feasible_bins][almost_full] *= 1.5 #Boost almost full\n    else:\n        priorities = -1 / (bins_remain_cap + 1e-9)  # Penalize infeasible bins\n    return priorities",
+    "response_id": 2,
+    "tryHS": false,
+    "exec_success": false,
+    "obj": Infinity,
+    "traceback_msg": "Traceback (most recent call last):\n  File \"/home/dokhanhnam1199/QD/problems/bpp_online/eval.py\", line 112, in <module>\n    avg_num_bins = -evaluate(dataset)\n  File \"/home/dokhanhnam1199/QD/problems/bpp_online/eval.py\", line 55, in evaluate\n    _, bins_packed = online_binpack(items.astype(float), bins)\n  File \"/home/dokhanhnam1199/QD/problems/bpp_online/eval.py\", line 28, in online_binpack\n    priorities = priority(item, bins[valid_bin_indices])\n  File \"/home/dokhanhnam1199/QD/problems/bpp_online/gpt.py\", line 15, in priority_v2\n    normalized_capacity = bins_remain_cap / np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else np.zeros_like(bins_remain_cap)\nnumpy._core._exceptions._UFuncOutputCastingError: Cannot cast ufunc 'multiply' output from dtype('float64') to dtype('int64') with casting rule 'same_kind'\n"
+  },
+  {
+    "stdout_filepath": "problem_iter2_response3.txt_stdout.txt",
+    "code_path": "problem_iter2_code3.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes bins, favoring tighter fits and filling existing bins. Combines aspects of v0 and v1.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    fit_indices = np.where(bins_remain_cap >= item)[0]\n\n    if len(fit_indices) > 0:\n        wasted_space = bins_remain_cap[fit_indices] - item\n        fill_ratio_if_added = (bins_remain_cap[fit_indices] - wasted_space) / bins_remain_cap[fit_indices]\n        priorities[fit_indices] = (1 / (wasted_space + 1e-9)) + fill_ratio_if_added\n\n        # Encourage filling existing bins (v1-inspired)\n        normalized_capacity = bins_remain_cap / np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else np.zeros_like(bins_remain_cap)\n        priorities[fit_indices] += 0.1 * normalized_capacity[fit_indices] # Add capacity to the correct indices.\n\n    else:\n        priorities = -np.inf * np.ones_like(bins_remain_cap, dtype=float)\n\n    return priorities",
+    "response_id": 3,
+    "tryHS": true,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response4.txt_stdout.txt",
+    "code_path": "problem_iter2_code4.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines waste minimization, fill ratio, and avoids nearly full bins.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float) - np.inf\n    valid_bins = bins_remain_cap >= item\n\n    if not np.any(valid_bins):\n        return priorities\n\n    waste = bins_remain_cap - item\n    priorities[valid_bins] = -waste[valid_bins]\n\n    fill_ratios = item / bins_remain_cap\n    priorities[valid_bins] += 5 * fill_ratios[valid_bins]\n\n    nearly_full = (waste > 0) & (waste < 0.1 * bins_remain_cap)\n    priorities[nearly_full] -= 10\n\n    same_size = np.isclose(bins_remain_cap, item)\n    priorities[same_size] += 20\n    \n    priorities[valid_bins] += 0.01 * bins_remain_cap[valid_bins]\n\n    return priorities",
+    "response_id": 4,
+    "tryHS": false,
+    "obj": 4.417630634224167,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response5.txt_stdout.txt",
+    "code_path": "problem_iter2_code5.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes bins based on fill ratio and remaining capacity.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n\n    # Infeasible bins get -inf priority\n    infeasible_mask = bins_remain_cap < item\n    priorities[infeasible_mask] = -np.inf\n\n    # Calculate remaining capacity if item is added\n    remaining_after_add = bins_remain_cap - item\n\n    # Fill ratio for feasible bins\n    feasible_mask = bins_remain_cap >= item\n    fill_ratios = item / bins_remain_cap[feasible_mask]\n    priorities[feasible_mask] = fill_ratios\n\n    # Boost bins with substantial remaining capacity, but not too much\n    substantial_remain_mask = (remaining_after_add >= 0.2) & (bins_remain_cap >= item)\n    priorities[substantial_remain_mask] += 0.1\n\n    # Moderate penalty for nearly full bins\n    near_full_mask = (remaining_after_add > 0) & (remaining_after_add < 0.1) & (bins_remain_cap >= item)\n    priorities[near_full_mask] -= 0.2\n\n    # Add a small random number to break ties\n    priorities += np.random.rand(len(bins_remain_cap)) * 0.01\n\n    return priorities",
+    "response_id": 5,
+    "tryHS": false,
+    "obj": 4.457518946948548,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response6.txt_stdout.txt",
+    "code_path": "problem_iter2_code6.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes bins based on waste, fill ratio, and penalizes nearly full bins.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float) - np.inf\n    valid_bins = bins_remain_cap >= item\n\n    if not np.any(valid_bins):\n        return priorities\n\n    waste = bins_remain_cap - item\n    priorities[valid_bins] = -waste[valid_bins]\n    fill_ratios = item / bins_remain_cap\n    priorities[valid_bins] += 5 * fill_ratios[valid_bins]\n    nearly_full = (waste > 0) & (waste < 0.1 * bins_remain_cap)\n    priorities[nearly_full] -= 10\n    same_size = np.isclose(bins_remain_cap, item)\n    priorities[same_size] += 20\n    priorities[valid_bins] += 0.01 * bins_remain_cap[valid_bins]\n\n    return priorities",
+    "response_id": 6,
+    "tryHS": true,
+    "obj": 4.417630634224167,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response7.txt_stdout.txt",
+    "code_path": "problem_iter2_code7.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes bins based on fill ratio and almost-full bonus.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    feasible_bins = bins_remain_cap >= item\n\n    if np.any(feasible_bins):\n        remaining_capacities = bins_remain_cap[feasible_bins] - item\n        capacity_ratios = remaining_capacities / bins_remain_cap[feasible_bins]\n        priorities[feasible_bins] = (1.0 - capacity_ratios)**2 #Prioritize full bins\n        almost_full_indices = np.where(remaining_capacities / bins_remain_cap[feasible_bins] <= 0.1)[0]\n        priorities[feasible_bins][almost_full_indices]+=1.0 #Bonus\n    return priorities",
+    "response_id": 7,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response8.txt_stdout.txt",
+    "code_path": "problem_iter2_code8.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines fill ratio and remaining capacity for priority.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    valid_bins = bins_remain_cap >= item\n\n    if not np.any(valid_bins):\n        return priorities - np.inf\n\n    waste = bins_remain_cap - item\n    priorities[valid_bins] = -waste[valid_bins]\n\n    fill_ratios = item / bins_remain_cap\n    priorities[valid_bins] += 5 * fill_ratios[valid_bins]\n\n    nearly_full = (waste > 0) & (waste < 0.1 * bins_remain_cap)\n    priorities[nearly_full] -= 10\n\n    normalized_capacity = bins_remain_cap / np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else np.zeros_like(bins_remain_cap)\n    priorities += 0.1*normalized_capacity\n    return priorities",
+    "response_id": 8,
+    "tryHS": false,
+    "obj": 4.387714399680894,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response9.txt_stdout.txt",
+    "code_path": "problem_iter2_code9.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes bins based on fill ratio after placement and partially-filled bonus.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n\n    # Infeasible bins get a very low priority\n    priorities[bins_remain_cap < item] = -np.inf\n\n    # Calculate remaining capacity after placing the item.\n    remaining_capacity = bins_remain_cap - item\n    \n    # Calculate fill ratio, prioritizing smaller remaining capacity\n    fill_ratio = (bins_remain_cap - remaining_capacity) / bins_remain_cap\n    fill_ratio[bins_remain_cap < item] = -np.inf\n    priorities += fill_ratio #Scale this effect down.\n    \n    #Bonus to bins that are not empty already:\n    already_filled = bins_remain_cap < np.max(bins_remain_cap)\n    priorities[already_filled] += 0.1 #Scale this effect down.\n\n    return priorities",
+    "response_id": 9,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter3_response0.txt_stdout.txt",
+    "code_path": "problem_iter3_code0.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n\n    # Infeasible bin handling: assign a very low priority\n    infeasible = item > bins_remain_cap\n    priorities[infeasible] = -np.inf\n\n    feasible = item <= bins_remain_cap\n\n    if np.any(feasible):\n        remaining_capacity_after_placement = bins_remain_cap[feasible] - item\n\n        # Prioritize bins based on a combination of fill ratio and absolute remaining capacity\n        fill_ratio = item / bins_remain_cap[feasible]\n        priorities[feasible] = fill_ratio * np.exp(-2 * remaining_capacity_after_placement / np.max(bins_remain_cap[feasible])) if np.max(bins_remain_cap[feasible]) > 0 else fill_ratio\n\n        # Add a small bonus for bins that are close to full after placement, but not too close\n        close_to_full = (remaining_capacity_after_placement > 0) & (remaining_capacity_after_placement <= 0.1 * np.max(bins_remain_cap))\n        priorities[feasible][close_to_full] += 0.5 # give it small bonus\n    else:\n         # Prioritize bins that were previously non-empty by penalizing empty bins\n        empty_bins = bins_remain_cap == np.max(bins_remain_cap)\n        if np.any(~empty_bins):\n            priorities[empty_bins] = -1 # if no available capacity, penalize empty bins\n        # Add new bins at the end to minimize fragmentation if no viable option exists\n        priorities = -np.arange(len(bins_remain_cap)) # if all infeasible, add at the end\n\n    return priorities",
+    "response_id": 0,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter3_response1.txt_stdout.txt",
+    "code_path": "problem_iter3_code1.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    \n    # First, penalize bins that are too small.  We strongly discourage putting items\n    # in bins where they will cause an overflow.\n    infeasible = item > bins_remain_cap\n    priorities[infeasible] = -np.inf  # Never pick if infeasible\n    \n    # For feasible bins, let's prioritize based on remaining capacity after placement.\n    feasible = item <= bins_remain_cap\n    \n    if np.any(feasible):\n        remaining_capacity_after_placement = bins_remain_cap[feasible] - item\n        \n        # Prioritize based on a combination of factors:\n        # 1. Remaining capacity: Smaller remaining capacity is better (tighter fit).\n        # 2. Bin fullness: Bins that are already somewhat full are preferred.\n\n        # Normalize remaining capacity to a 0-1 range.\n        normalized_remaining_capacity = remaining_capacity_after_placement / np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else np.zeros_like(remaining_capacity_after_placement)\n        \n        # Normalize current bin fullness (1 - remaining capacity / max capacity).\n        normalized_bin_fullness = 1 - bins_remain_cap[feasible] / np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else np.ones_like(bins_remain_cap[feasible])\n        \n        # Combine the two factors to calculate priority. Experiment with weights.\n        priority_values = 0.7 * np.exp(-5 * normalized_remaining_capacity) + 0.3 * normalized_bin_fullness\n        \n        priorities[feasible] = priority_values\n\n    # If no bins are available, slightly penalize lower indexes to add to the end of list of empty bins.\n    if not np.any(feasible):\n        priorities = -np.arange(len(bins_remain_cap))\n        \n    return priorities",
+    "response_id": 1,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter3_response2.txt_stdout.txt",
+    "code_path": "problem_iter3_code2.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    \n    # Infeasible bins get a very low priority\n    infeasible = item > bins_remain_cap\n    priorities[infeasible] = -np.inf\n    \n    feasible = item <= bins_remain_cap\n    \n    if np.any(feasible):\n        remaining_capacity_after_placement = bins_remain_cap[feasible] - item\n        \n        # Prioritize tighter fits using a combination of exponential and inverse functions.\n        # This provides a balance between favoring near-full bins and avoiding extremely small gaps.\n        \n        # Exponential term: rewards bins that are close to full\n        exp_term = np.exp(-4 * remaining_capacity_after_placement / np.max(bins_remain_cap[feasible])) if np.max(bins_remain_cap[feasible]) > 0 else 1\n        \n        # Inverse term: strongly penalizes small gaps\n        inverse_term = 1 / (remaining_capacity_after_placement + 0.01)  # Add a small constant to avoid division by zero\n        \n        # Combine the two terms to balance tightness and avoid tiny gaps.\n        priorities[feasible] = exp_term * inverse_term\n\n        # Add a slight bonus for bins that are more than half-full after placement\n        half_full_threshold = np.max(bins_remain_cap) / 2\n        more_than_half_full = bins_remain_cap[feasible] - item > half_full_threshold\n        priorities[feasible][more_than_half_full] *= 1.1  # Give a 10% bonus\n        \n    else:\n        # If no feasible bins, prioritize based on how much the item *exceeds* the bin capacity.\n        # This is a heuristic to try to get the item into a bin that's \"close\" to fitting.\n        # We invert the amount of overflow so that smaller overflows get higher priority (less negative).\n        overflow = item - bins_remain_cap\n        priorities = -overflow\n    \n    return priorities",
+    "response_id": 2,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter3_response3.txt_stdout.txt",
+    "code_path": "problem_iter3_code3.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n\n    This version introduces several improvements over v1:\n    1.  Capacity threshold: Bins with remaining capacity significantly larger than the item size are penalized.\n    2.  Bin Utilization: Encourages packing into bins that, after the item is added, have a utilization rate close to a target utilization (e.g., 70-80%).\n    3.  Handling Empty Bins: Provides a more controlled approach for selecting new empty bins.\n    4.  Prioritizes the best fit but also takes into account bin utilization to improve overall packing density.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n\n    # Infeasible bins are strictly penalized\n    infeasible = item > bins_remain_cap\n    priorities[infeasible] = -np.inf\n\n    feasible = item <= bins_remain_cap\n    if not np.any(feasible):\n        # if no bins are available, slightly penalize lower indexes to add to the end of list of empty bins.\n        priorities = -np.arange(len(bins_remain_cap))\n        return priorities\n\n    remaining_capacity_after_placement = bins_remain_cap[feasible] - item\n    initial_capacity = bins_remain_cap[feasible] + remaining_capacity_after_placement  # Infer initial bin capacity\n\n    # Calculate bin utilization after placing the item\n    bin_utilization = (initial_capacity - remaining_capacity_after_placement) / initial_capacity\n\n    # Target utilization (e.g., 75%)\n    target_utilization = 0.75\n\n    # Utilization score: Higher score for bins closer to target utilization.  Gaussian-like function.\n    utilization_score = np.exp(-((bin_utilization - target_utilization) ** 2) / (2 * 0.1 ** 2))  # Adjust std dev (0.1) to control score spread.\n\n    # Fit score: Prioritize bins that fit the item well (smaller remaining space)\n    fit_score = np.exp(-5 * remaining_capacity_after_placement / np.max(initial_capacity)) if np.max(initial_capacity) > 0 else 1 #Prevent division by zero.\n\n    # Combine utilization and fit scores. Adjust weights as needed.\n    priorities[feasible] = 0.7 * fit_score + 0.3 * utilization_score\n\n    # Penalize bins with too much remaining capacity (relative to item size).  This encourages filling partially filled bins.\n    too_much_space = remaining_capacity_after_placement > 2 * item\n    priorities[feasible][too_much_space] *= 0.5  # Reduce priority if too much space is left.\n\n    return priorities",
+    "response_id": 3,
+    "tryHS": false,
+    "obj": 7.40925408855205,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter3_response4.txt_stdout.txt",
+    "code_path": "problem_iter3_code4.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    \n    # First, penalize bins that are too small.  We strongly discourage putting items\n    # in bins where they will cause an overflow.\n    infeasible = item > bins_remain_cap\n    priorities[infeasible] = -np.inf  # Never pick if infeasible\n    \n    # For feasible bins, let's prioritize based on remaining capacity after placement.\n    # Bins closer to full are slightly favored, but with a modification:\n    # 1. Introduce a \"waste threshold\".  If the remaining capacity after placement is\n    #    less than this threshold, strongly prefer the bin.\n    # 2. Otherwise, prioritize based on a combination of fullness and absolute remaining capacity.\n    \n    feasible = item <= bins_remain_cap\n    remaining_capacity_after_placement = bins_remain_cap[feasible] - item\n    \n    # Define a waste threshold (e.g., 10% of max capacity).  This is a hyperparameter to tune.\n    waste_threshold = 0.1 * np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else 0.1\n\n    # Identify bins with remaining capacity below the waste threshold.\n    very_tight_fit = remaining_capacity_after_placement <= waste_threshold\n    \n    # Prioritize bins with very tight fits very highly.\n    priorities[feasible][very_tight_fit] = 10  # Large value to strongly prefer these bins\n\n    # For other feasible bins, combine fullness and absolute remaining capacity.\n    other_feasible = feasible & ~very_tight_fit\n    remaining_capacity_after_placement_others = bins_remain_cap[other_feasible] - item\n    \n    # Use a score combining remaining space and fullness.  Experiment with coefficients.\n\n    priorities[other_feasible] = (np.exp(-2 * remaining_capacity_after_placement_others / np.max(bins_remain_cap)) + # Fullness (exponential decay)\n                                    0.5 * (1 - remaining_capacity_after_placement_others / np.max(bins_remain_cap))) if np.max(bins_remain_cap) > 0 else 0.5 # Remaining space (linear)\n\n\n    # If no bins are available, slightly penalize lower indexes to add to the end of list of empty bins.\n    if not np.any(feasible):\n        priorities = -np.arange(len(bins_remain_cap))\n        \n    return priorities",
+    "response_id": 4,
+    "tryHS": false,
+    "obj": 16.394096529716805,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter4_response0.txt_stdout.txt",
+    "code_path": "problem_iter4_code0.py",
+    "code": "import numpy as np\nimport random\nimport math\nimport scipy\nimport torch\ndef priority_v2(item: float, bins_remain_cap: np.ndarray, fill_ratio_weight: float = 7.768434172376743, nearly_full_threshold: float = 0.09365302500399529, nearly_full_penalty: float = 13.179465469789289, same_size_reward: float = 27.824700439709368, capacity_reward_factor: float = 0.013833027963655098) -> np.ndarray:\n    \"\"\"Prioritizes bins based on waste, fill ratio, and penalizes nearly full bins.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float) - np.inf\n    valid_bins = bins_remain_cap >= item\n\n    if not np.any(valid_bins):\n        return priorities",
+    "response_id": 0,
+    "tryHS": true,
+    "obj": 4.487435181491823,
+    "exec_success": true
+  }
+]

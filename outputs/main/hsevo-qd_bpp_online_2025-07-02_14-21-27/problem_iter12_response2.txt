@@ -1,0 +1,60 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    A refined priority function for online bin packing that emphasizes
+    both space utilization and fragmentation avoidance, with dynamic
+    adjustment based on item size. It uses multiple strategies and
+    adaptively combines them based on the current bin states.
+
+    """
+    valid_bins = bins_remain_cap > 0
+    if not np.any(valid_bins):
+        return np.zeros_like(bins_remain_cap)
+
+    safe_bins_remain_cap = np.where(valid_bins, bins_remain_cap, np.inf)
+
+    # 1. Capacity-aware priority: Favor bins that can snugly fit the item
+    capacity_diff = safe_bins_remain_cap - item
+    capacity_priority = -np.abs(capacity_diff)  # Closer to 0 is better
+    capacity_priority = np.where(safe_bins_remain_cap >= item, capacity_priority, -np.inf) # Only valid bins
+    capacity_priority = np.nan_to_num(capacity_priority, neginf=-np.inf)
+
+    # 2. Fragmentation-aware priority: Penalize bins that will be left with very small space
+    frag_threshold = 0.1  # Threshold for small remaining space (as fraction of bin size - can tune)
+    bin_size = np.max(bins_remain_cap)  # Assuming bins are of same size, can also pass bin_size as an argument
+    frag_penalty = -np.inf
+    fragmentation_priority = np.where((safe_bins_remain_cap - item) / bin_size < frag_threshold, frag_penalty, 0)
+    fragmentation_priority = np.where(safe_bins_remain_cap < item, -np.inf, fragmentation_priority) #Invalid bins
+    fragmentation_priority = np.nan_to_num(fragmentation_priority, neginf=-np.inf)
+
+    # 3. Space Utilization:
+    utilization_priority = safe_bins_remain_cap / bin_size
+    utilization_priority = np.where(safe_bins_remain_cap >= item, utilization_priority, -np.inf)
+    utilization_priority = np.nan_to_num(utilization_priority, neginf=-np.inf)
+
+    # Adaptive Combination: dynamically adjust the weights
+    # Small items: Focus on snug fit and avoid fragmentation
+    # Larger items: Focus on space utilization
+
+    item_ratio = item / bin_size # Ratio of item size to the total bin size.
+
+    if item_ratio < 0.3:
+        #Prioritize capacity and fragmentation
+        weights = [0.6, 0.4, 0.0]
+    elif item_ratio > 0.7:
+        #Prioritize capacity and utilization.
+        weights = [0.5, 0.0, 0.5]
+    else:
+        #Balance
+        weights = [0.4, 0.3, 0.3]
+
+    combined_priority = (weights[0] * capacity_priority +
+                         weights[1] * fragmentation_priority +
+                         weights[2] * utilization_priority)
+
+    combined_priority = np.nan_to_num(combined_priority, neginf=-np.inf)
+    priorities = np.where(~valid_bins, -np.inf, combined_priority)
+    return priorities
+```

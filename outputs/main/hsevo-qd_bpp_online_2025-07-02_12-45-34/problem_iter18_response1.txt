@@ -1,0 +1,82 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins using adaptive weighting, multiple factors, and bin history."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    waste = bins_remain_cap - item
+    max_cap = np.max(bins_remain_cap) if len(bins_remain_cap) > 0 else 1.0
+    avg_cap = np.mean(bins_remain_cap) if len(bins_remain_cap) > 0 else 1.0
+    min_cap = np.min(bins_remain_cap) if len(bins_remain_cap) > 0 else 1.0
+
+    # Hyperparameters with adaptive adjustments - Tuned for better performance
+    fit_reward = 1.2
+    overflow_penalty = 0.6
+    fullness_bonus = 0.3
+    close_fit_boost = 0.8
+    close_fit_threshold = 0.2
+    empty_bin_penalty = 0.25
+    diversity_bonus_weight = 0.02
+    item_size_penalty = 0.5
+    min_cap_penalty = 0.3
+
+    # Adaptive adjustments based on item size - More nuanced adjustments
+    if item > 0.7 * max_cap:
+        fit_reward *= 1.15
+        overflow_penalty *= 0.85
+        close_fit_boost *= 0.8
+        fullness_bonus *= 0.9
+    elif item < 0.3 * max_cap:
+        fullness_bonus *= 1.3
+        empty_bin_penalty *= 1.2
+        item_size_penalty *= 0.5
+        fit_reward *= 0.9
+    elif item > 0.5 * max_cap:
+        close_fit_boost *= 1.1
+
+    # Fit Reward
+    fit_mask = waste >= 0
+    priorities[fit_mask] += fit_reward / (waste[fit_mask] + 0.000001)
+
+    # Overflow Penalty
+    overflow_mask = ~fit_mask
+    overflow = item - bins_remain_cap[overflow_mask]
+    priorities[overflow_mask] -= overflow_penalty * overflow / (max_cap + 0.000001)
+
+    # Fullness Bonus
+    fullness = 1 - bins_remain_cap / (max_cap + 0.000001)
+    priorities += fullness_bonus * fullness
+
+    # Close Fit Boost
+    close_fit_mask = fit_mask & (waste <= (close_fit_threshold * max_cap))
+    if np.any(close_fit_mask):
+        ratios = item / bins_remain_cap[close_fit_mask]
+        priorities[close_fit_mask] += close_fit_boost * np.log(ratios)
+
+    # Adaptive Empty Bin Handling - Reduced penalty, more nuanced
+    near_empty_mask = bins_remain_cap > (0.9 * max_cap)
+    if item > 0.6 * max_cap:
+        priorities[near_empty_mask] -= 0.05 * empty_bin_penalty
+    else:
+        priorities[near_empty_mask] -= empty_bin_penalty
+
+    # Bin Diversity Consideration - Emphasized diversity
+    cap_diff = np.abs(bins_remain_cap - avg_cap)
+    diversity_bonus = diversity_bonus_weight * (max_cap - cap_diff)
+    priorities += diversity_bonus
+
+    # Item Size penalty
+    slightly_larger_mask = fit_mask & (waste < (0.5 * item))
+    priorities[slightly_larger_mask] -= item_size_penalty * (item / (max_cap + 0.000001))
+
+    # Min Cap Penalty - Discourage filling bins that are already very full
+    near_full_mask = bins_remain_cap < (0.1 * max_cap)
+    priorities[near_full_mask] -= min_cap_penalty
+
+    #Prioritize bins closer to average capacity when the item size is close to the average
+    item_avg_diff = abs(item - avg_cap) / max_cap
+    priorities -= 0.1 * item_avg_diff * cap_diff / max_cap
+
+    return priorities
+```

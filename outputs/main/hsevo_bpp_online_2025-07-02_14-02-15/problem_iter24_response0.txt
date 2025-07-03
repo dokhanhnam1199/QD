@@ -1,0 +1,82 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_quantiles: np.ndarray = None) -> np.ndarray:
+    """Prioritizes best-fit with adaptive penalties and dynamic exploration,
+    incorporating bin capacity quantiles for normalization and relative comparisons.
+
+    Args:
+        item (float): The size of the item to be packed.
+        bins_remain_cap (np.ndarray): Array of remaining capacities for each bin.
+        bin_quantiles (np.ndarray, optional): Quantiles representing capacity distribution of bins. Defaults to None.
+
+    Returns:
+        np.ndarray: Array of priority scores for each bin.
+    """
+
+    tiny_constant: float = 1e-05
+    exploration_base: float = 0.06
+    max_exploration: float = 0.25
+    almost_full_threshold: float = 0.07
+    almost_full_penalty: float = 0.2
+    small_item_bin_multiple: float = 1.7
+    small_item_reward: float = 0.8
+    sweet_spot_lower_base: float = 0.6
+    sweet_spot_lower_item_scale: float = 0.2
+    sweet_spot_upper_base: float = 0.85
+    sweet_spot_upper_item_scale: float = 0.18
+    sweet_spot_reward: float = 0.6
+    usage_penalty_factor: float = 0.06
+    quantile_penalty_factor: float = 0.1
+
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if np.any(feasible_bins):
+        waste = bins_remain_cap[feasible_bins] - item
+        
+        # Core: Prioritize best fit (minimize waste).  Scale by bin capacity for normalization.
+        priorities[feasible_bins] = bins_remain_cap[feasible_bins] / (waste + tiny_constant)
+
+        # Adaptive Stochasticity: Exploration based on feasibility and item size.
+        num_feasible = np.sum(feasible_bins)
+        exploration_factor = min(max_exploration, exploration_base * num_feasible * item)
+        priorities[feasible_bins] += np.random.rand(num_feasible) * exploration_factor
+
+        # Fragmentation Penalty: Stronger, targets almost-full bins, scaled by item size.
+        wasted_space_ratio = waste / bins_remain_cap[feasible_bins]
+        almost_full = wasted_space_ratio < almost_full_threshold
+        priorities[feasible_bins][almost_full] *= (1 - almost_full_penalty * item) # Scale penalty by item size.
+
+        # Rewarding larger bins for smaller items
+        small_item_large_bin_reward = np.where(bins_remain_cap[feasible_bins] > small_item_bin_multiple * item, small_item_reward, 0)
+        priorities[feasible_bins] += small_item_large_bin_reward
+
+        # Dynamic "Sweet Spot" Incentive: Adapt the range based on item size.
+        sweet_spot_lower = sweet_spot_lower_base - (item * sweet_spot_lower_item_scale)
+        sweet_spot_upper = sweet_spot_upper_base - (item * sweet_spot_upper_item_scale)
+
+        utilization = (bins_remain_cap[feasible_bins] - waste) / 1.0  # Assuming bin size is 1
+        sweet_spot = (utilization > sweet_spot_lower) & (utilization < sweet_spot_upper)
+        priorities[feasible_bins][sweet_spot] += sweet_spot_reward
+
+        # Bin History: Penalize bins that have been filled recently more aggressively.
+        try:
+            bin_usage_history
+            usage_penalty = bin_usage_history[feasible_bins] * usage_penalty_factor
+            priorities[feasible_bins] -= usage_penalty
+        except NameError:
+            pass
+
+        # Quantile Penalty: Penalize using bins in lower quantiles more heavily.
+        if bin_quantiles is not None:
+            quantile_index = np.searchsorted(np.sort(bins_remain_cap), bins_remain_cap[feasible_bins])
+            quantile_penalty = quantile_index / len(bins_remain_cap) * quantile_penalty_factor
+            priorities[feasible_bins] -= quantile_penalty
+
+    else:
+        priorities[:] = -np.inf  # No feasible bins
+
+    return priorities
+```

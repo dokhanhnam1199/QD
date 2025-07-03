@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Feasibility check: ensure the item fits
+    eligible_bins = bins_remain_cap >= item
+
+    # Initialize priorities for ineligible bins to negative infinity
+    priorities[~eligible_bins] = -np.inf
+
+    # First Fit Decreasing influence: reward bins that can accommodate the item
+    priorities[eligible_bins] += 1
+
+    # Best Fit influence: minimize wasted space, but with adjustments
+    waste = bins_remain_cap - item
+    waste[~eligible_bins] = np.inf  # Ignore bins where item doesn't fit.
+
+    min_waste = np.min(waste)
+    best_fit_bins = np.isclose(waste, min_waste)
+    priorities[best_fit_bins] += 3  # Higher priority to best fit
+
+    # Capacity utilization: encourage packing into bins close to full, but penalize near-perfect fills
+    capacity_utilization = item / bins_remain_cap
+    capacity_utilization[~eligible_bins] = 0  # Ignore ineligible bins
+
+    priorities += capacity_utilization
+
+    # Fragmentation avoidance: penalize bins that will be left with small remaining capacity *after* packing
+    remaining_after_pack = bins_remain_cap - item
+    small_remaining = (remaining_after_pack > 0) & (remaining_after_pack <= 0.2)  # e.g., <= 20% of bin size
+    priorities[small_remaining] -= 1  # Small penalty
+
+    # Discourage perfect fills unless there is no better choice.
+    perfect_fill = np.isclose(remaining_after_pack, 0)
+    if np.any(priorities > -np.inf) and np.any(perfect_fill) and not np.all(perfect_fill):
+        priorities[perfect_fill] -= 0.5 # slightly reduce priority, but still viable if no other choice
+
+    # Never pick a bin that's already full.
+    priorities[bins_remain_cap == 0] = -np.inf
+
+    return priorities
+```

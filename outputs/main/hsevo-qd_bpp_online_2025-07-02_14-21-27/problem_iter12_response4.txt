@@ -1,0 +1,46 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    A heuristic that combines several factors to prioritize bins for item placement.
+    It considers remaining capacity, item size relative to bin size, and bin fill level.
+    """
+    valid_bins = bins_remain_cap > 0
+    if not np.any(valid_bins):
+        return np.zeros_like(bins_remain_cap)
+
+    safe_bins_remain_cap = np.where(valid_bins, bins_remain_cap, np.inf)
+
+    # 1. Capacity-based priority: Bins with enough space for the item get higher priority.
+    capacity_priority = np.where(safe_bins_remain_cap >= item, safe_bins_remain_cap - item, -np.inf)
+
+    # 2. Item-relative fill level: Prioritize bins that, after placing the item, will be relatively full.
+    #    This encourages efficient space utilization.
+    fill_ratio = np.clip((bins_remain_cap - item) / (bins_remain_cap + 1e-9), 0.0, 1.0)  # Adding 1e-9 to avoid division by zero
+    fill_priority = np.where(bins_remain_cap >= item, fill_ratio, -np.inf)
+
+    # 3. Prioritize bins that are not too empty (to avoid fragmenting space) but also not too full
+    #    This component attempts to balance bin utilization.
+    bin_utilization = 1 - (bins_remain_cap / np.max(bins_remain_cap))  # Max Capacity of a bin is implicitly 1, so this works as current_utilization
+    utilization_priority = np.exp(-(bin_utilization - 0.5)**2 / 0.08)  # Gaussian centered around 0.5 utilization
+
+    # 4. "Almost Full" reward: Give a small bonus to bins that are only slightly larger than the item.
+    almost_full_bonus = np.where(
+        (safe_bins_remain_cap >= item) & (safe_bins_remain_cap <= 1.2 * item),  # within 20% of item size
+        0.5, #Bonus score
+        0.0
+    )
+
+    # Adaptive weighting to combine the priorities. This gives more weight to item relative full
+    weight_fill = np.clip(item, 0.0, 1.0)
+    weight_capacity = 1.0 - weight_fill
+
+    # Combine the priorities with adjusted weights
+    combined_priority = weight_capacity * capacity_priority + weight_fill * fill_priority + 0.2 * utilization_priority + almost_full_bonus
+
+    combined_priority = np.nan_to_num(combined_priority, neginf=-np.inf)
+    priorities = np.where(~valid_bins, -np.inf, combined_priority)
+
+    return priorities
+```

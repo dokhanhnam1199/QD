@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes best-fit, manages fragmentation, and adapts to item size.
+    It uses a more refined penalty for almost-full bins and introduces a bonus
+    for filling bins close to a target utilization. Also dynamically adjusts
+    stochasticity based on the number of feasible bins."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if np.any(feasible_bins):
+        waste = bins_remain_cap[feasible_bins] - item
+        
+        # Prioritize based on inverse waste (best fit), with a small offset
+        priorities[feasible_bins] = 1 / (waste + 0.0001)
+
+        # Dynamic Stochasticity: Reduce randomness when fewer choices exist.
+        num_feasible = np.sum(feasible_bins)
+        stochasticity_factor = min(0.2, 1 / (num_feasible + 1))  # Scale stochasticity
+        priorities[feasible_bins] += np.random.rand(num_feasible) * stochasticity_factor
+
+        # Refined Fragmentation Penalty: More gradual and tunable.
+        wasted_space_ratio = waste / bins_remain_cap[feasible_bins]
+        almost_full = wasted_space_ratio < 0.15 #Increased threshold
+        penalty_factor = 0.5 # Tune this penalty factor
+        priorities[feasible_bins][almost_full] *= penalty_factor
+
+        # Target Utilization Bonus: Incentivize bins nearing a specific utilization.
+        # Dynamically calculate a target based on remaining capacity
+        target_utilization = 0.7  # Adjustable parameter. Aim for roughly 70% fill rate.
+
+        post_fill_utilization = (bins_remain_cap[feasible_bins] - waste) / 1 # Assuming bin size is 1
+
+        utilization_diff = np.abs(post_fill_utilization - target_utilization)
+        utilization_bonus = np.exp(-utilization_diff * 5) * 0.2  # Gaussian-like bonus, tune width via multiplier
+        priorities[feasible_bins] += utilization_bonus
+        
+        #Large item incentive : Encourage to use almost full bins
+        almost_full_item = wasted_space_ratio < 0.25
+        large_item_bonus = np.where((item>0.6)&almost_full_item, 0.4,0)
+        priorities[feasible_bins] += large_item_bonus
+
+
+    else:
+        priorities[:] = -np.inf  # Mark infeasible bins with negative infinity
+
+    return priorities
+```

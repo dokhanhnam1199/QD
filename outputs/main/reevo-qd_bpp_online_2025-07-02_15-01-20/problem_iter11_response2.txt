@@ -1,0 +1,39 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Rule 1: If the item fits perfectly, highest priority, wider margin.
+    perfect_fit = (item <= bins_remain_cap) & (bins_remain_cap <= item * 1.01) # within 1%
+    priorities[perfect_fit] = np.inf
+
+    # Rule 2: Higher priority if the item almost fits, minimizing waste, tighter ranges.
+    almost_fit = (item < bins_remain_cap) & (bins_remain_cap < item * 1.02) # within 2%
+    if np.any(almost_fit):
+        priorities[almost_fit] = 500 / (bins_remain_cap[almost_fit] - item + 0.0001) # Inverse of remaining space, scaled up.
+
+    # Rule 3: Give some priority for bins that fit, scaled to remaining capacity, penalty for excessive waste.
+    fits = (item <= bins_remain_cap) & ~perfect_fit & ~almost_fit
+    if np.any(fits):
+        waste_ratio = (bins_remain_cap[fits] - item) / bins_remain_cap[fits]
+        priorities[fits] = (1 - waste_ratio) - 0.1 * waste_ratio**2  # Reward filling, gentle waste penalty
+
+    # Rule 4: zero priority for items that doesn't fit. Large negative value to make it infeasible to choose.
+    infeasible = item > bins_remain_cap
+    priorities[infeasible] = -1e9 # Assign a large negative value for infeasible bins
+
+    # Rule 5: Add a small exploration factor to all bins to prevent premature convergence
+    priorities += np.random.rand(len(priorities)) * 0.001
+    
+    return priorities
+```
