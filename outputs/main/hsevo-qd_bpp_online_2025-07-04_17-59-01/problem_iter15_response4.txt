@@ -1,0 +1,73 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines ratio, gap, capacity with dynamic penalty and normalization, and adaptive weight based on item size."""
+
+    # Ensure no division by zero
+    bins_remain_cap = np.where(bins_remain_cap <= 0, 1e-9, bins_remain_cap)
+
+    # Calculate gap; penalize infeasible bins
+    gap = bins_remain_cap - item
+    feasible = gap >= 0
+    gap = np.where(feasible, gap, -1)
+
+    # Ratio priority (item size / bin capacity)
+    ratios = item / bins_remain_cap
+    ratio_priority = -np.log(ratios)
+    ratio_priority = np.where(feasible, ratio_priority, -1e9)
+    ratio_priority = (ratio_priority - np.min(ratio_priority)) / (np.max(ratio_priority) - np.min(ratio_priority) + 1e-9)
+    ratio_priority = np.where(feasible, ratio_priority, 0)
+
+
+    # Dynamic almost-full penalty based on remaining capacity and item size.
+    avg_cap = np.mean(bins_remain_cap)
+    almost_full_penalty = np.exp(-20 * gap / (avg_cap + 1e-9))
+    almost_full_penalty = np.where(feasible, almost_full_penalty, 0)
+
+    # Gap priority
+    gap_priority = np.where(feasible, bins_remain_cap / (gap + 0.0001) - almost_full_penalty, -1e9)
+    gap_priority = (gap_priority - np.min(gap_priority)) / (np.max(gap_priority) - np.min(gap_priority) + 1e-9)
+    gap_priority = np.where(feasible, gap_priority, 0)
+
+    # Capacity priority (normalized)
+    capacity_priority = bins_remain_cap / (np.max(bins_remain_cap) + 1e-9)
+    capacity_priority = np.where(feasible, capacity_priority, -1e9)
+    capacity_priority = (capacity_priority - np.min(capacity_priority)) / (np.max(capacity_priority) - np.min(capacity_priority) + 1e-9)
+    capacity_priority = np.where(feasible, capacity_priority, 0)
+
+
+    # Adaptive weights based on item size.
+    item_size_factor = min(1.0, item)
+
+    # Further adaptive weights based on number of feasible bins
+    num_feasible = np.sum(feasible)
+    if num_feasible > 0:
+        feasibility_factor = min(1.0, num_feasible / len(bins_remain_cap))  # Range [0, 1]
+    else:
+        feasibility_factor = 0.0
+    
+
+    # Combined priority with adaptive weights
+    if item_size_factor > 0.7:
+        combined_priority = (
+            0.2 * ratio_priority +
+            0.5 * gap_priority +
+            0.3 * capacity_priority
+        )
+    elif feasibility_factor < 0.2: # If few feasible bins, prioritize capacity.
+         combined_priority = (
+            0.1 * ratio_priority +
+            0.3 * gap_priority +
+            0.6 * capacity_priority
+        )
+    else:
+        combined_priority = (
+            0.3 * ratio_priority +
+            0.4 * gap_priority +
+            0.3 * capacity_priority
+        )
+    
+
+    return combined_priority
+```

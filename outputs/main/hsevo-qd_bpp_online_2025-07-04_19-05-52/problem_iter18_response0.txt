@@ -1,0 +1,73 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This version prioritizes a balanced approach, considering fill ratio,
+    fragmentation, and bin utilization without over-emphasizing any single aspect.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    eligible_bins = bins_remain_cap >= item
+    bin_capacity = np.max(bins_remain_cap)
+
+    if not np.any(eligible_bins):
+        return np.zeros_like(bins_remain_cap) - np.inf
+
+    # 1. Fill Ratio (Balanced)
+    fill_ratio = item / bins_remain_cap
+    fill_ratio[~eligible_bins] = -np.inf
+    priorities = 0.7 * fill_ratio  # Moderate fill ratio importance
+
+    # 2. Encourage Existing Fill (Adaptive Weight)
+    existing_fill = 1 - (bins_remain_cap / bin_capacity)
+    existing_fill_weight = 0.15
+    priorities[eligible_bins] += existing_fill_weight * existing_fill[eligible_bins]
+
+    # 3. Fragmentation Penalty (Dynamic Threshold)
+    gap_size = bins_remain_cap - item
+    fragmentation_threshold = 0.2 * bin_capacity
+    small_gap = gap_size < fragmentation_threshold
+    penalty_factor = 0.12 # moderate penalty
+    priorities[small_gap & eligible_bins] -= penalty_factor
+
+    # 4. Near-Perfect Fit Reward (Increased significance)
+    near_perfect_fit = np.isclose(bins_remain_cap, item, rtol=1e-05, atol=1e-06)
+    priorities[near_perfect_fit & eligible_bins] += 0.1  # increased reward
+
+    # 5. Remaining Capacity Preference (Adaptive Weighting)
+    remaining_capacity_weight = 0.07  #Adjusted remaining capacity
+    priorities[eligible_bins] += remaining_capacity_weight * (bins_remain_cap[eligible_bins] / bin_capacity)
+
+    # 6. Nearly Full Bin Penalty (Dynamic Threshold and Penalty)
+    min_useful_capacity = 0.1 * bin_capacity
+    nearly_full = gap_size < min_useful_capacity
+    nearly_full_penalty = 0.18
+    priorities[nearly_full & eligible_bins] -= nearly_full_penalty #increased penalty
+
+    # 7. Look-Ahead Fragmentation Penalty (Scaled by Item Size Variability)
+    min_item_size = np.min(item) if isinstance(item, np.ndarray) and item.size > 0 else item # Handling edge case
+    lookahead_threshold = 0.3 * min_item_size
+    very_small_gap = gap_size < lookahead_threshold
+    lookahead_penalty = 0.15
+    priorities[very_small_gap & eligible_bins] -= lookahead_penalty
+
+    # 8. Mid-Range Bin Preference (Looser Range)
+    half_full_range_lower = 0.3 * bin_capacity
+    half_full_range_upper = 0.7 * bin_capacity
+    close_to_half = (bins_remain_cap >= (item + half_full_range_lower)) & (bins_remain_cap <= (item + half_full_range_upper))
+    half_full_reward = 0.06
+    priorities[close_to_half & eligible_bins] += half_full_reward
+
+    # 9. Balance and Clip
+    priorities = np.clip(priorities, -1, 1)
+
+    return priorities
+```

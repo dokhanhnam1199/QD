@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    bin_capacity = bins_remain_cap.max()  # Assuming all bins have the same capacity
+
+    # Infeasible bins get negative infinity priority
+    infeasible_mask = bins_remain_cap < item
+    priorities[infeasible_mask] = -np.inf
+
+    # Feasible bins
+    feasible_mask = ~infeasible_mask
+    feasible_bins_remain_cap = bins_remain_cap[feasible_mask]
+
+    if np.sum(feasible_mask) > 0:
+        remaining_capacity_after_fit = feasible_bins_remain_cap - item
+        
+        # Core heuristic: Normalized waste (lower is better, so use inverse)
+        normalized_waste = remaining_capacity_after_fit / bin_capacity
+        priorities[feasible_mask] = 1 / (1e-6 + normalized_waste) # adding small constant to prevent division by zero
+
+        # Adjustments:
+        # 1. Encourage filling bins well (but not perfectly)
+        utilization = item / (bin_capacity - remaining_capacity_after_fit) # item size divided by original bin capacity
+        priorities[feasible_mask] += np.clip(utilization, 0, 0.95) # clip to avoid prioritizing completely full bins
+
+        # 2. Discourage small fragments (graded penalty)
+        small_fragment_threshold = 0.1 * bin_capacity
+        small_fragment_penalty = np.where(remaining_capacity_after_fit < small_fragment_threshold,
+                                            -0.5 * (1 - (remaining_capacity_after_fit / small_fragment_threshold)),
+                                            0)
+        priorities[feasible_mask] += small_fragment_penalty
+
+        # 3. Encourage placing large items in bins with enough remaining capacity to avoid excessive fragmentation of other items.
+        large_item_threshold = 0.75 * bin_capacity
+        if item > large_item_threshold:
+            sufficient_capacity_bonus = np.where(remaining_capacity_after_fit > 0.2 * bin_capacity,
+                                                0.2, # Bonus for sufficient capacity
+                                                0)
+            priorities[feasible_mask] += sufficient_capacity_bonus
+        
+
+        # 4. Exploration: Adaptive noise based on number of feasible bins
+        num_feasible = np.sum(feasible_mask)
+        if num_feasible <= 3:
+             priorities[feasible_mask] += np.random.normal(0, 0.1, size=num_feasible)
+        else:
+            priorities[feasible_mask] += np.random.normal(0, 0.01, size=num_feasible)
+
+    return priorities
+```

@@ -1,0 +1,59 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Infeasible bin handling: Same as v1
+    infeasible_mask = bins_remain_cap < item
+    priorities[infeasible_mask] = -np.inf
+
+    feasible_mask = ~infeasible_mask
+    feasible_bins_remain_cap = bins_remain_cap[feasible_mask]
+
+    if np.sum(feasible_mask) > 0:
+        remaining_capacity_after_fit = feasible_bins_remain_cap - item
+        capacity_ratio = item / feasible_bins_remain_cap
+
+        # Primary Priority: Fill Rate - Target Higher Occupancy
+        priorities[feasible_mask] = capacity_ratio
+
+        # Fragment Avoidance: Penalize bins leading to tiny fragments
+        small_fragment_threshold = 0.05  # Reduced threshold to be more aggressive
+        small_fragment_mask = remaining_capacity_after_fit < (item * small_fragment_threshold)
+        priorities[feasible_mask][small_fragment_mask] *= 0.25 # Further reduced priority
+
+        # Encourage Perfect Fit (or near perfect): High boost if item fits nearly perfectly
+        perfect_fit_tolerance = 0.05  # Define "near perfect"
+        perfect_fit_mask = np.abs(remaining_capacity_after_fit) < (item * perfect_fit_tolerance)
+        priorities[feasible_mask][perfect_fit_mask] *= 2.0  # Significantly boost perfect fit
+
+        # Moderate Remaining Capacity Diversification (Avoid premature overfilling)
+        large_capacity_threshold = 1.5 # Reduce diversification threshold
+        large_capacity_mask = remaining_capacity_after_fit > (item * large_capacity_threshold)
+        priorities[feasible_mask][large_capacity_mask] *= 1.05  # Reduced the increase
+
+        # Dynamic Noise Injection: adaptive randomness based on feasibility
+        num_feasible = np.sum(feasible_mask)
+        if num_feasible > 5:
+             priorities += np.random.normal(0, 0.005, size=len(priorities)) # reduced noise
+        else:
+             priorities += np.random.normal(0, 0.02, size=len(priorities)) # reduced noise
+
+        # Bin Balancing Incentive: Favor bins with below average remaining capacity.
+        average_remaining_capacity = np.mean(bins_remain_cap[feasible_mask])
+
+        below_avg_mask = feasible_bins_remain_cap < average_remaining_capacity
+        priorities[feasible_mask][below_avg_mask] *= 1.1
+
+    return priorities
+```

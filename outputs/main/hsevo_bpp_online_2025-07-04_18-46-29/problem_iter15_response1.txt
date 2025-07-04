@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_size: float = 1.0) -> np.ndarray:
+    """
+    A more sophisticated priority function for online bin packing, incorporating adaptive weighting,
+    state awareness, and controlled exploration.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # --- State Awareness: Global Bin Fill Level ---
+    avg_fill = np.mean(bin_size - bins_remain_cap) / bin_size  # Average fill level across all bins
+
+    # --- Objective Function Components ---
+
+    # 1. Fill Rate: How much of the bin is filled by the new item?
+    potential_bins = bins_remain_cap >= item
+    if np.any(potential_bins):
+        fill_rate = item / bin_size # Calculate fill rate as item/bin_size regardless of the target bin's capacity.
+        priorities[potential_bins] += fill_rate
+
+    # 2. Waste Minimization (Best Fit): Minimize remaining space
+    capacity_diff = bins_remain_cap - item
+    eligible_bins = bins_remain_cap >= item
+    if np.any(eligible_bins):
+        min_waste = np.min(capacity_diff[eligible_bins])
+        best_fit_bins = capacity_diff == min_waste
+        # Adaptive weight: Higher weight if bins are generally empty
+        waste_weight = 1.0 + (1.0 - avg_fill)  
+        priorities[best_fit_bins] += waste_weight * (1 - (min_waste / bin_size))  # Reward smaller waste
+
+    # 3. Fragmentation Penalty
+    remaining_space = bins_remain_cap - item
+    fragmentation_threshold = 0.2 * bin_size # Fixed threshold relative to bin size
+    fragmented_bins = (remaining_space > 0) & (remaining_space <= fragmentation_threshold)
+    # Adaptive penalty: Higher penalty if bins are already highly filled
+    fragmentation_penalty = 0.5 + avg_fill  # Base penalty + fill level
+    priorities[fragmented_bins] -= fragmentation_penalty
+
+    # 4. Encourage Re-use of Near-Empty Bins
+    almost_empty_threshold = 0.9  # Threshold as a fraction of bin size
+    almost_empty = bins_remain_cap > (almost_empty_threshold * bin_size)
+    if np.any(almost_empty):
+        almost_empty_bonus = 0.8 # fixed bonus
+        priorities[almost_empty] += almost_empty_bonus
+
+    # 5. Exploration: Introduce controlled randomness, especially when bins are similar
+    if np.std(priorities) < 0.1:  # If priorities are close, add some noise
+        priorities += np.random.normal(0, 0.05, num_bins)  # Small Gaussian noise
+
+    return priorities
+```

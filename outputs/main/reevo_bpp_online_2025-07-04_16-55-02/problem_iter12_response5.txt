@@ -1,0 +1,72 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    bin_size = bins_remain_cap.max()
+
+    # 1. Feasibility: Only consider bins where the item fits.
+    feasible_bins = bins_remain_cap >= item
+
+    # 2. Waste Minimization: Primary objective is to minimize waste.
+    post_fill_levels = bins_remain_cap - item
+    waste = post_fill_levels / bin_size
+    priorities[feasible_bins] = -waste[feasible_bins]
+
+    # 3. Infeasibility Penalty: Strong penalty for infeasible bins.
+    priorities[~feasible_bins] = -np.inf
+
+    # 4. Tight Fit Bonus: Significant bonus for bins that become nearly full.
+    near_full_threshold = 0.05
+    near_full_bonus = 3.0
+    near_full_bins = feasible_bins & (post_fill_levels >= 0) & (waste <= near_full_threshold)
+    priorities[near_full_bins] += near_full_bonus
+
+    # 5. Fragmentation Penalty: Penalize bins that would result in small remaining capacity.
+    frag_threshold = 0.15
+    frag_penalty = -2.0
+    frag_bins = feasible_bins & (post_fill_levels > 0) & (waste <= frag_threshold)
+    priorities[frag_bins] += frag_penalty
+
+    # 6. Large Item Strategy: Preferentially fill bins close to full or nearly empty if item is large
+    large_item_threshold = 0.7
+    nearly_empty_threshold = 0.95
+    nearly_full_threshold = 0.2 #Bins close to full
+    large_item_bonus = 2.5
+
+    if item > bin_size * large_item_threshold:
+        nearly_empty_bins = feasible_bins & (bins_remain_cap >= bin_size * nearly_empty_threshold)
+        nearly_full_bins = feasible_bins & (bins_remain_cap <= bin_size * nearly_full_threshold)
+        priorities[nearly_empty_bins] += large_item_bonus
+        priorities[nearly_full_bins] += large_item_bonus
+
+    # 7. Dynamic Waste Penalty: Adjust waste penalty based on item size. Larger items increase waste penalty.
+    item_ratio = item / bin_size
+    dynamic_waste_penalty = -waste * (1 + item_ratio)
+    priorities[feasible_bins] += dynamic_waste_penalty[feasible_bins]
+
+    # 8. Prefer bins that are already relatively full.
+    already_full_threshold = 0.85
+    already_full_bonus = 0.5
+    already_full_bins = feasible_bins & (bins_remain_cap <= bin_size * (1 - already_full_threshold))
+    priorities[already_full_bins] += already_full_bonus
+
+
+    # 9. Handle No Feasible Bins: Add item to the bin that *least* exceeds its capacity.
+    if not np.any(feasible_bins):
+        overfill_amounts = item - bins_remain_cap
+        min_overfill = np.min(overfill_amounts)
+        best_infeasible_bin = np.argmin(overfill_amounts)
+        priorities[best_infeasible_bin] = -1e-6
+
+    return priorities
+```

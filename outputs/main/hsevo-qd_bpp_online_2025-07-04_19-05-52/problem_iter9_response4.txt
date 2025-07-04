@@ -1,0 +1,70 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    An enhanced and refined priority function designed for improved bin packing performance.
+    This version places a greater emphasis on constraint satisfaction and adaptive parameter tuning.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    eligible_bins = bins_remain_cap >= item
+
+    if not np.any(eligible_bins):
+        return np.zeros_like(bins_remain_cap) - np.inf
+
+    # 1. Feasibility Check (Constraint Satisfaction - Most Important)
+    priorities[~eligible_bins] = -np.inf  # Infeasible bins get absolute lowest priority
+
+    # 2. Fill Ratio (Utilization) - Modified for better scaling
+    fill_ratio = item / bins_remain_cap
+    fill_ratio[~eligible_bins] = -np.inf  # Ensure only eligible bins considered
+    priorities[eligible_bins] += 0.3 * fill_ratio[eligible_bins]  # Higher weight on fill ratio
+
+    # 3. Fragmentation Penalty (Adaptive, more sensitive to small gaps)
+    gap_size = bins_remain_cap - item
+    max_bin_cap = np.max(bins_remain_cap)
+    small_gap_threshold = 0.1 * max_bin_cap  # Reduced threshold for "small gap"
+    small_gap = gap_size < small_gap_threshold
+    penalty_factor = 0.25  # Increased base penalty
+    priorities[small_gap & eligible_bins] -= penalty_factor
+
+    # 4. Existing Fill Bonus (Encourage using partially filled bins) - Adaptive
+    existing_fill = 1 - (bins_remain_cap / max_bin_cap)
+    existing_fill_bonus = 0.15 * existing_fill
+    priorities[eligible_bins] += existing_fill_bonus[eligible_bins]
+
+    # 5. Near-Perfect Fit Reward - Adjusted
+    near_perfect_fit = np.abs(bins_remain_cap - item) < 0.01 * max_bin_cap  # Relative tolerance
+    priorities[near_perfect_fit & eligible_bins] += 0.05  # Slightly increased reward
+
+    # 6. Remaining Capacity Consideration (Balance utilization and future flexibility)
+    remaining_capacity_priority = 0.075 * (bins_remain_cap / max_bin_cap)
+    priorities[eligible_bins] += remaining_capacity_priority[eligible_bins]
+
+    # 7. Dynamic Minimum Useful Capacity Penalty
+    min_useful_capacity = 0.2 * max_bin_cap  # Increased threshold
+    nearly_full = gap_size < min_useful_capacity
+    priorities[nearly_full & eligible_bins] -= 0.2 #Increased penalty
+
+    # 8. Item Size Consideration (Help avoid excessive fragmentation of large bins)
+    large_item_threshold = 0.5 * max_bin_cap
+    if item > large_item_threshold:
+        # Heavily penalize bins where placing the large item results in small gaps
+        excessive_frag_penalty = (gap_size < 0.1 * max_bin_cap) & eligible_bins
+        priorities[excessive_frag_penalty] -= 0.3
+
+
+    # Scale and Clip
+    priorities = np.clip(priorities, -1, 1)
+
+    return priorities
+```

@@ -1,0 +1,33 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, nearly_full_threshold_multiplier: float = 1.1989028768173058, empty_bin_priority_boost: float = 0.944721620955217, min_waste_priority: float = 1.68223289964055, sufficient_capacity_priority: float = 0.6891688314317523, prevent_fragmentation_priority: float = 1.0534130441972844) -> np.ndarray:
+    """Combines capacity ratios, waste minimization, and fragmentation avoidance."""
+    priority = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Heuristic 1: Sufficient Capacity
+    sufficient_capacity = bins_remain_cap >= item
+    priority[sufficient_capacity] += sufficient_capacity_priority
+
+    # Heuristic 2: Minimize Waste (Only for bins with sufficient capacity)
+    waste = bins_remain_cap - item
+    positive_waste = waste[sufficient_capacity]
+    min_waste = np.min(positive_waste) if positive_waste.size > 0 else np.inf
+    min_waste_bins_idx = np.where((waste == min_waste) & sufficient_capacity)[0]
+    priority[min_waste_bins_idx] += min_waste_priority
+
+    # Heuristic 3: Capacity Ratio (Only for bins with sufficient capacity)
+    ratios = item / bins_remain_cap
+    ratios[~sufficient_capacity] = 0  # Ignore bins without sufficient capacity
+    priority += ratios
+
+    # Heuristic 4: Prevent Fragmentation (Bins near full have high priority).
+    nearly_full_threshold = nearly_full_threshold_multiplier * item  # Adjust as needed
+    nearly_full = (bins_remain_cap > 0) & (bins_remain_cap <= nearly_full_threshold) & (bins_remain_cap >= item)
+    priority[nearly_full] += prevent_fragmentation_priority
+
+    # Heuristic 5: Prioritize Emptier Bins for Larger Items
+    empty_bin_threshold = np.max(bins_remain_cap)
+    is_empty = bins_remain_cap == empty_bin_threshold
+    priority[is_empty] += empty_bin_priority_boost   # Slightly favor empty bins
+
+    return priority

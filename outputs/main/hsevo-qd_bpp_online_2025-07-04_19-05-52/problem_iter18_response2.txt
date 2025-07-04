@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Improved priority function focusing on reducing fragmentation and maximizing bin utilization.
+    This version prioritizes near-optimal packing and balanced bin usage.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    eligible_bins = bins_remain_cap >= item
+    bin_capacity = np.max(bins_remain_cap)
+
+    if not np.any(eligible_bins):
+        return np.zeros_like(bins_remain_cap) - np.inf
+
+    # 1. Near-Perfect Fit (Highest Priority): Greatly increased reward.
+    near_perfect_fit = np.isclose(bins_remain_cap, item, rtol=1e-05, atol=1e-06)
+    priorities[near_perfect_fit & eligible_bins] += 0.5
+
+    # 2. Fill Ratio (Significant Priority): Encourage denser packing.
+    fill_ratio = item / bins_remain_cap
+    fill_ratio[~eligible_bins] = -np.inf
+    priorities += 0.4 * fill_ratio
+
+    # 3. Balance Remaining Capacity (Moderate Priority):
+    #     Prefer bins with remaining capacity around a target value (e.g., 1/3 bin size).
+    target_remaining = 0.33 * bin_capacity
+    capacity_diff = np.abs(bins_remain_cap - (item + target_remaining))
+    # Invert the difference: smaller difference = higher priority
+    capacity_priority = 1 - (capacity_diff / bin_capacity)
+    capacity_priority[~eligible_bins] = -np.inf
+    priorities += 0.2 * capacity_priority
+
+    # 4. Minimize Fragmentation (Moderate Penalty): Discourage leaving tiny gaps.
+    gap_size = bins_remain_cap - item
+    min_useful_capacity = 0.1 * bin_capacity
+    small_gap = gap_size < min_useful_capacity
+    priorities[small_gap & eligible_bins] -= 0.15
+
+    # 5. Avoid Overfilling (Light Penalty): Don't fill bins *too* much, maintain flexibility.
+    nearly_full = gap_size < (0.05 * bin_capacity)
+    priorities[nearly_full & eligible_bins] -= 0.05
+
+    # 6. Reward bins that have already some content
+    existing_fill = 1 - (bins_remain_cap / bin_capacity)
+    priorities[eligible_bins] += 0.05 * existing_fill[eligible_bins]
+
+    # 7. Scale and Clip
+    priorities = np.clip(priorities, -1, 1)
+
+    return priorities
+```

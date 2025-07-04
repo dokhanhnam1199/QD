@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Feasibility check: Give -inf priority if the item doesn't fit
+    priorities[bins_remain_cap < item] = -np.inf
+
+    # Perfect Fit Bonus: If the item fits perfectly, give it a very high priority
+    perfect_fit_bonus = 100
+    is_perfect_fit = np.isclose(bins_remain_cap, item)
+    priorities[is_perfect_fit] += perfect_fit_bonus
+
+    # Remaining Capacity Utilization and Waste Minimization
+    waste = bins_remain_cap - item
+    # Penalize negative waste (item doesn't fit, should not happen given feasibility check but added for robustness)
+    waste[waste < 0] = 1000  # large penalty to avoid this scenario
+    utilization = item / bins_remain_cap
+    utilization[bins_remain_cap < item] = 0
+
+    # Prioritize smaller waste, higher utilization.  Scale waste penalty by item size.
+    waste_penalty_factor = 2
+    utilization_reward_factor = 3
+    priorities[bins_remain_cap >= item] += (utilization[bins_remain_cap >= item] * utilization_reward_factor) - (waste[bins_remain_cap >= item] * waste_penalty_factor * item)
+
+    # Near Empty Penalty - make it proportional to item size and bin capacity
+    near_empty_threshold = 0.1
+    near_empty_penalty = -5
+    future_remain_cap = bins_remain_cap - item
+    is_near_empty = (bins_remain_cap >= item) & (future_remain_cap / bins_remain_cap > (1 - near_empty_threshold))
+    priorities[is_near_empty] += near_empty_penalty * item / bins_remain_cap[is_near_empty]
+
+    # Near Full Reward - reward near full bins after placing current item. Scale by available capacity
+    near_full_threshold = 0.9
+    near_full_reward = 5
+    future_utilization = np.zeros_like(bins_remain_cap, dtype=float)
+    future_utilization[bins_remain_cap >= item] = (bins_remain_cap[bins_remain_cap >= item] - waste[bins_remain_cap >= item]) / bins_remain_cap[bins_remain_cap >= item]
+    is_near_full = (bins_remain_cap >= item) & (future_utilization >= near_full_threshold)
+    priorities[is_near_full] += near_full_reward * bins_remain_cap[is_near_full]
+
+    # Small Bin Preference: If multiple bins can accommodate, prefer smaller ones.
+    small_bin_reward = 1
+    priorities[bins_remain_cap >= item] += small_bin_reward / bins_remain_cap[bins_remain_cap >= item]
+
+    return priorities
+```

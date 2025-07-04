@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Enhanced adaptive heuristic for online bin packing."""
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        return priorities - np.inf  # Punish infeasible solutions harshly
+
+    # 1. Waste Minimization with Adaptive Scaling:
+    wasted_space = bins_remain_cap - item
+    wasted_space[~feasible_bins] = np.inf
+    waste_ratio = wasted_space[feasible_bins] / bins_remain_cap.max()
+    item_importance = item / bins_remain_cap.max()  # Scale by item size
+    priorities[feasible_bins] -= (waste_ratio**2) * item_importance * (1 + np.mean(bins_remain_cap / bins_remain_cap.max()))  # Adjust penalty based on average occupancy
+
+    # 2. Fill Ratio Bonus with Dynamic Adjustment:
+    fill_ratio_after = item / bins_remain_cap[feasible_bins]
+    bin_fullness = 1 - bins_remain_cap[feasible_bins] / bins_remain_cap.max()
+    fill_bonus = fill_ratio_after * 0.3 * item_importance * (1 + bin_fullness**2)  # Non-linear bonus for near-full bins
+    priorities[feasible_bins] += fill_bonus
+
+    # 3. Controlled Exploration based on Item Size and Bin Landscape:
+    remaining_capacity_ratio = bins_remain_cap[feasible_bins] / bins_remain_cap.max()
+    randomization_strength = 0.05 * item_importance * remaining_capacity_ratio # More randomness for emptier bins and smaller items.
+    priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * randomization_strength
+
+    # 4. Dynamic Empty Bin Penalty:
+    average_occupancy = 1 - np.mean(bins_remain_cap / bins_remain_cap.max())
+    empty_bin_penalty = (remaining_capacity_ratio) * (1 - item_importance) # Scales with remaining capacity and item size
+    empty_bin_penalty_weight = 0.02 + 0.08 * average_occupancy # Increase penalty weight if bins are generally full.
+    priorities[feasible_bins] -= empty_bin_penalty * empty_bin_penalty_weight
+
+    # 5. Aggressive Bonus for Almost Full Bins:
+    wasted_space_after = bins_remain_cap[feasible_bins] - item
+    almost_full = wasted_space_after / bins_remain_cap.max() < 0.05
+    priorities[feasible_bins][almost_full] += 0.2  # Substantially reward filling bins completely
+
+    # 6. Penalize highly fragmented bins:
+    fragmentation_penalty = np.zeros_like(bins_remain_cap[feasible_bins])
+    for i in range(len(bins_remain_cap[feasible_bins])):
+        if bins_remain_cap[feasible_bins][i] > item and bins_remain_cap[feasible_bins][i] < 2 * item:
+            fragmentation_penalty[i] = 0.05 * item_importance
+    priorities[feasible_bins] -= fragmentation_penalty
+            
+    return priorities
+```

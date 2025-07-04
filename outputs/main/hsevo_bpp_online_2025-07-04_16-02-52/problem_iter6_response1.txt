@@ -1,0 +1,51 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines best-fit, fill ratio, controlled randomization, and bin diversity for bin prioritization.
+    Uses dynamic scaling and temperature-based exploration for improved performance.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Infeasible bins get lowest priority
+    priorities[bins_remain_cap < item] = -np.inf
+
+    # Calculate wasted space if item is placed in each bin
+    wasted_space = bins_remain_cap - item
+    
+    # Prioritize based on wasted space (smaller waste is better)
+    feasible_bins = bins_remain_cap >= item
+    priorities[feasible_bins] = -wasted_space[feasible_bins]
+
+    # Dynamic fill ratio bonus, scaled by item size and remaining capacity
+    fill_ratio_after = (1 - wasted_space / bins_remain_cap.max())
+    
+    # Scale fill ratio bonus based on item size: larger items prioritize fill ratio more
+    fill_bonus_scale = min(item, 0.5)  # Scale between 0 and 0.5
+    priorities[feasible_bins] += fill_ratio_after[feasible_bins] * fill_bonus_scale
+
+    # Temperature-based randomization: more exploration when bins are similar
+    # Calculate the standard deviation of remaining capacities
+    capacity_std = np.std(bins_remain_cap[feasible_bins]) if np.sum(feasible_bins) > 1 else 0.0
+    
+    # Define a temperature based on the standard deviation
+    temperature = max(0.01, min(0.2, capacity_std / bins_remain_cap.max()))  # Temperature between 0.01 and 0.2
+    
+    # Add randomization scaled by temperature and item size
+    priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * temperature * item
+
+    # Adaptive empty bin penalty, scaled by the average remaining capacity
+    avg_capacity = np.mean(bins_remain_cap)
+    empty_bin_penalty = (bins_remain_cap / bins_remain_cap.max())
+    penalty_scale = min(1.0, (1 - avg_capacity / bins_remain_cap.max())) #Scale penalty based on average capacity
+    priorities[feasible_bins] -= empty_bin_penalty[feasible_bins] * 0.05 * penalty_scale
+
+    # Bin diversity bonus: Encourage using bins with significantly different fill levels
+    if np.sum(feasible_bins) > 1:
+        capacity_range = np.max(bins_remain_cap[feasible_bins]) - np.min(bins_remain_cap[feasible_bins])
+        diversity_bonus = (bins_remain_cap[feasible_bins] - np.mean(bins_remain_cap[feasible_bins])) / capacity_range * 0.02
+        priorities[feasible_bins] += diversity_bonus
+
+    return priorities
+```

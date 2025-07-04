@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Feasibility check: Give -inf priority if the item doesn't fit
+    feasible_bins = bins_remain_cap >= item
+    priorities[~feasible_bins] = -np.inf
+
+    # Initialize waste and efficiency arrays for feasible bins
+    waste = np.zeros_like(bins_remain_cap, dtype=float)
+    efficiency = np.zeros_like(bins_remain_cap, dtype=float)
+    waste[feasible_bins] = bins_remain_cap[feasible_bins] - item
+    efficiency[feasible_bins] = item / bins_remain_cap[feasible_bins]
+    
+    # Define Hyperparameters for tuning
+    waste_penalty_factor = 2.5
+    efficiency_reward_factor = 3.5
+    near_full_reward_factor = 5.5
+    capacity_threshold = 0.15
+    small_capacity_penalty = 1.2
+    
+    # Encourage near-full bins and minimize waste
+    near_full_reward = (1 - waste[feasible_bins] / bins_remain_cap[feasible_bins]) * near_full_reward_factor
+    priorities[feasible_bins] += near_full_reward
+    
+    # Discourage larger waste values
+    priorities[feasible_bins] -= waste[feasible_bins] * waste_penalty_factor
+
+    # Reward efficiency (Higher utilization).
+    priorities[feasible_bins] += efficiency[feasible_bins] * efficiency_reward_factor
+    
+    # Penalize small remaining capacity to avoid creating nearly empty bins
+    small_capacity = (bins_remain_cap - item) < capacity_threshold
+    priorities[small_capacity & feasible_bins] -= small_capacity_penalty
+
+    # Prioritize bins with sufficient remaining capacity but not excessively large
+    # Helps to balance between filling existing bins and opening new ones strategically
+    sufficient_capacity = (bins_remain_cap - item) > 0.01
+    excessive_capacity = (bins_remain_cap - item) > 0.5
+    priorities[sufficient_capacity & feasible_bins] += 0.2  # Slightly encourage
+    priorities[excessive_capacity & feasible_bins] -= 0.1 # Slightly discourage
+
+    
+    return priorities
+```

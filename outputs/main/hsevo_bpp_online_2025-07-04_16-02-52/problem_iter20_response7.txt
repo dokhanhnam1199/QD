@@ -1,0 +1,58 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Adaptive heuristic. Combines waste minimization, fill ratio, exploration and bin landscape awareness."""
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        return priorities - np.inf
+
+    max_bin_cap = np.max(bins_remain_cap)
+    avg_bin_cap = np.mean(bins_remain_cap)
+    std_bin_cap = np.std(bins_remain_cap)
+
+    # 1. Dynamic Waste Minimization (Non-linear penalty)
+    wasted_space = bins_remain_cap - item
+    wasted_space[~feasible_bins] = np.inf
+    waste_penalty = (wasted_space / max_bin_cap)**3  # Cubic penalty for larger waste
+    priorities[feasible_bins] -= waste_penalty[feasible_bins] * (item / max_bin_cap)
+
+    # 2. Adaptive Fill Ratio Bonus
+    fill_ratio_after = item / bins_remain_cap[feasible_bins]
+    item_scale = item / max_bin_cap
+
+    # Adjust fill ratio bonus based on item size and bin fullness
+    bin_fullness = 1 - bins_remain_cap[feasible_bins] / max_bin_cap
+    fill_bonus = fill_ratio_after * 0.4 * item_scale * (1 + bin_fullness**2) # Non-linear fullness boost
+    priorities[feasible_bins] += fill_bonus
+
+    # 3. Dynamic Exploration (Randomization)
+    # More exploration for smaller items and fuller bins
+    exploration_strength = 0.03 * (item / max_bin_cap) * (1 - avg_bin_cap / max_bin_cap)
+    priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * exploration_strength
+
+    # 4. Empty Bin Penalty (Adaptive)
+    # Scales with both item size and average remaining capacity
+    empty_bin_penalty = (bins_remain_cap / max_bin_cap) * (item / max_bin_cap)
+    empty_bin_weight = 0.01 + 0.04 * (1 - avg_bin_cap / max_bin_cap) # Scales with occupancy
+    priorities[feasible_bins] -= empty_bin_penalty[feasible_bins] * empty_bin_weight
+
+    # 5. "Almost Full" Bonus (Enhanced)
+    wasted_space_after = bins_remain_cap[feasible_bins] - item
+    almost_full_threshold = 0.04 * max_bin_cap
+    almost_full = wasted_space_after <= almost_full_threshold
+    priorities[feasible_bins][almost_full] += 0.15  # Increased bonus
+
+    # 6. Large Item Consideration
+    if item > 0.5 * max_bin_cap:
+        empty_bin_bonus = (bins_remain_cap[feasible_bins] / max_bin_cap) * 0.05
+        priorities[feasible_bins] += empty_bin_bonus
+
+    # 7. Bin Capacity Variance Penalty (New - Encourages balancing)
+    capacity_variance_penalty = (std_bin_cap / max_bin_cap) * 0.02
+    priorities[feasible_bins] -= capacity_variance_penalty
+
+    return priorities
+```

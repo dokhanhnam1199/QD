@@ -1,0 +1,42 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray,
+                fill_ratio_weight: float = 0.5447295319514017,
+                randomization_strength_base: float = 0.017414667530556826,
+                empty_bin_penalty_weight_base: float = 0.0895372936189194,
+                empty_bin_penalty_weight_occupancy_factor: float = 0.13180802820195367,
+                almost_perfect_fit_scale: float = 7.832995734406596,
+                almost_perfect_fit_weight: float = 0.38142866667008685) -> np.ndarray:
+    """Combines adaptive fill ratio, waste minimization, and controlled randomization."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        return priorities - np.inf
+
+    # Waste minimization with non-linear penalty, scaled by item size
+    wasted_space = bins_remain_cap - item
+    wasted_space[~feasible_bins] = np.inf
+    priorities[feasible_bins] -= (wasted_space[feasible_bins] / bins_remain_cap.max())**2 * (item / bins_remain_cap.max())
+
+    # Adaptive fill ratio bonus, more significant for larger items
+    fill_ratio_after = item / bins_remain_cap[feasible_bins]
+    item_scale = item / bins_remain_cap.max()
+    priorities[feasible_bins] += fill_ratio_after * fill_ratio_weight * item_scale
+
+    # Controlled randomization, inversely proportional to bin fill and scaled by item size
+    randomization_strength = randomization_strength_base * item_scale * (1 - bins_remain_cap[feasible_bins] / bins_remain_cap.max())
+    priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * randomization_strength
+
+    # Adaptive bin-emptiness penalty, scaling with item and average occupancy
+    average_occupancy = 1 - np.mean(bins_remain_cap / bins_remain_cap.max())
+    empty_bin_penalty = (bins_remain_cap / bins_remain_cap.max()) * (1 - item / bins_remain_cap.max())
+    empty_bin_penalty_weight = empty_bin_penalty_weight_base + empty_bin_penalty_weight_occupancy_factor * average_occupancy
+    priorities[feasible_bins] -= empty_bin_penalty[feasible_bins] * empty_bin_penalty_weight
+
+    # Bonus for bins that fit the item almost perfectly
+    almost_perfect_fit = np.exp(-np.abs(wasted_space[feasible_bins]) * almost_perfect_fit_scale / item)
+    priorities[feasible_bins] += almost_perfect_fit * almost_perfect_fit_weight
+
+    return priorities

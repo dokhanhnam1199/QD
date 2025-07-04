@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Return priority score for each bin to pack the item into.
+    Combines capacity ratio, fragment avoidance, and adaptive exploration.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    infeasible_mask = bins_remain_cap < item
+    priorities[infeasible_mask] = -np.inf
+
+    feasible_mask = ~infeasible_mask
+    feasible_bins_remain_cap = bins_remain_cap[feasible_mask]
+
+    if np.sum(feasible_mask) > 0:
+        remaining_capacity_after_fit = feasible_bins_remain_cap - item
+        capacity_ratio = item / feasible_bins_remain_cap
+
+        priorities[feasible_mask] = capacity_ratio
+
+        # Fragment avoidance relative to item size
+        small_fragment_mask = remaining_capacity_after_fit < (item * 0.1)
+        priorities[feasible_mask][small_fragment_mask] *= 0.5
+
+        # Favor bins close to item size
+        optimal_space_mask = (remaining_capacity_after_fit >= (item * 0.1)) & (remaining_capacity_after_fit <= (item * 1.25))
+        priorities[feasible_mask][optimal_space_mask] *= 1.2
+
+        # Dynamic fragment penalty
+        fragment_penalty_threshold = item * 0.2
+        fragment_penalty_mask = (remaining_capacity_after_fit > 0) & (remaining_capacity_after_fit < fragment_penalty_threshold)
+        priorities[feasible_mask][fragment_penalty_mask] *= (1 - (remaining_capacity_after_fit[fragment_penalty_mask] / fragment_penalty_threshold) * 0.3)
+
+        # Adaptive Randomness: scaled to max capacity
+        max_capacity_used = np.max(1 - bins_remain_cap / np.max(bins_remain_cap))
+        randomness_scale = 0.01 + (0.04 * max_capacity_used)
+        priorities += np.random.normal(0, randomness_scale, size=len(priorities))
+
+        # Exploration/Exploitation balance
+        num_feasible = np.sum(feasible_mask)
+        if num_feasible > 5:
+            priorities[feasible_mask] *= (1 + 0.02 * capacity_ratio)
+        else:
+            avg_fill_level = np.mean(capacity_ratio)
+            exploration_boost = 0.03 + (0.07 * (1 - avg_fill_level))
+            priorities += np.random.normal(0, exploration_boost, size=len(priorities))
+
+    return priorities
+```
