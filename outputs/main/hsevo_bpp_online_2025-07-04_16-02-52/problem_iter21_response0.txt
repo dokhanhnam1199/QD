@@ -1,0 +1,51 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Adaptive heuristic combining waste minimization, fill ratio,
+    bin landscape awareness, and dynamic parameter adjustment."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        return priorities - np.inf
+
+    # Scale item size to bin capacity range
+    item_scale = item / bins_remain_cap.max()
+
+    # Dynamic waste minimization penalty, adjusted by item size
+    wasted_space = bins_remain_cap - item
+    wasted_space[~feasible_bins] = np.inf
+    waste_penalty_scale = 0.5 + 0.5 * item_scale  # Adjust penalty based on item size
+    priorities[feasible_bins] -= (wasted_space[feasible_bins] / bins_remain_cap.max())**2 * waste_penalty_scale
+
+    # Fill ratio bonus with dynamic weighting based on bin occupancy
+    fill_ratio_after = item / bins_remain_cap[feasible_bins]
+    bin_fullness = 1 - bins_remain_cap[feasible_bins] / bins_remain_cap.max()
+    fill_ratio_weight = 0.2 + 0.6 * bin_fullness  # Weight fill ratio by current bin fullness
+    priorities[feasible_bins] += fill_ratio_after * fill_ratio_weight * item_scale
+
+    # Controlled randomization, stronger for smaller items and emptier bins
+    randomization_strength = 0.1 * item_scale * (bins_remain_cap[feasible_bins] / bins_remain_cap.max())
+    priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * randomization_strength
+
+    # Adaptive bin-emptiness penalty, scaling with average occupancy & inverse item size
+    average_occupancy = 1 - np.mean(bins_remain_cap / bins_remain_cap.max())
+    empty_bin_penalty = (bins_remain_cap / bins_remain_cap.max()) * (1 - item / bins_remain_cap.max())
+    empty_bin_penalty_weight = 0.05 + 0.05 * average_occupancy * (1 - item_scale)
+    priorities[feasible_bins] -= empty_bin_penalty[feasible_bins] * empty_bin_penalty_weight
+
+    # Strong bonus for bins becoming very full after insertion
+    wasted_space_after = bins_remain_cap[feasible_bins] - item
+    almost_full = wasted_space_after / bins_remain_cap.max() < 0.03  # Tighter threshold
+    almost_full_bonus = 0.2 + 0.3 * item_scale  # Bonus scales with item size, incentivizing final placements
+    priorities[feasible_bins][almost_full] += almost_full_bonus
+
+    # Encourage even distribution by penalizing bins close to the average remaining capacity
+    capacity_difference = np.abs(bins_remain_cap[feasible_bins] - np.mean(bins_remain_cap)) / bins_remain_cap.max()
+    distribution_penalty = 0.02 * capacity_difference * item_scale
+    priorities[feasible_bins] -= distribution_penalty
+
+    return priorities
+```

@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # 1. Capacity Utilization: Prioritize bins with higher fill ratio *after* placing the item.
+
+    potential_bins = bins_remain_cap >= item
+    if np.any(potential_bins):
+        post_fill_ratio = (1 - (bins_remain_cap[potential_bins] - item) / np.max(bins_remain_cap))
+        priorities[potential_bins] += post_fill_ratio
+        
+    # 2. Smallest Waste: Encourage minimal leftover space.
+
+    eligible_bins = bins_remain_cap >= item
+    if np.any(eligible_bins):
+        waste = bins_remain_cap[eligible_bins] - item
+        min_waste = np.min(waste)
+        priorities[bins_remain_cap == (min_waste + item)] += 2  # Higher weight to smallest waste
+
+    # 3. Bin Level Awareness: Add weight to bins with average occupancy to help prevent extremes.
+    average_occupancy = np.mean(bins_remain_cap)
+    priorities += np.exp(-0.5 * ((bins_remain_cap - average_occupancy) / average_occupancy)**2)
+
+
+    # 4. Fragmentation Avoidance: Discourage bins that will be left with space smaller than a threshold (e.g., 10% of max capacity) after placing the item.
+    fragmentation_threshold = 0.1 * np.max(bins_remain_cap)
+    potential_fragmentation = (bins_remain_cap - item) < fragmentation_threshold
+    if np.any(potential_fragmentation & (bins_remain_cap >= item)):
+        priorities[potential_fragmentation & (bins_remain_cap >= item)] -= 1
+
+    # 5. Introduce a dynamic bias against almost-full bins, relative to item size
+    near_full_threshold = 1.2  #Adjustable. Was 1.1 in V1. Larger = less sensitive
+    near_full = (bins_remain_cap < item * near_full_threshold) & (bins_remain_cap >= item)
+    if np.any(near_full):
+        priorities[near_full] -= 0.7 # Increased penalty
+
+    return priorities
+```

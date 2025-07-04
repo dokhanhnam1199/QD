@@ -1,0 +1,51 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Feasibility check: Give -inf priority if the item doesn't fit
+    priorities[bins_remain_cap < item] = -np.inf
+
+    # Remaining Capacity Utilization: Prefer bins that are more utilized.
+    # If we put the item in the bin, what will be the fill ratio?
+    # future_fill_ratios = (bins_remain_cap - item) / bins_remain_cap
+
+    # Avoid bins with near-zero future capacity by penalizing bins where the future capacity goes below a threshold.
+    capacity_threshold = 0.1  # Tune this hyperparameter
+    priorities[bins_remain_cap - item < capacity_threshold] -= 10  # Significant penalty to strongly avoid small remaining capacity
+
+    # Calculate waste: We want to minimize the waste
+    waste = bins_remain_cap - item
+
+    # Calculate the efficiency: higher is better
+    efficiency = item / (bins_remain_cap)
+    efficiency[bins_remain_cap < item] = 0  # invalid ratios
+
+    # Prioritize bins where the item nearly fills the bin, but doesn't overflow
+    # The closer to zero `waste` is (but greater or equal than zero), the better
+    priorities[bins_remain_cap >= item] += (1 - waste[bins_remain_cap >= item] / bins_remain_cap[bins_remain_cap >= item]) * 20  # Increased importance
+
+    # Penalize larger waste, favor smaller waste.  A steeper penalty helps prevent excessive fragmentation
+    priorities[bins_remain_cap >= item] -= waste[bins_remain_cap >= item] * 5  # Increased waste penalty
+
+    # Reward efficiency. Favor adding an item to a bin if it leads to higher utilization of that bin.
+    priorities[bins_remain_cap >= item] += efficiency[bins_remain_cap >= item] * 10  # Increased importance
+
+    # Bonus for perfect fit: If the item fits perfectly, it's the best choice!
+    priorities[waste == 0] += 50  #Huge bonus
+
+    # Slightly prefer bins with larger remaining capacity among feasible bins.  This can help with future placements.
+    priorities[bins_remain_cap >= item] += bins_remain_cap[bins_remain_cap >= item] * 0.1
+
+    return priorities
+```

@@ -1,0 +1,44 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines capacity, waste, fragmentation, and empty bin considerations with dynamic adjustments."""
+
+    priority = np.zeros_like(bins_remain_cap, dtype=float)
+    n_bins = len(bins_remain_cap)
+
+    # Sufficient capacity boost
+    sufficient_capacity = bins_remain_cap >= item
+    priority[sufficient_capacity] += 1.8
+
+    # Minimize waste boost, focus on very small waste
+    waste = bins_remain_cap - item
+    positive_waste = waste[waste >= 0]
+    if len(positive_waste) > 0:
+        min_waste = np.min(positive_waste)
+        min_waste_bins_idx = np.where(waste == min_waste)[0]
+        priority[min_waste_bins_idx] += 1.2 + (1 - min_waste) * 0.5 # Reward extremely small waste even more
+
+    # Nearly full bin boost, dynamically adjust threshold based on item size
+    nearly_full_threshold = 1.05 # Reduced multiplier
+    nearly_full = (bins_remain_cap > 0.0) & (bins_remain_cap <= nearly_full_threshold * item) & (bins_remain_cap >= item)
+    priority[nearly_full] += 2.4
+
+    # Prioritize bins with remaining capacity close to item size, relative to mean remaining capacity
+    mean_remaining = np.mean(bins_remain_cap)
+    capacity_difference = np.abs(bins_remain_cap - item)
+    priority[sufficient_capacity] += np.exp(-capacity_difference[sufficient_capacity] / (mean_remaining + 0.001)) * 0.8 # Avoid division by zero
+
+    # Emptiness boost, but only if there are not many empty bins
+    is_empty = bins_remain_cap == np.max(bins_remain_cap)
+    num_empty = np.sum(is_empty)
+    if num_empty <= n_bins // 2:  # Limit empty bin boost
+        priority[is_empty] += 0.7
+
+    # Penalize bins with very large remaining capacity when item is small
+    if item < 0.2:
+        large_capacity = bins_remain_cap > 0.8
+        priority[large_capacity] -= 0.3 * (bins_remain_cap[large_capacity] - 0.8)
+
+    return priority
+```

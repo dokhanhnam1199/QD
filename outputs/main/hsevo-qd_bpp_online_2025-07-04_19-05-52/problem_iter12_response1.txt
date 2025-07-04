@@ -1,0 +1,67 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Improved priority function with refined fragmentation handling, adaptive weights, and bin diversity.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    eligible_bins = bins_remain_cap >= item
+
+    if not np.any(eligible_bins):
+        return np.zeros_like(bins_remain_cap) - np.inf
+
+    max_cap = np.max(bins_remain_cap)
+
+    # 1. Fill Ratio (Utilization) - Emphasized
+    fill_ratio = item / bins_remain_cap
+    fill_ratio[~eligible_bins] = -np.inf
+    priorities = 1.2 * fill_ratio  # Increased weight for utilization
+
+    # 2. Existing Fill Bonus - Refined
+    existing_fill = 1 - (bins_remain_cap / max_cap)
+    priorities[eligible_bins] += 0.25 * existing_fill[eligible_bins]  # Adjusted weight
+
+    # 3. Fragmentation Penalty - Adaptive and more sensitive.  Focus on *relative* fragmentation
+    gap_size = bins_remain_cap - item
+    relative_frag = gap_size / max_cap
+    # Heavier penalty for small *relative* gaps
+    penalty = np.where((relative_frag > 0) & (relative_frag < 0.2), 0.3 * (0.2 - relative_frag), 0) # significantly larger penalty
+
+    priorities[eligible_bins] -= penalty[eligible_bins]
+
+    # 4. Near-Perfect Fit Reward - Increased
+    near_perfect_fit = np.isclose(bins_remain_cap, item, rtol=1e-05, atol=1e-06)
+    priorities[near_perfect_fit & eligible_bins] += 0.03  # Slightly higher reward
+
+    # 5. Remaining Capacity Consideration - Boost for bins with good headroom.
+    priorities[eligible_bins] += 0.07 * (bins_remain_cap[eligible_bins] / max_cap) # Increased weight
+
+    # 6. Penalize Near-Full Bins (but less aggressively if it's a nearly perfect fit).  Dynamic threshold.
+    min_useful_capacity = 0.15 * max_cap
+    nearly_full = gap_size < min_useful_capacity
+    penalize_nearly_full = nearly_full & eligible_bins & ~near_perfect_fit
+    priorities[penalize_nearly_full] -= 0.12 # Slightly higher penalty
+
+    # 7. Bin Diversity Encouragement:  Slight preference for bins with different fill levels.
+    # This prevents all bins from having very similar fill levels, which can be bad long-term.
+    fill_levels = 1 - (bins_remain_cap / max_cap)
+    fill_level_similarity = np.std(fill_levels) # Higher when bins have differing levels.
+    priorities[eligible_bins] += 0.02 * fill_level_similarity
+
+    # 8. Adaptive Scaling - More aggressive stretching
+    priorities = priorities * (1 + 0.05 * existing_fill) # Scale up bins that are already partially full a bit more
+
+    # 9. Clipping
+    priorities = np.clip(priorities, -1, 1)
+
+    return priorities
+```

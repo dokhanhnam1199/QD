@@ -1,0 +1,72 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Advanced priority function for online bin packing, incorporating dynamic weighting,
+    bin utilization targets, fragmentation avoidance, and perfect-fit incentives.
+    """
+
+    # 1. Initialization and Edge Case Handling
+    bins_remain_cap = np.where(bins_remain_cap <= 0, 1e-9, bins_remain_cap)  # Avoid division by zero
+    feasible = bins_remain_cap >= item
+    num_bins = len(bins_remain_cap)
+    avg_cap = np.mean(bins_remain_cap)
+    max_cap = np.max(bins_remain_cap)
+
+    # 2. Feature Engineering
+
+    # 2.1 Gap Ratio: Reward smaller gaps relative to bin capacity.
+    gap = bins_remain_cap - item
+    gap = np.where(feasible, gap, max_cap)  # Large gap for infeasible bins
+    gap_ratio = 1 - (gap / bins_remain_cap)
+    gap_ratio = np.where(feasible, gap_ratio, -1e9)  # Negative infinity for infeasible
+
+    # 2.2 Capacity Utilization Target: Incentivize bins closer to a target utilization.
+    target_utilization = 0.75  # Aim for 75% utilization
+    current_utilization = (bins_remain_cap - gap) / (max_cap + 1e-9) if max_cap > 0 else 0 # Avoid division by zero.
+    utilization_diff = np.abs(current_utilization - target_utilization)
+    utilization_priority = 1 - utilization_diff  # Higher priority for bins closer to target
+    utilization_priority = np.where(feasible, utilization_priority, -1e9)
+
+
+    # 2.3 Fragmentation Penalty: Discourage creating small remaining spaces.
+    fragmentation_threshold = 0.1 * (max_cap + 1e-9) #if max_cap > 0 else 0.1 #if max_cap >0 else 0.1
+    fragmentation_penalty = np.where((gap > 0) & (gap < fragmentation_threshold) & feasible,
+                                     -np.exp(5 * (fragmentation_threshold - gap) / (fragmentation_threshold + 1e-9)),
+                                     0)
+    fragmentation_priority = -fragmentation_penalty # Less penalty is higher priority.
+
+    # 2.4 Perfect Fit Bonus: Huge reward for perfect fits.
+    perfect_fit = np.isclose(item, bins_remain_cap)
+    perfect_fit_bonus = np.where(perfect_fit & feasible, 1e9, 0)
+
+    # 2.5 Relative Item Size: Factor in how large the item is compared to average bin size.
+    relative_item_size = item / (avg_cap + 1e-9) if avg_cap > 0 else 0
+    item_size_priority = 1 - np.clip(relative_item_size, 0, 1)
+
+    # 3. Adaptive Weighting (Dynamic based on problem state)
+    # Adjust weights based on item size relative to bin capacities.
+    if max_cap > 0:
+        item_size_weight = min(1.0, item / max_cap)
+    else:
+        item_size_weight = 0.5
+    
+    gap_weight = 0.3 + 0.2 * item_size_weight
+    utilization_weight = 0.2 - 0.1 * item_size_weight
+    fragmentation_weight = 0.2 + 0.1 * item_size_weight
+    perfect_fit_weight = 0.3
+    item_size_priority_weight = 0.1
+
+
+    # 4. Combined Priority
+    combined_priority = (
+        gap_weight * gap_ratio +
+        utilization_weight * utilization_priority +
+        fragmentation_weight * fragmentation_priority +
+        perfect_fit_weight * perfect_fit_bonus +
+        item_size_priority_weight * item_size_priority
+    )
+
+    return combined_priority
+```

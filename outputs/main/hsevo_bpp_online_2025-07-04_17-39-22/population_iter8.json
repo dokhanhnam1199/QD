@@ -1,0 +1,92 @@
+[
+  {
+    "stdout_filepath": "problem_iter8_response0.txt_stdout.txt",
+    "code_path": "problem_iter8_code0.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Adaptive priority: combines capacity ratio, waste, and dynamic noise.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    \n    # Mark infeasible bins\n    infeasible_mask = bins_remain_cap < item\n    priorities[infeasible_mask] = -np.inf\n    \n    # Calculate remaining capacity after fit for feasible bins\n    feasible_mask = ~infeasible_mask\n    remaining_capacity_after_fit = bins_remain_cap[feasible_mask] - item\n    \n    # Calculate capacity ratio (item size / bin capacity)\n    capacity_ratio = item / bins_remain_cap[feasible_mask]\n    \n    # Core priority calculation: favor higher capacity ratios, penalize waste\n    priorities[feasible_mask] = capacity_ratio * np.exp(-remaining_capacity_after_fit / (item + 1e-9))\n\n    # Discourage bins that will become nearly full after item placement\n    too_full_mask = feasible_mask & (remaining_capacity_after_fit < 0.1 * bins_remain_cap[feasible_mask])\n    priorities[too_full_mask] -= 0.5\n    \n    # Give a bonus to bins that become almost perfectly full after placement\n    almost_perfect_mask = feasible_mask & (remaining_capacity_after_fit < 1e-6)\n    priorities[almost_perfect_mask] += 0.2\n    \n    # Adaptive random noise injection: scale noise with item size and # feasible bins\n    num_feasible = np.sum(feasible_mask)\n    random_scale = 0.01 * item * max(1, num_feasible) #Scale by number of feasible bins\n    priorities += np.random.normal(0, random_scale, size=len(priorities))\n\n    # Normalize priorities\n    priorities /= (item + 1e-9)\n    \n    # Encourage reuse of nearly full bins\n    nearly_full_before_mask = feasible_mask & (bins_remain_cap[feasible_mask] < item * 1.1)\n    priorities[nearly_full_before_mask] += 0.1\n\n    return priorities",
+    "response_id": 0,
+    "tryHS": false,
+    "obj": 73.3346629437575,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter8_response1.txt_stdout.txt",
+    "code_path": "problem_iter8_code1.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines fullness, waste, and adaptive bin selection with noise.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    cannot_fit = item > bins_remain_cap\n    priorities[cannot_fit] = -np.inf\n\n    can_fit = ~cannot_fit\n    remaining_capacities_can_fit = bins_remain_cap[can_fit]\n\n    if len(remaining_capacities_can_fit) > 0:\n        waste = remaining_capacities_can_fit - item\n        waste_normalized = waste / remaining_capacities_can_fit\n        relative_fullness = 1 - remaining_capacities_can_fit / np.max(bins_remain_cap)\n\n        priorities[can_fit] = -waste_normalized + relative_fullness * 0.5 # Adjusted weight\n        \n        #Adaptive reuse bonus - encourage packing into bins which are already somewhat full\n        already_full_mask = (remaining_capacities_can_fit < 0.7 * np.max(bins_remain_cap)) & (remaining_capacities_can_fit > item)\n        priorities[can_fit][already_full_mask] += 0.1 * item * relative_fullness[already_full_mask]\n\n        # Boost bins with smaller remaining capacity after placement, scale remaining capacity.\n        remaining_after_placement = remaining_capacities_can_fit - item\n        remaining_after_placement = np.clip(remaining_after_placement, a_min=0, a_max=None)\n        priority_boost = np.exp(-5 * remaining_after_placement)\n        priorities[can_fit] += priority_boost * 0.2\n\n    # Add noise\n    noise = np.random.normal(0, 1e-6, len(priorities))\n    priorities += noise\n\n    return priorities",
+    "response_id": 1,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter8_response2.txt_stdout.txt",
+    "code_path": "problem_iter8_code2.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Adaptive priority: combines normalized waste, fit score, bin utilization, and randomness.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    valid_bins = bins_remain_cap >= item\n\n    if not np.any(valid_bins):\n        return priorities - 1e9\n\n    # Fit score: exp distance\n    fit_score = np.exp(-np.abs(bins_remain_cap - item) / item)\n    priorities[valid_bins] = fit_score[valid_bins]\n\n    # Used bin bonus, scaled by remaining capacity\n    is_used_bonus = (bins_remain_cap < 1).astype(float) * (1 - bins_remain_cap)\n    priorities += is_used_bonus\n\n    # Normalize waste, only for valid bins\n    waste = bins_remain_cap[valid_bins] - item\n    waste_normalized = waste / bins_remain_cap[valid_bins]\n    priorities[valid_bins] -= waste_normalized\n\n    # Dynamic noise injection, scaled by number of valid bins\n    num_valid = np.sum(valid_bins)\n    noise_scale = min(1.0, 1.0 / (num_valid + 1e-6))  # Scale noise down if many bins fit.\n    noise = np.random.normal(0, 0.01 * noise_scale, len(priorities))\n    priorities += noise\n\n    return priorities",
+    "response_id": 2,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter8_response3.txt_stdout.txt",
+    "code_path": "problem_iter8_code3.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Adaptive priority: Combines waste normalization, fullness, and dynamic noise.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    potential_bins = bins_remain_cap >= item\n    priorities[~potential_bins] = -np.inf\n\n    waste = bins_remain_cap - item\n    waste = np.clip(waste, a_min=0, a_max=None)\n    waste_normalized = 1 - (waste / bins_remain_cap)\n    waste_normalized = np.clip(waste_normalized, a_min=0, a_max=1)\n\n    bin_utilization = (bins_remain_cap - waste) / bins_remain_cap\n    is_used_bonus = (bin_utilization > 0).astype(float)\n\n    # Dynamic noise based on number of potential bins\n    num_potential_bins = np.sum(potential_bins)\n    noise_scale = 0.01 if num_potential_bins > 0 else 0.05  # Higher noise if no good bins\n    priorities = 0.7 * waste_normalized + 0.3 * is_used_bonus + np.random.normal(0, noise_scale, size=len(priorities))\n\n    return priorities",
+    "response_id": 3,
+    "tryHS": false,
+    "obj": 4.008775428799367,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter8_response4.txt_stdout.txt",
+    "code_path": "problem_iter8_code4.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines adaptive strategies for bin packing priority.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    infeasible_mask = bins_remain_cap < item\n    priorities[infeasible_mask] = -np.inf\n\n    feasible_mask = ~infeasible_mask\n    feasible_capacities = bins_remain_cap[feasible_mask]\n\n    if np.sum(feasible_mask) > 0:\n        remaining_capacity_after_fit = feasible_capacities - item\n        capacity_ratio = item / feasible_capacities\n\n        priorities[feasible_mask] = capacity_ratio\n\n        small_fragment_threshold = 0.1 * item\n        small_fragment_mask = remaining_capacity_after_fit < small_fragment_threshold\n        priorities[feasible_mask][small_fragment_mask] *= 0.5\n\n        large_capacity_threshold = 2 * item\n        large_capacity_mask = remaining_capacity_after_fit > large_capacity_threshold\n        priorities[feasible_mask][large_capacity_mask] *= 1.1\n\n        num_feasible = np.sum(feasible_mask)\n        if num_feasible > 5:\n            priorities[feasible_mask] *= (1 + 0.01 * capacity_ratio)\n        else:\n            priorities += np.random.normal(0, 0.05, size=len(priorities))\n\n        # Near-full bin penalty\n        near_full_threshold = 0.1 * np.max(bins_remain_cap)\n        near_full_mask = (bins_remain_cap > 0) & (bins_remain_cap < item + near_full_threshold) & (~infeasible_mask)\n        priorities[near_full_mask] = -0.1\n\n        bin_fullness = 1 - bins_remain_cap / np.max(bins_remain_cap)\n        priorities += 0.05 * bin_fullness\n\n        utilization = 1 - np.mean(bins_remain_cap / np.max(bins_remain_cap))\n        noise_level = 0.01 * (1 - utilization)\n        priorities += np.random.normal(0, noise_level, size=len(priorities))\n\n    return priorities",
+    "response_id": 4,
+    "tryHS": false,
+    "obj": 15.137614678899078,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter8_response5.txt_stdout.txt",
+    "code_path": "problem_iter8_code5.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Adaptive priority: Balance fit, capacity, waste & randomness.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    potential_bins = bins_remain_cap >= item\n    priorities[~potential_bins] = -np.inf\n\n    feasible_mask = bins_remain_cap >= item\n    remaining_capacity_after_fit = bins_remain_cap[feasible_mask] - item\n    capacity_ratio = item / bins_remain_cap[feasible_mask]\n\n    # Capacity Ratio\n    priority_capacity_ratio = capacity_ratio\n\n    waste = bins_remain_cap - item\n    waste = np.clip(waste, a_min=0, a_max=None)\n    waste_normalized = 1 - (waste / bins_remain_cap)\n    waste_normalized = np.clip(waste_normalized, a_min=0, a_max=1)\n\n    bin_utilization = (bins_remain_cap - waste) / bins_remain_cap\n    is_used_bonus = (bin_utilization > 0).astype(float)\n\n    priorities[feasible_mask] = (\n        0.4 * priority_capacity_ratio +\n        0.4 * waste_normalized +\n        0.2 * is_used_bonus[feasible_mask]\n    )\n\n    # Add randomness, scaled with item size\n    priorities += np.random.normal(0, 0.005 * item, size=len(priorities))\n\n    return priorities",
+    "response_id": 5,
+    "tryHS": false,
+    "obj": 7.459114479457515,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter8_response6.txt_stdout.txt",
+    "code_path": "problem_iter8_code6.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines fit, bin utilization, normalized waste, and adaptive noise.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    valid_bins = bins_remain_cap >= item\n\n    if not np.any(valid_bins):\n        return priorities - 1e9\n\n    # Fit score: exp distance\n    fit_score = np.exp(-np.abs(bins_remain_cap - item) / (item + 1e-9))\n    priorities[valid_bins] = fit_score[valid_bins]\n\n    # Bin utilization bonus\n    utilization = item / bins_remain_cap[valid_bins]\n    priorities[valid_bins] += utilization\n\n    # Normalize waste\n    waste = bins_remain_cap[valid_bins] - item\n    waste_normalized = waste / (bins_remain_cap[valid_bins] + 1e-9)\n    priorities[valid_bins] -= waste_normalized\n\n    # Adaptive noise based on number of valid bins\n    num_valid_bins = np.sum(valid_bins)\n    noise_scale = 0.005 if num_valid_bins > 3 else 0.05 #tune noise scale\n    noise = np.random.normal(0, noise_scale, len(priorities))\n    priorities += noise\n\n    return priorities",
+    "response_id": 6,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter8_response7.txt_stdout.txt",
+    "code_path": "problem_iter8_code7.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Adaptive heuristic: balances fit, waste, fullness, and randomness.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    cannot_fit = item > bins_remain_cap\n    priorities[cannot_fit] = -np.inf\n\n    can_fit = ~cannot_fit\n    remaining_capacities_can_fit = bins_remain_cap[can_fit]\n\n    if len(remaining_capacities_can_fit) > 0:\n        waste = remaining_capacities_can_fit - item\n        waste_normalized = waste / remaining_capacities_can_fit\n        utilization = item / remaining_capacities_can_fit\n\n        priorities[can_fit] = utilization - waste_normalized\n\n        # Boost bins with smaller remaining capacity after placement\n        remaining_after_placement = remaining_capacities_can_fit - item\n        remaining_after_placement = np.clip(remaining_after_placement, a_min=0, a_max=None)\n        priority_boost = np.exp(-5 * remaining_after_placement)\n        priorities[can_fit] += 0.5* priority_boost\n\n        #Adaptive noise: reduce noise as bins get full.\n        noise_scale = np.mean(remaining_capacities_can_fit)\n        noise = np.random.normal(0, 1e-6 * noise_scale, len(priorities))\n        priorities += noise\n\n    return priorities",
+    "response_id": 7,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter8_response8.txt_stdout.txt",
+    "code_path": "problem_iter8_code8.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Calculate bin priorities based on adaptive waste normalization,\n    bin utilization, and dynamic exploration.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    potential_bins = bins_remain_cap >= item\n    priorities[~potential_bins] = -np.inf\n\n    waste = bins_remain_cap - item\n    waste = np.clip(waste, a_min=0, a_max=None)\n    waste_normalized = 1 - (waste / (bins_remain_cap + 1e-9))\n    waste_normalized = np.clip(waste_normalized, a_min=0, a_max=1)\n\n    bin_utilization = (bins_remain_cap - waste) / (bins_remain_cap + 1e-9)\n    is_used_bonus = (bin_utilization > 0).astype(float)\n\n    avg_cap = np.mean(bins_remain_cap[bins_remain_cap > 0]) if np.any(bins_remain_cap > 0) else 1.0\n    adaptive_weight = np.clip(avg_cap / (item + 1e-9), 0.1, 10)\n\n    priorities = 0.7 * waste_normalized + 0.3 * is_used_bonus\n    num_empty_bins = np.sum(bins_remain_cap > 0.99 * np.max(bins_remain_cap))\n    exploration_factor = np.clip(num_empty_bins / len(bins_remain_cap), 0.01, 0.1)\n    priorities += np.random.normal(0, exploration_factor, size=len(priorities))\n\n    small_item_size = np.mean(bins_remain_cap[bins_remain_cap>0])/10 if np.any(bins_remain_cap > 0) else 0.1\n    future_fit_penalty = np.where(waste < small_item_size, -0.1 , 0)\n    priorities[potential_bins] += future_fit_penalty[potential_bins]\n\n    return priorities",
+    "response_id": 8,
+    "tryHS": false,
+    "obj": 6.262465097726362,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter8_response9.txt_stdout.txt",
+    "code_path": "problem_iter8_code9.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Adaptive heuristic: Combines capacity ratio, fragment avoidance, and dynamic exploration-exploitation.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    infeasible_mask = bins_remain_cap < item\n    priorities[infeasible_mask] = -np.inf\n    feasible_mask = ~infeasible_mask\n    \n    if np.sum(feasible_mask) > 0:\n        remaining_after_fit = bins_remain_cap[feasible_mask] - item\n        capacity_ratio = item / bins_remain_cap[feasible_mask]\n        \n        # Base priority on capacity ratio\n        priorities[feasible_mask] = capacity_ratio\n\n        # Small fragment penalty\n        small_fragment_threshold = 0.2  # Tuneable\n        small_fragment_penalty = 0.7\n        small_fragment_mask = remaining_after_fit < (item * small_fragment_threshold)\n        priorities[feasible_mask][small_fragment_mask] *= small_fragment_penalty\n\n        # Large capacity bonus\n        large_capacity_threshold = 2.0 # Tuneable\n        large_capacity_bonus = 1.1\n        large_capacity_mask = remaining_after_fit > (item * large_capacity_threshold)\n        priorities[feasible_mask][large_capacity_mask] *= large_capacity_bonus\n\n        # Adaptive exploration/exploitation\n        num_feasible = np.sum(feasible_mask)\n        exploration_prob = 0.3 if num_feasible < 3 else 0.1 # Tuneable\n        \n        if np.random.rand() < exploration_prob:\n            random_scale = 0.1 * item  #Tuneable\n            priorities += np.random.normal(0, random_scale, size=len(priorities))\n        else:\n            exploitation_bonus = 0.05 # Tuneable\n            priorities[feasible_mask] *= (1 + exploitation_bonus * capacity_ratio) # Favor full bins.\n\n    return priorities",
+    "response_id": 9,
+    "tryHS": false,
+    "obj": 4.238133226964499,
+    "exec_success": true
+  }
+]

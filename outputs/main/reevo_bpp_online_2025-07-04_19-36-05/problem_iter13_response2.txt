@@ -1,0 +1,39 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    bin_capacity = np.max(bins_remain_cap)  # Assume all bins have same initial capacity
+
+    # 1. Feasibility: Only consider bins that can fit the item.
+    feasible_bins = bins_remain_cap >= item
+
+    # 2. Remaining Capacity Priority (scaled by item size): Favor bins with tighter fit.
+    # Normalize residual capacity by item size and bin capacity. Clip to [0, 1].
+    residual_capacity = bins_remain_cap - item
+    normalized_residual = np.clip(residual_capacity / bin_capacity, 0, 1) # normalize to bin size
+    remaining_cap_priority = np.where(feasible_bins, 1 - normalized_residual, 0) # normalized to bin size
+
+    # 3. Load Balancing: Give a bonus to bins with less remaining capacity relative to mean
+    mean_remaining_cap = np.mean(bins_remain_cap)
+    load_balance_bonus = np.where(feasible_bins, np.exp(-2 * np.maximum(0, mean_remaining_cap - bins_remain_cap) / bin_capacity), 0) #compare to mean.
+
+    # 4. Direct Bonus: If the item fits perfectly (or nearly so), give a significant bonus.
+    perfect_fit_bonus = np.where(feasible_bins & (residual_capacity >= 0) & (residual_capacity <= 0.1 * item), 0.5, 0) #relative to item
+
+    # 5. Prioritize partly full bins, prevent extreme values with clipped feature
+    fill_level = np.clip((bin_capacity - bins_remain_cap)/bin_capacity, 0, 1) #relative to bin size
+    partly_full_bonus = np.where(feasible_bins, fill_level, 0)
+
+    priorities = remaining_cap_priority + 0.3 * load_balance_bonus + perfect_fit_bonus + 0.1 * partly_full_bonus
+    return priorities
+```

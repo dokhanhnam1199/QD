@@ -1,0 +1,52 @@
+import numpy as np
+
+def priority_v2(item: float,
+                bins_remain_cap: np.ndarray,
+                existing_fill_weight: float = 0.4659829243719931,
+                small_gap_threshold: float = 0.35083634716694523,
+                penalty_base: float = 0.28410174094281476,
+                penalty_item_ratio: float = 0.09265067700716106,
+                near_perfect_rtol: float = 7.493433496396467e-05,
+                near_perfect_atol: float = 2.564587531407012e-06,
+                remaining_capacity_weight: float = 0.18993259792255,
+                min_useful_capacity_ratio: float = 0.2844790183875039,
+                nearly_full_penalty: float = 0.022428695571324632,
+                clip_lower: float = -1.6746713584669106,
+                clip_upper: float = 0.80511406641095) -> np.ndarray:
+    """Assigns bin priorities considering utilization, fragmentation, and remaining capacity."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    eligible_bins = bins_remain_cap >= item
+
+    if not np.any(eligible_bins):
+        return np.zeros_like(bins_remain_cap) - np.inf
+
+    # 1. Utilization Maximization
+    fill_ratio = item / bins_remain_cap
+    fill_ratio[~eligible_bins] = -np.inf
+    priorities = fill_ratio
+
+    # 2. Existing Fill Bonus
+    existing_fill = 1 - (bins_remain_cap / np.max(bins_remain_cap))
+    priorities[eligible_bins] += existing_fill_weight * existing_fill[eligible_bins]
+
+    # 3. Fragmentation Penalty (Adaptive)
+    gap_size = bins_remain_cap - item
+    small_gap = gap_size < (small_gap_threshold * np.max(bins_remain_cap))
+    penalty_factor = penalty_base + penalty_item_ratio * (item / np.max(bins_remain_cap))
+    priorities[small_gap & eligible_bins] -= penalty_factor
+
+    # 4. Near-Perfect Fit Reward
+    near_perfect_fit = np.isclose(bins_remain_cap, item, rtol=near_perfect_rtol, atol=near_perfect_atol)
+    priorities[near_perfect_fit & eligible_bins] += 0.01
+
+    # 5. Remaining Capacity Consideration
+    priorities[eligible_bins] += remaining_capacity_weight * (bins_remain_cap[eligible_bins] / np.max(bins_remain_cap))
+
+    # 6. Penalize Nearly Full Bins
+    min_useful_capacity = min_useful_capacity_ratio * np.max(bins_remain_cap)
+    nearly_full = gap_size < min_useful_capacity
+    priorities[nearly_full & eligible_bins] -= nearly_full_penalty
+
+    priorities = np.clip(priorities, clip_lower, clip_upper)
+    return priorities

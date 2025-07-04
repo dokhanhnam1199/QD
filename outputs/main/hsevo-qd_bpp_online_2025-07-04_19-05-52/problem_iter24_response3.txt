@@ -1,0 +1,87 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Improved priority function focusing on reducing fragmentation, maximizing bin utilization,
+    and adapting to item sizes.  This version incorporates a more nuanced fragmentation
+    penalty, dynamic weight adjustments, and bin state awareness.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    eligible_bins = bins_remain_cap >= item
+    bin_capacity = np.max(bins_remain_cap)
+
+    if not np.any(eligible_bins):
+        return np.zeros_like(bins_remain_cap) - np.inf
+
+    # 1. Fill Ratio Maximization (with dynamic weight)
+    fill_ratio = item / bins_remain_cap
+    fill_ratio[~eligible_bins] = -np.inf
+    fill_ratio_weight = 1.5 + 0.5 * (item / bin_capacity)  # Adapt to item size
+    priorities = fill_ratio_weight * fill_ratio
+
+    # 2. Encourage existing fill (but less aggressively)
+    existing_fill = 1 - (bins_remain_cap / bin_capacity)
+    priorities[eligible_bins] += 0.2 * existing_fill[eligible_bins]
+
+    # 3. Fragmentation Penalty (Adaptive and more sensitive)
+    gap_size = bins_remain_cap - item
+    avg_item_size = np.mean(item) if isinstance(item, np.ndarray) else item
+    small_gap_threshold = 0.2 * bin_capacity
+
+    small_gap = gap_size < small_gap_threshold
+    penalty_factor = 0.2 + 0.2 * (item / bin_capacity)
+    priorities[small_gap & eligible_bins] -= penalty_factor
+
+    # 4. Near-Perfect Fit Reward (More significant reward)
+    near_perfect_fit = np.isclose(bins_remain_cap, item, rtol=1e-05, atol=1e-06)
+    priorities[near_perfect_fit & eligible_bins] += 0.1
+
+    # 5. Prioritize larger remaining capacity (slightly adjusted weight)
+    priorities[eligible_bins] += 0.05 * (bins_remain_cap[eligible_bins] / bin_capacity)
+
+    # 6. Significant penalty for bins that become nearly full (dynamic threshold)
+    min_useful_capacity = 0.15 * bin_capacity
+    nearly_full = gap_size < min_useful_capacity
+    priorities[nearly_full & eligible_bins] -= 0.2  # Increased penalty
+
+    # 7. Look-Ahead Fragmentation Penalty (Relative to smallest item) - Enhanced penalty.
+    min_item_size = np.min(item) if isinstance(item, np.ndarray) else item
+    very_small_gap_threshold = 0.4 * min_item_size
+    if min_item_size > 0:
+        very_small_gap = gap_size < very_small_gap_threshold
+        priorities[very_small_gap & eligible_bins] -= 0.3  # Further Increased penalty
+
+    # 8. Reward bins close to half-full (Balance utilization with future flexibility)
+    half_full_range_lower = 0.4 * bin_capacity
+    half_full_range_upper = 0.6 * bin_capacity
+    close_to_half = (bins_remain_cap >= (item + half_full_range_lower)) & (bins_remain_cap <= (item + half_full_range_upper))
+    priorities[close_to_half & eligible_bins] += 0.1
+
+    # 9. Bin State Awareness: Penalize bins with very low utilization to encourage consolidation
+    bin_utilization = 1 - (bins_remain_cap / bin_capacity)
+    low_utilization = bin_utilization < 0.1
+    priorities[low_utilization & eligible_bins] -= 0.05  # Slightly penalize almost empty bins
+
+    # 10. Adjust penalty based on current bin fill level
+    current_fill_level = 1 - (bins_remain_cap[eligible_bins] / bin_capacity)
+    # Apply a more aggressive penalty as bins get closer to full.
+
+    # 11. Dynamic Adjustment of Thresholds for Better Adaptability.  Adapt the "half-full" range
+    #     based on the average item size seen so far.  This makes the heuristic more responsive.
+    #     Requires storing the average item size across calls. (Not implementable without memory)
+    #     Example: avg_item_size = ...  half_full_range_lower = 0.4*bin_capacity + 0.1 * avg_item_size
+
+    # 12. Scale and Clip
+    priorities = np.clip(priorities, -1, 1)
+
+    return priorities
+```

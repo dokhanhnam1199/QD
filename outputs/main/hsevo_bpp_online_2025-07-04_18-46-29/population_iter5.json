@@ -1,0 +1,93 @@
+[
+  {
+    "stdout_filepath": "problem_iter5_response0.txt_stdout.txt",
+    "code_path": "problem_iter5_code0.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes bins considering waste, target fullness, and near-full penalty.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    waste = bins_remain_cap - item\n    valid_bins = bins_remain_cap >= item\n\n    if np.any(valid_bins):\n        # Minimize waste\n        priorities[valid_bins] = -np.abs(waste[valid_bins])\n\n        # Fullness bonus\n        fullness = (bins_remain_cap[valid_bins] - waste[valid_bins]) / bins_remain_cap[valid_bins]\n        target_fullness = 0.8\n        fullness_bonus = (fullness > target_fullness) * 1.0\n        priorities[valid_bins] += fullness_bonus\n\n        # Near-full penalty with smoother gradient\n        full_threshold = 0.1\n        almost_full = bins_remain_cap < (1 + full_threshold) * item\n        penalty_strength = 2.0\n        priorities[almost_full] -= penalty_strength * np.exp(10 * (1 - (bins_remain_cap[almost_full] / (item * (1 + full_threshold))))) # Use np.exp to penalize almost full bins\n        \n        # Bonus for tight fit\n        min_waste = np.min(waste[valid_bins])\n        close_fit_bonus = np.where(waste[valid_bins] == min_waste, 0.5, 0.0)\n        priorities[valid_bins] += close_fit_bonus\n\n    else:\n        priorities[:] = -0.0001  # Small negative priority\n    return priorities",
+    "response_id": 0,
+    "tryHS": false,
+    "obj": 4.956122856003196,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter5_response1.txt_stdout.txt",
+    "code_path": "problem_iter5_code1.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines best fit, target fill, and residual capacity.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    can_fit = bins_remain_cap >= item\n\n    if np.any(can_fit):\n        # Best Fit component: prioritize fuller bins\n        remaining_space = bins_remain_cap[can_fit] - item\n        fit_scores = 1 / (remaining_space + 1e-9)\n\n        # Target fill ratio component (around 70%)\n        fit_ratios = item / bins_remain_cap[can_fit]\n        target_priority = np.exp(-np.abs(fit_ratios - 0.7))\n\n        # Residual Capacity Penalty: Avoid leaving tiny spaces\n        residual_penalty = np.abs(remaining_space / bins_remain_cap[can_fit])\n\n        # Combine scores\n        capacity_weights = bins_remain_cap[can_fit]/np.max(bins_remain_cap)\n        combined_priority = (capacity_weights * fit_scores + (1 - capacity_weights) * target_priority) - 0.1*residual_penalty\n        priorities[can_fit] = combined_priority\n\n    else:\n        # Prioritize larger bins when no fit exists\n        priorities = bins_remain_cap\n\n    return priorities",
+    "response_id": 1,
+    "tryHS": false,
+    "obj": 4.0885520542481055,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter5_response2.txt_stdout.txt",
+    "code_path": "problem_iter5_code2.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Balances waste, fullness, and fit with adaptive scaling.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    valid_bins = bins_remain_cap >= item\n\n    if np.any(valid_bins):\n        waste = bins_remain_cap[valid_bins] - item\n        priorities[valid_bins] = -np.abs(waste)  # Favors minimal waste\n\n        close_fit = np.abs(waste) < 0.1 * item\n        priorities[valid_bins][close_fit] += 1  # Bonus for very good fit\n\n        almost_full = bins_remain_cap[valid_bins] < (1 + 0.1) * item\n        priorities[valid_bins][almost_full] -= 2  # Penalty for nearly full\n\n        # First Fit Decreasing component, scaled adaptively\n        remaining_after_fit = bins_remain_cap[valid_bins] - item\n        priorities[valid_bins] += np.exp(-10 * remaining_after_fit / item) * 0.5 #Scale impact\n        fill_fraction = item / bins_remain_cap[valid_bins]\n\n        priorities[valid_bins] += fill_fraction * 0.3\n    else:\n        priorities[:] = -0.0001  # Discourage random placement\n    return priorities",
+    "response_id": 2,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter5_response3.txt_stdout.txt",
+    "code_path": "problem_iter5_code3.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines best fit, target fullness, and adaptive penalty.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    potential_bins = bins_remain_cap >= item\n\n    if np.any(potential_bins):\n        # Best Fit Component: Prioritize bins with minimal waste.\n        waste = bins_remain_cap[potential_bins] - item\n        priorities[potential_bins] += np.exp(-waste) # Use exponential to prioritize close fits\n\n        # Target Fullness Component: Encourage bins to reach a target fullness.\n        fullness_after_packing = (bins_remain_cap[potential_bins] - waste) / np.max(bins_remain_cap)\n        target_fullness = 0.8\n        fullness_diff = np.abs(fullness_after_packing - target_fullness)\n        priorities[potential_bins] += np.exp(-fullness_diff * 5)  # Prioritize fullness near target\n\n        # Adaptive Fragmentation Penalty: Penalize bins based on remaining capacity relative to item size.\n        frag_penalty = (bins_remain_cap[potential_bins] / np.max(bins_remain_cap)) * (item / np.max(bins_remain_cap))\n        priorities[potential_bins] -= frag_penalty * 0.5  # Scale the penalty\n\n        # Introduce tiny Randomness for exploration\n        priorities += np.random.rand(len(bins_remain_cap)) * 0.001\n\n    else:\n        priorities[:] = -0.0001\n    return priorities",
+    "response_id": 3,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter5_response4.txt_stdout.txt",
+    "code_path": "problem_iter5_code4.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Balances waste, fullness, and avoids near-full bins.\n    Uses a smoothed waste penalty and adaptive bonus for good fit.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    valid_bins = bins_remain_cap >= item\n\n    if np.any(valid_bins):\n        waste = bins_remain_cap[valid_bins] - item\n        # Smoothed penalty for waste, scaled by item size\n        priorities[valid_bins] = -np.exp( -waste / item)\n\n        # Adaptive bonus for close fit, relative to item size\n        close_fit_threshold = 0.1 # Tune this\n        close_fit = waste < close_fit_threshold * item\n        priorities[valid_bins][close_fit] += 1\n\n        # Penalize near-full bins\n        almost_full_threshold = 0.1 # Tune this\n        almost_full = bins_remain_cap[valid_bins] < (1 + almost_full_threshold) * item\n        almost_full_penalty = 0.5 # Tune this\n        priorities[valid_bins][almost_full] -= almost_full_penalty\n    else:\n        priorities[:] = bins_remain_cap  # Prioritize larger bins if no fit\n\n    return priorities",
+    "response_id": 4,
+    "tryHS": false,
+    "obj": 149.30195452732352,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter5_response5.txt_stdout.txt",
+    "code_path": "problem_iter5_code5.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines best-fit and target fill ratio, adaptive penalty for near-full, bonus for very good fit.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    \n    # Encourage filling bins closer to full\n    potential_bins = bins_remain_cap >= item\n    if np.any(potential_bins):\n      priorities[potential_bins] = (bins_remain_cap[potential_bins] - item) / bins_remain_cap[potential_bins]\n\n    # Prioritize bins with smallest remaining capacity that can still fit the item.\n    eligible_bins = bins_remain_cap >= item\n    if np.any(eligible_bins):\n      min_remaining = np.min(bins_remain_cap[eligible_bins])\n      priorities[bins_remain_cap == min_remaining] += 1\n\n    # Einstein's Special Consideration\n    priorities = priorities + np.exp(-np.abs(bins_remain_cap - item))\n    \n    # Penalize near-full bins, adaptive scaling\n    near_full = (bins_remain_cap < item * 1.1) & (bins_remain_cap >= item)\n    if np.any(near_full):\n        priorities[near_full] -= 0.5 * (item/np.mean(bins_remain_cap))  #Adaptive penalty based on mean cap\n\n    # Bonus for very good fit\n    close_fit = (bins_remain_cap >= item) & (bins_remain_cap <= item * 1.05)\n    if np.any(close_fit):\n        priorities[close_fit] += 0.75\n      \n    return priorities",
+    "response_id": 5,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter5_response6.txt_stdout.txt",
+    "code_path": "problem_iter5_code6.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines waste minimization, target fullness, and adaptive penalties.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    eligible_bins = bins_remain_cap >= item\n\n    if np.any(eligible_bins):\n        # Minimize waste (smallest remaining capacity after adding the item)\n        waste = bins_remain_cap[eligible_bins] - item\n        priorities[eligible_bins] = -np.abs(waste)  # Initial priority\n\n        # Target fullness bonus\n        fullness = (bins_remain_cap[eligible_bins] - waste) / bins_remain_cap[eligible_bins]\n        target_fullness = 0.8\n        fullness_bonus = np.exp(-np.abs(fullness - target_fullness) * 5)  # Smoother bonus\n        priorities[eligible_bins] += fullness_bonus\n\n        # Adaptive penalty for near-full bins (scale penalty by item size)\n        near_full = (bins_remain_cap[eligible_bins] <= item * 1.2)\n        penalty_scale = item / np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else 0.1\n        priorities[eligible_bins[near_full]] -= 2 * penalty_scale # Adaptive Penalty\n\n        # Bonus for good fit\n        fit_ratio = item / bins_remain_cap[eligible_bins]\n        good_fit = (fit_ratio >= 0.5) & (fit_ratio <= 0.95)\n        priorities[eligible_bins[good_fit]] += 1.0\n\n    else:\n        priorities[:] = -0.0001  # Small negative priority if no bin fits\n\n    # Exploration: Add a small random noise\n    priorities += np.random.rand(len(bins_remain_cap)) * 0.01\n    return priorities",
+    "response_id": 6,
+    "tryHS": false,
+    "exec_success": false,
+    "obj": Infinity,
+    "traceback_msg": "Traceback (most recent call last):\n  File \"/home/dokhanhnam1199/QD/problems/bpp_online/eval.py\", line 112, in <module>\n    avg_num_bins = -evaluate(dataset)\n  File \"/home/dokhanhnam1199/QD/problems/bpp_online/eval.py\", line 55, in evaluate\n    _, bins_packed = online_binpack(items.astype(float), bins)\n  File \"/home/dokhanhnam1199/QD/problems/bpp_online/eval.py\", line 28, in online_binpack\n    priorities = priority(item, bins[valid_bin_indices])\n  File \"/home/dokhanhnam1199/QD/problems/bpp_online/gpt.py\", line 27, in priority_v2\n    return priorities\nIndexError: boolean index did not match indexed array along axis 0; size of axis is 5000 but size of corresponding boolean axis is 1\n"
+  },
+  {
+    "stdout_filepath": "problem_iter5_response7.txt_stdout.txt",
+    "code_path": "problem_iter5_code7.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines fullest bin and near fit with dynamic penalty.\n    Prioritizes fuller bins, near fits, and penalizes almost full.\n    \"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    eligible_bins = bins_remain_cap >= item\n\n    if np.any(eligible_bins):\n        # Fullest Bin component: Prioritize smallest remaining space\n        remaining_space = bins_remain_cap[eligible_bins] - item\n        priorities[eligible_bins] = 1 / (remaining_space + 1e-9)\n\n        # Near Fit adjustment: Give bonus to bins with slightly larger capacity\n        near_fit_threshold_upper = item * 1.2\n        near_fit_bins = (bins_remain_cap >= item) & (bins_remain_cap <= near_fit_threshold_upper)\n        priorities[near_fit_bins] += 0.5 * priorities[near_fit_bins]\n\n        # Penalize almost full bins to avoid fragmentation\n        full_threshold = 0.1\n        almost_full = bins_remain_cap < (1 + full_threshold) * item\n        priorities[almost_full] -= 0.75 * priorities[almost_full] # Adaptive penalty\n    else:\n        priorities[:] = -1  # Very low priority if item doesn't fit\n\n    return priorities",
+    "response_id": 7,
+    "tryHS": false,
+    "obj": 4.228161148783416,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter5_response8.txt_stdout.txt",
+    "code_path": "problem_iter5_code8.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines best-fit and target fill ratio with penalties.\n    Balances waste, fullness, and fit using smooth functions.\n    \"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    valid_bins = bins_remain_cap >= item\n\n    if np.any(valid_bins):\n        waste = bins_remain_cap[valid_bins] - item\n        priorities[valid_bins] = -np.abs(waste)\n\n        close_fit = np.abs(waste) < 0.1 * item\n        priorities[valid_bins][close_fit] += 1 # Bonus\n\n        almost_full = bins_remain_cap[valid_bins] < (1 + 0.1) * item\n        priorities[valid_bins][almost_full] -= 2 # Penalty\n\n        # Target fill ratio (around 70%)\n        fit_ratios = item / bins_remain_cap[valid_bins]\n        target_priority = np.exp(-np.abs(fit_ratios - 0.7)) * 0.5 #Scale impact.\n        priorities[valid_bins] += target_priority\n\n    else:\n        priorities[:] = -0.0001\n    return priorities",
+    "response_id": 8,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter5_response9.txt_stdout.txt",
+    "code_path": "problem_iter5_code9.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Hybrid priority: balance waste, fullness, fit, and penalize almost full.\"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    valid_bins = bins_remain_cap >= item\n\n    if np.any(valid_bins):\n        waste = bins_remain_cap - item\n        priorities[valid_bins] = -np.abs(waste[valid_bins]) # Favors minimal waste\n\n        close_fit_threshold = 0.1\n        close_fit = np.abs(waste[valid_bins]) < close_fit_threshold * item\n        priorities[valid_bins][close_fit] += 1  # Bonus for very good fit\n\n        almost_full_threshold = 0.1\n        almost_full_penalty = 10\n        almost_full = bins_remain_cap < (1 + almost_full_threshold) * item\n        priorities[almost_full] -= almost_full_penalty # Penalty for nearly full\n\n        # First Fit Decreasing - ish component to avoid fragmentation\n        remaining_after_fit_scale = 2\n        remaining_after_fit_exponent_scale = 0.5\n        remaining_after_fit = bins_remain_cap[valid_bins] - item\n        priorities[valid_bins] += np.exp(-remaining_after_fit_scale * remaining_after_fit / item) * remaining_after_fit_exponent_scale #Scale impact.\n\n        # Sigmoid component for bin fullness\n        sigmoid = 1 / (1 + np.exp(10 * (item - bins_remain_cap)))\n        priorities += 0.5 * sigmoid # Combine sigmoid\n    else:\n        discourage_random_placement_value = 100\n        priorities[:] = -discourage_random_placement_value  # Discourage random placement\n\n    return priorities",
+    "response_id": 9,
+    "tryHS": false,
+    "obj": 5.534503390506582,
+    "exec_success": true
+  }
+]

@@ -1,0 +1,40 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+    Inspired by quantum mechanics: Tunneling Probability and Fermi Level.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # 1. Immediate Fit Bonus: Bins where the item *almost* fits perfectly.
+    #   We're seeking minimal wasted space - an attempt to "fill" the bin like particles seek lowest energy states.
+    fit_diff = bins_remain_cap - item
+    immediate_fit = np.where(fit_diff >= 0, np.exp(-np.abs(fit_diff) / (item + 1e-9)), 0)  # Exponential decay of priority as wasted space grows
+    priorities += 2.0 * immediate_fit  #Double weighting.
+
+    # 2. "Tunneling" Factor: Even if item *doesn't* fit perfectly, bins *close* to fitting get a bonus.
+    #    Think of the item as a quantum particle "tunneling" through a small energy barrier (the lack of space).
+    tunneling_potential = np.where(fit_diff < 0, np.exp(fit_diff / (item + 1e-9)), 0) # exp of negative value if item too large
+    priorities += 0.5 * tunneling_potential
+    
+    # 3. Prevent excessive fragmentation:  Bins with a large remaining capacity get *penalized* if the item is relatively small
+    #   This is to avoid leaving very small scraps in many bins, encouraging full or almost full usage.
+    fragmentation_penalty = np.where((bins_remain_cap > 2 * item), - (item / bins_remain_cap)**0.5 , 0) #root to make values less aggressive
+    priorities += fragmentation_penalty
+
+    # 4. "Fermi Level" consideration: Bins that are nearly full are "more desirable"
+    #    as they represent a "lower energy state" for the overall system.
+    #   We want to "fill" levels as evenly as possible
+    fermi_level = (bins_remain_cap > 0) * (1 - (bins_remain_cap / np.max(bins_remain_cap))) #normalize cap to [0,1], larger cap equals lower fermi_level
+    priorities += fermi_level
+
+    return priorities
+```

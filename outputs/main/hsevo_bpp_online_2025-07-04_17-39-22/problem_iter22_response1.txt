@@ -1,0 +1,66 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray,
+                bin_utilization_exponent: float = 1.6799091233804828,
+                small_fragment_threshold_ratio: float = 0.25295565570997225,
+                small_fragment_penalty: float = 0.1580076752332408,
+                large_capacity_threshold_ratio: float = 1.9174114222407312,
+                large_capacity_bonus: float = 1.4672904104121267,
+                exploitation_bonus_ratio: float = 0.023399445686663616,
+                exploration_noise_std: float = 0.1723760047102953,
+                fragment_penalty_threshold_ratio: float = 0.34135836791740615,
+                fragment_penalty_scale: float = 0.5619706584170726,
+                large_item_threshold_ratio: float = 0.5427359215341406,
+                well_utilized_bonus: float = 0.11777964576236961,
+                almost_full_threshold_ratio: float = 0.07488647896603476,
+                almost_full_bonus: float = 0.23090318806027643,
+                base_exploration_noise_std: float = 0.06862984264103317) -> np.ndarray:
+    """Prioritizes bins balancing utilization, fragmentation, exploration, and item size."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    infeasible_mask = bins_remain_cap < item
+    priorities[infeasible_mask] = -np.inf
+
+    feasible_mask = ~infeasible_mask
+    feasible_bins_remain_cap = bins_remain_cap[feasible_mask]
+
+    if np.sum(feasible_mask) > 0:
+        remaining_capacity_after_fit = feasible_bins_remain_cap - item
+        capacity_ratio = item / feasible_bins_remain_cap
+
+        priorities[feasible_mask] = capacity_ratio**bin_utilization_exponent #Bin Utilization, tuned exponent
+
+        #Small Fragments.
+        small_fragment_threshold = small_fragment_threshold_ratio * item
+        small_fragment_mask = remaining_capacity_after_fit > 0  & (remaining_capacity_after_fit < small_fragment_threshold)
+        priorities[feasible_mask][small_fragment_mask] *= small_fragment_penalty  #Small Fragment Penalty
+
+        #Large capacity bonus
+        large_capacity_threshold = large_capacity_threshold_ratio * item
+        large_capacity_mask = remaining_capacity_after_fit > large_capacity_threshold
+        priorities[feasible_mask][large_capacity_mask] *= large_capacity_bonus #Large Capacity Bonus
+
+        #Adaptive exploration
+        num_feasible = np.sum(feasible_mask)
+        if num_feasible > 4:
+            priorities[feasible_mask] *= (1 + exploitation_bonus_ratio * capacity_ratio) #Exploitation
+        else:
+            priorities += np.random.normal(0, exploration_noise_std, size=len(priorities)) #Exploration
+
+        #Dynamic fragment penalty
+        fragment_penalty_threshold = fragment_penalty_threshold_ratio * item
+        fragment_penalty_mask = (remaining_capacity_after_fit > 0) & (remaining_capacity_after_fit < fragment_penalty_threshold)
+        priorities[feasible_mask][fragment_penalty_mask] *= (1 - (remaining_capacity_after_fit[fragment_penalty_mask] / fragment_penalty_threshold) * fragment_penalty_scale)
+
+        #Large item bonus
+        if item > bins_remain_cap.max() * large_item_threshold_ratio:
+            well_utilized_mask = capacity_ratio > 0.7
+            priorities[feasible_mask][well_utilized_mask] *= (1 + well_utilized_bonus) #Large item placed in well-utilized bin
+
+        #Almost full bonus
+        almost_full_threshold = bins_remain_cap.max() * almost_full_threshold_ratio
+        almost_full_mask = remaining_capacity_after_fit < almost_full_threshold #using rem_cap after fit
+        priorities[feasible_mask][almost_full_mask] *= (1 + almost_full_bonus) #Almost full bonus
+        
+        priorities += np.random.normal(0, base_exploration_noise_std, size=len(priorities)) #Base exploration noise
+    return priorities

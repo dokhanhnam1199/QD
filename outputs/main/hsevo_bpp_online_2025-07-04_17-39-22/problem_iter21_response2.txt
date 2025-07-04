@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This version focuses on a more adaptive approach, balancing bin utilization,
+    fragmentation avoidance, and exploration based on the problem state.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_mask = bins_remain_cap >= item
+    num_feasible = np.sum(feasible_mask)
+
+    # Infeasible bins get a very low priority
+    priorities[~feasible_mask] = -np.inf
+
+    if num_feasible > 0:
+        feasible_bins_remain_cap = bins_remain_cap[feasible_mask]
+        remaining_capacity_after_fit = feasible_bins_remain_cap - item
+        utilization_ratio = item / feasible_bins_remain_cap
+
+        # Base priority: Bin utilization. Prioritize bins that will be well-utilized.
+        priorities[feasible_mask] = utilization_ratio
+
+        # Fragmentation avoidance: Penalize bins that will result in small fragments,
+        # but adapt the penalty based on the item size.  Larger items can tolerate
+        # slightly larger fragments without severe penalty.
+        fragment_threshold = item * 0.2  # 20% of item size
+        small_fragment_mask = (remaining_capacity_after_fit > 0) & (remaining_capacity_after_fit < fragment_threshold)
+        fragment_penalty = 0.5  # Adjust as needed
+        priorities[feasible_mask][small_fragment_mask] *= (1 - fragment_penalty * (remaining_capacity_after_fit[small_fragment_mask] / fragment_threshold))
+
+        # Exploration/Exploitation balance: Adjust randomness based on the number of feasible bins.
+        if num_feasible <= 3:  # Fewer options: explore more
+            exploration_noise = 0.1
+        else:  # More options: exploit more
+            exploration_noise = 0.02
+
+        priorities[feasible_mask] += np.random.normal(0, exploration_noise, size=num_feasible)
+
+        # Large item bonus, if it's going into a mostly-full bin
+        if item > np.mean(bins_remain_cap) * 0.7:  # A "large" item
+            mostly_full_mask = utilization_ratio > 0.8  # bin becomes mostly full
+            large_item_bonus = 0.15
+            priorities[feasible_mask][mostly_full_mask] *= (1 + large_item_bonus)
+
+        # Encourage filling bins close to full. Reduce impact of exploration
+        # on very full bins.
+        nearly_full_mask = utilization_ratio > 0.9
+        if np.any(nearly_full_mask):
+            priorities[feasible_mask][nearly_full_mask] *= (1 + (1 - exploration_noise))
+            # Reduce noise to let these bins get picked.
+            priorities[nearly_full_mask] += np.random.normal(0, exploration_noise * 0.1, size = np.sum(nearly_full_mask)) # tiny noise
+
+    return priorities
+```

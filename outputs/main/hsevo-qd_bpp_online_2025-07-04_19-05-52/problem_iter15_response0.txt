@@ -1,0 +1,63 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Enhanced priority function focusing on bin utilization, fragmentation control,
+    and a dynamic approach to item size consideration.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    eligible_bins = bins_remain_cap >= item
+
+    if not np.any(eligible_bins):
+        return np.zeros_like(bins_remain_cap) - np.inf
+
+    bin_capacity = np.max(bins_remain_cap)
+    # 1. Bin Utilization Score (Prioritize filling bins well)
+    utilization = item / bin_capacity
+    priorities[eligible_bins] += 0.8 * utilization
+
+    # 2. Remaining Capacity Ratio (Normalize by item size for relevance)
+    remaining_ratio = (bins_remain_cap - item) / (item + 1e-9) # avoid division by zero
+    priorities[eligible_bins] += 0.3 * np.clip(1 - remaining_ratio[eligible_bins], 0, 1)
+
+
+    # 3. Fragmentation Penalty (Focus on creating usable remaining space, dynamic threshold based on item size)
+    gap_size = bins_remain_cap - item
+    min_useful_gap = 0.2 * item  # Gap must be at least 20% of item's size to be useful.
+    fragmentation_penalty = (gap_size < min_useful_gap) & eligible_bins
+    priorities[fragmentation_penalty] -= 0.5
+
+    # 4. Near-Perfect Fit Bonus (Slightly increased)
+    near_perfect_fit = np.isclose(bins_remain_cap, item, rtol=1e-05, atol=1e-06)
+    priorities[near_perfect_fit & eligible_bins] += 0.2
+
+    # 5. Open Bin Penalty (Discourage opening new bins unless necessary)
+    empty_bins = bins_remain_cap == bin_capacity
+    priorities[empty_bins & eligible_bins] -= 0.1
+
+
+    # 6. Adaptive Weighting: Larger items benefit from space consolidation,
+    # while smaller items encourage best-fit.
+    item_size_ratio = item / bin_capacity
+
+    if item_size_ratio > 0.6: # Larger item, prioritize space consolidation
+        fill_percentage = (bin_capacity - bins_remain_cap)/bin_capacity
+        priorities[eligible_bins] += 0.2*fill_percentage[eligible_bins]
+    else:  # Smaller item, slightly encourage best fit.
+        remaining_percentage = bins_remain_cap/bin_capacity
+        priorities[eligible_bins] += 0.05*(1-remaining_percentage[eligible_bins])
+
+    # 7. Clipping to avoid extreme values
+    priorities = np.clip(priorities, -1, 1)
+
+    return priorities
+```

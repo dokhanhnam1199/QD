@@ -1,0 +1,65 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    bin_size = bins_remain_cap.max()  # Assuming all bins have same capacity
+
+    # 1. Feasibility: Only consider bins where the item fits.
+    feasible_bins = bins_remain_cap >= item
+
+    # 2. Calculate post-fill levels directly
+    post_fill_levels = bins_remain_cap - item
+
+    # 3. Infeasibility penalty: Set priority to -inf for infeasible bins
+    priorities[~feasible_bins] = -np.inf
+
+    # 4. Waste minimization: Prioritize bins with smallest waste after placing the item
+    waste = post_fill_levels
+    normalized_waste = waste / bin_size
+    priorities[feasible_bins] = -normalized_waste[feasible_bins] # Apply only to feasible bins
+
+    # 5. Bonus for near-full bins: Incentivize tight packing. Stronger bonus.
+    near_full_threshold = 0.05
+    near_full_bonus = 5  #Increased Bonus
+    near_full_bins = feasible_bins & (post_fill_levels >= 0) & (post_fill_levels <= (bin_size * near_full_threshold))
+    priorities[near_full_bins] += near_full_bonus
+
+    # 6. Penalize bins that would have too little remaining capacity, to consolidate items. Reduced Penalty.
+    too_little_threshold = 0.2
+    too_little_penalty = -0.1 # Reduced penalty
+    too_little_bins = feasible_bins & (post_fill_levels > 0) & (post_fill_levels <= (bin_size * too_little_threshold))
+    priorities[too_little_bins] += too_little_penalty
+
+    # 7. Large item bonus: If item is larger than a certain threshold, incentivize filling nearly empty bins
+    large_item_threshold = 0.7
+    nearly_empty_threshold = 0.9
+    nearly_empty_bonus = 2 #Increased bonus
+
+    if item > bin_size * large_item_threshold:
+        nearly_empty_bins = feasible_bins & (bins_remain_cap >= bin_size * nearly_empty_threshold)
+        priorities[nearly_empty_bins] += nearly_empty_bonus
+
+    # 8. Small item bonus: Encourage using bins with more space if the item is small
+    small_item_threshold = 0.3
+    if item < bin_size * small_item_threshold:
+        # Prioritize bins with a higher remaining capacity
+        normalized_remaining_cap = bins_remain_cap / bin_size
+        priorities[feasible_bins] += normalized_remaining_cap[feasible_bins] * 0.5 # Only for feasible bins, reduced weight
+
+    # 9. Normalize priorities if no feasible bin exists, provide a minimal preference. Less negative values.
+    if not np.any(feasible_bins):
+        priorities = bins_remain_cap/bin_size * 0.001 # Prefer bins with more space.
+
+    return priorities
+```

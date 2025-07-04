@@ -1,0 +1,47 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Find bins where the item fits
+    fit_mask = bins_remain_cap >= item
+    if np.any(fit_mask):
+        remaining_space = bins_remain_cap[fit_mask] - item
+        
+        # Prioritize bins with smallest remaining space (First-Fit Decreasing principle)
+        priorities[fit_mask] = -remaining_space
+
+        # Reward bins that become nearly full after packing
+        nearly_full_mask = (remaining_space >= 0) & (remaining_space <= 0.2)  # Tunable: Target remaining space
+        if np.any(nearly_full_mask):
+            fullness_ratio = (bins_remain_cap[fit_mask][nearly_full_mask] - remaining_space[nearly_full_mask]) / bins_remain_cap[fit_mask][nearly_full_mask]
+            priorities[fit_mask][nearly_full_mask] += 3 * fullness_ratio  # Tunable: Boost factor
+
+        # Penalize bins that become too full after packing
+        too_full_mask = remaining_space < 0.02 # Tunable: Threshold for "too full"
+        if np.any(too_full_mask & fit_mask):
+            priorities[fit_mask][too_full_mask & (remaining_space > -1e-6)] -= 10  # Tunable: Penalty factor, protect for small floating point issues.
+            priorities[fit_mask][too_full_mask & (remaining_space > -1e-6)] = np.clip(priorities[fit_mask][too_full_mask & (remaining_space > -1e-6)], -np.inf, 0) # prevent positive penalties, tuned
+        
+        # Slightly penalize bins that are too empty after packing, to encourage filling them more.
+        too_empty_mask = remaining_space > 0.5 # Tunable: Threshold for "too empty".
+        if np.any(too_empty_mask & fit_mask):
+            emptiness_ratio = remaining_space[too_empty_mask & (remaining_space > -1e-6)] / bins_remain_cap[fit_mask][too_empty_mask & (remaining_space > -1e-6)]
+            priorities[fit_mask][too_empty_mask & (remaining_space > -1e-6)] -= 1 * emptiness_ratio # Tunable: Penalty factor
+
+    else:
+        # If the item does not fit in any bin, assign a very low priority
+        priorities[:] = -np.inf
+
+    return priorities
+```

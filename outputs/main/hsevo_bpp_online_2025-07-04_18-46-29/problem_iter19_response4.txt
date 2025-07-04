@@ -1,0 +1,73 @@
+import numpy as np
+
+def priority_v2(item: float, 
+                bins_remain_cap: np.ndarray,
+                fill_ratio_weight_base: float = 0.2628025374843542,
+                fill_ratio_weight_item_factor: float = 0.6857452738813921,
+                best_fit_weight_base: float = 2.5576385081691155,
+                best_fit_weight_availability_factor: float = 0.7887734622492868,
+                fragmentation_penalty_weight_base: float = 1.2340669990948079,
+                fragmentation_penalty_weight_item_factor: float = 0.6861416177623758,
+                reuse_weight_base: float = 0.43143400721562275,
+                reuse_weight_availability_factor: float = 0.842295663846176,
+                best_fit_decay_rate: float = 4.931408914841856,
+                fragmentation_threshold_base: float = 0.2800875086840849,
+                fragmentation_threshold_item_factor: float = 0.23218242749059326,
+                almost_empty_threshold_base: float = 0.9596338244459918,
+                almost_empty_threshold_average_fill_factor: float = 0.0030842451952023398,
+                almost_empty_bonus_base: float = 0.5420058822471223,
+                almost_empty_bonus_average_fill_factor: float = 0.11530934548392446,
+                too_full_threshold: float = 0.17807443061791228,
+                too_full_penalty: float = 0.6655959249435828,
+                exploration_factor_scale: float = 0.019633788966900236,
+                min_item_size_factor: float = 0.90802289947756,
+                min_bin_availability_factor: float = 1.2992578639637138,
+                division_epsilon: float = 0.0004978678140414835) -> np.ndarray:
+    """Combines adaptive fill ratio, best fit, frag. penalty & reuse, exploration"""
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    num_bins = len(bins_remain_cap)
+    
+    # Adaptive Weights - based on item size and global fill level
+    item_size_factor = min(min_item_size_factor, item)
+    bin_availability_factor = min(min_bin_availability_factor, np.sum(bins_remain_cap >= item) / num_bins)
+    average_fill = np.mean(1 - bins_remain_cap)
+
+    fill_ratio_weight = fill_ratio_weight_base + fill_ratio_weight_item_factor * item_size_factor
+    best_fit_weight = best_fit_weight_base + best_fit_weight_availability_factor * bin_availability_factor
+    fragmentation_penalty_weight = fragmentation_penalty_weight_base + fragmentation_penalty_weight_item_factor * item_size_factor
+    reuse_weight = reuse_weight_base + reuse_weight_availability_factor * bin_availability_factor
+    
+    eligible_bins = bins_remain_cap >= item
+
+    if np.any(eligible_bins):
+        # Fill Ratio - Adaptive
+        fill_ratio = item / (bins_remain_cap[eligible_bins] + division_epsilon)  # Avoid division by zero
+        priorities[eligible_bins] += fill_ratio_weight * fill_ratio
+
+        # Best Fit - Exponential decay
+        remaining_space = bins_remain_cap[eligible_bins] - item
+        priorities[eligible_bins] += best_fit_weight * np.exp(-best_fit_decay_rate * remaining_space) #Best fit bonus
+
+    # Fragmentation Penalty - Dynamic threshold
+    remaining_space_all = bins_remain_cap - item
+    fragmentation_threshold_multiplier = 0.2 / np.sqrt(num_bins)
+    fragmentation_threshold = item * (fragmentation_threshold_base + fragmentation_threshold_item_factor * item_size_factor) * fragmentation_threshold_multiplier
+    fragmented_bins = (remaining_space_all > 0) & (remaining_space_all <= fragmentation_threshold)
+    priorities[fragmented_bins] -= fragmentation_penalty_weight * (1-average_fill)
+
+     # Almost empty reuse
+    almost_empty_threshold = almost_empty_threshold_base - (almost_empty_threshold_average_fill_factor * average_fill)
+    almost_empty = bins_remain_cap > almost_empty_threshold
+    if np.any(almost_empty):
+        almost_empty_bonus = almost_empty_bonus_base + average_fill * almost_empty_bonus_average_fill_factor
+        priorities[almost_empty] += reuse_weight * almost_empty_bonus #almost empty reuse bonus.
+
+    # Penalize bins that are close to full but can't fit the item
+    too_full_bins = (bins_remain_cap < item) & (bins_remain_cap > (item-too_full_threshold))
+    priorities[too_full_bins] -= too_full_penalty
+
+     # Exploration: Add a small amount of randomness, scaled to the item size.
+    exploration_factor = exploration_factor_scale * item  # Scale randomness based on the item size
+    priorities += np.random.uniform(-exploration_factor, exploration_factor, size=num_bins)
+
+    return priorities

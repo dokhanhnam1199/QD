@@ -1,0 +1,60 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines multiple factors (ratio, gap, capacity) with dynamic penalties,
+    adaptive weighting based on item size and bin fill level, and normalization.
+    """
+
+    # Avoid division by zero
+    bins_remain_cap = np.where(bins_remain_cap <= 0, 1e-9, bins_remain_cap)
+
+    # Calculate gap and identify feasible bins
+    gap = bins_remain_cap - item
+    feasible = gap >= 0
+
+    # Very High negative priority for infeasible bins
+    gap = np.where(feasible, gap, -1)
+
+    # Ratio priority: Item size relative to bin capacity
+    ratios = item / bins_remain_cap
+    ratio_priority = -np.log(ratios)
+    ratio_priority = np.where(feasible, ratio_priority, -1e9)
+
+    # Gap priority: remaining space in the bin
+    # Emphasize smaller gaps, but penalize almost full bins
+    avg_cap = np.mean(bins_remain_cap)
+    almost_full_threshold = 0.1 * avg_cap  # Adjust threshold as needed
+    almost_full_penalty = np.where(gap <= almost_full_threshold, np.exp(-20 * gap / (almost_full_threshold + 1e-9)), 0) # Adjusted penalty magnitude.
+    gap_priority = np.where(feasible, (bins_remain_cap / (gap + 0.0001)) - almost_full_penalty, -1e9) # Replaced log
+
+    # Capacity priority: Favor bins with larger remaining capacity
+    capacity_priority = bins_remain_cap / (np.max(bins_remain_cap) + 1e-9)
+    capacity_priority = np.where(feasible, capacity_priority, -1e9)
+
+    # Bin fill level priority: encourage filling partially filled bins but not too much
+    fill_level = 1 - (bins_remain_cap / (np.max(bins_remain_cap) + 1e-9))
+    fill_level_priority = fill_level
+    fill_level_priority = np.where(feasible, fill_level_priority, -1e9)
+
+    # Adaptive weights based on item size and average bin capacity
+    item_size_factor = min(1.0, item)  # Normalize item size
+    avg_capacity_factor = min(1.0, avg_cap) / (np.max(bins_remain_cap) + 1e-9)  # Normalize average capacity
+
+    # Adjusted weights based on problem state
+    weight_ratio = 0.2 + 0.1 * item_size_factor
+    weight_gap = 0.3 - 0.05 * item_size_factor
+    weight_capacity = 0.3 + 0.05 * avg_capacity_factor
+    weight_fill = 0.2 - 0.1 * avg_capacity_factor #Encourage fill level
+
+    # Combine priorities with adaptive weights
+    combined_priority = (
+        weight_ratio * ratio_priority +
+        weight_gap * gap_priority +
+        weight_capacity * capacity_priority +
+        weight_fill * fill_level_priority
+    )
+
+    return combined_priority
+```

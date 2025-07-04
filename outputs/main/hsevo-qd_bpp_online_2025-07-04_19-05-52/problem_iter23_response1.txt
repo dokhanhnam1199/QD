@@ -1,0 +1,54 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines fill ratio, fragmentation, and remaining capacity with dynamic adjustments."""
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    eligible_bins = bins_remain_cap >= item
+
+    if not np.any(eligible_bins):
+        return np.zeros_like(bins_remain_cap) - np.inf
+
+    # 1. Fill Ratio
+    fill_ratio = item / bins_remain_cap
+    fill_ratio[~eligible_bins] = -np.inf
+    priorities = 1.2 * fill_ratio
+
+    # 2. Existing Fill Bonus
+    existing_fill = 1 - (bins_remain_cap / np.max(bins_remain_cap))
+    priorities[eligible_bins] += 0.25 * existing_fill[eligible_bins]
+
+    # 3. Adaptive Fragmentation Penalty
+    gap_size = bins_remain_cap - item
+    small_gap = gap_size < (0.2 * np.max(bins_remain_cap))
+    penalty_factor = 0.15 + 0.07 * (item / np.max(bins_remain_cap))
+    priorities[small_gap & eligible_bins] -= penalty_factor
+
+    # 4. Near-Perfect Fit Reward
+    near_perfect_fit = np.isclose(bins_remain_cap, item, rtol=1e-05, atol=1e-06)
+    priorities[near_perfect_fit & eligible_bins] += 0.02
+
+    # 5. Scaled Remaining Capacity
+    priorities[eligible_bins] += 0.06 * (bins_remain_cap[eligible_bins] / np.max(bins_remain_cap))
+
+    # 6. Penalize Nearly Full Bins
+    min_useful_capacity = 0.15 * np.max(bins_remain_cap)
+    nearly_full = gap_size < min_useful_capacity
+    priorities[nearly_full & eligible_bins] -= 0.1
+
+    # 7. Look-Ahead Fragmentation Penalty (New Heuristic - adaptive to item size)
+    min_item_size = np.min(item) if isinstance(item, np.ndarray) else item
+    if min_item_size > 0: # Avoid division by zero
+        very_small_gap = gap_size < (0.5 * min_item_size)
+        priorities[very_small_gap & eligible_bins] -= 0.12
+
+    # 8. Adjusted Fragmentation Penalty based on Item Size, different threshold and scale
+    avg_item_size = np.mean(item) if isinstance(item, np.ndarray) else item
+    fragmentation_threshold = 0.4 * np.max(bins_remain_cap)  # Example dynamic threshold
+    high_fragmentation = gap_size > fragmentation_threshold
+    if high_fragmentation.any():
+        priorities[high_fragmentation & eligible_bins] -= 0.06 * (item / np.max(bins_remain_cap))  #slightly higher penalty
+
+    priorities = np.clip(priorities, -1, 1)
+    return priorities
+```

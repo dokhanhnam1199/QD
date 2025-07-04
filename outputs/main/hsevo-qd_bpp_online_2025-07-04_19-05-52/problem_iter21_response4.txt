@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This version prioritizes a balance between bin utilization and avoiding
+    excessive fragmentation, but simplifies some of the more complex logic
+    from v1. It also adaptively adjusts penalty and reward strengths based
+    on item size relative to bin capacity.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    eligible_bins = bins_remain_cap >= item
+    bin_capacity = np.max(bins_remain_cap)
+
+    if not np.any(eligible_bins):
+        return np.zeros_like(bins_remain_cap) - np.inf
+
+    # 1. Fill Ratio (Primary Driver)
+    fill_ratio = item / bins_remain_cap
+    fill_ratio[~eligible_bins] = -np.inf
+    priorities = 1.2 * fill_ratio
+
+    # 2. Remaining Capacity Reward (Discourage overfilling small bins)
+    priorities[eligible_bins] += 0.1 * (bins_remain_cap[eligible_bins] / bin_capacity)
+
+    # 3. Fragmentation Penalty (Adaptive strength)
+    gap_size = bins_remain_cap - item
+    relative_item_size = item / bin_capacity
+    fragmentation_threshold = 0.2 * bin_capacity
+    small_gap = gap_size < fragmentation_threshold
+    penalty_strength = 0.15 * relative_item_size  # Smaller items, less penalty
+    priorities[small_gap & eligible_bins] -= penalty_strength
+
+    # 4. Near-Perfect Fit Reward (More significant, but rarer)
+    near_perfect_fit = np.isclose(bins_remain_cap, item, rtol=1e-05, atol=1e-06)
+    priorities[near_perfect_fit & eligible_bins] += 0.2
+
+    # 5. Avoid Almost Full Bins (Stronger penalty than v1)
+    nearly_full_threshold = 0.1 * bin_capacity  # Only 10% left is considered nearly full
+    nearly_full = gap_size < nearly_full_threshold
+    penalty_nearly_full = 0.25 * relative_item_size # Stronger penalty when item is large
+    priorities[nearly_full & eligible_bins] -= penalty_nearly_full
+
+    # 6. Half-full reward, encourages moderate filling for flexibility
+    half_full_lower = 0.4 * bin_capacity
+    half_full_upper = 0.6 * bin_capacity
+    close_to_half = (bins_remain_cap >= (item + half_full_lower)) & (bins_remain_cap <= (item + half_full_upper))
+    priorities[close_to_half & eligible_bins] += 0.1 # Slight encouragement
+
+    # 7. Clipping
+    priorities = np.clip(priorities, -1, 1)
+
+    return priorities
+```

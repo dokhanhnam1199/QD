@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # 1. Feasibility: Huge negative priority if the item doesn't fit.
+    # This is the MOST important factor.
+    infeasible_mask = bins_remain_cap < item
+    priorities[infeasible_mask] = -1e9
+
+    # 2. Reward tight fits (Best-Fit inspired, but normalized to bin size)
+    feasible_mask = bins_remain_cap >= item
+    remaining_after_fit = bins_remain_cap[feasible_mask] - item
+    
+    if np.any(feasible_mask):
+        # Normalize remaining space by original bin size (assume bins are size 1)
+        normalized_remaining = remaining_after_fit
+        
+        # Give higher priority to bins where the item fits snugly
+        # The smaller the remaining space, the higher the priority.  Use reciprocal
+        # to avoid very small remaining spaces from dominating.
+        tight_fit_priority = 1.0 / (0.0001 + normalized_remaining) #avoid division by zero
+
+        # Apply this to the original 'priorities' array at the correct indices.
+        priorities[feasible_mask] += tight_fit_priority
+        
+
+    # 3. Reward good fill ratio (how full the bin will be *after* placing the item).
+    # Bins that are close to full are desirable.
+    potential_fill_ratio = (1 - (bins_remain_cap - item))
+    potential_fill_ratio[potential_fill_ratio < 0] = 0  # Clip to 0
+    priorities += 5*potential_fill_ratio
+    
+    #4 Slightly discourage large remaining capacities (but less than tight fits favorability)
+    large_cap_mask = bins_remain_cap > 2*item
+    priorities[large_cap_mask] -=0.1
+
+    return priorities
+```

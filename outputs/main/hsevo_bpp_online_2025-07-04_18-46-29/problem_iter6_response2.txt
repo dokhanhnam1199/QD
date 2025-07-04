@@ -1,0 +1,59 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # 1. Objective Function Components:
+    #   - Fill Ratio: How much of the bin will be filled after adding the item.
+    #   - Waste: The remaining space after adding the item.
+    #   - Fragmentation Risk: A measure of how likely the remaining space is to be unusable.
+    
+    # 2. Calculate Fill Ratio (Sigmoid for Smoothing):
+    fill_ratio = np.zeros_like(bins_remain_cap, dtype=float)
+    eligible_bins = bins_remain_cap >= item
+    if np.any(eligible_bins):
+        fill_ratio[eligible_bins] = (item / (bins_remain_cap[eligible_bins])) #was (bins_remain_cap[eligible_bins] - item) / bins_remain_cap[eligible_bins]
+        # Sigmoid to smooth the priority based on fill ratio (higher fill ratio = higher priority)
+        fill_ratio = 1 / (1 + np.exp(-5 * (fill_ratio - 0.5)))  # Adjust 5 and 0.5 for sensitivity
+        priorities[eligible_bins] += fill_ratio[eligible_bins]
+
+    # 3. Waste Penalty (Adaptive):
+    waste = np.zeros_like(bins_remain_cap, dtype=float)
+    if np.any(eligible_bins):
+        waste[eligible_bins] = bins_remain_cap[eligible_bins] - item
+        # Adaptive penalty based on the magnitude of waste (larger waste = larger penalty)
+        waste_penalty = np.exp(waste / np.mean(bins_remain_cap[eligible_bins])) - 1 if np.mean(bins_remain_cap[eligible_bins]) > 0 else np.zeros_like(waste[eligible_bins]) #WAS -waste
+        priorities[eligible_bins] -= waste_penalty[eligible_bins]
+
+    # 4. Fragmentation Risk (Consider small items):
+    small_item_threshold = 0.2 #threshold of item size
+    fragmentation_risk = np.zeros_like(bins_remain_cap, dtype=float)
+    if np.any(eligible_bins):
+        # Estimate fragmentation risk based on the remaining capacity
+        fragmentation_risk[eligible_bins] = np.where(waste[eligible_bins] < small_item_threshold, -1, 0)
+
+        priorities[eligible_bins] += fragmentation_risk[eligible_bins]
+
+    # 5. Prioritize bins with the smallest remaining capacity (First Fit Decreasing approximation)
+    if np.any(eligible_bins):
+        min_remaining = np.min(bins_remain_cap[eligible_bins])
+        priorities[bins_remain_cap == min_remaining] += 0.2 #was 1
+
+    # 6. Bin Balancing: Reward bins with capacity far from mean capacity
+    bin_capacity_mean = np.mean(bins_remain_cap)
+    capacity_difference = np.abs(bins_remain_cap - bin_capacity_mean)
+    capacity_balance_reward = np.exp(-capacity_difference/np.std(bins_remain_cap)) if np.std(bins_remain_cap) > 0 else np.zeros_like(capacity_difference)
+    priorities += capacity_balance_reward * 0.1
+
+    return priorities
+```
