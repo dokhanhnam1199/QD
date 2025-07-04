@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    bin_capacity = np.max(bins_remain_cap)
+
+    # Heuristic 1: Tight Fit - Prioritize bins where the item fits snugly.
+    fit_mask = bins_remain_cap >= item
+    if np.any(fit_mask):
+        slack = bins_remain_cap[fit_mask] - item
+        priorities[fit_mask] += 1 / (slack + 1e-6)  # Smaller slack, higher priority
+    else:
+        return -np.inf * np.ones_like(priorities)
+
+
+    # Heuristic 2: Fill Bins - Reward bins that are already partially full.
+    occupancy = (bin_capacity - bins_remain_cap) / bin_capacity
+    priorities += 0.2 * occupancy
+
+    # Heuristic 3: Moderate Capacity - Prioritize bins with moderate remaining capacity. More Aggressive
+    moderate_mask = (bins_remain_cap > 0.3 * bin_capacity) & (bins_remain_cap < 0.7 * bin_capacity)
+    priorities[moderate_mask] += 0.4
+
+    # Heuristic 4: Penalize Near-Full - Heavily penalize bins that will become nearly full after adding the item. Sharper
+    remaining_after_add = bins_remain_cap - item
+    near_full_penalty = np.exp(-100 * (0.05 - remaining_after_add/bin_capacity)) # high penalty if remaining is less than 5%
+    near_full_penalty[remaining_after_add > 0.05 * bin_capacity] = 0
+    priorities -= near_full_penalty
+
+    # Heuristic 5: Penalize Near-Empty - Penalize bins that are almost empty. Sharper
+    near_empty_penalty = np.exp(-100 * (bins_remain_cap/bin_capacity - 0.95))
+    near_empty_penalty[bins_remain_cap/bin_capacity < 0.95] = 0
+    priorities -= near_empty_penalty
+
+    # Heuristic 6: Item Size Adaptation - Adjust penalties based on item size. More Aggressive
+    item_ratio = item / bin_capacity
+    if item_ratio > 0.5: # for big item, we want to fill any bin to reduce overall number of bins.
+        priorities += 0.2
+    elif item_ratio < 0.2: # smaller items, use tight fit more
+        priorities[fit_mask] += 0.2 / (slack + 1e-6)
+
+    # Heuristic 7: Inverse Capacity - Use inverse of remaining capacity as a finer selection mechanism.
+    priorities += 0.05 / (bins_remain_cap + 1e-6)
+
+    # Heuristic 8: Balance occupancy for larger items.
+    if item_ratio > 0.3:
+        occupancy_penalty = np.abs(occupancy - np.mean(occupancy))
+        priorities -= 0.1 * occupancy_penalty
+
+    return priorities
+```

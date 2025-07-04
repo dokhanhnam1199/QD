@@ -1,0 +1,60 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    bin_capacity = np.max(bins_remain_cap)
+
+    # 1. Tight Fit Prioritization: Strong reward for small slack.  If it doesn't fit, negative infinity
+    fit_mask = bins_remain_cap >= item
+    if np.any(fit_mask):
+        slack = bins_remain_cap[fit_mask] - item
+        priorities[fit_mask] += 50 / (slack + 0.0001)
+    else:
+        priorities[:] = -np.inf
+
+    # 2. Bin Filling: Reward bins that are already somewhat filled.
+    filled_ratio = (bin_capacity - bins_remain_cap) / bin_capacity
+    priorities += 10 * filled_ratio
+
+    # 3. Moderate Capacity: Gaussian-like function to favor moderate remaining capacity.
+    capacity_ratio = bins_remain_cap / bin_capacity
+    priorities += 8 * np.exp(-((capacity_ratio - 0.5) ** 2) / 0.08)
+
+    # 4. Fragmentation Penalty: Sharply penalize bins becoming near full.
+    near_full_threshold = 0.2 * bin_capacity
+    near_full_mask = (bins_remain_cap - item) < near_full_threshold
+    priorities[near_full_mask] -= 20
+
+    # 5. Empty Bin Preference (for larger items): Discourage filling near-empty bins with large items.
+    near_empty_threshold = 0.9 * bin_capacity
+    near_empty_mask = bins_remain_cap > near_empty_threshold
+    item_ratio = item / bin_capacity
+    if item_ratio > 0.5:
+        priorities[near_empty_mask] -= 15 * item_ratio  # Higher penalty for larger items
+
+    # 6. Item Size Adaptation: Adjust priorities based on item size.
+    if item_ratio > 0.7:
+        # Very large item: strongly prioritize almost full bins
+        almost_full_mask = filled_ratio > 0.7
+        priorities[almost_full_mask] += 30
+
+    elif item_ratio < 0.1:
+        # Very small item: avoid creating tiny fragments.  Slightly penalize bins with small remaining space *after* adding the item.
+        post_fill_remaining = bins_remain_cap - item
+        small_space_mask = (post_fill_remaining > 0) & (post_fill_remaining < 0.15 * bin_capacity)
+        priorities[small_space_mask] -= 12
+    elif item_ratio > 0.3 and item_ratio <=0.6:
+        priorities += 7 * np.exp(-((capacity_ratio - 0.5) ** 2) / 0.08) # Gaussian bonus
+
+    return priorities
+```

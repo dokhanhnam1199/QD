@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    A refined priority function for online bin packing that considers:
+    - Waste (lower waste is better)
+    - Bin utilization (higher utilization is better)
+    - Item size relative to bin size (favors bins well-suited to the item)
+    - Remaining capacity relative to average capacity.
+
+    This version avoids excessive use of exponentials and focuses on a more direct
+    combination of relevant factors, with careful handling of edge cases.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 1e-9  # Small constant to avoid division by zero
+
+    # Feasibility check: Can the item fit in the bin?
+    fit_mask = bins_remain_cap >= item
+
+    if not np.any(fit_mask):
+        return priorities  # No feasible bins, all priorities remain 0
+
+    # 1. Waste:  Smaller waste is better.  We only consider waste for feasible bins.
+    waste = bins_remain_cap - item
+    waste_priority = np.where(fit_mask, 1 - (waste / (np.max(bins_remain_cap[fit_mask]) + epsilon)), 0) # Normalize waste
+    waste_priority = np.where(waste_priority < 0, 0, waste_priority) #ensure waste priority is non-negative
+
+    # 2. Utilization: Higher utilization (item size / bin capacity) is better.
+    utilization = item / (bins_remain_cap + epsilon)
+    utilization_priority = np.where(fit_mask, utilization, 0) # Only consider utilization of feasible bins.
+
+    # 3. Item size relative to average remaining capacity.
+    avg_remaining_capacity = np.mean(bins_remain_cap)
+    size_difference = np.abs(item - avg_remaining_capacity)
+    size_priority = 1 - (size_difference / (np.max(bins_remain_cap) + epsilon))
+    size_priority = np.clip(size_priority, 0, 1) # ensure size_priority is between 0 and 1
+
+    # 4. Remaining capacity relative to other bin capacity:
+    capacity_ratio = bins_remain_cap / (np.max(bins_remain_cap) + epsilon)
+
+
+    # Combine the priorities with weights.  Experiment with these weights.
+    priorities = (
+        0.4 * waste_priority +
+        0.3 * utilization_priority +
+        0.1 * size_priority +
+        0.2 * capacity_ratio
+    )
+
+    # Infeasible bins get a very low priority
+    priorities = np.where(fit_mask, priorities, -np.inf)
+
+    return priorities
+```

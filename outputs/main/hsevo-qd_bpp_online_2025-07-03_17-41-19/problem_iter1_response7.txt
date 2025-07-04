@@ -1,0 +1,40 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This version incorporates a few quantum-inspired heuristics:
+    1.  **Probability of Collapse (Bin Filling):** We want to prioritize bins that are already somewhat full, as this increases the "probability" of them being completely filled (collapsing to a filled state).  We model this using a sigmoid function.
+    2.  **Avoid Overlap (Size Mismatch):** Penalize bins where the item size is close to or larger than remaining capacity (analogous to quantum interference effects where wavefunctions that are too dissimilar have destructive interference).  This discourages creating very small remaining spaces.
+    3.  **Energy Minimization (Bin Usage):** Favor using bins to completion; remaining empty bins represents unused energy (high entropic state)
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    epsilon = 1e-9  # Small constant to avoid division by zero and log(0)
+    bin_size = 1.0  # Assume bins are of unit size; can be parameterized if needed.
+
+    # 1. Probability of Collapse (Bin Filling) - Sigmoid function
+    filling_ratio = (bin_size - bins_remain_cap) / bin_size
+    collapse_probability = 1 / (1 + np.exp(-10 * (filling_ratio - 0.5))) # Sharp sigmoid
+
+    # 2. Avoid Overlap (Size Mismatch) - Penalize large size mismatch
+    size_mismatch = np.abs(item - bins_remain_cap) / bin_size
+    overlap_penalty = np.exp(5 * (size_mismatch - 0.5))  # Exponential penalty for large mismatch
+
+    # 3. Energy Minimization (Bin Usage) - Favor using existing bins.  Heavily penalize empty bins.
+    empty_penalty = np.where(bins_remain_cap >= (bin_size-epsilon), 100, 0) # large values for completely empty bins.  Note numerical issue if bins_remain_cap = bin_size due to floating point arithmetic.
+
+    # Combine the factors - Weights can be adjusted for performance
+    priorities = collapse_probability - 0.1 * overlap_penalty - 0.1*empty_penalty
+
+    # Prioritize bins where the item can fit (essential condition)
+    priorities = np.where(item <= bins_remain_cap + epsilon, priorities, -np.inf) #Use large negative infinity so such bins are excluded for consideration in max scoring selection. Numerical issue possible
+
+    return priorities
+```

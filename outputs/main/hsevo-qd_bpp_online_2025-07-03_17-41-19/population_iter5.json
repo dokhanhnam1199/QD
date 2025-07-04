@@ -1,0 +1,71 @@
+[
+  {
+    "stdout_filepath": "problem_iter0_stdout0.txt",
+    "code_path": "problem_iter0_code0.py",
+    "code": "import numpy as np\nimport random\nimport math\nimport scipy\nimport torch\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n    ratios = item / bins_remain_cap\n    log_ratios = np.log(ratios)\n    priorities = -log_ratios\n    return priorities",
+    "response_id": 0,
+    "obj": 149.30195452732352,
+    "SLOC": 5.0,
+    "cyclomatic_complexity": 1.0,
+    "halstead": 11.60964047443681,
+    "mi": 94.04446327225541,
+    "token_count": 47.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter1_response2.txt_stdout.txt",
+    "code_path": "problem_iter1_code2.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n\n    This priority function considers multiple factors:\n    1. Waste: Prioritizes bins where the item fits relatively well, minimizing wasted space.\n    2. Fill Level: Encourages filling bins as much as possible, but penalizes overfilling (impossible but included for completeness).\n    3. Number of Items: Accounts for how many items are already present in bins (not directly accessible in online BPP). We approximate using the amount of available space. Sparsely filled bins are encouraged, up to a point. Densely filled bins discouraged.\n    4. Stability: Favors bins that are closest to the item size.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    epsilon = 1e-9  # Small value to avoid division by zero and log of zero\n\n    # Waste: Prioritize bins where the item fits relatively well.\n    waste = bins_remain_cap - item\n    waste_penalty = np.where(waste >= 0, np.exp(-waste), -np.inf)  # Exponential decay for waste, harsh penalty for overfill. Negative inf indicates bin won't fit\n    priorities += waste_penalty\n\n    # Fill Level: Encourage filling bins, but not too much.\n    fill_ratio = item / (bins_remain_cap + epsilon)\n    fill_reward = np.where(fill_ratio <= 1, np.exp(fill_ratio), -np.inf)\n    priorities += fill_reward\n\n    # Number of Items (Approximated by remaining space): Encourages placing items in bins that were sparsely filled\n    item_density = np.exp(-bins_remain_cap) # Lower remaining cap equals larger item_density, less filled\n    priorities += item_density\n    # Stability (Closeness to Item Size):\n\n    stability = -np.abs(bins_remain_cap - item)\n    priorities += stability\n\n    return priorities",
+    "response_id": 2,
+    "tryHS": true,
+    "obj": 4.048663741523748,
+    "SLOC": 11.0,
+    "cyclomatic_complexity": 4.0,
+    "halstead": 95.90827503317318,
+    "mi": 81.36634323366762,
+    "token_count": 123.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response0.txt_stdout.txt",
+    "code_path": "problem_iter2_code0.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines waste minimization and fill level to improve priority.\"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    epsilon = 1e-9\n\n    # Waste minimization: Smaller waste is better\n    waste = bins_remain_cap - item\n    waste_penalty = np.where(waste >= 0, -waste, -np.inf)\n    priorities += waste_penalty\n\n    # Fill level: Encourages fuller bins\n    fill_ratio = item / (bins_remain_cap + epsilon)\n    fill_reward = np.where(fill_ratio <= 1, fill_ratio, -np.inf)\n    priorities += fill_reward\n\n    return priorities",
+    "response_id": 0,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 10.0,
+    "cyclomatic_complexity": 1.0,
+    "halstead": 112.58797503894243,
+    "mi": 86.1647151103729,
+    "token_count": 123.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter3_response0.txt_stdout.txt",
+    "code_path": "problem_iter3_code0.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n\n    This priority function considers multiple factors, with refined weighting and scaling:\n    1. Waste: Prioritizes bins where the item fits relatively well, minimizing wasted space.  Uses a more sensitive exponential decay.\n    2. Fill Level: Encourages filling bins as much as possible, but penalizes overfilling. Uses a sigmoid function for smoother behavior.\n    3. Bin Utilization: Directly rewards bins that have been used to some extent, encouraging balanced usage.\n    4. Stability: Favors bins that are closest to the item size, scaled by the item size itself.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    epsilon = 1e-9  # Small value to avoid division by zero and log of zero\n\n    # Waste: Prioritize bins where the item fits relatively well.\n    waste = bins_remain_cap - item\n    waste_penalty = np.where(waste >= 0, np.exp(-10 * waste / item), -np.inf)  # More sensitive exponential decay, scaled by item size. Harsh penalty for overfill.\n    priorities += waste_penalty\n\n    # Fill Level: Encourage filling bins, but not too much.  Sigmoid function\n    fill_ratio = item / (bins_remain_cap + epsilon)\n    fill_reward = 1 / (1 + np.exp(5 - 10 * fill_ratio)) # Sigmoid centered around fill_ratio = 0.5\n    priorities += fill_reward\n\n    # Bin Utilization: Reward bins that have some items in them already\n    utilization = (1 - bins_remain_cap) # Previously available capacity\n    utilization_reward = np.where(utilization > 0, np.tanh(utilization), 0) #tanh squashes the values and 0 if it is new bin.\n    priorities += 0.5 * utilization_reward\n\n    # Stability (Closeness to Item Size): Scaled by item size\n    stability = -np.abs(bins_remain_cap - item) / (item + epsilon)\n    priorities += 0.25 * stability\n\n    return priorities",
+    "response_id": 0,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 17.0,
+    "cyclomatic_complexity": 1.0,
+    "halstead": 351.5549000980772,
+    "mi": 74.18627975849658,
+    "token_count": 210.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter4_response0.txt_stdout.txt",
+    "code_path": "problem_iter4_code0.py",
+    "code": "import numpy as np\nimport random\nimport math\nimport scipy\nimport torch\ndef priority_v2(item: float, bins_remain_cap: np.ndarray, waste_exp_scale: float = 0.8600028651330078, fill_exp_scale: float = 0.10012643631397733, item_density_scale: float = 0.6649234543683336, stability_scale: float = 0.6872005218481443, epsilon: float = 6.3851996222267266e-09) -> np.ndarray:\n    \"\"\"Returns priority with which we want to add item to each bin.\n\n    This priority function considers multiple factors:\n    1. Waste: Prioritizes bins where the item fits relatively well, minimizing wasted space.\n    2. Fill Level: Encourages filling bins as much as possible, but penalizes overfilling (impossible but included for completeness).\n    3. Number of Items: Accounts for how many items are already present in bins (not directly accessible in online BPP). We approximate using the amount of available space. Sparsely filled bins are encouraged, up to a point. Densely filled bins discouraged.\n    4. Stability: Favors bins that are closest to the item size.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of capacities for each bin.\n        waste_exp_scale: Scaling factor for the waste penalty.\n        fill_exp_scale: Scaling factor for the fill reward.\n        item_density_scale: Scaling factor for the item density reward.\n        stability_scale: Scaling factor for the stability reward.\n        epsilon: Small value to avoid division by zero and log of zero\n\n    Return:\n        Array of same size as bins_remain_cap with priority score of each bin.\n    \"\"\"\n\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n\n    # Waste: Prioritize bins where the item fits relatively well.\n    waste = bins_remain_cap - item\n    waste_penalty = np.where(waste >= 0, np.exp(-waste * waste_exp_scale), -np.inf)  # Exponential decay for waste, harsh penalty for overfill. Negative inf indicates bin won't fit\n    priorities += waste_penalty\n\n    # Fill Level: Encourage filling bins, but not too much.\n    fill_ratio = item / (bins_remain_cap + epsilon)\n    fill_reward = np.where(fill_ratio <= 1, np.exp(fill_ratio * fill_exp_scale), -np.inf)\n    priorities += fill_reward\n\n    # Number of Items (Approximated by remaining space): Encourages placing items in bins that were sparsely filled\n    item_density = np.exp(-bins_remain_cap * item_density_scale) # Lower remaining cap equals larger item_density, less filled\n    priorities += item_density\n    # Stability (Closeness to Item Size):\n\n    stability = -np.abs(bins_remain_cap - item) * stability_scale\n    priorities += stability\n\n    return priorities",
+    "response_id": 0,
+    "tryHS": true,
+    "obj": 4.048663741523748,
+    "SLOC": 13.0,
+    "cyclomatic_complexity": 1.0,
+    "halstead": 252.6150117466338,
+    "mi": 69.03585810861566,
+    "token_count": 195.0,
+    "exec_success": true
+  }
+]

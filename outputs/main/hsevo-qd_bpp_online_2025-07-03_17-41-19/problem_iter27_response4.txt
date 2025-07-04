@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    A refined priority function for online bin packing that balances best-fit,
+    remaining capacity, and bin utilization, while avoiding overflow/underflow
+    and incorporating a small preference for bins that are already partially filled.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 1e-9  # Small constant to avoid division by zero and numerical instability
+
+    # 1. Feasibility Mask:  Bins that can accommodate the item
+    fit_mask = bins_remain_cap >= item
+
+    # 2. Waste Calculation: How much space is left if the item is placed
+    waste = bins_remain_cap - item
+
+    # 3. Best-Fit Component: Prioritize bins with minimal waste.  Use a scaled exponential.
+    #    Scale the waste relative to the item size.
+    waste_ratio = waste / (item + epsilon)
+    best_fit_priority = np.where(fit_mask, np.exp(-5 * waste_ratio), -np.inf)  # Higher scaling factor (5)
+    priorities = np.where(fit_mask, best_fit_priority, priorities)
+
+    # 4. Remaining Capacity Component:  Encourage filling bins with larger remaining capacities, but less aggressively.
+    #    Normalize remaining capacity and use a softer scaling.
+    max_cap = np.max(bins_remain_cap) + epsilon
+    capacity_ratio = bins_remain_cap / max_cap
+    capacity_priority = 0.3 * capacity_ratio  # Reduced weighting
+    priorities = np.where(fit_mask, priorities + capacity_priority, priorities)
+
+    # 5. Utilization Component: Slight preference for bins that are already partially utilized,
+    #    but only if it's not nearly full after adding the new item.  Avoids creating almost-full bins.
+    initial_utilization = (max_cap - bins_remain_cap) / max_cap  # Initial utilization level.
+    final_utilization = (max_cap - (bins_remain_cap - item)) / max_cap if max_cap >0 else 0  # Utilization if the item is added.
+
+    utilization_priority = np.where(
+        fit_mask & (initial_utilization > 0.05) & (final_utilization < 0.95),  # Already slightly filled, not becoming too full
+        0.1 * initial_utilization,
+        0
+    )
+    priorities = np.where(fit_mask, priorities + utilization_priority, priorities)
+
+    # 6. Item Size Consideration : Penalize bins that would be filled with the incoming item resulting in close to full utilization.
+    item_size_ratio = item / (max_cap + epsilon)
+    item_size_penalty = np.where(fit_mask & (waste < 0.1 * max_cap), -0.2 * item_size_ratio, 0)
+    priorities = np.where(fit_mask, priorities + item_size_penalty, priorities)
+    return priorities
+```

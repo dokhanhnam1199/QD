@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # A bin is feasible if it can accommodate the item
+    feasible_bins = bins_remain_cap >= item
+    
+    if not np.any(feasible_bins):
+      # If no bin can fit, consider using the least-filled bins 
+      # (though it won't actually fit).  This helps guide decision-making
+      # in extreme cases. The priority is slightly negative and inversely propotional
+      # to how full is the bin.
+      priorities = -bins_remain_cap 
+      return priorities
+
+    # First consideration: How much empty space will be left *after* adding the item?
+    remaining_space = bins_remain_cap - item
+    
+    #Prioritize almost full bins
+    priorities[feasible_bins] = 1/(remaining_space[feasible_bins]+1e-9) #avoid division by zero. Want small values of remaining_space to yield large priorities.
+    
+    #Try to fill the bins
+    priorities[feasible_bins] += np.where(remaining_space[feasible_bins] >= 0 , 1.0,0)
+    
+    # Penalize bins where item fits only by tiny amount to encourage filling them up
+    # This makes a significant different (a trick from Quantum Mechanics, like a wave function collapse based on smallest energy changes)
+    almost_full = np.logical_and(feasible_bins, remaining_space < 0.1)
+    priorities[almost_full] += 5.0 # Greatly prioritize nearly-full bins
+
+    # Introduce a capacity-aware penalty/reward:
+    # If a bin has a large remaining capacity AFTER placing the item, penalize it slightly.
+    # This discourages leaving very large gaps, encouraging better overall packing density.
+    large_gap = remaining_space > 0.5 #tune parameter 0.5
+    priorities[feasible_bins] -= np.where(large_gap[feasible_bins], remaining_space[feasible_bins] * 0.1, 0)  # Penalize large gaps
+
+    # Bonus for bins whose remaining capacity is close to a common item size (e.g., 0.25, 0.5, 0.75)
+    # This can help create more "uniform" bins and potentially reduce fragmentation.
+    common_sizes = np.array([0.25, 0.5, 0.75])  # Example common sizes - adjust as needed
+    for size in common_sizes:
+        close_to_size = np.abs(remaining_space - size) < 0.05 #tune parameter 0.05
+        priorities[feasible_bins] += np.where(close_to_size[feasible_bins], 2.0, 0)  # Reward bins close to common sizes
+
+    
+    return priorities
+```

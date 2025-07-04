@@ -1,0 +1,47 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        # Prioritize bins with larger remaining capacity to avoid excessive fragmentation if no fit
+        priorities = bins_remain_cap
+        return priorities
+
+    remaining_space = bins_remain_cap - item
+    
+    # Adaptive weight for almost full bins - increases as the average bin capacity decreases.
+    avg_bin_cap = np.mean(bins_remain_cap)
+    almost_full_weight = 5.0 * (1 - np.clip(avg_bin_cap / np.max(bins_remain_cap), 0.0, 1.0)) + 1.0 # Ensure at least 1
+
+    # Prioritize almost full bins more strongly, especially later in the packing process
+    almost_full = np.logical_and(feasible_bins, remaining_space < 0.1)
+    priorities[almost_full] += almost_full_weight
+
+    # Primary priority: Minimize wasted space, but consider fragmentation.
+    priorities[feasible_bins] = 1 / (remaining_space[feasible_bins] + 1e-9)
+
+    # Encourage filling bins.
+    priorities[feasible_bins] += np.where(remaining_space[feasible_bins] >= 0, 1.0, 0)
+
+    # Limited Look-Ahead:  Penalize bins that, after packing the item, leave a gap *too small* to be useful
+    # Avoids creating very tiny fragments.  Adjust the threshold based on item size.
+
+    fragment_threshold = min(0.2, item / 2)  # Smaller threshold for smaller items
+    problematic_fragments = np.logical_and(feasible_bins, remaining_space > 0.0) & (remaining_space < fragment_threshold)
+
+    priorities[problematic_fragments] -= 2.0 # Slightly de-prioritize those bins.
+    
+    return priorities
+```

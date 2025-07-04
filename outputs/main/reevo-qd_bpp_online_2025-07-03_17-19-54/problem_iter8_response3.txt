@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    max_capacity = np.max(bins_remain_cap)
+
+    # 1. Feasibility: Only consider bins that can fit the item
+    feasible_bins = bins_remain_cap >= item
+    priorities[~feasible_bins] = -np.inf  # Very low priority if it doesn't fit
+
+    # 2. Best Fit Heuristic: Higher priority for bins with smallest remaining capacity after packing
+    remaining_space_after_packing = bins_remain_cap - item
+    priorities[feasible_bins] = -np.abs(remaining_space_after_packing[feasible_bins])
+
+    # 3. Fill percentage heuristic: Promote bins that would be filled close to 100%
+    fill_percentage = (bins_remain_cap - remaining_space_after_packing) / max_capacity
+    priorities[feasible_bins] += fill_percentage[feasible_bins]
+
+    # 4. Penalize near-full bins to prevent fragmentation - less relevant online, adjusted penalty
+    near_full_threshold = 0.95 * max_capacity
+    near_full_bins = bins_remain_cap >= near_full_threshold
+    priorities[near_full_bins] -= 0.025  # Reduced penalty, less impactful online
+
+    # 5. Bonus for bins that are empty or nearly empty - encourages use of fresh bins
+    empty_bin_threshold = max_capacity  #exactly empty
+    empty_bins = bins_remain_cap >= empty_bin_threshold
+    priorities[empty_bins] += 0.05
+
+    nearly_empty_threshold = 0.99 * max_capacity
+    nearly_empty_bins = (bins_remain_cap >= nearly_empty_threshold) & (bins_remain_cap < empty_bin_threshold)
+    priorities[nearly_empty_bins] += 0.025
+
+    # 6. Added a small bonus for bins that, when filled, would exceed a certain fill ratio (e.g. >50%).  This encourages utilizing bins even if they aren't the best fit at the moment.
+    min_fill_ratio = 0.5
+    potential_fill_level = (bins_remain_cap - item) / max_capacity
+    bins_exceeding_min_fill = (1 - potential_fill_level) >= min_fill_ratio
+    priorities[feasible_bins & bins_exceeding_min_fill] += 0.01 # a smaller boost
+
+    return priorities
+```

@@ -1,0 +1,48 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This priority function considers multiple factors, with refined weighting and adaptive components:
+    1. Waste: Prioritizes bins where the item fits relatively well, minimizing wasted space. Uses a more nuanced penalty.
+    2. Fill Level: Encourages filling bins as much as possible, but penalizes overfilling. Includes a fill target.
+    3. Item Fit: Directly prioritizes bins with a capacity close to item size relative to other bins.
+    4. Imbalance penalty: penalizes putting items into bins with very low remaining capacity compared to the average remaining capacity.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 1e-9  # Small value to avoid division by zero and log of zero
+
+    # 1. Waste Prioritization (with adjusted penalty):
+    waste = bins_remain_cap - item
+    fit = waste >= 0
+    waste_penalty = np.zeros_like(waste, dtype=float)
+    waste_penalty[fit] = -np.abs(waste[fit])  # Smaller waste is better.  Linear penalty.
+    waste_penalty[~fit] = -np.inf  # Hard penalty for bins that don't fit.
+    priorities += waste_penalty
+
+    # 2. Fill Level Prioritization (with target):
+    fill_ratio = item / (bins_remain_cap + epsilon)
+    fill_target = 0.9  # Aim to fill bins close to 90% (tunable).  Adapt this.
+
+    fill_reward = np.where(fill_ratio <= 1, -np.abs(fill_ratio - fill_target), -np.inf)  # Target fill level
+    priorities += fill_reward
+
+    # 3. Item Fit (Directly compares bins based on fit):
+    item_fit = np.where(fit, np.exp(-np.abs(bins_remain_cap - item) / (item + epsilon)), -np.inf)
+    priorities += item_fit
+    
+    # 4. Imbalance penalty (Prevent single bin exhaustion):
+    avg_remain_cap = np.mean(bins_remain_cap)
+    imbalance_penalty = np.where(bins_remain_cap < avg_remain_cap / 4, -10, 0)
+    priorities += imbalance_penalty
+    return priorities
+```

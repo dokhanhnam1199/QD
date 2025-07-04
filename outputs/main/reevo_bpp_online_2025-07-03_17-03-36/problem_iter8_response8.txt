@@ -1,0 +1,44 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # 1. Feasibility: Assign a large negative priority to bins that can't fit the item
+    infeasible_bins = bins_remain_cap < item
+    priorities[infeasible_bins] = -1e9  # Large penalty for infeasibility
+
+    # 2. Best Fit: Prioritize bins with the smallest remaining capacity *after* adding the item, but only for feasible bins
+    feasible_bins = ~infeasible_bins
+    remaining_after_fit = bins_remain_cap[feasible_bins] - item
+
+    # Primary Best Fit scoring (smaller waste is better)
+    priorities[feasible_bins] = -remaining_after_fit
+
+    # Encourage moderate fill levels (avoid bins that are too full or too empty after placement)
+    bin_capacity = np.max(bins_remain_cap)
+    if bin_capacity > 0:
+        # Scale the remaining capacity and subtract a small amount. Encourages filling bins without overfilling.
+        priorities[feasible_bins] -= (bins_remain_cap[feasible_bins] / bin_capacity) * 0.001
+
+        # Bonus for bins that are reasonably full *after* placing the item, but not excessively full.
+        # This encourages consolidating items into fewer bins while preventing extreme fragmentation.
+        reasonable_fill = (remaining_after_fit > 0.1 * bin_capacity) & (remaining_after_fit < 0.8 * bin_capacity) # play with these parameters
+        priorities[feasible_bins][reasonable_fill] += 0.0005 # tiny bonus
+
+    # Slight penalty for bins that become almost full after placing the item
+    almost_full = (remaining_after_fit > 0) & (remaining_after_fit <= 0.05 * bin_capacity)
+    priorities[feasible_bins][almost_full] -= 0.0002
+    
+
+    return priorities
+```

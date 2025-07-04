@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        priorities = -bins_remain_cap
+        return priorities
+    
+    remaining_space = bins_remain_cap - item
+    
+    # Space priority: prioritize bins with less remaining space
+    space_priority = 1 / (remaining_space + 1e-9)
+
+    # Bin utilization priority: target bins that are neither too full nor too empty
+    future_utilization = (bins_remain_cap - remaining_space) / (bins_remain_cap + item) #Original capacity of bin assumed to be bins_remain_cap + item before placing the item
+    utilization_priority = np.exp(-((future_utilization - 0.7)**2) / 0.08) # Gaussian-like curve centered around 0.7
+
+    # Introduce fill level awareness with a dynamic threshold
+    fill_threshold = np.mean(bins_remain_cap[feasible_bins])
+    
+    # Near-full bins get a significant boost, but only if feasible
+    almost_full = np.logical_and(feasible_bins, remaining_space < 0.15 * fill_threshold)  # Increased tolerance, dynamic percentage of mean
+    priorities[almost_full] += 15.0
+
+    # Large remaining space penalty to avoid excessive fragmentation:
+    large_space = np.logical_and(feasible_bins, remaining_space > 0.5 * fill_threshold)
+    priorities[large_space] -= 5.0
+
+    priorities[feasible_bins] += space_priority[feasible_bins] + utilization_priority[feasible_bins]
+    
+    # Item size consideration: Slightly penalize bins if the item is relatively large
+    item_ratio = item / np.mean(bins_remain_cap + item) #Ratio of item size vs mean bin capacity before item placement
+    item_size_penalty = np.where(feasible_bins, -2 * item_ratio, 0)
+    priorities[feasible_bins] += item_size_penalty[feasible_bins]
+    
+    return priorities
+```

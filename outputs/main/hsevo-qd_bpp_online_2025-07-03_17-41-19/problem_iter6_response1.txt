@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This priority function considers multiple factors, with adjusted weights and new considerations:
+    1. Waste: Prioritizes bins where the item fits relatively well, minimizing wasted space. Uses a more aggressive penalty for larger waste.
+    2. Fill Level: Encourages filling bins as much as possible, but penalizes overfilling. Modified to focus on bins that are close to being filled by this item.
+    3. Bin Utilization: Aims to balance the distribution of items across bins to avoid clustering.
+    4. Best Fit Heuristic Influence: Directly rewards bins that provide a very tight fit, emulating best-fit behavior.
+    5. Avoidance of Near-Empty Bins: Discourages placing items into bins that are still almost completely empty unless no other choice is available.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 1e-9  # Small value to avoid division by zero and log of zero
+
+    # Waste: Prioritize bins where the item fits relatively well.  Aggressive penalty for waste.
+    waste = bins_remain_cap - item
+    waste_penalty = np.where(waste >= 0, -waste**2, -np.inf)  # Quadratic penalty for waste, harsh penalty for overfill
+    priorities += waste_penalty
+
+    # Fill Level: Encourage filling bins, but not too much. Focus on bins that are close to being filled.
+    fill_ratio = item / (bins_remain_cap + epsilon)
+    fill_reward = np.where(fill_ratio <= 1, np.exp(1 - np.abs(1 - fill_ratio)), -np.inf) # Reward when fill ratio is close to 1
+    priorities += fill_reward
+
+    # Bin Utilization: Try to balance utilization across bins
+    utilization = 1 - bins_remain_cap  # Assuming bin capacity is normalized to 1.  Higher utilization is better.
+    utilization_reward = np.exp(utilization)
+    priorities += 0.1 * utilization_reward # scale down to balance relative to other heuristics
+
+    # Best Fit Heuristic Influence: Directly reward bins that provide a near-perfect fit.
+    best_fit_bonus = np.where(np.abs(waste) < 0.05, 10, 0) # Substantial reward for very small waste
+    priorities += best_fit_bonus
+
+    # Avoidance of Near-Empty Bins: Discourage putting items into near-empty bins unless necessary
+    near_empty_penalty = np.where(bins_remain_cap > 0.9, -1, 0) # Penalize if almost empty.
+    priorities += near_empty_penalty
+
+    return priorities
+```

@@ -1,0 +1,37 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Refines bin selection by prioritizing bins that offer a good fit while also
+    considering the overall fill level and penalizing near-full bins less harshly.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 1e-9
+
+    waste = bins_remain_cap - item
+    fit_mask = waste >= 0
+
+    # Best-fit component with a sharper preference for tighter fits
+    priorities = np.where(fit_mask, np.exp(-2 * waste / (item + epsilon)), -np.inf)
+
+    # Capacity-aware component, boosted for emptier bins, but softened
+    max_cap = np.max(bins_remain_cap) + epsilon
+    capacity_factor = bins_remain_cap / max_cap
+    priorities = np.where(fit_mask, priorities + 0.3 * np.sqrt(capacity_factor), priorities) # Soften with sqrt
+
+    # Item size normalization (still useful), slightly reduced weight
+    normalized_item_size = item / max_cap
+    priorities = np.where(fit_mask, priorities + 0.05 * (1 - normalized_item_size), priorities)
+
+    # Fill ratio reward, but with reduced penalty for near-full bins
+    fill_ratio = item / (bins_remain_cap + epsilon)
+    fill_reward = np.where(fit_mask & (fill_ratio <= 1), np.exp(-np.abs(1 - fill_ratio)), -np.inf) # Reduced penalty exponent
+    priorities = np.where(fit_mask, priorities + 0.15 * fill_reward, priorities) # Slightly lower weight
+
+    # Add a small bonus for bins with significantly larger capacity than the item
+    large_capacity_bonus = np.where(fit_mask & (bins_remain_cap > 2 * item), 0.05, 0)
+    priorities = np.where(fit_mask, priorities + large_capacity_bonus, priorities)
+    
+    return priorities
+```

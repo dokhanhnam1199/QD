@@ -1,0 +1,37 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines best-fit, remaining capacity, and item size considerations with a focus on avoiding fragmentation
+    and encouraging balanced bin utilization. Uses linear and quadratic terms for a smoother response.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 1e-9
+    bin_count = len(bins_remain_cap)
+
+    waste = bins_remain_cap - item
+    fit_mask = waste >= 0
+
+    # 1. Best-Fit Prioritization: Emphasize bins with minimal waste.  Quadratic term to strongly favor near-perfect fits.
+    priorities = np.where(fit_mask, - (waste / (item + epsilon))**2, -np.inf)
+
+    # 2. Capacity Utilization Reward: Reward bins with higher remaining capacity, but with diminishing returns.
+    # This encourages using bins that aren't already close to full, improving overall balance. Linear term is sufficient here.
+    capacity_utilization = bins_remain_cap / (np.max(bins_remain_cap) + epsilon)
+    priorities = np.where(fit_mask, priorities + 0.3 * capacity_utilization, priorities)
+
+    # 3. Item Size Penalty/Reward: Penalize very small remaining capacity after packing the item (fragmentation).
+    #  Encourage packing into bins where the item size is a significant portion of the bin's original capacity.
+    remaining_after_pack = np.where(fit_mask, waste, 0) # Avoid zero division errors
+    fragmentation_penalty = np.where(fit_mask, - (remaining_after_pack / (item + epsilon)), 0)
+
+    priorities = np.where(fit_mask, priorities + 0.2 * fragmentation_penalty, priorities)
+
+    #4. Fill Ratio
+    fill_ratio = item / (bins_remain_cap + epsilon)
+    # Reward fill ratio close to 1, penalize if fill ratio is low
+    fill_reward = np.where(fit_mask, -np.abs(1-fill_ratio), -np.inf)
+    priorities = np.where(fit_mask, priorities + 0.4 * fill_reward, priorities)
+    return priorities
+```

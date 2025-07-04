@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        # If no bin can fit, prioritize bins with the *most* remaining capacity,
+        # but apply a negative penalty.  This might help consolidate very small
+        # items if they arrive later.
+        priorities = bins_remain_cap  # Prioritize larger remaining cap
+        priorities -= np.max(priorities) + 1  # Ensure negative priority
+        return priorities
+
+    remaining_space = bins_remain_cap - item
+    
+    # Calculate the ratio of used space after adding the item
+    used_space_ratio = (bins_remain_cap - remaining_space) / (bins_remain_cap + item - remaining_space)
+    
+    # Base priority: prioritize bins with smaller remaining space.  The "+ 1e-9" prevents division by zero.
+    priorities[feasible_bins] = 1.0 / (remaining_space[feasible_bins] + 1e-9)
+    
+    # Threshold-based prioritization:
+    
+    # 1. Heavily prioritize bins that become nearly full (e.g., > 95%) after adding the item.
+    nearly_full = np.logical_and(feasible_bins, remaining_space / (bins_remain_cap + item -remaining_space) < 0.05)
+    priorities[nearly_full] += 10.0
+    
+    # 2. Slightly penalize bins with *large* remaining space.  This encourages filling bins more evenly.
+    large_space = np.logical_and(feasible_bins, remaining_space > 0.5)
+    priorities[large_space] -= 1.0
+
+    # 3. Prioritize bins where the item fits reasonably well (e.g., fills at least 75% of the remaining space).
+    reasonable_fit = np.logical_and(feasible_bins, item / (bins_remain_cap + item -remaining_space) > 0.75)
+    priorities[reasonable_fit] += 2.0
+    
+
+    return priorities
+```
