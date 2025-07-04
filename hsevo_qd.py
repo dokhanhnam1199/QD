@@ -432,7 +432,7 @@ class HSEvo_QD:
         logging.info(f"Iteration {self.iteration} finished...")
         logging.info(f"Best obj: {self.best_obj_overall}, Best Code Path: {self.best_code_path_overall}")
         logging.info(f"LLM usage: prompt_tokens = {self.prompt_tokens}, completion_tokens = {self.completion_tokens}")
-        logging.info(f"LLM Requests: {self.function_evals}")
+        logging.info(f"LLM Requests: {self.llm_request}")
         logging.info(f"Function Evals: {self.function_evals}")
         self.iteration += 1
 
