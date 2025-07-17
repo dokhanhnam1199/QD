@@ -139,9 +139,10 @@ class ReEvo_QD:
 
         # Run code and evaluate population
         population = self.evaluate_population(population)
+        self.population.extend(population)
 
         # Update iteration
-        self.archive_evaluated_population(population)
+        # self.archive_evaluated_population(population)
         self.update_iter()
 
     def response_to_individual(self, response: str, response_id: int, file_name: str = None) -> dict:
@@ -315,37 +316,48 @@ class ReEvo_QD:
         return process
     
     def archive_evaluated_population(self, evaluated_population: list[dict]) -> None:
-        if not self.population:
-            # When population is empty, remove individuals with duplicate bd values
-            bd_to_individual = {}
+        # if not self.population:
+        #     # When population is empty, remove individuals with duplicate bd values
+        #     bd_to_individual = {}
 
-            for individual in evaluated_population:
+        #     for individual in evaluated_population:
+        #         try:
+        #             bd_values = tuple(
+        #                 individual[self.cfg.bd_list[i]] // div
+        #                 for i, div in enumerate(self.cfg.bd_step)
+        #             )
+
+        #             obj = individual['obj']  # Replace 'objective' with your actual objective key
+
+        #             if (bd_values not in bd_to_individual) or (obj < bd_to_individual[bd_values]['obj']):
+        #                 bd_to_individual[bd_values] = individual
+        #         except KeyError as e:
+        #             missing_key = str(e)
+        #             logging.info(f"Skipping individual due to missing behavior descriptor: {missing_key}")
+        #             continue
+
+        #     self.population = list(bd_to_individual.values())
+        #     return  # Done early since we handled the empty-population case
+
+        # Create a dictionary to map bd values to individuals in self.population
+        bd_to_individual = {}
+
+        # Build from existing population
+        for individual in self.population:
+            if all(key in individual for key in self.cfg.bd_list):
                 try:
                     bd_values = tuple(
                         individual[self.cfg.bd_list[i]] // div
                         for i, div in enumerate(self.cfg.bd_step)
                     )
 
-                    obj = individual['obj']  # Replace 'objective' with your actual objective key
-
+                    obj = individual['obj']
                     if (bd_values not in bd_to_individual) or (obj < bd_to_individual[bd_values]['obj']):
                         bd_to_individual[bd_values] = individual
+
                 except KeyError as e:
-                    missing_key = str(e)
-                    logging.info(f"Skipping individual due to missing behavior descriptor: {missing_key}")
+                    logging.info(f"Skipping individual due to missing key: {e}")
                     continue
-
-            self.population = list(bd_to_individual.values())
-            return  # Done early since we handled the empty-population case
-
-        # Create a dictionary to map bd values to individuals in self.population
-        bd_to_individual = {
-            tuple(
-                individual[self.cfg.bd_list[i]] // div
-                for i, div in enumerate(self.cfg.bd_step)
-            ): individual
-            for individual in self.population
-        }
 
         for evaluated_individual in evaluated_population:
             try:

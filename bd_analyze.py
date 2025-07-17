@@ -2,7 +2,8 @@ import os
 import glob
 from omegaconf import OmegaConf
 import matplotlib.pyplot as plt
-import seaborn as sns  # Add this import
+import seaborn as sns
+import numpy as np
 
 def filter_traceback(stdout_str):
     if "Traceback" in stdout_str:
@@ -33,20 +34,38 @@ if __name__ == "__main__":
     config = OmegaConf.load("cfg/config.yaml")
     bd_list = config.bd_list
     bd_step = config.bd_step
-    folder = "outputs/main/hsevo-qd_bpp_online_2025-07-02_12-45-34" 
 
-    # Create output directory for distributions
-    dist_folder = os.path.join("bd_distribution", os.path.basename(folder))
-    os.makedirs(dist_folder, exist_ok=True)
+    # Define which are "integer-like"
+    int_metrics = {"SLOC", "cyclomatic_complexity", "token_count"}
 
-    bd_arrays = read_bd_values_from_stdout(folder, bd_list, bd_step)
-    for bd in bd_list:
-        plt.figure()
-        sns.kdeplot(bd_arrays[bd], fill=True)
-        plt.title(f"Distribution of {bd}")
-        plt.xlabel(f"{bd} value")
-        plt.ylabel("Density")
-        plt.grid(True)
-        plt.savefig(os.path.join(dist_folder, f"{bd}_kde.png"))
-        plt.close()
-    print(f"Plots saved as PNG files in {dist_folder}.")
+    # Loop over each folder in outputs/main
+    for folder in sorted(glob.glob("outputs/main/*")):
+        if not os.path.isdir(folder):
+            continue
+
+        folder_name = os.path.basename(folder)
+        dist_folder = os.path.join("bd_analyze", folder_name)
+        os.makedirs(dist_folder, exist_ok=True)
+
+        bd_arrays = read_bd_values_from_stdout(folder, bd_list, bd_step)
+
+        for bd in bd_list:
+            plt.figure()
+            data = bd_arrays[bd]
+            if bd in int_metrics:
+                unique_vals, counts = np.unique(data, return_counts=True)
+                plt.bar(unique_vals, counts, color='skyblue', edgecolor='black')
+                plt.title(f"{folder_name}")
+                plt.ylabel("Frequency")
+            else:
+                sns.kdeplot(bd_arrays[bd], fill=True)
+                plt.title(f"{folder_name}")
+                plt.ylabel("Density")
+
+            plt.xlabel(f"{bd} value")
+            plt.grid(True, linestyle='--', alpha=0.7)
+            plt.tight_layout()
+            plt.savefig(os.path.join(dist_folder, f"{bd}_distribution.png"))
+            plt.close()
+
+        print(f"Plots saved as PNG files in {dist_folder}.")

@@ -1,36 +1,31 @@
 import numpy as np
-
-def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+import random
+import math
+import scipy
+import torch
+def priority_v2(item: float, bins_remain_cap: np.ndarray, not_enough_space_priority: float = -1656.2260420197204, avoid_division_by_zero_constant: float = 0.046569358506945074, space_priority_scaler: float = 0.5627930301739644) -> np.ndarray:
     """Returns priority with which we want to add item to each bin.
+    This version prioritizes bins that have enough space and minimizes wasted space.
+    If a bin doesn't have enough space, it gets a very low priority.
+    Otherwise, the priority is higher if the remaining space after packing the item is smaller.
 
     Args:
         item: Size of item to be added to the bin.
         bins_remain_cap: Array of capacities for each bin.
+        not_enough_space_priority: Priority assigned to bins that can't fit the item.
+        avoid_division_by_zero_constant: Small constant added to avoid division by zero.
+        space_priority_scaler: Scales the inverse of the remaining space.
 
     Return:
         Array of same size as bins_remain_cap with priority score of each bin.
     """
     priorities = np.zeros_like(bins_remain_cap, dtype=float)
-
-    # Calculate waste/overflow if item is placed in each bin
-    waste = bins_remain_cap - item
-
-    # Give high priority to bins where item fits
-    fit_mask = waste >= 0
-
-    # Prioritize bins with less waste (First Fit Decreasing-like)
-    # Normalize waste to be between 0 and 1. Larger bins get a higher score.
-    waste_normalized = waste[fit_mask] / bins_remain_cap[fit_mask] if np.any(fit_mask) else np.array([])
-    priorities[fit_mask] = 1 - waste_normalized if np.any(fit_mask) else np.array([])
-
-    # Discourage placing item in bins that don't fit (but allow it if no other option)
-    # Penalize by amount of overflow
-    overflow = -waste[~fit_mask]  # Positive value indicates overflow
-
-    # Prioritize bins to minimize overflow as a last resort if no bin is suitable
-    if not np.any(fit_mask):
-        # Normalize overflow by item size so smaller overflows get a higher priority
-        overflow_normalized = overflow / item
-        priorities[~fit_mask] = -overflow_normalized # Negative score indicates overflow
-
+    for i, capacity in enumerate(bins_remain_cap):
+        if capacity >= item:
+            remaining_space = capacity - item
+            # Give higher priority to bins with less remaining space
+            priorities[i] = space_priority_scaler / (remaining_space + avoid_division_by_zero_constant)  # Add a small constant to avoid division by zero
+        else:
+            # Assign a very low priority to bins that can't fit the item
+            priorities[i] = not_enough_space_priority  # Or some other very negative value
     return priorities

@@ -71,8 +71,8 @@ def plot_comparison(results, qd_results):
 # plot_comparison(results, qd_results)
 
 if __name__ == "__main__":
-    problem = 'tsp_aco'
-    algorithm = 'reevo'
+    problem = 'bpp_online'
+    algorithm = 'hsevo'
     results = find_experiment_results_by_keyword(algorithm+'_'+problem)
     qd_results = find_experiment_results_by_keyword(algorithm+'-qd_'+problem)
     plot_comparison(results, qd_results)
