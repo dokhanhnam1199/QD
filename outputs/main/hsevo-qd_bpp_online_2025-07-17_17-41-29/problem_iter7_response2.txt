@@ -1,0 +1,39 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, small_space_threshold: float = 0.10293058538430783, small_space_penalty: float = 0.04822207338880963, almost_full_threshold: float = 0.8444117191074383, almost_full_reward: float = 0.044605164566773964) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+        small_space_threshold: Threshold for considering a remaining space as very small.
+        small_space_penalty: Penalty applied to bins leaving very small spaces.
+        almost_full_threshold: Threshold for considering a bin as almost full after placing the item.
+        almost_full_reward: Reward applied to bins that are almost full.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # 1. Feasibility: Give -inf priority if item doesn't fit
+    infeasible_mask = item > bins_remain_cap
+    priorities[infeasible_mask] = -np.inf
+    
+    # 2. Best Fit: Prioritize bins where the remaining space after placing the item is small.
+    feasible_mask = ~infeasible_mask
+    remaining_space = bins_remain_cap[feasible_mask] - item
+    priorities[feasible_mask] = -remaining_space # Smaller remaining space -> higher priority
+
+    # 3. Avoidance of very small spaces: Penalize bins leaving very small spaces, but only if other bins are more reasonable fits
+    
+    very_small_space_mask = (remaining_space > 0) & (remaining_space < small_space_threshold) & (np.sum(bins_remain_cap[feasible_mask] -item >small_space_threshold) > 0)
+    if np.any(very_small_space_mask): #reduce the priorities by a tiny amount only when you know more fits are feasible
+      priorities[feasible_mask][very_small_space_mask] -= small_space_penalty
+    # 4. Utilize Almost Full Bins: Reward bins that are almost full, encouraging complete filling of existing bins
+
+    
+    almost_full_mask = (bins_remain_cap[feasible_mask] - item) / bins_remain_cap[feasible_mask] < (1- almost_full_threshold) 
+    priorities[feasible_mask][almost_full_mask]+=almost_full_reward
+
+    return priorities

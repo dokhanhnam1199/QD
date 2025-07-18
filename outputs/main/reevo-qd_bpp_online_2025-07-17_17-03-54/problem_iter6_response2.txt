@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Feasibility check: only consider bins that can fit the item
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        return priorities  # No bin can fit, all priorities remain zero
+
+    # Priority 1: Bins that fit the item best (smallest waste).
+    waste = bins_remain_cap - item
+    waste[~feasible_bins] = np.inf  # Ignore infeasible bins
+
+    # Find bins with minimum waste among feasible bins
+    min_waste = np.min(waste)
+    best_fit_bins = (waste == min_waste) & feasible_bins
+    priorities[best_fit_bins] += 1.0
+
+    # Priority 2: Balance fullness - prioritize almost empty or moderately full bins. Avoid bins close to full.
+    max_capacity = np.max(bins_remain_cap)  # Current maximum capacity
+    fullness_ratio = 1 - bins_remain_cap / max_capacity
+    
+    # Give a bonus to bins that are relatively empty
+    empty_threshold = 0.2  # Bins with less than 20% full get a bonus
+    empty_bonus = np.where(fullness_ratio < empty_threshold, (1 - fullness_ratio) * 0.05, 0)
+    priorities[feasible_bins] += empty_bonus[feasible_bins]
+
+    # Penalize bins that are too full (quadratic penalty)
+    full_penalty = np.where(fullness_ratio > 0.8, (fullness_ratio - 0.8)**2 * 0.1, 0)  # Only penalize if more than 80% full
+    priorities[feasible_bins] -= full_penalty[feasible_bins]
+    
+    # Modulate priority based on how close the item size is to the remaining capacity.
+    # This promotes filling bins reasonably well.
+    item_fit_score = (item / bins_remain_cap)
+    item_fit_score[~feasible_bins] = 0  # No score for bins that can't fit
+
+    # Scale it down so it doesn't dominate other priorities, only for feasible bins
+    priorities[feasible_bins] += item_fit_score[feasible_bins] * 0.05
+
+    # Priority 3: Add a small random component to break ties and encourage exploration
+    priorities[feasible_bins] += np.random.rand(np.sum(feasible_bins)) * 0.01
+
+    return priorities
+```

@@ -1,0 +1,69 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, waste_penalty_weight: float = 0.2013748833676067,
+                fullness_bonus_weight: float = 0.2013748833676067, noise_level: float = 2.0819988765816894e-09,
+                bin_utilization_weight: float = 0.1,  # Added weight for bin utilization
+                fragmentation_penalty_weight: float = 0.15) -> np.ndarray:  # Added weight for fragmentation penalty
+    """Returns priority with which we want to add item to each bin, with improved heuristics.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+        waste_penalty_weight: Weight of the small waste penalty.
+        fullness_bonus_weight: Weight of the bonus for bins closer to full.
+        noise_level: Magnitude of the random noise added to priorities.
+        bin_utilization_weight: Weight of the current bin utilization.
+        fragmentation_penalty_weight: Weight of the fragmentation penalty.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # 1. Feasibility check: Assign -inf priority if the item doesn't fit.
+    infeasible_bins = bins_remain_cap < item
+    priorities[infeasible_bins] = -np.inf
+
+    # 2. Waste Calculation and Normalization
+    waste = bins_remain_cap - item
+    waste[infeasible_bins] = np.inf  # Ensure infeasible bins are penalized
+    normalized_waste_item = waste / item
+    normalized_waste_bin = waste / bins_remain_cap
+
+    # 3. Penalty for Small Waste (Improved)
+    #   - Increased sensitivity to very small waste.
+    small_waste_penalty = np.exp(-5 * normalized_waste_item)  # Increased exponent
+
+    # 4. Reward for Filling the Bin Well (Improved)
+    #   - Sigmoid function for smoother reward scaling.
+    fill_ratio = item / bins_remain_cap
+    fill_reward = 1 / (1 + np.exp(-10 * (fill_ratio - 0.7)))  # Sigmoid centered at 0.7
+
+    # 5. Bin Utilization Reward
+    # Incentivizes using bins that are already partially full.
+    current_utilization = (1 - bins_remain_cap / np.max(bins_remain_cap)) # Assuming all bins are of same capacity, scale between 0 and 1
+    bin_utilization_reward = current_utilization
+
+    # 6. Fragmentation Penalty
+    # Discourages adding items to nearly empty bins to prevent fragmentation.
+    # Only penalize when the item is relatively small compared to the bin size.
+    fragmentation_penalty = np.where(bins_remain_cap > 2 * item, 1 - np.exp(-item / bins_remain_cap), 0) # Penalize if item is small
+
+    # 7. Combining Factors
+    priorities[~infeasible_bins] = (
+        fill_reward[~infeasible_bins]
+        - waste_penalty_weight * small_waste_penalty[~infeasible_bins]
+        + fullness_bonus_weight * (1 - normalized_waste_bin[~infeasible_bins])
+        + bin_utilization_weight * bin_utilization_reward[~infeasible_bins]
+        - fragmentation_penalty_weight * fragmentation_penalty[~infeasible_bins]
+    )
+
+    # 8. Noise Injection (Improved)
+    #   - Additive noise scaled inversely with bin remaining capacity.
+    #   - Higher noise for almost full bins to encourage exploration.
+    noise = np.random.rand(len(bins_remain_cap)) * noise_level / (1e-9 + bins_remain_cap) # Adding noise inversely propotional to remaining capacity
+    priorities += noise
+
+    return priorities
+```

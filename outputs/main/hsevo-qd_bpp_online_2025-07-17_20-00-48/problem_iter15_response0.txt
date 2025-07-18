@@ -1,0 +1,91 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This function prioritizes bins based on a combination of factors, including utilization,
+    fragmentation avoidance, pressure, best fit, and empty bin preference, with adaptive adjustments
+    based on item size and bin characteristics. It aims to improve upon priority_v1 by dynamically
+    adjusting penalties and bonuses to better handle diverse item sizes and bin configurations,
+    adding a bin diversity term, and incorporating a bin fill level consideration.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    max_cap = np.max(bins_remain_cap)
+    num_bins = len(bins_remain_cap)
+
+    # 0. Hard constraint: Item must fit. Bins that can't fit get -inf priority.
+    priorities[bins_remain_cap < item] = -np.inf
+
+    fit_mask = bins_remain_cap >= item
+
+    if not np.any(fit_mask):
+        return priorities  # No bin can fit the item
+
+    # 1. Utilization Term: Favor better utilization, but scale based on item size.
+    utilization = item / max_cap
+    remaining_capacity_after_fit = bins_remain_cap - item
+    utilization_score = (1 - remaining_capacity_after_fit / max_cap) * utilization
+    priorities[fit_mask] += utilization_score[fit_mask]
+
+    # 2. Fragmentation Avoidance: Penalize bins that will result in tiny fragments.
+    tiny_fragment_threshold = 0.05 * max_cap
+    small_fragment_threshold = 0.2 * max_cap
+
+    # Adaptive penalty based on item size: Larger items impose a heavier penalty for tiny fragments
+    tiny_fragment_penalty = -5.0 - 5.0 * utilization  # Higher penalty for larger items
+    small_fragment_penalty = -1.0 - 1.0 * utilization
+    
+    tiny_fragment_mask = (remaining_capacity_after_fit > 0) & (remaining_capacity_after_fit <= tiny_fragment_threshold)
+    small_fragment_mask = (remaining_capacity_after_fit > tiny_fragment_threshold) & (remaining_capacity_after_fit <= small_fragment_threshold)
+
+    priorities[tiny_fragment_mask] += tiny_fragment_penalty
+    priorities[small_fragment_mask] += small_fragment_penalty
+
+    # 3. "Pressure" Term: Bins with higher remaining capacity exert more "pressure".  Adjust scaling dynamically.
+    pressure = bins_remain_cap / max_cap * (1 - utilization)
+    priorities[fit_mask] += 0.5 * pressure[fit_mask]
+
+    # 4. Best Fit Bonus: Reward the bin that provides the absolute best fit (smallest waste).
+    diffs = bins_remain_cap - item
+    min_diff = np.min(diffs[diffs >= 0]) if np.any(diffs >= 0) else np.inf
+    best_fit_bonus = np.where(diffs == min_diff, 1.0 + 0.5 * (1 - utilization), 0)  # Adaptive bonus
+    priorities += best_fit_bonus
+
+    # 5. Empty Bin Preference (Adaptive): If the item is a significant fraction of bin size, strongly prefer an empty bin.
+    empty_bin_mask = bins_remain_cap == max_cap
+    empty_bin_threshold = 0.6 * max_cap
+    if item >= empty_bin_threshold and np.any(empty_bin_mask):
+        priorities[empty_bin_mask] += 2.0 + 1.0 * utilization  # Stronger adaptive preference
+    
+    # 6. Bin Diversity Bonus: Encourage spreading items across different bins.
+    # This penalizes using bins with similar remaining capacities if there are other options.
+    if num_bins > 1:
+        std_dev = np.std(bins_remain_cap[fit_mask])  # Standard deviation of remaining capacities
+        diversity_bonus = std_dev / max_cap # Normalize
+        priorities[fit_mask] += 0.25 * diversity_bonus # Moderate diversity bonus
+        
+    # 7. Bin Fill Level Consideration: Moderate fill level preference
+    fill_level = 1 - (bins_remain_cap / max_cap)
+    moderate_fill_mask = (fill_level > 0.4) & (fill_level < 0.8)
+    priorities[moderate_fill_mask] += 0.1  # Small bonus for moderate fill levels
+
+    # 8. Item Size Relative to Average Remaining Capacity:
+    # If the item is large compared to the *average* remaining capacity, strongly prefer bins
+    # significantly above the average. This avoids "death by a thousand cuts" where small items
+    # fill up bins that *could* have fit larger items later.
+    avg_remaining = np.mean(bins_remain_cap[fit_mask]) if np.any(fit_mask) else 0
+    if item > 0.75 * avg_remaining:
+        above_avg_mask = bins_remain_cap > 1.2 * avg_remaining  # Significantly above average
+        priorities[above_avg_mask] += 0.5
+
+    return priorities
+```

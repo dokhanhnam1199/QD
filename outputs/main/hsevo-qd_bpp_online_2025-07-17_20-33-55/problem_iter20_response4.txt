@@ -1,0 +1,34 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, target_relative_residual: float = 0.5, random_priority_scale: float = 0.01, aggressive_fill: bool = True, capacity_threshold: float = 0.2) -> np.ndarray:
+    """Hybrid priority function: fill ratio, residual target, adaptive bonus."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    # 1. Infeasible penalty
+    priorities[~feasible_bins] = -np.inf
+
+    # 2. Fill ratio with residual target
+    fill_ratios = item / bins_remain_cap
+    residual_capacity = bins_remain_cap - item
+    relative_residual = residual_capacity / item
+    priorities[feasible_bins] = fill_ratios[feasible_bins] / (1 + np.abs(relative_residual[feasible_bins] - target_relative_residual))
+
+    # 3. Adaptive low waste bonus (scaled by bin size)
+    low_waste_amount = (bins_remain_cap[feasible_bins] - item) / np.max(bins_remain_cap) # Normalized waste
+    low_waste_threshold = 0.1 #tunable
+    low_waste_bins = low_waste_amount < low_waste_threshold
+    bonus_scale = np.clip(1 - (low_waste_amount[low_waste_bins] / low_waste_threshold), 0, 1)
+    priorities[feasible_bins][low_waste_bins] += 0.1 * bonus_scale
+    
+    # 4. Aggressive Fill: Give a boost to bins that are already relatively full
+    if aggressive_fill:
+        fullness = 1 - (bins_remain_cap / np.max(bins_remain_cap))
+        priorities[feasible_bins] += fullness[feasible_bins] * 0.5
+
+    # 5. Small random number for tie-breaking
+    priorities += np.random.rand(len(bins_remain_cap)) * random_priority_scale
+    return priorities
+```

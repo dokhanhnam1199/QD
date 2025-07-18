@@ -1,0 +1,51 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # 1. Feasibility: Give -inf priority if item doesn't fit
+    infeasible_mask = item > bins_remain_cap
+    priorities[infeasible_mask] = -np.inf
+
+    # 2. Best Fit: Prioritize bins where the remaining space after placing the item is small.
+    feasible_mask = ~infeasible_mask
+    remaining_space = bins_remain_cap[feasible_mask] - item
+    priorities[feasible_mask] = -remaining_space  # Smaller remaining space -> higher priority
+
+    # 3. Avoidance of very small spaces: Penalize bins leaving very small spaces, but only if other bins are more reasonable fits
+    small_space_threshold = 0.1  # Tuneable parameter: Avoid leaving spaces smaller than 10% of bin capacity
+    very_small_space_mask = (remaining_space > 0) & (remaining_space < small_space_threshold)
+    #Only apply the penalty if it's not the absolute best fit available
+    if np.any(very_small_space_mask):
+        min_remaining_space = np.min(remaining_space)
+        very_small_and_not_best = very_small_space_mask & (remaining_space > min_remaining_space)
+        priorities[feasible_mask][very_small_and_not_best] -= 0.01
+
+    # 4. Utilize Almost Full Bins: Reward bins that are almost full, encouraging complete filling of existing bins
+    almost_full_threshold = 0.9  # Define what constitutes an "almost full" bin after placing the item
+    almost_full_mask = (bins_remain_cap[feasible_mask] - item) / bins_remain_cap[feasible_mask] > almost_full_threshold
+    priorities[feasible_mask][almost_full_mask] += 0.02
+
+    # 5. Moderate Fit: Reward bins that have a moderate fit, reducing fragmentation
+    moderate_fit_threshold_low = 0.2
+    moderate_fit_threshold_high = 0.6
+    moderate_fit_mask = (item / bins_remain_cap[feasible_mask] >= moderate_fit_threshold_low) & (item / bins_remain_cap[feasible_mask] <= moderate_fit_threshold_high)
+    priorities[feasible_mask][moderate_fit_mask] += 0.01
+
+    #6. Prioritize bins with more remaining capacity when multiple bins can accomodate the item
+    #Helps to distribute the items to avoid filling bins too early, potentially leading to a better overall packing.
+    capacity_normalized = bins_remain_cap[feasible_mask]/np.max(bins_remain_cap)
+    priorities[feasible_mask] += 0.005*capacity_normalized #Small weight so as not to override other heuristics
+
+    return priorities
+```

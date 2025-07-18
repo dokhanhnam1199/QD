@@ -1,0 +1,39 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, target_relative_residual: float = 0.5, random_priority_scale: float = 1e-9, aggressive_fill: bool = True, capacity_threshold: float = 0.2) -> np.ndarray:
+    """Combines fill ratio, waste minimization, adaptive elements.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # 1. Feasibility check
+    infeasible_bins = bins_remain_cap < item
+    priorities[infeasible_bins] = -np.inf
+
+    # 2. Prioritize bins with very low capacity to encourage completion.
+    low_capacity_bins = bins_remain_cap < capacity_threshold
+    if np.any(low_capacity_bins):
+        priorities[low_capacity_bins] = 10
+
+    # 3. Maximize bin utilization and minimize waste
+    waste = bins_remain_cap - item
+    waste[infeasible_bins] = np.inf
+    normalized_waste_item = waste / item
+    fill_ratio = item / bins_remain_cap
+    small_waste_penalty = np.exp(-normalized_waste_item)
+
+    residual_capacity = bins_remain_cap - item
+    relative_residual = residual_capacity / item
+    
+    priorities[~infeasible_bins & ~low_capacity_bins] = fill_ratio[~infeasible_bins & ~low_capacity_bins] - 0.5 * small_waste_penalty[~infeasible_bins & ~low_capacity_bins]
+    priorities[~infeasible_bins & ~low_capacity_bins] /= (1 + np.abs(relative_residual[~infeasible_bins & ~low_capacity_bins] - target_relative_residual))
+
+    # 4. Aggressive Fill
+    if aggressive_fill:
+        fullness = 1 - (bins_remain_cap / np.max(bins_remain_cap))
+        priorities[~infeasible_bins & ~low_capacity_bins] += fullness[~infeasible_bins & ~low_capacity_bins] * 0.5
+
+    priorities += np.random.rand(len(bins_remain_cap)) * random_priority_scale
+
+    return priorities
+```

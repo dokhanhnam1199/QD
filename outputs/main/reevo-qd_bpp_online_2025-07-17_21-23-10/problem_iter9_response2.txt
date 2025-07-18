@@ -1,0 +1,58 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Feasibility: set priority to negative infinity for bins that can't fit the item
+    infeasible_bins = bins_remain_cap < item
+    priorities[infeasible_bins] = -np.inf
+
+    # Reward tight fits: prioritize bins where the remaining space is small (but positive)
+    remaining_space = bins_remain_cap - item
+    feasible_bins = bins_remain_cap >= item
+
+    # Avoid division by zero by adding a small epsilon
+    epsilon = 1e-6
+    priorities[feasible_bins] += 2.0 / (remaining_space[feasible_bins] + epsilon)
+
+    # Fullness: boost priority for almost full bins (reduces fragmentation)
+    # Dynamically scale the "almost full" threshold
+    max_cap = np.max(bins_remain_cap)
+    almost_full_threshold = 0.2 * max_cap  # Reduced Threshold
+
+    almost_full = feasible_bins & (remaining_space <= almost_full_threshold)
+    # Scaling bonus based on proximity to being full
+    priorities[almost_full] += 15 * (1 - (remaining_space[almost_full] / almost_full_threshold))
+
+    # Penalize waste/overflow: give a penalty for bins with a lot of remaining space
+    large_space_threshold = 0.7 * max_cap #Increased threshold
+    large_space = feasible_bins & (remaining_space > large_space_threshold)
+
+    # Scale penalty based on the amount of waste, using a quadratic penalty
+    priorities[large_space] -= 3 * ((remaining_space[large_space] / max_cap)**2)
+
+    # Bonus for bins with higher initial remaining capacity (encourage balanced bin usage), scaled down to be less impactful
+    priorities[feasible_bins] += 0.02 * (bins_remain_cap[feasible_bins] / max_cap)
+
+    # Discourage creating near-empty bins by penalizing bins that were nearly full before placement and now have low utilization.
+    previously_almost_empty_threshold = 0.8 * max_cap # Threshold for bins that started near full.
+    previously_almost_empty = (bins_remain_cap >= item) & (bins_remain_cap > previously_almost_empty_threshold) & (remaining_space > 0.6 * max_cap) #Large Remaining space means the item was small for the bin.
+    priorities[previously_almost_empty] -= 5 # A moderate penalty.
+
+    # Add a slight penalty for bins that are already somewhat empty.
+    somewhat_empty_threshold = 0.4 * max_cap
+    somewhat_empty = feasible_bins & (bins_remain_cap > item) & (bins_remain_cap < somewhat_empty_threshold)
+    priorities[somewhat_empty] -= 1
+
+    return priorities
+```

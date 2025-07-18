@@ -1,0 +1,44 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Feasibility: large negative priority to bins that can't fit the item
+    infeasible_mask = bins_remain_cap < item
+    priorities[infeasible_mask] = -np.inf
+
+    # Reward tight fits: prioritize bins where the remaining space is small (but positive)
+    remaining_space = bins_remain_cap - item
+    
+    # Use reciprocal of remaining space for prioritization; avoid division by zero
+    feasible_mask = bins_remain_cap >= item
+    priorities[feasible_mask] = 1.0 / (remaining_space[feasible_mask] + 1e-6)
+    
+    # Dynamic Almost Full Threshold: scale relative to item size, prevents tiny almost full
+    almost_full_threshold = max(0.1 * np.max(bins_remain_cap), 0.5 * item)
+    almost_full_mask = feasible_mask & (remaining_space <= almost_full_threshold)
+    priorities[almost_full_mask] += 10 * (1 - (remaining_space[almost_full_mask] / almost_full_threshold))
+        
+    # Stronger Penalize waste/overflow: give a strong penalty for bins with a lot of remaining space after placement.  Scale penalty based on how much waste
+    large_space_threshold = 0.65 * np.max(bins_remain_cap)
+    large_space_mask = feasible_mask & (remaining_space > large_space_threshold)
+    priorities[large_space_mask] -= 3 * (remaining_space[large_space_mask] / np.max(bins_remain_cap))
+
+    # Discourage near empty bins by a negative score proportional to current space if the item can fit
+    near_empty_threshold = 0.8 * np.max(bins_remain_cap)  # Adjust as needed
+    near_empty_mask = feasible_mask & (bins_remain_cap > near_empty_threshold)
+    priorities[near_empty_mask] -= 0.5 * (bins_remain_cap[near_empty_mask] / np.max(bins_remain_cap))
+
+    return priorities
+```

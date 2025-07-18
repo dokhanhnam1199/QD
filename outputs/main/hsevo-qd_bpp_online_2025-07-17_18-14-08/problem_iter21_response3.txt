@@ -1,0 +1,60 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+       Evolving Intelligence: Adapting Elegance in Every Electrical Embrace.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Avoid zero capacity bins and division by zero.
+    valid_bins = bins_remain_cap > 0
+    priorities = np.full(bins_remain_cap.shape, -np.inf)  # Default to negative infinity.
+
+    if np.any(valid_bins):
+        remaining_capacities = bins_remain_cap[valid_bins]
+
+        # Calculate the waste if we place the item in each bin. A lower waste
+        # suggests a better fit. Avoid negative waste using max(0).
+        waste = np.maximum(0, remaining_capacities - item)
+
+        # Score based on the inverse of the waste. To give higher preference to minimal waste
+        waste_score = 1 / (waste + 1e-9) # Adding a small value to avoid division by zero
+        
+        # Fit Score
+        fit_score = np.exp(-(remaining_capacities - item)**2 / (2 * (item/3)**2)) # Gaussian Fit score favoring item to fit nicely in the bin.
+
+        # Preference for bins that can accommodate the item. Also incorporate remaining capacity
+        # to prioritize using more full bins first.
+        capacity_utilization = 1 - (remaining_capacities / np.max(bins_remain_cap))
+        
+        # Introduce a new factor: Fragmentation Score. Penalize bins where placing the item will
+        # leave a very small remaining capacity that is unlikely to be used later.
+        fragmentation_threshold = 0.1 * np.max(bins_remain_cap)  # Example: 10% of max capacity
+        fragmentation_penalty = np.where((waste > 0) & (waste < fragmentation_threshold), -0.5, 0)  # Penalize small waste
+
+        # Adaptive Weighting based on item size
+        if item > 0.5 * np.max(bins_remain_cap):
+            # For larger items, prioritize reducing waste and filling bins
+            waste_weight = 0.7
+            fit_weight = 0.2
+            capacity_weight = 0.1
+        else:
+            # For smaller items, balance waste, fit, and fragmentation
+            waste_weight = 0.5
+            fit_weight = 0.3
+            capacity_weight = 0.1
+            fragmentation_weight = 0.1 # Add weight to fragmentation
+
+        # Combine the scoring components with adaptive weights. Give weights to components
+        combined_score = waste_weight * waste_score + fit_weight * fit_score + capacity_weight * capacity_utilization + fragmentation_weight * fragmentation_penalty
+        
+        priorities[valid_bins] = combined_score
+
+    return priorities
+```

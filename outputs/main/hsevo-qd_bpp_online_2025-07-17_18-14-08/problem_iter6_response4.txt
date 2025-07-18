@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+       Enhanced with adaptive strategies based on item size and bin characteristics.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.full(bins_remain_cap.shape, -np.inf)
+    valid_bins = bins_remain_cap > 0
+
+    if np.any(valid_bins):
+        remaining_capacities = bins_remain_cap[valid_bins]
+
+        # Waste Calculation and Waste Score
+        waste = np.maximum(0, remaining_capacities - item)
+        waste_score = 1 / (waste + 1e-9)
+
+        # Fit Score (Gaussian)
+        fit_score = np.exp(-(remaining_capacities - item)**2 / (2 * (item/3)**2))
+
+        # Capacity Utilization Score
+        capacity_utilization = 1 - (remaining_capacities / np.max(bins_remain_cap))
+
+        # Perfect Fit Score: Reward bins where the item fits perfectly or nearly perfectly
+        perfect_fit_threshold = 0.05 * item  # Define "nearly perfect" as 5% of item size
+        perfect_fit_score = np.where(np.abs(remaining_capacities - item) <= perfect_fit_threshold, 1.0, 0.0)
+
+        # Adaptive Weighting based on item size
+        if item <= 0.2:  # Small items: prioritize perfect fit and waste minimization
+            w_waste = 0.5
+            w_fit = 0.2
+            w_capacity = 0.1
+            w_perfect = 0.2
+        elif item <= 0.5:  # Medium items: balance all factors
+            w_waste = 0.4
+            w_fit = 0.3
+            w_capacity = 0.15
+            w_perfect = 0.15
+        else:  # Large items: prioritize waste minimization and capacity utilization
+            w_waste = 0.3
+            w_fit = 0.2
+            w_capacity = 0.4
+            w_perfect = 0.1
+
+        # Combined Score with Adaptive Weights
+        combined_score = (w_waste * waste_score +
+                          w_fit * fit_score +
+                          w_capacity * capacity_utilization +
+                          w_perfect * perfect_fit_score)
+
+        priorities[valid_bins] = combined_score
+
+    return priorities
+```

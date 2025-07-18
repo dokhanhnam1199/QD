@@ -1,0 +1,50 @@
+import numpy as np
+
+def priority_v2(item: float,
+                bins_remain_cap: np.ndarray,
+                waste_epsilon: float = 2.201955518058147e-10,
+                fit_std_dev_divisor: float = 2.2337606969012214,
+                item_ratio_threshold: float = 0.49322035765522915,
+                waste_weight_low: float = 0.5485337436163229,
+                waste_weight_high: float = 0.3724230891053646,
+                fit_weight_low: float = 0.2030296267395898,
+                fit_weight_high: float = 0.5716062628519647,
+                capacity_weight: float = 0.18121621237604346,
+                min_capacity_priority_divisor: float = 8.389461027539447) -> np.ndarray:
+    """Combines waste, fit, and capacity with adaptive weighting for bin selection."""
+
+    valid_bins = bins_remain_cap >= item
+    priorities = np.full(bins_remain_cap.shape, -np.inf)
+
+    if np.any(valid_bins):
+        remaining_capacities = bins_remain_cap[valid_bins]
+
+        # Waste Score
+        waste = remaining_capacities - item
+        waste_score = 1 / (waste + waste_epsilon)
+
+        # Fit Score
+        fit_score = np.exp(-(remaining_capacities - item)**2 / (2 * (item/fit_std_dev_divisor)**2))
+
+        # Capacity Utilization
+        capacity_utilization = remaining_capacities / np.max(bins_remain_cap)
+
+        # Adaptive Weighting
+        item_ratio = item / np.max(bins_remain_cap)
+        waste_weight = waste_weight_low if item_ratio < item_ratio_threshold else waste_weight_high
+        fit_weight = fit_weight_low if item_ratio < item_ratio_threshold else fit_weight_high
+        
+
+        combined_score = (waste_weight * waste_score +
+                          fit_weight * fit_score +
+                          capacity_weight * (1 - capacity_utilization))
+
+        priorities[valid_bins] = combined_score
+    else:
+        valid_bins = bins_remain_cap > 0
+        if np.any(valid_bins):
+          remaining_capacities = bins_remain_cap[valid_bins]
+          capacity_score = remaining_capacities / np.max(bins_remain_cap)
+          priorities[valid_bins] = capacity_score / min_capacity_priority_divisor
+
+    return priorities

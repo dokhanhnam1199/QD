@@ -1,0 +1,55 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        return priorities
+
+    remaining_capacity_after_placement = bins_remain_cap - item
+    remaining_capacity_after_placement[remaining_capacity_after_placement < 0] = -1
+
+    # Objective 1: Fill bins as completely as possible (minimize wasted space)
+    # Factor: Inverse of remaining space after placement
+    fill_priority = 1.0 / (remaining_capacity_after_placement[feasible_bins] + 0.00001)
+
+    # Objective 2: Avoid creating very small remaining spaces (fragmentation)
+    # Factor: Penalize bins where remaining space is below a threshold after placement
+    fragmentation_threshold = 0.15 #tune
+    fragmentation_penalty = -3.0 #tune
+    fragmentation_bins = feasible_bins & (remaining_capacity_after_placement >= 0) & (remaining_capacity_after_placement < fragmentation_threshold)
+    
+    # Objective 3: Prefer bins that are already somewhat full (to consolidate items)
+    # Factor: Remaining capacity before placement
+    fullness_priority = (1 - (bins_remain_cap[feasible_bins] / np.max(bins_remain_cap)))  # Normalize between 0 and 1
+
+    # Objective 4: Reward almost full
+    almost_full_threshold = 0.1
+    almost_full_bonus = 5.0
+    almost_full_bins = feasible_bins & (bins_remain_cap < item + almost_full_threshold * item)
+    
+
+    # Combine the factors with weights to tune the heuristic
+    fill_weight = 0.6  #tune
+    fullness_weight = 0.4 #tune
+
+    priorities[feasible_bins] = fill_weight * fill_priority + fullness_weight * fullness_priority
+
+    priorities[fragmentation_bins] += fragmentation_penalty
+    priorities[almost_full_bins] += almost_full_bonus
+
+
+    return priorities
+```

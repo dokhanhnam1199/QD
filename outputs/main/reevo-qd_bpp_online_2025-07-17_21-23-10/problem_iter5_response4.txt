@@ -1,0 +1,48 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Feasibility: large negative priority to bins that can't fit the item
+    infeasible_mask = bins_remain_cap < item
+    priorities[infeasible_mask] = -1e9  # Very large negative number to strongly discourage
+
+    # Reward tight fits: prioritize bins where the remaining space is small (but positive)
+    remaining_space = bins_remain_cap - item
+    feasible_mask = bins_remain_cap >= item
+
+    # Use reciprocal of remaining space for prioritization; avoid division by zero
+    priorities[feasible_mask] += 10 / (remaining_space[feasible_mask] + 1e-6) # Scale tightness reward
+
+    # Fullness: boost priority for almost full bins (reduces fragmentation).  Scale boost based on remaining capacity
+    max_cap = np.max(bins_remain_cap)
+    almost_full_threshold = 0.15 * max_cap  # Tighter threshold
+    almost_full_mask = feasible_mask & (remaining_space <= almost_full_threshold)
+    priorities[almost_full_mask] += 20 * (1 - (remaining_space[almost_full_mask] / almost_full_threshold)) # Larger boost
+
+    # Penalize waste/overflow: give a slight penalty for bins with a lot of remaining space after placement.  Scale penalty based on how much waste
+    large_space_threshold = 0.6 * max_cap # Higher Threshold
+    large_space_mask = feasible_mask & (remaining_space > large_space_threshold)
+    priorities[large_space_mask] -= 2 * (remaining_space[large_space_mask] / max_cap) # Increased penalty
+
+    # Avoid creating near-empty bins: Penalize bins that would become nearly empty after placing the item.
+    near_empty_threshold = 0.2 * max_cap
+    near_empty_mask = feasible_mask & ((bins_remain_cap - item) < near_empty_threshold) & (bins_remain_cap > item)
+    priorities[near_empty_mask] -= 5 # Moderate penalty
+
+    # Dynamic scaling: Adjust priorities based on item size relative to bin capacity.
+    item_ratio = item / max_cap
+    priorities[feasible_mask] += 2 * item_ratio # Slight bonus for larger items in feasible bins.
+
+    return priorities
+```

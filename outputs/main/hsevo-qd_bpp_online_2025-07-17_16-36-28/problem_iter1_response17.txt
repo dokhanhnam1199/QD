@@ -1,0 +1,42 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This version prioritizes bins where the item fills a significant portion of the bin's remaining capacity,
+    but also includes a stochastic element inspired by quantum tunneling.  Bins that are "almost" full
+    get a small probability boost. This is intended to allow for escaping local optima.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    
+    priorities = np.zeros_like(bins_remain_cap)
+
+    # Heuristic 1: Fill Rate - Prioritize bins where the item fills a large fraction of the remaining capacity.
+    fill_rate = np.clip(item / bins_remain_cap, 0, 1)  # Ensure the ratio is within [0, 1]
+    priorities = fill_rate
+
+    # Heuristic 2: Capacity Slack - Slightly discourage placing the item in bins that would then have very little remaining capacity.
+    # This helps avoid fragmentation.  Note: We add a tiny constant to the denominator to avoid division by zero.
+    slack_penalty = np.exp(-50 * np.clip((bins_remain_cap - item) / (item + 1e-9), 0, 1))  # Exponential decay with smaller slack
+    priorities = priorities * slack_penalty
+
+    # Heuristic 3: Quantum Tunneling - A small stochastic bonus for "almost full" bins.  This introduces exploration.
+    almost_full_bonus = np.exp(-100 * np.abs((bins_remain_cap - item))) * np.random.rand(len(bins_remain_cap))*0.01
+    priorities = priorities + almost_full_bonus
+
+    # Heuristic 4: Avoid large empty bins
+    large_empty_bins = (bins_remain_cap > 2*item) # If bin is much larger than the item, prioritize it less.
+    priorities[large_empty_bins] *= 0.5 # Reduces the priority if the bin is too large for this item.
+    
+    # Heuristic 5:  Scale so they're all positive and non-zero
+    priorities += 0.0001 # Ensure no zero priorities.
+
+    return priorities
+```

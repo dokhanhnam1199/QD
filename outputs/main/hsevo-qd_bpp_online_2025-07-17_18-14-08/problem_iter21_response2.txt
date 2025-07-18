@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+       Tesla's embodiment of electrical elegance: A symphony of potential.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Avoid zero capacity bins and division by zero.
+    valid_bins = bins_remain_cap > 0
+    priorities = np.full(bins_remain_cap.shape, -np.inf)  # Default to negative infinity.
+
+    if np.any(valid_bins):
+        remaining_capacities = bins_remain_cap[valid_bins]
+
+        # Calculate the waste if we place the item in each bin. A lower waste
+        # suggests a better fit. Avoid negative waste using max(0).
+        waste = np.maximum(0, remaining_capacities - item)
+
+        # Score based on the inverse of the waste. To give higher preference to minimal waste
+        waste_score = 1 / (waste + 1e-9) # Adding a small value to avoid division by zero
+        
+        # Fit Score: Gaussian Fit score favoring item to fit nicely in the bin.
+        fit_score = np.exp(-(remaining_capacities - item)**2 / (2 * (item/3)**2))
+
+        # Capacity Utilization: Preference for bins that can accommodate the item.
+        # Prioritize using more full bins first. Introducing a non-linear component.
+        capacity_utilization = 1 - (remaining_capacities / np.max(bins_remain_cap))
+        capacity_utilization = capacity_utilization**2 # Emphasize higher utilization
+
+        # Introduce a "balance" score to avoid bins that are *too* full.  If an item
+        # fills the bin almost completely, avoid that. This encourages a better distribution
+        # of items across bins.
+        balance_score = np.exp(-((remaining_capacities - item) / (np.max(bins_remain_cap)/5))**2)
+        
+        # Dynamically adjust weights based on item size.  If the item is large, focus
+        # more on minimizing waste. If the item is small, focus more on fit.
+        if item > np.max(bins_remain_cap) / 2:
+            waste_weight = 0.7
+            fit_weight = 0.2
+            capacity_weight = 0.1
+            balance_weight = 0.0  # Ignore balance if item is large.
+        else:
+            waste_weight = 0.4
+            fit_weight = 0.4
+            capacity_weight = 0.1
+            balance_weight = 0.1
+
+        # Combine the scoring components with dynamically adjusted weights.
+        combined_score = (waste_weight * waste_score +
+                          fit_weight * fit_score +
+                          capacity_weight * capacity_utilization +
+                          balance_weight * balance_score)
+
+        priorities[valid_bins] = combined_score
+
+    return priorities
+```

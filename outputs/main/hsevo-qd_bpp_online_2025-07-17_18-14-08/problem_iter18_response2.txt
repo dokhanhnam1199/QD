@@ -1,0 +1,60 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+       An enhanced bin packing strategy.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.full(bins_remain_cap.shape, -np.inf)
+    valid_bins = bins_remain_cap > item  # Only consider bins that can accommodate the item
+
+    if np.any(valid_bins):
+        remaining_capacities = bins_remain_cap[valid_bins]
+
+        # Waste Score: Prioritize bins with minimal waste
+        waste = remaining_capacities - item
+        waste_score = 1 / (waste + 1e-9)  # Avoid division by zero
+
+        # Fit Score: Gaussian-like score favoring good fits
+        fit_score = np.exp(-(remaining_capacities - item)**2 / (2 * (item / 2)**2))
+
+        # Capacity Utilization: Favor bins that are already somewhat full
+        capacity_utilization = 1 - (remaining_capacities / np.max(bins_remain_cap))
+        capacity_utilization = np.clip(capacity_utilization, 0, 1)
+
+        # Empty Space penalty: Penalize very empty bins.
+        empty_space_penalty = np.exp(-bins_remain_cap[valid_bins]/np.max(bins_remain_cap))
+        empty_space_penalty = np.clip(empty_space_penalty,0,1)
+
+        # Adaptive Weights: Adjust weights based on item size relative to bin size
+        if item > np.mean(bins_remain_cap):
+            # Large item: Prioritize waste and capacity utilization
+            weights = [0.5, 0.2, 0.3, 0.0]
+        else:
+            # Smaller item: Prioritize fit and minimize empty space.
+            weights = [0.2, 0.5, 0.1, 0.2]
+
+        # Combined Score
+        combined_score = (
+            weights[0] * waste_score +
+            weights[1] * fit_score +
+            weights[2] * capacity_utilization +
+            weights[3] * empty_space_penalty
+        )
+
+        priorities[valid_bins] = combined_score
+
+    # If no bin can accommodate the item, assign highest priority to the bin with the most remaining capacity
+    else:
+        max_cap_bin_index = np.argmax(bins_remain_cap)
+        priorities[max_cap_bin_index] = 0.1  # Assign a small positive priority
+
+    return priorities
+```

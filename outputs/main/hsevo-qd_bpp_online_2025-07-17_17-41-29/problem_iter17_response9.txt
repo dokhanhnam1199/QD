@@ -1,0 +1,46 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins considering feasibility, best fit,
+    avoiding small spaces, and balancing bin usage."""
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # 1. Feasibility: Exclude bins that can't fit the item
+    infeasible_mask = item > bins_remain_cap
+    priorities[infeasible_mask] = -np.inf
+
+    feasible_mask = ~infeasible_mask
+
+    if not np.any(feasible_mask):
+        return priorities
+
+    # 2. Best Fit: Prioritize bins with minimal remaining space
+    remaining_space = bins_remain_cap[feasible_mask] - item
+    priorities[feasible_mask] = -remaining_space
+
+    # 3. Avoidance of very small spaces
+    small_space_threshold = 0.1
+    very_small_space_mask = (remaining_space > 0) & (remaining_space < small_space_threshold)
+
+    larger_space_exists = np.any(remaining_space > small_space_threshold)
+    if larger_space_exists:
+        priorities[feasible_mask][very_small_space_mask] -= 0.01
+
+    # 4. Balancing term: Penalize filling the fullest bin slightly
+    num_feasible = np.sum(feasible_mask)
+    if num_feasible > 1:
+        priority_order = np.argsort(priorities[feasible_mask])
+        priorities[feasible_mask][priority_order[-1]] -= 0.005
+
+    # 5. Encourage filling almost full bins, but with lower priority
+    almost_full_threshold = 0.9  # was > , now <
+    almost_full_mask = (bins_remain_cap[feasible_mask] - item) / bins_remain_cap[feasible_mask] < almost_full_threshold # correct the sign here to be less than, to encourage use
+
+    # Only apply if the item fits and the bin isn't already deemed to create a small space
+    almost_full_mask = almost_full_mask & (~very_small_space_mask)
+
+    priorities[feasible_mask][almost_full_mask] += 0.01
+
+    return priorities
+```

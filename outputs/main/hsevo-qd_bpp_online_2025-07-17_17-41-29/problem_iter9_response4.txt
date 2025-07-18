@@ -1,0 +1,51 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # 1. Feasibility: Give -inf priority if item doesn't fit
+    infeasible_mask = item > bins_remain_cap
+    priorities[infeasible_mask] = -np.inf
+
+    # 2. Best Fit: Prioritize bins where the remaining space after placing the item is small.
+    feasible_mask = ~infeasible_mask
+    remaining_space = bins_remain_cap[feasible_mask] - item
+    priorities[feasible_mask] = -remaining_space  # Smaller remaining space -> higher priority
+
+    # 3. Avoidance of very small spaces: Penalize bins leaving very small spaces, but only if other bins are more reasonable fits
+    small_space_threshold = 0.1  # Tuneable parameter: Avoid leaving spaces smaller than 10% of bin capacity
+    very_small_space_mask = (remaining_space > 0) & (remaining_space < small_space_threshold)
+    
+    # Check if other feasible bins exist with more reasonable space
+    other_feasible_bins = bins_remain_cap[feasible_mask] - item > small_space_threshold
+    if np.any(other_feasible_bins) and np.any(very_small_space_mask):
+      priorities[feasible_mask][very_small_space_mask] -= 0.01
+
+    # 4. Utilize Almost Full Bins: Reward bins that are almost full, encouraging complete filling of existing bins
+    almost_full_threshold = 0.9  # Define what constitutes an "almost full" bin after placing the item
+    almost_full_mask = (bins_remain_cap[feasible_mask] - item) / bins_remain_cap[feasible_mask] < (1 - almost_full_threshold)
+    priorities[feasible_mask][almost_full_mask] += 0.02
+
+    # 5. Prioritize bins that were used recently (Frequency-based recency)
+    # To avoid spreading items too thinly.  This assumes that bin selection history can be tracked externally and is not tracked within the function.
+    # Recency is simulated by adding a small bonus to bins with larger remaining cap. This is a proxy.
+    # This assumes bins were used in decreasing order of remaining capacity. (Larger remaining cap = recently used).
+    priorities[feasible_mask] += bins_remain_cap[feasible_mask] * 0.0001
+
+    # 6. Bin Diversity penalty: if all bins are almost full, add to the fullest one to enable future packing choices
+    if np.all(bins_remain_cap[feasible_mask] < item * 1.1) and np.any(feasible_mask):
+        most_full_bin_index = np.argmax(bins_remain_cap[feasible_mask])
+        priorities[feasible_mask][most_full_bin_index] += 0.03
+
+    return priorities
+```

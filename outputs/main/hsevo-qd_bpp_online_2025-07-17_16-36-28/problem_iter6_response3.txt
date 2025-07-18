@@ -1,0 +1,44 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """A refined heuristic that adapts based on bin utilization and item size."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    valid_bins = bins_remain_cap - item >= 0
+
+    if not np.any(valid_bins):
+        return priorities
+
+    # 1. Fits Check (Basic Feasibility)
+    priorities[valid_bins] += 1.0
+
+    # 2. Minimize Wasted Space (Refined - scaled by item size)
+    wasted_space = bins_remain_cap[valid_bins] - item
+    priorities[valid_bins] += item / (1e-6 + wasted_space)
+
+    # 3. Target Half-Full (Adaptive - Mean Adjusted)
+    mean_cap = np.mean(bins_remain_cap)
+    half_full_target = mean_cap / 2.0
+    half_full_diff = np.abs(bins_remain_cap[valid_bins] - item - half_full_target)
+    priorities[valid_bins] += 1.0 / (1e-6 + half_full_diff)
+
+    # 4. Bin Utilization Balancing (Enhanced - weighted by remaining capacity)
+    total_capacity = np.sum(bins_remain_cap)
+    if total_capacity > 0:  # Avoid division by zero
+        capacity_ratios = bins_remain_cap[valid_bins] / total_capacity
+        priorities[valid_bins] += capacity_ratios
+
+    # 5. Item Size Consideration (New - Larger items prefer fuller bins initially)
+    item_scaled = min(1.0, item)  # Scale item size to [0, 1]
+
+    # Calculate a weighted bin fullness score.
+    bin_fullness = (1 - bins_remain_cap[valid_bins] / np.max(bins_remain_cap)) #Normalize between 0 and 1
+    priorities[valid_bins] += item_scaled * bin_fullness # Add Fullness score
+
+    # 6. Exploration (Controlled Randomness - Decreasing with iterations)
+    exploration_factor = 0.005 # Further reduced noise
+    priorities[valid_bins] += np.random.rand(np.sum(valid_bins)) * exploration_factor
+
+    return priorities
+```

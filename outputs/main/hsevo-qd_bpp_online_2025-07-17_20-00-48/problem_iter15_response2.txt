@@ -1,0 +1,82 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This function improves upon priority_v1 by incorporating a more refined approach to fragmentation,
+    introducing a relative fragmentation score, dynamic adjustment of parameters, and a capacity-weighted
+    diversity bonus.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    max_cap = np.max(bins_remain_cap)
+    num_bins = len(bins_remain_cap)
+
+    # 0. Hard constraint: Item must fit. Bins that can't fit get -inf priority.
+    priorities[bins_remain_cap < item] = -np.inf
+
+    fit_mask = bins_remain_cap >= item
+
+    if not np.any(fit_mask):
+        return priorities  # No bin can fit the item
+
+    # 1. Utilization Term: Favor better utilization, scaled by item size.
+    utilization = item / max_cap
+    remaining_capacity_after_fit = bins_remain_cap - item
+    utilization_score = (1 - remaining_capacity_after_fit / max_cap) * utilization
+    priorities[fit_mask] += utilization_score[fit_mask]
+
+    # 2. Fragmentation Avoidance: Penalize bins that will result in tiny fragments, relatively.
+    tiny_fragment_threshold = 0.05 * max_cap
+    small_fragment_threshold = 0.2 * max_cap
+
+    # Relative fragmentation score: fragment size relative to item size.
+    relative_tiny_fragment = remaining_capacity_after_fit / item
+    relative_small_fragment = remaining_capacity_after_fit / item
+
+    tiny_fragment_penalty = -5.0 - 5.0 * utilization # adaptive
+    small_fragment_penalty = -1.0 - 1.0 * utilization # adaptive
+
+    tiny_fragment_mask = (remaining_capacity_after_fit > 0) & (remaining_capacity_after_fit <= tiny_fragment_threshold)
+    small_fragment_mask = (remaining_capacity_after_fit > tiny_fragment_threshold) & (remaining_capacity_after_fit <= small_fragment_threshold)
+    
+    priorities[tiny_fragment_mask] += tiny_fragment_penalty * relative_tiny_fragment[tiny_fragment_mask]
+    priorities[small_fragment_mask] += small_fragment_penalty * relative_small_fragment[small_fragment_mask]
+
+    # 3. "Pressure" Term: Bins with higher remaining capacity exert more "pressure".  Dynamically scaled.
+    pressure = bins_remain_cap / max_cap * (1 - utilization)
+    priorities[fit_mask] += 0.5 * pressure[fit_mask]
+
+    # 4. Best Fit Bonus: Reward the bin that provides the absolute best fit (smallest waste).
+    diffs = bins_remain_cap - item
+    min_diff = np.min(diffs[diffs >= 0]) if np.any(diffs >= 0) else np.inf
+    best_fit_bonus = np.where(diffs == min_diff, 1.0 + 0.5 * (1 - utilization), 0)  # Adaptive bonus
+    priorities += best_fit_bonus
+
+    # 5. Empty Bin Preference (Adaptive): If the item is a significant fraction of bin size, strongly prefer an empty bin.
+    empty_bin_mask = bins_remain_cap == max_cap
+    empty_bin_threshold = 0.6 * max_cap
+    if item >= empty_bin_threshold and np.any(empty_bin_mask):
+        priorities[empty_bin_mask] += 2.0 + 1.0 * utilization  # Stronger adaptive preference
+
+    # 6. Capacity-Weighted Bin Diversity Bonus:
+    if num_bins > 1:
+        # Capacity-weighted standard deviation of remaining capacities
+        weights = bins_remain_cap[fit_mask] / np.sum(bins_remain_cap[fit_mask])
+        mean = np.average(bins_remain_cap[fit_mask], weights=weights)
+        variance = np.average((bins_remain_cap[fit_mask] - mean)**2, weights=weights)
+        std_dev = np.sqrt(variance)
+
+        diversity_bonus = std_dev / max_cap  # Normalize
+        priorities[fit_mask] += 0.25 * diversity_bonus
+
+    return priorities
+```

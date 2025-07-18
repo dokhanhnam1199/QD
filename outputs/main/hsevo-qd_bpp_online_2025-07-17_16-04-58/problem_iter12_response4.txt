@@ -1,0 +1,81 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This version prioritizes bins based on a multi-objective approach:
+    1. Fullness: Encourages filling bins as much as possible.
+    2. Fragmentation: Discourages creating very small remaining spaces.
+    3. Balance: Aims for a remaining capacity that is neither too small nor too large.
+    4. Adaptive Weights: Dynamically adjusts the importance of each objective based on the item size and bin capacities.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        return priorities
+
+    remaining_capacity_after_placement = bins_remain_cap - item
+    remaining_capacity_after_placement[remaining_capacity_after_placement < 0] = -1
+
+    # Fullness objective: Prioritize bins that become fuller after placement
+    fullness = 1.0 - (remaining_capacity_after_placement / bins_remain_cap)
+    fullness[remaining_capacity_after_placement < 0] = 0  # Set fullness to 0 for infeasible bins
+    fullness[~feasible_bins] = 0 # Ensure infeasible bins have 0 fullness
+
+    # Fragmentation objective: Penalize small remaining capacities
+    small_capacity_threshold = 0.1
+    fragmentation_penalty = np.where(
+        (remaining_capacity_after_placement > 0) & (remaining_capacity_after_placement < small_capacity_threshold),
+        -10.0,  # High penalty for creating small fragments
+        0.0,
+    )
+
+    fragmentation_penalty[~feasible_bins] = 0 # Ensure infeasible bins have 0 penalty
+
+    # Balance objective: Favor bins with a "sweet spot" of remaining capacity.
+    # This is implemented using a penalty for bins that are either almost full
+    # or still have a lot of free space.
+
+    almost_full_threshold = 0.2 * item
+    large_capacity_threshold = 0.8 #Fraction of original bin capacity.
+
+    balance_penalty = np.zeros_like(bins_remain_cap, dtype=float)
+
+    almost_full_bins = feasible_bins & (bins_remain_cap < item + almost_full_threshold)
+    balance_penalty[almost_full_bins] -= 5.0
+
+    large_capacity_bins = feasible_bins & (bins_remain_cap > large_capacity_threshold)
+    balance_penalty[large_capacity_bins] -= 2.0
+
+    # Adaptive weights: Adjust the importance of each objective based on item size and bin capacities.
+    # For example, if the item is large, fullness might be more important.
+    # If the item is small, fragmentation might be more important.
+    item_size_factor = item  # Scaling factor based on item size. This could be more sophisticated
+
+    fullness_weight = 0.6 + 0.4 * item_size_factor
+    fragmentation_weight = 0.4 - 0.2 * item_size_factor #Reduced weight if the item is too big.
+    balance_weight = 0.5
+
+    # Combine the objectives with their weights
+    priorities[feasible_bins] = (
+        fullness_weight * fullness[feasible_bins]
+        + fragmentation_weight * fragmentation_penalty[feasible_bins]
+        + balance_weight * balance_penalty[feasible_bins]
+    )
+
+    # Add a small bonus for bins that fit perfectly if the item is larger than 0.5
+    if item > 0.5:
+        perfect_fit = np.abs(remaining_capacity_after_placement) < 1e-6
+        priorities[perfect_fit & feasible_bins] += 10.0  # Big bonus for perfect fit
+    return priorities
+```

@@ -1,0 +1,68 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, waste_penalty_weight: float = 0.2013748833676067,
+                fullness_bonus_weight: float = 0.2013748833676067, noise_level: float = 2.0819988765816894e-09,
+                bin_utilization_threshold: float = 0.8,  # New parameter
+                waste_threshold: float = 0.1) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+        waste_penalty_weight: Weight of the small waste penalty.
+        fullness_bonus_weight: Weight of the bonus for bins closer to full.
+        noise_level: Magnitude of the random noise added to priorities.
+        bin_utilization_threshold: Threshold for considering a bin highly utilized.
+        waste_threshold: Threshold for considering waste too high.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # 1. Feasibility check: Assign -inf priority if the item doesn't fit.
+    infeasible_bins = bins_remain_cap < item
+    priorities[infeasible_bins] = -np.inf
+
+    # Waste calculation
+    waste = bins_remain_cap - item
+    waste[infeasible_bins] = np.inf
+
+    # Normalized Waste
+    normalized_waste_item = waste / item
+    normalized_waste_bin = waste / bins_remain_cap
+
+    # Fill Ratio
+    fill_ratio = item / bins_remain_cap
+
+    # 2. Small Waste Penalty - Adjusted weight based on bin utilization
+    small_waste_penalty = np.exp(-normalized_waste_item)
+    
+    # 3. Fullness Bonus - Reward for filling the bin well.
+    fill_reward = fill_ratio
+
+    # Adaptive Weighting based on bin utilization
+    utilization = 1 - normalized_waste_bin
+    highly_utilized_bins = utilization > bin_utilization_threshold
+
+    # Increase waste penalty for already highly utilized bins
+    adaptive_waste_penalty_weight = waste_penalty_weight * (1 + 0.5 * highly_utilized_bins)
+
+    # Reduce fullness bonus for highly utilized bins - discourage overfilling
+    adaptive_fullness_bonus_weight = fullness_bonus_weight * (1 - 0.2 * highly_utilized_bins)
+    
+    # Prioritize bins to reduce larger wastes
+    high_waste_penalty = (normalized_waste_bin > waste_threshold) * 0.5 
+
+    # Combine the factors: Prioritize based on fill ratio, penalized by small waste
+    priorities[~infeasible_bins] = (fill_reward[~infeasible_bins]
+                                      - adaptive_waste_penalty_weight * small_waste_penalty[~infeasible_bins]
+                                      - high_waste_penalty[~infeasible_bins]
+                                      + adaptive_fullness_bonus_weight * (1 - normalized_waste_bin[~infeasible_bins]))
+
+    # Add small noise to avoid identical priorities and encourage some differentiation.
+    priorities += np.random.rand(len(bins_remain_cap)) * noise_level
+
+    return priorities
+```

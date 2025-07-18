@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This function refines the bin packing priority by incorporating concepts from
+    simulated annealing and fluid dynamics to balance exploration, exploitation,
+    and fragmentation reduction.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    max_bin_cap = np.max(bins_remain_cap)
+    # 1. Bin Utilization Term (Fluid Filling Analogy):
+
+    # Calculate how "full" the bin will be *after* adding the item. This is the
+    # key difference; we consider the future state.
+
+    future_fill_levels = np.clip((max_bin_cap - (bins_remain_cap - item)) / max_bin_cap, 0, 1)  # what percentage full will it be?
+    utilization_score = future_fill_levels**2  # squared to emphasize near-full bins
+
+    # Penalize bins where item doesn't fit IMMEDIATELY:
+    no_fit_mask = bins_remain_cap < item
+    priorities[no_fit_mask] = -np.inf
+
+    fit_mask = bins_remain_cap >= item # only calculate priority if item fits
+    priorities[fit_mask] += utilization_score[fit_mask]
+    
+    # 2. Fragmentation Penalty (Surface Tension Analogy):  Minimize small gaps.
+    #    We now penalize creating small *and* excessively large gaps.
+    remaining_space = bins_remain_cap - item
+    frag_threshold_low = item / 5.0 # Small frag is bad.
+    frag_threshold_high = max_bin_cap - item/2.0 # Large frag is bad, too.
+
+    # Gaussian penalty centered on *desirable* remaining space.  We *want* some space
+    # to allow for future flexibility, but not too much.
+    desirable_remaining = item / 2.0 if item < max_bin_cap/2 else max_bin_cap/4 #target remaing size based on item size and bin size
+    frag_penalty = np.exp(-((remaining_space - desirable_remaining)**2) / (2 * (desirable_remaining/2)**2)) # Gaussian-shaped penalty
+
+    if np.any(fit_mask):
+        priorities[fit_mask] -= 0.15 * frag_penalty[fit_mask]  # Reduce weight slightly.
+
+    # 3. Simulated Annealing - Introduce Stochasticity:
+
+    # Temperature decreases over time (or based on solution quality); simpler version
+    # uses item size as a proxy for stage in the packing process.
+    temperature = item / max_bin_cap #The larger item is, more likely we have filled bins
+
+    # Add a random number scaled by the temperature. Higher temperature -> more exploration.
+    priorities += temperature * np.random.normal(0, 0.05, size=bins_remain_cap.shape) #Mean of 0, standard deviation of 0.05
+
+    # 4. Empty Bin Preference (For Large Items): Modified.
+    #    Now, only strongly prefer empty bins if the item is VERY close to the bin size.
+    empty_bin_mask = bins_remain_cap == max_bin_cap
+    large_item_threshold = 0.85 * max_bin_cap #Increase threshold for empty bin selection
+    if item > large_item_threshold and np.any(empty_bin_mask):
+        priorities[empty_bin_mask] += 0.4  # Strong preference
+
+    # 5. Best Fit Bonus (Adaptive): Smaller bonus, activated only when not full.
+    diffs = bins_remain_cap - item
+    valid_diffs = diffs[diffs >= 0]
+    min_diff = np.min(valid_diffs) if valid_diffs.size > 0 else np.inf
+
+    best_fit_bonus = np.where((diffs == min_diff) & (bins_remain_cap < max_bin_cap), 0.075, 0) #Slight bonus, and not added to empty bin
+
+    priorities += best_fit_bonus
+
+    return priorities
+```

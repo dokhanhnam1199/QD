@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins based on a combination of factors:
+    - Waste minimization (primary objective)
+    - Target capacity (aim for bins to be around 70% full)
+    - Fullness bonus (incentivize filling bins completely)
+    - Fragmentation penalty (discourage leaving small gaps)
+    - Bin diversity (encourage use of bins with varying remaining capacities)
+
+    Normalization is applied to combine these factors effectively.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    if not np.any(feasible_bins):
+        return priorities
+
+    remaining_capacity_after_placement = bins_remain_cap - item
+    remaining_capacity_after_placement[remaining_capacity_after_placement < 0] = -1
+
+    # 1. Waste Minimization: Maximize the utilization of bins.
+    waste = remaining_capacity_after_placement
+    waste_priority = 1.0 / (waste[feasible_bins] + 0.00001)  # Avoid division by zero
+
+    # 2. Target Capacity: Aim for bins to be around 70% full.
+    target_capacity = 0.3 * np.max(bins_remain_cap)
+    deviation_from_target = np.abs(remaining_capacity_after_placement - target_capacity)
+    target_priority = 1.0 / (deviation_from_target[feasible_bins] + 0.00001)
+
+    # 3. Fullness Bonus: Give a bonus to bins that are almost full after placement.
+    almost_full_threshold = 0.1  # As a fraction of bin capacity
+    almost_full_bins = feasible_bins & (remaining_capacity_after_placement >= 0) & (remaining_capacity_after_placement <= almost_full_threshold * np.max(bins_remain_cap))
+    fullness_bonus = np.zeros_like(bins_remain_cap, dtype=float)
+    fullness_bonus[almost_full_bins] = 2.0
+
+    # 4. Fragmentation Penalty: Penalize bins that would leave a small, unusable gap.
+    fragmentation_threshold = 0.2 # As a fraction of bin capacity.
+    fragmentation_bins = feasible_bins & (remaining_capacity_after_placement > 0) & (remaining_capacity_after_placement > fragmentation_threshold * np.max(bins_remain_cap))
+    fragmentation_penalty = np.zeros_like(bins_remain_cap, dtype=float)
+    fragmentation_penalty[fragmentation_bins] = -1.0
+
+    # 5. Bin Diversity: Encourage the algorithm to use bins with a variety of remaining capacities.
+    bin_diversity_priority = np.zeros_like(bins_remain_cap, dtype=float)
+    bin_diversity_priority[feasible_bins] = bins_remain_cap[feasible_bins] / np.max(bins_remain_cap) # normalize by max cap
+
+    # Normalize and Combine Priorities
+    waste_priority /= np.max(waste_priority) if np.any(waste_priority) else 1.0
+    target_priority /= np.max(target_priority) if np.any(target_priority) else 1.0
+    bin_diversity_priority /= np.max(bin_diversity_priority) if np.any(bin_diversity_priority) else 1.0
+
+
+    priorities[feasible_bins] = (
+        0.5 * waste_priority +
+        0.3 * target_priority +
+        0.1 * bin_diversity_priority +
+        0.1 * fullness_bonus[feasible_bins] +
+        fragmentation_penalty[feasible_bins]
+    )
+
+    return priorities
+```

@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # 1. Feasibility: Give -inf priority if item doesn't fit
+    infeasible_mask = item > bins_remain_cap
+    priorities[infeasible_mask] = -np.inf
+    
+    feasible_mask = ~infeasible_mask
+    
+    if not np.any(feasible_mask):
+        return priorities
+
+    # 2. Best Fit with Capacity Awareness: Prioritize bins where the remaining space after placing the item is small,
+    # but also consider the relative fullness of the bin *before* adding the item.  This encourages filling partially-full bins over nearly-empty ones if the fit is comparable.
+    remaining_space = bins_remain_cap[feasible_mask] - item
+    
+    # Normalize remaining space by the bin capacity, and invert for priority
+    normalized_remaining_space = remaining_space / bins_remain_cap[feasible_mask]
+    priorities[feasible_mask] = -normalized_remaining_space
+    
+    # Adjust priority based on the original fullness of the bin.
+    original_fullness = 1 - (bins_remain_cap[feasible_mask] / np.max(bins_remain_cap)) #using max capacity accross all bins for fair comparision
+    priority_boost = original_fullness * 0.05  # Small boost, tunable. Give preference to bins that are already relatively full
+    priorities[feasible_mask] += priority_boost
+        
+
+    # 3. Avoidance of very small spaces: Penalize bins leaving very small spaces, but only if other bins are more reasonable fits
+    small_space_threshold = 0.1  # Tuneable parameter: Avoid leaving spaces smaller than 10% of bin capacity
+    very_small_space_mask = (remaining_space > 0) & (remaining_space / np.max(bins_remain_cap) < small_space_threshold) & (np.sum(bins_remain_cap[feasible_mask] -item > small_space_threshold * np.max(bins_remain_cap)) > 0)
+    if np.any(very_small_space_mask): #reduce the priorities by a tiny amount only when you know more fits are feasible
+        priorities[feasible_mask][very_small_space_mask] -= 0.02
+
+    # 4. Utilize Almost Full Bins: Reward bins that are almost full, encouraging complete filling of existing bins
+    almost_full_threshold = 0.9  # Define what constitutes an "almost full" bin after placing the item
+    almost_full_mask = (bins_remain_cap[feasible_mask] - item) / np.max(bins_remain_cap) < (1 - almost_full_threshold)
+    priorities[feasible_mask][almost_full_mask] += 0.03
+    
+    #5. Prioritize bins that were recently used, but not too recently (to avoid clustering)
+    #This requires maintaining an external state (e.g., 'last_used_bins'), which is not possible within the function's scope.
+    #However, we can simulate it using the bin capacity. If a bin has a smaller capacity, it suggests its more likely being used, but this isnt always correct.
+    #penalize almost empty bins, and reward small decrements from empty
+    almost_empty_threshold = 0.1
+    almost_empty_mask = bins_remain_cap[feasible_mask] / np.max(bins_remain_cap) > (1-almost_empty_threshold)
+    priorities[feasible_mask][almost_empty_mask] -= 0.01
+
+    #Introduce slight randomness to break ties and explore different bin configurations
+    priorities[feasible_mask] += np.random.normal(0, 0.001, size=np.sum(feasible_mask))
+
+    return priorities
+```

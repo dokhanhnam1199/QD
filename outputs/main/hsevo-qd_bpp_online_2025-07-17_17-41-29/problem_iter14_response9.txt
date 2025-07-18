@@ -1,0 +1,38 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines best-fit with ratio-based fragmentation avoidance."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Feasibility check
+    infeasible_mask = item > bins_remain_cap
+    priorities[infeasible_mask] = -np.inf
+
+    # Best Fit (Remaining space)
+    feasible_mask = ~infeasible_mask
+    remaining_space = bins_remain_cap[feasible_mask] - item
+    priorities[feasible_mask] = -remaining_space
+
+    # Avoid small space (ratio-based)
+    small_space_ratio_threshold = 0.1  # Avoid leaving < 10% space
+    very_small_space_mask = (remaining_space > 0) & (remaining_space / bins_remain_cap[feasible_mask] < small_space_ratio_threshold)
+
+    # Penalize leaving very small space ONLY if other bins exist which offer significantly better fill
+    if np.any(very_small_space_mask):
+        other_bins_space_ratio = remaining_space / bins_remain_cap[feasible_mask]
+        better_fit_exists = np.any(other_bins_space_ratio > small_space_ratio_threshold)
+        if better_fit_exists:
+            priorities[feasible_mask][very_small_space_mask] -= 0.01 # Small penalty
+
+    # Reward almost full bins
+    almost_full_ratio_threshold = 0.9
+    almost_full_mask = (bins_remain_cap[feasible_mask] - item) / bins_remain_cap[feasible_mask] > almost_full_ratio_threshold
+    priorities[feasible_mask][almost_full_mask] += 0.02
+
+    # Add a tiny bit of randomnes
+    priorities[feasible_mask] += np.random.normal(0, 0.001, size=np.sum(feasible_mask))
+    
+    return priorities
+```

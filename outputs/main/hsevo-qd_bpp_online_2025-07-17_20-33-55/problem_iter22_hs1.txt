@@ -1,0 +1,32 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, target_relative_residual: float = 0.6510078357499967, low_waste_threshold: float = 0.17514958061258784, fullness_bonus_weight: float = 0.452654669587707, adaptive_bonus_scale: float = 0.2637895827257519, tie_breaking_noise: float = 6.87567401421131e-09) -> np.ndarray:
+    """Combines fill ratio, adaptive waste bonus, and residual target."""
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    feasible_bins = bins_remain_cap >= item
+
+    # 1. Infeasible penalty
+    priorities[~feasible_bins] = -np.inf
+
+    # 2. Fill ratio with residual target
+    fill_ratios = item / bins_remain_cap
+    residual_capacity = bins_remain_cap - item
+    relative_residual = residual_capacity / item
+    priorities[feasible_bins] = fill_ratios[feasible_bins] / (1 + np.abs(relative_residual[feasible_bins] - target_relative_residual))
+
+    # 3. Low waste bonus (adaptive)
+    waste = bins_remain_cap - item
+    normalized_waste_bin = waste / bins_remain_cap
+    low_waste_bins = normalized_waste_bin < low_waste_threshold
+    
+    # Adaptive bonus: Larger bonus when bins are closer to full.
+    bonus_scale = adaptive_bonus_scale * (1 - normalized_waste_bin)
+    priorities[feasible_bins & low_waste_bins] += bonus_scale[feasible_bins & low_waste_bins]
+
+    # 4. Fullness Bonus: Prioritize bins that are closer to being full.
+    priorities[feasible_bins] += fullness_bonus_weight * (1 - normalized_waste_bin[feasible_bins])
+
+    # 5. Small random number for tie-breaking
+    priorities += np.random.rand(len(bins_remain_cap)) * tie_breaking_noise
+
+    return priorities

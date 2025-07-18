@@ -1,0 +1,48 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This function considers several factors to determine the priority of placing an item into a bin:
+    1.  Residual Capacity: Bins with residual capacity closest to the item size get higher priority.
+    2.  Space Utilization: A penalty is applied for bins where the item would leave very little unused space (fragmentation).
+    3.  Bin Fullness: Bins that are already reasonably full are preferred.
+    4.  Handling cases where item exceeds available bin capacity.
+    5.  Relative fit based on standard deviation from average available capacity.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Ineligible bins receive a very negative priority
+    ineligible_bins = bins_remain_cap < item
+    priorities[ineligible_bins] = -np.inf
+
+    # Calculate capacity differences, and make sure small positive values exist
+    cap_diffs = np.abs(bins_remain_cap - item)
+    cap_diffs[cap_diffs == 0] = 1e-6
+    
+    # Prefer bins with space equal to the size of the item, penalized when the item is too large
+    priorities = 1.0 / (cap_diffs + 0.00001)  # Adding a small number avoids division by zero
+    
+    # Penalize bins that would leave a tiny fragment of space
+    fragmentation_threshold = 0.1  # Define what constitutes "tiny" (e.g., 10% of bin size)
+    tiny_space_indices = (bins_remain_cap - item) < fragmentation_threshold
+    priorities[tiny_space_indices] *= 0.5  # Reduce priority if fragmentation would occur
+
+    # Promote bins that are already reasonably full
+    fullness = (1.0 - bins_remain_cap) # high fullness = low remaining cap, max value = 1
+    priorities += fullness * 0.2  # Add a bonus for fullness
+
+    # Add some stochastic noise to resolve near-identical fit choices.  A little random noise
+    # prevents being stuck at similar or same available capacities.
+    noise = np.random.normal(0, 0.01, size=bins_remain_cap.shape)
+    priorities += noise
+    return priorities
+```
