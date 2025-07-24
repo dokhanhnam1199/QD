@@ -14,6 +14,7 @@ class HSEvo_QD:
 
         self.mutation_rate = cfg.mutation_rate
         self.iteration = 0
+        self.generation = 0
         self.function_evals = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
@@ -171,6 +172,7 @@ class HSEvo_QD:
         # Update iteration
         # self.archive_evaluated_population(population)
         self.update_iter()
+        self.update_generation()
 
     def response_to_individual(self, response: str, response_id: int, file_name: str = None) -> dict: # type: ignore
         """
@@ -446,6 +448,14 @@ class HSEvo_QD:
         logging.info(f"LLM Requests: {self.llm_request}")
         logging.info(f"Function Evals: {self.function_evals}")
         self.iteration += 1
+
+    def update_generation(self) -> None:
+        logging.info(f"Generation {self.generation} finished...")
+        logging.info(f"Best obj: {self.best_obj_overall}, Best Code Path: {self.best_code_path_overall}")
+        logging.info(f"LLM usage: prompt_tokens = {self.prompt_tokens}, completion_tokens = {self.completion_tokens}")
+        logging.info(f"LLM Requests: {self.llm_request}")
+        logging.info(f"Function Evals: {self.function_evals}")
+        self.generation += 1
 
     def random_select(self, population: list[dict]):
         """
@@ -786,7 +796,10 @@ class HSEvo_QD:
             crossed_population = self.crossover(selected_population)
             # Evaluate
             evaluated_population = self.evaluate_population(crossed_population)
-            self.archive_evaluated_population(evaluated_population)
+            if self.generation <= self.cfg.warm_up:
+                self.population = evaluated_population
+            else:
+                self.archive_evaluated_population(evaluated_population)
             # Update
             self.update_iter()
 
@@ -794,7 +807,10 @@ class HSEvo_QD:
             mutated_population = self.mutate()
             # Evaluate
             evaluated_population = self.evaluate_population(mutated_population)
-            self.archive_evaluated_population(evaluated_population)
+            if self.generation <= self.cfg.warm_up:
+                self.population.extend(evaluated_population)
+            else:
+                self.archive_evaluated_population(evaluated_population)
             # Update
             self.update_iter()
 
@@ -809,13 +825,17 @@ class HSEvo_QD:
             while try_hs_num:
                 individual_hs = self.harmony_search()
                 if individual_hs is not None:
-                    self.archive_evaluated_population([individual_hs])
+                    if self.generation <= self.cfg.warm_up:
+                        self.population.extend([individual_hs])
+                    else:
+                        self.archive_evaluated_population([individual_hs])
                     # self.update_iter()
                     self.save_log_population([individual_hs], True)
                     break
                 else:
                     try_hs_num -= 1
             self.update_iter()
+            self.update_generation()
 
         logging.info(f"Token used: {(self.prompt_tokens + self.completion_tokens)}.")
         return self.best_code_overall, self.best_code_path_overall

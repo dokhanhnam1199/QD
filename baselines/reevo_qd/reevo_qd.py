@@ -144,6 +144,7 @@ class ReEvo_QD:
         # Update iteration
         # self.archive_evaluated_population(population)
         self.update_iter()
+        self.update_generation()
 
     def response_to_individual(self, response: str, response_id: int, file_name: str = None) -> dict:
         """
@@ -416,6 +417,14 @@ class ReEvo_QD:
         logging.info(f"Function Evals: {self.function_evals}")
         self.iteration += 1
 
+    def update_generation(self) -> None:
+        logging.info(f"Generation {self.generation} finished...")
+        logging.info(f"Best obj: {self.best_obj_overall}, Best Code Path: {self.best_code_path_overall}")
+        logging.info(f"LLM usage: prompt_tokens = {self.prompt_tokens}, completion_tokens = {self.completion_tokens}")
+        logging.info(f"LLM Requests: {self.llm_request}")
+        logging.info(f"Function Evals: {self.function_evals}")
+        self.generation += 1
+
     def random_select(self, population: list[dict]) -> list[dict]:
         """
         Random selection, select individuals with equal probability.
@@ -614,7 +623,10 @@ class ReEvo_QD:
             crossed_population = self.crossover(short_term_reflection_tuple)
             # Evaluate
             evaluated_population = self.evaluate_population(crossed_population)
-            self.archive_evaluated_population(evaluated_population)
+            if self.generation <= self.cfg.warm_up:
+                self.population = evaluated_population
+            else:
+                self.archive_evaluated_population(evaluated_population)
             # Update
             self.update_iter()
             # Long-term reflection
@@ -623,9 +635,13 @@ class ReEvo_QD:
             mutated_population = self.mutate()
             # Evaluate
             evaluated_population = self.evaluate_population(mutated_population)
-            self.archive_evaluated_population(evaluated_population)
+            if self.generation <= self.cfg.warm_up:
+                self.population.extend(evaluated_population)
+            else:
+                self.archive_evaluated_population(evaluated_population)
             # Update
             self.update_iter()
+            self.update_generation()
 
         logging.info(f"Token used: {(self.prompt_tokens + self.completion_tokens)}.")
         return self.best_code_overall, self.best_code_path_overall

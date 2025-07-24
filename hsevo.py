@@ -215,8 +215,7 @@ class HSEvo:
             with open(file_name, 'w') as file:
                 file.writelines("\n".join(map(str, objs + [self.local_sel_hs])) + '\n')
 
-
-    def evaluate_population(self, population: list[dict], hs_try_idx: int = None) -> list[dict]:
+    def evaluate_population(self, population: list[dict], hs_try_idx: int = None) -> list[dict]: # type: ignore
         """
         Evaluate population by running code in parallel and computing objective values.
         """
@@ -281,6 +280,10 @@ class HSEvo:
                     inner_run.kill()
                     continue
 
+                for bd in self.cfg.bd_list:
+                    bd_process = self.behavior_descriptor(population[response_id], bd, response_id)
+                    logging.info(f"bd_process: {bd_process}")
+
                 stdout_filepath = individual["stdout_filepath"]
                 with open(stdout_filepath, 'r') as f:  # read the stdout file
                     stdout_str = f.read()
@@ -288,12 +291,18 @@ class HSEvo:
 
                 if traceback_msg == '':  # If execution has no error
                     try:
-                        individual["obj"] = float(stdout_str.split('\n')[-2]) if self.obj_type == "min" else -float(
-                            stdout_str.split('\n')[-2])
+                        # Split the output into lines
+                        lines = stdout_str.strip().split('\n')
+                        l = len(self.cfg.bd_list)
+
+                        individual["obj"] = float(lines[-(l+1)]) if self.obj_type == "min" else -float(lines[-(l+1)])
+
+                        for i, bd in enumerate(self.cfg.bd_list):
+                            individual[bd] = float(lines[-l + i])
+                    
                         individual["exec_success"] = True
                     except:
-                        population[response_id] = self.mark_invalid_individual(population[response_id],
-                                                                               "Invalid std out / objective value!")
+                        population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid std out / objective value!")
                 else:  # Otherwise, also provide execution traceback error feedback
                     population[response_id] = self.mark_invalid_individual(population[response_id], traceback_msg)
 
@@ -322,6 +331,19 @@ class HSEvo:
 
         block_until_running(individual["stdout_filepath"], log_status=True, iter_num=self.iteration,
                             response_id=response_id)
+
+        return process
+    
+    def behavior_descriptor(self, individual: dict, bd_file_name: str, response_id) -> subprocess.Popen:
+        # Execute the python file with flags
+        with open(individual["stdout_filepath"], 'a') as f:
+            bd_file_path = f'{self.root_dir}/problems/{self.problem}/{bd_file_name}.py'
+            process = subprocess.Popen(['python3', '-u', bd_file_path], stdout=f, stderr=f)
+
+        block_until_running(individual["stdout_filepath"], log_status=True, iter_num=self.iteration,
+                            response_id=response_id)
+        process.wait()  # Wait for the subprocess to complete
+
         return process
 
     def update_iter(self) -> None:

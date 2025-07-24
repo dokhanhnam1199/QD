@@ -174,63 +174,36 @@ class ReEvo:
         individual["traceback_msg"] = traceback_msg
         return individual
 
-    def evaluate_population(self, population: list[dict]) -> list[dict]:
+    def evaluate_population(self, population: list[dict], hs_try_idx: int = None) -> list[dict]: # type: ignore
         """
         Evaluate population by running code in parallel and computing objective values.
         """
-        if self.problem == 'tsp_gls':
-            sand_box = Sandbox()
+        inner_runs = []
 
-            inner_runs = []
-            # Run code to evaluate
-            for response_id in range(len(population)):
-                self.function_evals += 1
-                # Skip if response is invalid
-                if population[response_id]["code"] is None:
-                    population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid response!")
-                    inner_runs.append(None)
-                    continue
+        # Run code to evaluate
+        for response_id in range(len(population)):
+            self.function_evals += 1
+            # Skip if response is invalid
+            if population[response_id]["code"] is None:
+                population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid response!")
+                inner_runs.append(None)
+                continue
 
-                logging.info(f"Iteration {self.iteration}: Running Code {response_id}")
+            logging.info(f"Iteration {self.iteration}: Running Code {response_id}")
 
-                result, run_ok = sand_box.run(population[response_id]['code'])
-                print("Log seed:", result, run_ok)
-
-
-                with open(os.path.join(self._my_log_path, f'samples_{self.function_evals}.json'), 'w') as f:
-                    _score = result if run_ok else None
-                    content = {
-                        'function': population[response_id]['code'],
-                        'score': _score,
-                        'iter': self.iteration
-                    }
-                    json.dump(content, f)
-                    f.close()
-
-                individual = population[response_id]
-                if run_ok:
-                    individual["obj"] = result
-                    individual["exec_success"] = run_ok
-                else:
-                    population[response_id] = self.mark_invalid_individual(population[response_id], 'RZ: no message.')
-
-                logging.info(
-                    f"Iteration {self.iteration}, response_id {response_id}: Objective value: {individual['obj']}")
-            return population
-        else:
-            inner_runs = []
-            # Run code to evaluate
-            for response_id in range(len(population)):
-                self.function_evals += 1
-                # Skip if response is invalid
-                if population[response_id]["code"] is None:
-                    population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid response!")
-                    inner_runs.append(None)
-                    continue
-
-                logging.info(f"Iteration {self.iteration}: Running Code {response_id}")
-
+            if self.problem == 'tsp_gls':
                 try:
+                    # Use sandboxed execution for 'tsp_gls'
+                    sandbox = Sandbox()
+                    result, run_ok = sandbox.run(population[response_id]['code'])
+                    inner_runs.append((result, run_ok))
+                except Exception as e:  # If sandbox execution fails
+                    logging.info(f"Error for response_id {response_id}: {e}")
+                    population[response_id] = self.mark_invalid_individual(population[response_id], str(e))
+                    inner_runs.append(None)
+            else:
+                try:
+                    # Use default code execution for other problems
                     process = self._run_code(population[response_id], response_id)
                     inner_runs.append(process)
                 except Exception as e:  # If code execution fails
@@ -238,10 +211,26 @@ class ReEvo:
                     population[response_id] = self.mark_invalid_individual(population[response_id], str(e))
                     inner_runs.append(None)
 
-            # Update population with objective values
-            for response_id, inner_run in enumerate(inner_runs):
-                if inner_run is None:  # If code execution fails, skip
-                    continue
+        # Update population with objective values
+        for response_id, inner_run in enumerate(inner_runs):
+            if inner_run is None:  # If code execution fails, skip
+                continue
+
+            individual = population[response_id]
+
+            if self.problem == 'tsp_gls':
+                result, run_ok = inner_run
+                if run_ok:
+                    try:
+                        individual["obj"] = float(result) if self.obj_type == "min" else -float(result)
+                        individual["exec_success"] = True
+                    except:
+                        population[response_id] = self.mark_invalid_individual(population[response_id],
+                                                                               "Invalid objective value!")
+                else:
+                    population[response_id] = self.mark_invalid_individual(population[response_id],
+                                                                           "Sandbox execution failed!")
+            else:
                 try:
                     inner_run.communicate(timeout=self.cfg.timeout)  # Wait for code execution to finish
                 except subprocess.TimeoutExpired as e:
@@ -250,27 +239,39 @@ class ReEvo:
                     inner_run.kill()
                     continue
 
-                individual = population[response_id]
+                for bd in self.cfg.bd_list:
+                    bd_process = self.behavior_descriptor(population[response_id], bd, response_id)
+                    logging.info(f"bd_process: {bd_process}")
+
                 stdout_filepath = individual["stdout_filepath"]
                 with open(stdout_filepath, 'r') as f:  # read the stdout file
                     stdout_str = f.read()
                 traceback_msg = filter_traceback(stdout_str)
 
-                individual = population[response_id]
-                # Store objective value for each individual
                 if traceback_msg == '':  # If execution has no error
                     try:
-                        individual["obj"] = float(stdout_str.split('\n')[-2]) if self.obj_type == "min" else -float(
-                            stdout_str.split('\n')[-2])
+                        # Split the output into lines
+                        lines = stdout_str.strip().split('\n')
+                        l = len(self.cfg.bd_list)
+
+                        individual["obj"] = float(lines[-(l+1)]) if self.obj_type == "min" else -float(lines[-(l+1)])
+
+                        for i, bd in enumerate(self.cfg.bd_list):
+                            individual[bd] = float(lines[-l + i])
+                    
                         individual["exec_success"] = True
                     except:
-                        population[response_id] = self.mark_invalid_individual(population[response_id],
-                                                                               "Invalid std out / objective value!")
+                        population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid std out / objective value!")
                 else:  # Otherwise, also provide execution traceback error feedback
                     population[response_id] = self.mark_invalid_individual(population[response_id], traceback_msg)
 
-                logging.info(f"Iteration {self.iteration}, response_id {response_id}: Objective value: {individual['obj']}")
-            return population
+            if hs_try_idx is None:
+                logging.info(
+                    f"Iteration {self.iteration}, response_id {response_id}: Objective value: {individual['obj']}")
+            else:
+                logging.info(f"Iteration {self.iteration}, hs_try {hs_try_idx}: Objective value: {individual['obj']}")
+
+        return population
 
     def _run_code(self, individual: dict, response_id) -> subprocess.Popen:
         """
@@ -289,6 +290,18 @@ class ReEvo:
 
         block_until_running(individual["stdout_filepath"], log_status=True, iter_num=self.iteration,
                             response_id=response_id)
+
+        return process
+    
+    def behavior_descriptor(self, individual: dict, bd_file_name: str, response_id) -> subprocess.Popen:
+        # Execute the python file with flags
+        with open(individual["stdout_filepath"], 'a') as f:
+            bd_file_path = f'{self.root_dir}/problems/{self.problem}/{bd_file_name}.py'
+            process = subprocess.Popen(['python3', '-u', bd_file_path], stdout=f, stderr=f)
+
+        block_until_running(individual["stdout_filepath"], log_status=True, iter_num=self.iteration,
+                            response_id=response_id)
+        process.wait()  # Wait for the subprocess to complete
 
         return process
 
