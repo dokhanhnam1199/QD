@@ -1,8 +1,5 @@
 import numpy as np
-import random
-import math
-import scipy
-import torch
+
 def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
     """Returns priority with which we want to add item to each bin.
 
@@ -13,4 +10,14 @@ def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
     Return:
         Array of same size as bins_remain_cap with priority score of each bin.
     """
-    return np.zeros_like(bins_remain_cap)
+    # Calculate the remaining capacity after adding the item
+    remaining_after_add = bins_remain_cap - item
+    
+    # Mask out bins that cannot fit the item
+    valid_bins = remaining_after_add >= 0
+    
+    # For valid bins, the priority is inversely proportional to the remaining capacity after adding the item
+    # For invalid bins, the priority is negative infinity
+    priorities = np.where(valid_bins, 1 / (remaining_after_add + 1e-6), -np.inf)
+    
+    return priorities
