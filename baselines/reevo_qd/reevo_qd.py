@@ -14,6 +14,7 @@ class ReEvo_QD:
 
         self.mutation_rate = cfg.mutation_rate
         self.iteration = 0
+        self.generation = 0
         self.function_evals = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0

@@ -1,7 +1,13 @@
 import numpy as np
 
 def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
-    """Returns priority with which we want to add item to each bin.
+    """
+    Returns priority with which we want to add item to each bin.
+
+    This priority function prioritizes exact fits, optimizes remaining capacity, and penalizes overfills.
+    If a bin has a remaining capacity that exactly matches the item size, it gets the highest priority.
+    Otherwise, bins with lower remaining capacities are prioritized over those with higher remaining capacities,
+    to ensure that bins are fully utilized.
 
     Args:
         item: Size of item to be added to the bin.
@@ -10,14 +16,7 @@ def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
     Return:
         Array of same size as bins_remain_cap with priority score of each bin.
     """
-    # Calculate the remaining capacity after adding the item
-    remaining_after_add = bins_remain_cap - item
-    
-    # Mask out bins that cannot fit the item
-    valid_bins = remaining_after_add >= 0
-    
-    # For valid bins, the priority is inversely proportional to the remaining capacity after adding the item
-    # For invalid bins, the priority is negative infinity
-    priorities = np.where(valid_bins, 1 / (remaining_after_add + 1e-6), -np.inf)
-    
-    return priorities
+    valid_bins = bins_remain_cap >= item
+    exact_fits = bins_remain_cap == item
+    priority_scores = np.where(exact_fits, 2, 0) + np.where(valid_bins, 1 - (bins_remain_cap / (bins_remain_cap + item)), 0)
+    return priority_scores
