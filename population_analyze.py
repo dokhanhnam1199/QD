@@ -44,7 +44,7 @@ for folder in sorted(glob.glob(os.path.join(main_dir, "*"))):
     analyze_folder = os.path.join("bd_analyze", folder_name)
     os.makedirs(analyze_folder, exist_ok=True)
 
-    population_sizes = []
+    population_bins = []
     iterations = []
     max_bins_list = []
     density_ratios = []
@@ -57,7 +57,18 @@ for folder in sorted(glob.glob(os.path.join(main_dir, "*"))):
         with open(json_file, 'r') as f:
             population = json.load(f)
 
-        pop_size = len(population)
+        # Count unique BD bins (tuples of bd values divided by bd_step)
+        unique_bins = set()
+        for individual in population:
+            try:
+                bin_tuple = tuple(
+                    int(individual.get(bd, 0) // bd_step[i])
+                    for i, bd in enumerate(bd_list)
+                )
+                unique_bins.add(bin_tuple)
+            except Exception:
+                continue
+        n_bins = len(unique_bins)
         bd_ranges, max_possible_bins = compute_bd_ranges_and_bins(population, bd_list, bd_step)
 
         # Calculate average objective
@@ -71,22 +82,27 @@ for folder in sorted(glob.glob(os.path.join(main_dir, "*"))):
         avg_obj = total_obj / count if count > 0 else 0
 
         iterations.append(iter_num)
-        population_sizes.append(pop_size)
+        population_bins.append(n_bins)
         max_bins_list.append(max_possible_bins)
-        density_ratios.append(pop_size / max_possible_bins if max_possible_bins > 0 else 0)
+        density_ratios.append(n_bins / max_possible_bins if max_possible_bins > 0 else 0)
         avg_objectives.append(avg_obj)
 
     if iterations:
-        # Combined Plot: Population + Avg Objective
+        # Combined Plot: Unique BD Bins + Avg Objective
         fig, ax1 = plt.subplots(figsize=(8, 5))
 
-        sorted_pop_pairs = sorted(zip(iterations, population_sizes))
-        sorted_iters_pop, sorted_population_sizes = zip(*sorted_pop_pairs)
-        ax1.bar(sorted_iters_pop, sorted_population_sizes, color='mediumslateblue', edgecolor='black')
+        sorted_pop_pairs = sorted(zip(iterations, population_bins))
+        sorted_iters_pop, sorted_population_bins = zip(*sorted_pop_pairs)
+
+        ax1.bar(sorted_iters_pop, sorted_population_bins, color='mediumslateblue', edgecolor='black')
         ax1.set_xlabel("Iteration")
-        ax1.set_ylabel("Population Size", color='mediumslateblue')
+        ax1.set_ylabel("Bins", color='mediumslateblue')
         ax1.tick_params(axis='y', labelcolor='mediumslateblue')
         ax1.grid(True, axis='y', linestyle='--', alpha=0.6)
+
+        # Set y-axis to integer ticks only
+        from matplotlib.ticker import MaxNLocator
+        ax1.yaxis.set_major_locator(MaxNLocator(integer=True))
 
         # Add second y-axis for average objective
         ax2 = ax1.twinx()
@@ -98,12 +114,12 @@ for folder in sorted(glob.glob(os.path.join(main_dir, "*"))):
         ax2.set_ylabel("Average Objective", color='crimson')
         ax2.tick_params(axis='y', labelcolor='crimson')
 
-        plt.title(f"{folder_name} - Population and Avg Objective")
+        plt.title(f"{folder_name} - Bins and Avg Objective")
         plt.tight_layout()
         pop_obj_plot_path = os.path.join(analyze_folder, f"population.png")
         plt.savefig(pop_obj_plot_path)
         plt.close()
-        print(f"Saved population + objective plot to {pop_obj_plot_path}")
+        print(f"Saved bins + objective plot to {pop_obj_plot_path}")
 
         # Plot density ratio as line
         sorted_pairs = sorted(zip(iterations, density_ratios))
@@ -123,6 +139,6 @@ for folder in sorted(glob.glob(os.path.join(main_dir, "*"))):
     # Save a small summary file
     summary_path = os.path.join(analyze_folder, f"bd_summary.txt")
     with open(summary_path, "w") as f:
-        for it, size, bins, ratio, avg_obj in zip(iterations, population_sizes, max_bins_list, density_ratios, avg_objectives):
-            f.write(f"Iteration {it}: population={size}, max_possible_bins={bins}, density={ratio:.4f}, avg_objective={avg_obj:.4f}\n")
+        for it, n_bins, bins, ratio, avg_obj in zip(iterations, population_bins, max_bins_list, density_ratios, avg_objectives):
+            f.write(f"Iteration {it}: unique_bd_bins={n_bins}, max_possible_bins={bins}, density={ratio:.4f}, avg_objective={avg_obj:.4f}\n")
     print(f"Saved summary to {summary_path}")
