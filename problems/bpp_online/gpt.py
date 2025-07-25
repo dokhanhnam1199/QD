@@ -4,10 +4,8 @@ def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
     """
     Returns priority with which we want to add item to each bin.
 
-    This priority function prioritizes exact fits, optimizes remaining capacity, and penalizes overfills.
-    If a bin has a remaining capacity that exactly matches the item size, it gets the highest priority.
-    Otherwise, bins with lower remaining capacities are prioritized over those with higher remaining capacities,
-    to ensure that bins are fully utilized.
+    This priority function prioritizes bins based on the ratio of the remaining capacity and the item size.
+    It introduces nuanced penalties and bonuses to optimize online BPP heuristics, moderating extremes and size mismatches for better performance.
 
     Args:
         item: Size of item to be added to the bin.
@@ -16,7 +14,29 @@ def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
     Return:
         Array of same size as bins_remain_cap with priority score of each bin.
     """
-    valid_bins = bins_remain_cap >= item
-    exact_fits = bins_remain_cap == item
-    priority_scores = np.where(exact_fits, 2, 0) + np.where(valid_bins, 1 - (bins_remain_cap / (bins_remain_cap + item)), 0)
-    return priority_scores
+    # Bins with less capacity than the item get zero priority
+    priority_score = np.where(bins_remain_cap < item, 0, 
+                              # Simplify ratio calculations and prioritize balance
+                              (bins_remain_cap / (bins_remain_cap + item)) ** 0.6)
+    # Moderately penalize extremes and size mismatches
+    priority_score = np.where((bins_remain_cap - item) > (bins_remain_cap / 2), 0.8 * priority_score, priority_score)
+    priority_score = np.where((bins_remain_cap - item) < -(bins_remain_cap / 2), 0.8 * priority_score, priority_score)
+    # Prioritize near-full bins with a bonus
+    priority_score = np.where(np.abs(bins_remain_cap - item) < item * 0.1, 1.3 * priority_score, priority_score)
+    # Introduce a penalty for bins that are too empty
+    priority_score = np.where(bins_remain_cap > item * 5, 0.9 * priority_score, priority_score)
+    # Introduce a bonus for bins that are relatively full compared to others
+    relative_fullness = bins_remain_cap / np.max(bins_remain_cap)
+    priority_score = priority_score * (1 + relative_fullness * 0.2)
+    # Additional penalty for bins that are almost full but not quite
+    priority_score = np.where((bins_remain_cap - item) > 0, 
+                              np.where((bins_remain_cap - item) < item * 0.2, 0.95 * priority_score, priority_score), 
+                              priority_score)
+    # Additional bonus for bins that have been recently used
+    recent_use_bonus = np.where(bins_remain_cap > item * 0.5, 1.05, 1)
+    priority_score = priority_score * recent_use_bonus
+    # New: Penalize bins with small remaining capacities to avoid fragmenting items
+    priority_score = np.where(bins_remain_cap < item * 0.2, 0.8 * priority_score, priority_score)
+    # New: Bonus for bins that can fit the item with minimal waste
+    priority_score = np.where(np.abs(bins_remain_cap - item) < item * 0.05, 1.1 * priority_score, priority_score)
+    return priority_score

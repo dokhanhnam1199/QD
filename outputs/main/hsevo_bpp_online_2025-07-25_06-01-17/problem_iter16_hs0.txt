@@ -1,0 +1,63 @@
+import numpy as np
+
+def priority_v2(
+    item: float, 
+    bins_remain_cap: np.ndarray, 
+    alpha_min: float = 0.5143700815933027, 
+    alpha_max: float = 0.8584678923082818, 
+    beta_min: float = 0.5703259071822113, 
+    beta_max: float = 0.3612320764942428, 
+    gamma: float = 0.21261522661404916, 
+    log_base: float = 4.480287489309505, 
+    exp_base: float = 1.5195517730934824, 
+    avg_bin_cap_weight: float = 6.424261512877644, 
+    item_weight: float = 0.2447489370332152, 
+    capacity_diff_weight: float = 6.946024455544884, 
+    shortfall_weight: float = 3.190478015491307, 
+    excess_weight: float = 6.219930743002011, 
+    penalty_for_low_capacity_weight: float = 9.24781379956937) -> np.ndarray:
+    """
+    Adaptive priority function combining multiple objectives.
+    """
+    # Calculate the difference between the remaining capacity of each bin and the item size
+    capacity_diff = np.abs(bins_remain_cap - item)
+    
+    # Invert the differences to obtain a priority score for the current item's fit
+    fit_priority = 1 / (1 + np.log(1 + capacity_diff))  # Improved fit priority
+    
+    # If the item size exceeds the remaining capacity, set the priority to 0
+    fit_priority[bins_remain_cap < item] = 0
+    
+    # Calculate the shortfall or excess capacity for each bin
+    shortfall = np.maximum(0, item - bins_remain_cap)
+    excess = np.maximum(0, bins_remain_cap - item)
+    
+    # Calculate a penalty factor for each bin based on the shortfall or excess capacity
+    penalty_factor = 1 / (1 + np.exp(shortfall)) * 1 / (1 + np.exp(excess))
+    
+    # Calculate the bin utilization, considering both the current item and future potential
+    avg_bin_cap = np.mean(bins_remain_cap)
+    utilization_priority = (bins_remain_cap + avg_bin_cap) / (bins_remain_cap + item + avg_bin_cap)
+    
+    # Adaptive weighting based on the problem landscape
+    alpha = alpha_min + (alpha_max - alpha_min) * (item / (item + avg_bin_cap))  # Dynamic weighting for fit priority
+    beta = beta_min + (beta_max - beta_min) * (bins_remain_cap.mean() / (bins_remain_cap.mean() + item))  # Dynamic weighting for utilization priority
+    
+    # Calculate the overall priority, balancing the current item's fit, bin utilization, and penalty factor
+    priority = alpha * fit_priority + beta * utilization_priority + gamma * penalty_factor * bins_remain_cap
+    
+    # Incorporate a penalty for bins with low remaining capacity
+    penalty_for_low_capacity = 1 / (1 + np.exp(-bins_remain_cap))
+    priority *= penalty_for_low_capacity
+    
+    # Ensure the priority scores are not NaN (e.g., due to division by zero)
+    priority = np.nan_to_num(priority)
+    
+    # Assign high priority to bins with enough capacity and a good fit
+    priority = np.where(bins_remain_cap >= item, priority, -1)
+    
+    # Dynamic prioritization based on the current state of the bins
+    max_bin_priority = np.max(priority)
+    priority[priority < max_bin_priority] *= (1 - (max_bin_priority - priority[priority < max_bin_priority]) / max_bin_priority)
+    
+    return priority

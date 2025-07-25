@@ -1,0 +1,53 @@
+```python
+import numpy as np
+from sklearn.kernel_approximation import RBFSampler
+from sklearn.linear_model import LogisticRegression
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    An adaptive, nuanced, and balanced priority function for Solving online Bin Packing Problem (BPP).
+    """
+    # Define a set of features to capture the problem constraints and dynamics
+    features = np.array([
+        bins_remain_cap / (item + 1e-6),  # normalized bin capacity
+        np.log(bins_remain_cap + 1e-6),  # log-transformed bin capacity
+        np.abs(bins_remain_cap - item) / (item + 1e-6),  # relative capacity difference
+        bins_remain_cap / np.sum(bins_remain_cap),  # bin capacity ratio
+    ]).T
+
+    # Apply a random kitchen sinks (RKS) transformation to the features
+    rbf_sampler = RBFSampler(gamma=0.1, random_state=42)
+    features_rks = rbf_sampler.fit_transform(features)
+
+    # Train a logistic regression model to predict the priority scores
+    logreg = LogisticRegression(random_state=42)
+    priority_scores = logreg.fit(features_rks, np.ones(len(features))).predict_proba(features_rks)[:, 1]
+
+    # Incorporate a penalty factor for bins with insufficient capacity
+    penalty_factor = 1 / (1 + np.exp(np.maximum(0, item - bins_remain_cap)))
+    priority_scores *= penalty_factor
+
+    # Apply a soft-max activation function to ensure the priority scores are differentiable
+    priority_scores = np.exp(priority_scores) / np.sum(np.exp(priority_scores))
+
+    # Assign high priority to bins with enough capacity and a good fit
+    priority_scores = np.where(bins_remain_cap >= item, priority_scores, -1)
+
+    return priority_scores
+
+def adaptive_priority_v2(item: float, bins_remain_cap: np.ndarray, iteration: int) -> np.ndarray:
+    """
+    An iterative refinement of the priority function to adapt to the problem dynamics.
+    """
+    alpha = 0.9  # adaptive weighting parameter
+    beta = 0.1  # exploration parameter
+
+    # Initialize the priority scores using the priority_v2 function
+    priority_scores = priority_v2(item, bins_remain_cap)
+
+    # Update the priority scores based on the iteration history
+    for i in range(iteration):
+        priority_scores = alpha * priority_scores + beta * priority_v2(item, bins_remain_cap)
+
+    return priority_scores
+```

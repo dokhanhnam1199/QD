@@ -1,0 +1,66 @@
+```python
+import numpy as np
+from sklearn.kernel_approximation import RBFSampler
+from sklearn.linear_model import LogisticRegression
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    An adaptive, nuanced, and balanced priority function for Online Bin Packing Problem.
+    
+    Parameters:
+    item (float): The size of the current item.
+    bins_remain_cap (np.ndarray): An array of remaining capacities of each bin.
+    
+    Returns:
+    np.ndarray: An array of priority scores for each bin.
+    """
+    
+    # Calculate the difference between the remaining capacity of each bin and the item size
+    capacity_diff = np.abs(bins_remain_cap - item)
+    
+    # Invert the differences to obtain a priority score for the current item's fit
+    fit_priority = 1 / (1 + capacity_diff)
+    
+    # If the item size exceeds the remaining capacity, set the priority to 0
+    fit_priority[bins_remain_cap < item] = 0
+    
+    # Calculate the shortfall or excess capacity for each bin
+    shortfall = np.maximum(0, item - bins_remain_cap)
+    excess = np.maximum(0, bins_remain_cap - item)
+    
+    # Calculate a penalty factor for each bin based on the shortfall or excess capacity
+    penalty_factor = 1 / (1 + np.exp(shortfall)) * 1 / (1 + np.exp(excess))
+    
+    # Calculate the bin utilization, considering both the current item and future potential
+    avg_historic_size = np.mean(bins_remain_cap)  # Using mean remaining capacity as a proxy for historic item sizes
+    utilization_priority = (bins_remain_cap + avg_historic_size) / (bins_remain_cap + item + avg_historic_size)
+    
+    # Calculate the overall priority, balancing the current item's fit and bin utilization
+    alpha, beta = 0.4, 0.3  # initial weights
+    
+    # Use an iterative refinement approach to adjust the weights
+    for _ in range(5):
+        priority = alpha * fit_priority + beta * utilization_priority + (1 - alpha - beta) * penalty_factor * bins_remain_cap
+        
+        # Update the weights based on the current priority scores
+        alpha += 0.05 * np.mean(priority * fit_priority)
+        beta += 0.05 * np.mean(priority * utilization_priority)
+        
+        # Ensure the weights are within valid ranges
+        alpha, beta = np.clip(alpha, 0, 1), np.clip(beta, 0, 1)
+        
+        # Ensure the weights sum to 1
+        alpha, beta = alpha / (alpha + beta), beta / (alpha + beta)
+    
+    # Use a machine learning model to further refine the priority scores
+    rbf_sampler = RBFSampler(gamma=0.1, random_state=42)
+    X = rbf_sampler.fit_transform(np.array([bins_remain_cap, fit_priority, utilization_priority, penalty_factor]).T)
+    model = LogisticRegression(random_state=42)
+    model.fit(X, np.array([1 if p > 0.5 else 0 for p in priority]))
+    refined_priority = model.predict_proba(X)[:, 1]
+    
+    # Assign high priority to bins with enough capacity and a good fit
+    refined_priority = np.where(bins_remain_cap >= item, refined_priority, -1)
+    
+    return refined_priority
+```

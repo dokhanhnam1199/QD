@@ -1,0 +1,43 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive, multi-objective priority function for online Bin Packing Problem.
+    Combines dynamic weighting, shortfall/excess penalties, and utilization considerations.
+    """
+    # Calculate the difference between the remaining capacity of each bin and the item size
+    capacity_diff = np.abs(bins_remain_cap - item)
+    
+    # Invert the differences to obtain a priority score for the current item's fit
+    fit_priority = 1 / (1 + np.log(1 + capacity_diff))  # using log to reduce impact of large differences
+    
+    # If the item size exceeds the remaining capacity, set the priority to 0
+    fit_priority[bins_remain_cap < item] = 0
+    
+    # Calculate the shortfall or excess capacity for each bin
+    shortfall = np.maximum(0, item - bins_remain_cap)
+    excess = np.maximum(0, bins_remain_cap - item)
+    
+    # Calculate a penalty factor for each bin based on the shortfall or excess capacity
+    penalty_factor = 1 / (1 + np.exp(shortfall)) * 1 / (1 + np.exp(excess))
+    
+    # Adaptive weighting of priorities based on problem conditions
+    alpha = 0.5 * (1 - (item / np.max(bins_remain_cap)))  # emphasize fit when item is large
+    beta = 0.3 * (1 - (np.std(bins_remain_cap) / np.mean(bins_remain_cap)))  # emphasize utilization when bins are balanced
+    
+    # Calculate the bin utilization, considering both the current item and future potential
+    avg_historic_size = np.mean(bins_remain_cap)  # Using mean remaining capacity as a proxy for historic item sizes
+    utilization_priority = (bins_remain_cap + avg_historic_size) / (bins_remain_cap + item + avg_historic_size)
+    
+    # Calculate the overall priority, balancing the current item's fit, bin utilization, and penalties
+    priority = alpha * fit_priority + beta * utilization_priority + (1 - alpha - beta) * penalty_factor * bins_remain_cap / np.max(bins_remain_cap)
+    
+    # Ensure the priority scores are not NaN (e.g., due to division by zero)
+    priority = np.nan_to_num(priority)
+    
+    # Assign high priority to bins with enough capacity and a good fit
+    priority = np.where(bins_remain_cap >= item, priority, -1)
+    
+    return priority
+```

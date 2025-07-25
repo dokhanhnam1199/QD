@@ -1,0 +1,60 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, alpha: float = 0.4, beta: float = 0.3, gamma: float = 0.3) -> np.ndarray:
+    """
+    An advanced priority function for online Bin Packing Problem, incorporating adaptive weighting, 
+    multiple objectives, and nuanced problem understanding.
+    
+    Parameters:
+    item (float): The size of the current item to be packed.
+    bins_remain_cap (np.ndarray): The remaining capacities of the bins.
+    alpha (float, optional): Weight for the fit priority. Defaults to 0.4.
+    beta (float, optional): Weight for the utilization priority. Defaults to 0.3.
+    gamma (float, optional): Weight for the penalty factor. Defaults to 0.3.
+    
+    Returns:
+    np.ndarray: Priority scores for each bin.
+    """
+
+    # Calculate the absolute difference between the remaining capacity of each bin and the item size
+    capacity_diff = np.abs(bins_remain_cap - item)
+    
+    # Invert the differences to obtain a priority score for the current item's fit
+    fit_priority = 1 / (1 + np.log(1 + capacity_diff) if capacity_diff != 0 else 1)
+    
+    # If the item size exceeds the remaining capacity, set the priority to 0
+    fit_priority[bins_remain_cap < item] = 0
+    
+    # Calculate the shortfall or excess capacity for each bin
+    shortfall = np.maximum(0, item - bins_remain_cap)
+    excess = np.maximum(0, bins_remain_cap - item)
+    
+    # Calculate a penalty factor for each bin based on the shortfall or excess capacity
+    penalty_factor = 1 / (1 + np.exp(shortfall)) * 1 / (1 + np.exp(excess))
+    
+    # Adaptive weighting based on problem state
+    avg_historic_size = np.mean(bins_remain_cap)  # Using mean remaining capacity as a proxy for historic item sizes
+    utilization_priority = (bins_remain_cap + avg_historic_size) / (bins_remain_cap + item + avg_historic_size)
+    if np.mean(bins_remain_cap) < item:
+        alpha += 0.1
+        beta -= 0.1
+    else:
+        alpha -= 0.1
+        beta += 0.1
+    
+    alpha = max(0, min(0.6, alpha))  # Clamp alpha between 0 and 0.6
+    beta = max(0, min(0.6, beta))  # Clamp beta between 0 and 0.6
+    gamma = 1 - alpha - beta  # Adjust gamma accordingly
+    
+    # Calculate the overall priority, balancing the current item's fit, bin utilization, and penalty factor
+    priority = alpha * fit_priority + beta * utilization_priority + gamma * penalty_factor * bins_remain_cap
+    
+    # Ensure the priority scores are not NaN (e.g., due to division by zero)
+    priority = np.nan_to_num(priority)
+    
+    # Assign high priority to bins with enough capacity and a good fit
+    priority = np.where(bins_remain_cap >= item, priority, -1)
+    
+    return priority
+```

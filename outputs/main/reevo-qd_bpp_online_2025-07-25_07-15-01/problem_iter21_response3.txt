@@ -1,0 +1,42 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin.
+
+    This priority function prioritizes bins based on the ratio of the remaining capacity and the item size.
+    It introduces nuanced penalties and bonuses to optimize online BPP heuristics, moderating extremes and size mismatches for better performance.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Bins with less capacity than the item get zero priority
+    priority_score = np.where(bins_remain_cap < item, 0, 
+                              # Simplify ratio calculations and prioritize balance
+                              (bins_remain_cap / (bins_remain_cap + item)) ** 0.7)
+    # Moderately penalize extremes and size mismatches
+    priority_score = np.where((bins_remain_cap - item) > (bins_remain_cap / 2), 0.9 * priority_score, priority_score)
+    priority_score = np.where((bins_remain_cap - item) < -(bins_remain_cap / 2), 0.9 * priority_score, priority_score)
+    # Prioritize near-full bins with a bonus
+    priority_score = np.where(np.abs(bins_remain_cap - item) < item * 0.15, 1.2 * priority_score, priority_score)
+    # Introduce a penalty for bins that are too empty
+    priority_score = np.where(bins_remain_cap > item * 6, 0.92 * priority_score, priority_score)
+    # Introduce a bonus for bins that are relatively full compared to others
+    relative_fullness = bins_remain_cap / np.max(bins_remain_cap)
+    priority_score = priority_score * (1 + relative_fullness * 0.25)
+    # Additional penalty for bins that are almost full but not quite
+    priority_score = np.where((bins_remain_cap - item) > 0, 
+                              np.where((bins_remain_cap - item) < item * 0.25, 0.96 * priority_score, priority_score), 
+                              priority_score)
+    # Additional bonus for bins that have been recently used
+    recent_use_bonus = np.where(bins_remain_cap > item * 0.6, 1.08, 1)
+    priority_score = priority_score * recent_use_bonus
+    # Add a small random noise to the priority scores to avoid ties
+    priority_score += np.random.rand(len(priority_score)) * 0.01
+    return priority_score
+```
