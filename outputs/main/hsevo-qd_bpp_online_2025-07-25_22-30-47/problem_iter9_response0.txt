@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritize bins by dynamically adjusting weights based on real-time feedback and using adaptive learning.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Returns:
+        Array of priority scores for each bin.
+    """
+    # Constants for adaptive learning and balance adjustments
+    alpha: float = 0.48  # Weight for Scaled Remaining Capacity
+    beta: float = 0.32   # Weight for Balance Factor
+    gamma: float = 0.20  # Weight for Last Fit Decrease
+    sigmoid_penalty_threshold: float = 1e-6  # Threshold for sigmoid penalty calculation
+    balance_factor_threshold: float = 1e-6  # Threshold for balance factor calculation
+    sigmoid_steepness: float = 5.0  # Steepness for sigmoid function
+
+    # Scaled Remaining Capacity with sigmoid penalty
+    scaled_remaining_capacity = np.where(
+        bins_remain_cap >= item, 
+        1.0 / (1 + np.exp(-sigmoid_steepness * (bins_remain_cap - item - sigmoid_penalty_threshold))), 
+        -np.inf
+    )
+
+    # Balance Factor: Encourage a more balanced distribution
+    mean_cap = np.mean(bins_remain_cap)
+    balance_factor = np.abs(mean_cap - bins_remain_cap) / np.max(np.abs(mean_cap - bins_remain_cap) + balance_factor_threshold)
+
+    # Last Fit Decrease (LFD) Heuristic with adaptive weight
+    last_fit_decrease = np.zeros_like(bins_remain_cap)
+    if len(bins_remain_cap) > 1:
+        last_fit_decrease[1:] = bins_remain_cap[:-1] - bins_remain_cap[1:]
+        last_fit_decrease = (last_fit_decrease - np.min(last_fit_decrease)) / (np.max(last_fit_decrease) - np.min(last_fit_decrease) + 1e-6)
+
+    # Combine heuristics with adaptive learning
+    priority_scores = (
+        alpha * scaled_remaining_capacity +
+        beta * (1 - balance_factor) +
+        gamma * last_fit_decrease
+    )
+
+    # Adaptive learning: dynamically adjust weights based on current performance
+    filling_rates = 1 - (bins_remain_cap / np.max(bins_remain_cap))  # Higher filling rate means the bin is nearly full
+    dynamic_alpha = alpha * (1 - np.mean(filling_rates))
+    dynamic_beta = beta + np.mean(filling_rates) * (alpha - beta)
+    dynamic_gamma = gamma + np.mean(filling_rates) * (beta - gamma)
+
+    # Recalculate priority scores with adjusted weights
+    priority_scores = (
+        dynamic_alpha * scaled_remaining_capacity +
+        dynamic_beta * (1 - balance_factor) +
+        dynamic_gamma * last_fit_decrease
+    )
+
+    return priority_scores
+```

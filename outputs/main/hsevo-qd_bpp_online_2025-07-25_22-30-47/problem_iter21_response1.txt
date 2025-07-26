@@ -1,0 +1,66 @@
+```python
+import numpy as np
+from sklearn.linear_model import LinearRegression
+
+class AdaptivePriorityV2:
+    def __init__(self):
+        self.alpha = 0.8703526170915381
+        self.beta = 0.26928992154797116
+        self.gamma = 0.015623035472155156
+        self.sigmoid_penalty_threshold = 7.870147266070587e-06
+        self.balance_factor_threshold = 8.54060876899628e-06
+        self.model = LinearRegression()
+        self.performance_data = []
+
+    def update_weights(self):
+        if len(self.performance_data) > 10:  # Only retrain after some data has been collected
+            X = np.array([p[:3] for p in self.performance_data])
+            y = np.array([p[3] for p in self.performance_data])
+            self.model.fit(X, y)
+            self.alpha, self.beta, self.gamma = self.model.predict([[self.alpha, self.beta, self.gamma]])[0]
+            # Ensure weights remain non-negative and sum to 1
+            total_weight = self.alpha + self.beta + self.gamma
+            if total_weight > 0:
+                self.alpha /= total_weight
+                self.beta /= total_weight
+                self.gamma /= total_weight
+            self.performance_data = []  # Reset performance data after updating
+
+    def priority_v2(self, item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+        # Scaled Remaining Capacity with sigmoid penalty
+        scaled_remaining_capacity = np.where(
+            bins_remain_cap >= item, 
+            item / (bins_remain_cap - item + self.sigmoid_penalty_threshold),  # Adjusted to prioritize closer fit
+            -np.inf
+        )
+
+        # Balance Factor: Encourage a more balanced distribution
+        mean_cap = np.mean(bins_remain_cap)
+        balance_factor = np.abs(mean_cap - bins_remain_cap) / np.max(np.abs(mean_cap - bins_remain_cap) + self.balance_factor_threshold)
+
+        # Last Fit Decrease (LFD) Heuristic
+        last_fit_decrease = np.zeros_like(bins_remain_cap)
+        if len(bins_remain_cap) > 1:
+            last_fit_decrease[1:] = bins_remain_cap[:-1] - bins_remain_cap[1:]
+
+        # Combine heuristics with adaptive learning
+        priority_scores = (
+            self.alpha * scaled_remaining_capacity +
+            self.beta * (1 - balance_factor) +
+            self.gamma * last_fit_decrease
+        )
+
+        # Record performance data (simulated feedback loop)
+        self.performance_data.append([self.alpha, self.beta, self.gamma, np.max(priority_scores)])
+
+        # Update weights based on performance
+        self.update_weights()
+
+        return priority_scores
+
+# Usage
+# adaptive_priority = AdaptivePriorityV2()
+# bins_remain_cap = np.array([5, 4, 3])
+# item = 2
+# priority_scores = adaptive_priority.priority_v2(item, bins_remain_cap)
+```

@@ -1,0 +1,62 @@
+```python
+import numpy as np
+from sklearn.linear_model import LinearRegression
+
+class AdaptivePriorityV2:
+    def __init__(self):
+        self.alpha = 0.8703526170915381
+        self.beta = 0.26928992154797116
+        self.gamma = 0.015623035472155156
+        self.sigmoid_penalty_threshold = 7.870147266070587e-06
+        self.balance_factor_threshold = 8.54060876899628e-06
+        self.model = LinearRegression()
+        self.features = []
+        self.labels = []
+
+    def update_weights(self):
+        if len(self.features) > 0 and len(self.labels) > 0:
+            self.model.fit(self.features, self.labels)
+            self.alpha, self.beta, self.gamma = self.model.coef_
+            self.sigmoid_penalty_threshold, self.balance_factor_threshold = abs(self.model.intercept_[0]), abs(self.model.intercept_[1])
+
+    def priority_v2(self, item: float, bins_remain_cap: np.ndarray, feedback=None) -> np.ndarray:
+        # Scaled Remaining Capacity with sigmoid penalty
+        scaled_remaining_capacity = np.where(
+            bins_remain_cap >= item, 
+            1.0 / (bins_remain_cap - item + self.sigmoid_penalty_threshold), 
+            -np.inf
+        )
+
+        # Balance Factor: Encourage a more balanced distribution
+        mean_cap = np.mean(bins_remain_cap)
+        balance_factor = np.abs(mean_cap - bins_remain_cap) / np.max(np.abs(mean_cap - bins_remain_cap) + self.balance_factor_threshold)
+
+        # Last Fit Decrease (LFD) Heuristic
+        last_fit_decrease = np.zeros_like(bins_remain_cap)
+        if len(bins_remain_cap) > 1:
+            last_fit_decrease[1:] = bins_remain_cap[:-1] - bins_remain_cap[1:]
+
+        # Combine heuristics with adaptive learning
+        priority_scores = (
+            self.alpha * scaled_remaining_capacity +
+            self.beta * (1 - balance_factor) +
+            self.gamma * last_fit_decrease
+        )
+
+        # Learn from feedback
+        if feedback is not None:
+            self.features.append([scaled_remaining_capacity.max(), balance_factor.min(), last_fit_decrease.max()])
+            self.labels.append(feedback)
+            self.update_weights()
+
+        return priority_scores
+
+# Example usage:
+# bpp_solver = AdaptivePriorityV2()
+# bins_remain_cap = np.array([10, 8, 5])
+# item = 3
+# priority_scores = bpp_solver.priority_v2(item, bins_remain_cap)
+# print(priority_scores)
+# # After some iterations, provide feedback to improve the model
+# bpp_solver.priority_v2(item, bins_remain_cap, feedback=0.95)  # Example feedback value
+```

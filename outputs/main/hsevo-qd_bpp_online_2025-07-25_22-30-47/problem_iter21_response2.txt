@@ -1,0 +1,80 @@
+```python
+import numpy as np
+from sklearn.linear_model import SGDRegressor
+
+class OnlineBPPHeuristic:
+    def __init__(self):
+        # Initialize a machine learning model for adaptive learning
+        self.model = SGDRegressor(max_iter=1000, tol=1e-3)
+        # Initialize dynamic weights
+        self.weights = np.array([0.8703526170915381, 0.26928992154797116, 0.015623035472155156])
+        # Initialize thresholds
+        self.sigmoid_penalty_threshold = 7.870147266070587e-06
+        self.balance_factor_threshold = 8.54060876899628e-06
+        # Initialize performance data storage
+        self.performance_data = []
+        self.labels = []
+
+    def update_weights(self, new_weights):
+        self.weights = new_weights
+
+    def update_thresholds(self, sigmoid_penalty_threshold, balance_factor_threshold):
+        self.sigmoid_penalty_threshold = sigmoid_penalty_threshold
+        self.balance_factor_threshold = balance_factor_threshold
+
+    def update_model(self, X, y):
+        self.model.partial_fit(X, y)
+
+    def record_performance(self, item, bins_remain_cap, selected_bin):
+        # Record the state and action for performance evaluation
+        state = np.concatenate(([item], bins_remain_cap))
+        action = np.zeros_like(bins_remain_cap)
+        action[selected_bin] = 1
+        self.performance_data.append(state)
+        self.labels.append(action)
+
+    def train_model(self):
+        if len(self.performance_data) > 0:
+            X = np.array(self.performance_data)
+            y = np.array(self.labels)
+            self.update_model(X, y)
+            self.performance_data, self.labels = [], []
+
+    def priority_v2(self, item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+        # Scaled Remaining Capacity with sigmoid penalty
+        scaled_remaining_capacity = np.where(
+            bins_remain_cap >= item, 
+            1.0 / (bins_remain_cap - item + self.sigmoid_penalty_threshold), 
+            -np.inf
+        )
+
+        # Balance Factor: Encourage a more balanced distribution
+        mean_cap = np.mean(bins_remain_cap)
+        balance_factor = np.abs(mean_cap - bins_remain_cap) / np.max(np.abs(mean_cap - bins_remain_cap) + self.balance_factor_threshold)
+
+        # Last Fit Decrease (LFD) Heuristic
+        last_fit_decrease = np.zeros_like(bins_remain_cap)
+        if len(bins_remain_cap) > 1:
+            last_fit_decrease[1:] = bins_remain_cap[:-1] - bins_remain_cap[1:]
+
+        # Combine heuristics with adaptive learning
+        priority_scores = (
+            self.weights[0] * scaled_remaining_capacity +
+            self.weights[1] * (1 - balance_factor) +
+            self.weights[2] * last_fit_decrease
+        )
+
+        # Optionally, incorporate the machine learning model's predictions
+        if len(bins_remain_cap) > 0:
+            state = np.concatenate(([item], bins_remain_cap))
+            ml_prediction = self.model.predict([state])
+            priority_scores += ml_prediction
+
+        return priority_scores
+
+# Example usage
+# heuristic = OnlineBPPHeuristic()
+# item = 0.5
+# bins_remain_cap = np.array([2.0, 1.5, 1.0])
+# print(heuristic.priority_v2(item, bins_remain_cap))
+```

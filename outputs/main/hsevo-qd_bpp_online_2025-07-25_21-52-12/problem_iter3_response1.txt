@@ -1,0 +1,44 @@
+```python
+import numpy as np
+
+class AdaptiveBPP:
+    def __init__(self):
+        self.weights = np.array([1.0, 1.0])  # Initial weights for criteria
+        self.learning_rate = 0.01  # Learning rate for adaptation
+
+    def update_weights(self, selected_bin, item, bins_remain_cap):
+        # Simple adaptive learning: penalize high leftover space more if it leads to frequent small bin usage
+        # Here we assume a simple feedback mechanism where we decrease weights if leftover space is large
+        leftover_space = bins_remain_cap[selected_bin] - item
+        if leftover_space > np.mean(bins_remain_cap):
+            self.weights[0] += self.learning_rate
+        else:
+            self.weights[0] -= self.learning_rate * 0.5  # Less adjustment if space is okay
+
+        # Additional criteria could be added here, e.g., future waste prediction
+        self.weights = np.clip(self.weights, 0.1, 2.0)  # Clamp weights to prevent extremes
+
+    def priority_v2(self, item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+        can_fit = bins_remain_cap >= item
+        space_left = bins_remain_cap - item
+        space_left_normalized = space_left / bins_remain_cap
+        space_efficiency = 1 - space_left_normalized
+
+        # Future waste prediction: Estimate how future items would fit if packed into this bin
+        # Here we use a simple heuristic: sum of squared differences of space left
+        future_waste = np.array([np.sum((bins_remain_cap - np.roll(bins_remain_cap, -1)) ** 2) for _ in bins_remain_cap])
+        future_waste[selected_bin] = 0  # No waste in selected bin
+        future_waste_normalized = future_waste / np.max(future_waste)
+
+        # Weighted multi-criteria scoring
+        priority_score = can_fit * (self.weights[0] * space_efficiency - self.weights[1] * future_waste_normalized)
+        return priority_score
+
+# Example usage
+adaptive_bpp = AdaptiveBPP()
+item = 0.5
+bins_remain_cap = np.array([0.8, 0.7, 1.0])
+priority_scores = adaptive_bpp.priority_v2(item, bins_remain_cap)
+selected_bin = np.argmax(priority_scores)
+adaptive_bpp.update_weights(selected_bin, item, bins_remain_cap)
+```
