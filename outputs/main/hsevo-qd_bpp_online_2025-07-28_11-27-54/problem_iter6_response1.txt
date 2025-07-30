@@ -1,0 +1,49 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority scores for bins using a hybrid heuristic based on item size and residual thresholds.
+    
+    Large items (size > 0.5 bin capacity) are prioritized in bins with very small residuals (non-smooth Best Fit),
+    while small items (size ≤ 0.5) are prioritized in bins with larger residuals (non-smooth Worst Fit).
+    Bins are grouped into fixed residual thresholds to avoid smooth scoring.
+    
+    Args:
+        item: Size of the item to be packed (assumes normalized bin capacity of 1.0).
+        bins_remain_cap: Array of remaining capacities for each bin.
+    
+    Returns:
+        Array of priority scores for each bin.
+    """
+    can_fit = bins_remain_cap >= item
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    eligible_idx = np.where(can_fit)[0]
+    if len(eligible_idx) == 0:
+        return scores
+    
+    residual = bins_remain_cap[eligible_idx] - item
+    
+    if item > 0.5:  # Large item: prioritize tight fits (non-smooth Best Fit)
+        # Tier 1: residual ≤ 0.1 (scores 3)
+        # Tier 2: 0.1 < residual ≤ 0.2 (scores 2)
+        # Tier 3: residual > 0.2 (scores 1)
+        tiers = [
+            residual <= 0.1,
+            (residual > 0.1) & (residual <= 0.2),
+            residual > 0.2
+        ]
+        for priority, condition in enumerate(tiers[::-1], start=1):
+            scores[eligible_idx[condition]] = priority
+    else:  # Small item: prioritize bins with large residuals (non-smooth Worst Fit)
+        # Tier 1: residual ≥ 0.5 (scores 3)
+        # Tier 2: 0.25 ≤ residual < 0.5 (scores 2)
+        # Tier 3: residual < 0.25 (scores 1)
+        tiers = [
+            residual >= 0.5,
+            (residual >= 0.25) & (residual < 0.5),
+            residual < 0.25
+        ]
+        for priority, condition in enumerate(tiers[::-1], start=1):
+            scores[eligible_idx[condition]] = priority
+    
+    return scores
+```

@@ -1,0 +1,31 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Adaptive priority combining residual minimization, fragmentation avoidance, and item-relative statistics.
+    
+    Uses T = median + std for dynamic thresholding, logistic alpha blending for objective balance, 
+    and exponential penalty shaping calibrated to real-time bin distribution.
+    """
+    can_fit = bins_remain_cap >= item
+    r = bins_remain_cap - item  # Residual capacity after placement
+    
+    # Dynamic threshold using median + standard deviation (adapts to bin capacity spread)
+    median = np.median(bins_remain_cap)
+    std = np.std(bins_remain_cap)
+    T = np.clip(median + std, 1e-8, None)  # Prevents division by zero
+    
+    # Logistic alpha blending based on item-to-threshold ratio (sharp transition at 0.5*T)
+    ratio = item / T
+    alpha = 1.0 / (1 + np.exp(-5 * (ratio - 0.5)))  # Steepness parameter 5 controls transition sharpness
+    
+    # Exponential penalty term for fragmentation avoidance
+    feasible_r = np.where(can_fit, r, np.inf)  # Mask invalid bins for statistics
+    penalty_term = np.exp(-feasible_r / T)  # Decay rate calibrated to threshold T
+    
+    # Multi-objective convex combination: residual minimization (α) + penalty shaping (1-α)
+    blended_score = alpha * (-r) + (1 - alpha) * (-penalty_term)
+    
+    # Enforce feasibility with negative infinity masking
+    return np.where(can_fit, blended_score, -np.inf)
+```

@@ -1,0 +1,60 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=np.float64)
+    
+    eligible = bins_remain_cap >= item
+    if not np.any(eligible):
+        return np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    # Core metrics
+    leftover = bins_remain_cap - item
+    tightness = item / (bins_remain_cap + 1e-9)
+    
+    # Predictive variance modeling
+    n = bins_remain_cap.size
+    sum_remain = bins_remain_cap.sum()
+    sum_remain_sq = (bins_remain_cap ** 2).sum()
+    
+    sum_remain_new = sum_remain - item
+    sum_remain_sq_new = sum_remain_sq - bins_remain_cap**2 + (bins_remain_cap - item)**2
+    
+    var_new = (sum_remain_sq_new / n) - (sum_remain_new / n)**2
+    
+    # Min-max normalization for variance score
+    var_score = np.zeros_like(var_new)
+    eligible_var = var_new[eligible]
+    var_min, var_max = eligible_var.min(), eligible_var.max()
+    if var_max > var_min:
+        var_score = (var_max - var_new) / (var_max - var_min + 1e-9)
+    
+    # Min-max normalization for tightness score
+    t_score = np.zeros_like(tightness)
+    eligible_tight = tightness[eligible]
+    t_min, t_max = eligible_tight.min(), eligible_tight.max()
+    if t_max > t_min:
+        t_score = (tightness - t_min) / (t_max - t_min + 1e-9)
+    
+    # Reinforcement similarity score
+    median_remain = np.median(bins_remain_cap)
+    diff = np.abs(leftover - median_remain)
+    sim_score = np.zeros_like(diff)
+    eligible_diff = diff[eligible]
+    d_min, d_max = eligible_diff.min(), eligible_diff.max()
+    if d_max > d_min:
+        sim_score = 1.0 - (diff - d_min) / (d_max - d_min + 1e-9)
+    
+    # Static-dynamic hybrid balance weights
+    tightness_weight = 0.5
+    variance_weight = 0.3
+    similarity_weight = 0.2
+    
+    # Final priority calculation
+    priority = (
+        tightness_weight * t_score + 
+        variance_weight * var_score + 
+        similarity_weight * sim_score
+    )
+    
+    return np.where(eligible, priority, -np.inf)
+```

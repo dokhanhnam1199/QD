@@ -1,0 +1,35 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Priority heuristic blending residual minimization and adaptive fragmentation avoidance.
+    
+    Uses bin statistics (μ, σ) to dynamically scale exponential penalties while incorporating
+    item-normalized tight-fit incentives through smooth differentiable objectives.
+    """
+    feasible = bins_remain_cap >= item
+    if not feasible.any():
+        return np.full_like(bins_remain_cap, -np.inf)
+    
+    r = bins_remain_cap - item
+    feasible_r = r[feasible]
+    
+    mu = feasible_r.mean()
+    std = feasible_r.std()
+    eps = 1e-6
+    tau = mu + std + eps  # Dynamic scale from bin statistics
+    
+    # Smooth item-aware normalization factor
+    norm_factor = (item + mu) / (tau + eps)  # Combines item size with bin statistics
+    
+    # Core objectives with exponential continuity
+    residual_objective = -r  # Prefer smaller remaining space
+    penalty_term = np.exp(-r / (tau + eps))  # Fragmentation penalty
+    
+    # Adaptive weighting with item-bin interaction
+    beta = norm_factor * (1 + (std / (mu + eps)))  # Amplify sensitivity to variance
+    
+    # Multi-objective score with bin-centric incentives
+    fragmentation_objective = -beta * penalty_term
+    score = residual_objective + fragmentation_objective
+    
+    return np.where(feasible, score, -np.inf).astype(np.float64)
+```

@@ -1,0 +1,53 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority scores blending BF, WF, and bin utilization/heuristic diversification.
+    
+    Strategy:
+    - Combines BF/WF adaptive weighting from v1
+    - Adds utilization bias to consolidate small items in more filled bins
+    - Incorporates defrag component to reduce post-insertion variance
+    - Weights dynamically adjusted by item size and bin state metrics
+    """
+    THRESHOLD = 0.5
+    DELTA = 0.1
+
+    # Basic feasibility and component preparation
+    can_fit = bins_remain_cap >= item
+    slack = bins_remain_cap - item
+
+    # Adaptive BF/WF weights based on item size (transition zone 0.4-0.6)
+    if item <= THRESHOLD - DELTA:
+        w_bf, w_wf = 0.0, 1.0
+    elif item >= THRESHOLD + DELTA:
+        w_bf, w_wf = 1.0, 0.0
+    else:
+        t = (item - (THRESHOLD - DELTA)) / (2 * DELTA)
+        w_bf, w_wf = t, 1 - t
+
+    # Utilization component weight decreases linearly with item size
+    w_util = 0.3 * (1 - w_bf)
+
+    # Defrag component weight adapts to current capacity variance
+    n = len(bins_remain_cap)
+    sum_r = np.sum(bins_remain_cap)
+    avg_post = (sum_r - item) / n if n > 0 else 0
+    component_dd = - (bins_remain_cap - item - avg_post) ** 2
+    var_curr = np.var(bins_remain_cap)
+    w_dd = 0.2 * (1 - np.exp(-2 * n * var_curr))
+
+    # Component definitions
+    bf_component = -slack  # Best Fit = minimize slack
+    wf_component = bins_remain_cap  # Worst Fit = maximize remaining
+    util_component = 1.0 - bins_remain_cap  # High utilization bias
+
+    # Composite priority calculation
+    composite = (
+        w_bf * bf_component +
+        w_wf * wf_component +
+        w_util * util_component +
+        w_dd * component_dd
+    )
+
+    # Mask infeasible bins
+    return np.where(can_fit, composite, -np.inf)
+```

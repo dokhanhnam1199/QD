@@ -1,0 +1,52 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Hybrid heuristic combining z-normalized fit alignment, exponential synergy, and entropy-sensitive frag control.
+    Dynamic weights adapt to item size and system stability via cross-metric variance analysis.
+    """
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=np.float64)
+    
+    orig_cap = bins_remain_cap.max()
+    mask = bins_remain_cap >= item
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    if not mask.any():
+        return scores
+
+    eps = 1e-9
+    remaining = bins_remain_cap[mask]
+    leftover = remaining - item
+    orig_utilization = 1.0 - (remaining / orig_cap)
+    
+    # Core tightness metrics (v0's foundation)
+    inv_fit = 1.0 / (leftover + eps)
+    exp_tight = np.exp(-(leftover))
+    tight_base = inv_fit + exp_tight
+    
+    # Z-score normalization across all bins (state-aware alignment)
+    sys_avg = bins_remain_cap.mean()
+    sys_std = bins_remain_cap.std()
+    zscore_system = (sys_avg - leftover) / (sys_std + eps)  # Prefer fit with system average
+    fit_alignment = np.clip(zscore_system, -2, 2)
+    
+    # Fragmentation control (entropy-sensitive from v1)
+    system_cv = sys_std / (sys_avg + eps)
+    frag_scale = np.where(leftover < sys_avg*0.05,  # Check for critical fragmentation
+                         1.0 + (1.0 / (leftover + eps)), 
+                         0.0)
+    
+    # Dynamic weights via hybrid adaptability
+    item_ratio = item / (orig_cap + eps)
+    tight_weight = 0.6 + 0.4*(item_ratio**1.5)  # Prioritize tightness for large items
+    align_weight = 0.2 + 0.5*system_cv          # Higher weight when system unstable
+    frag_weight = 0.8 * np.log1p(system_cv*4)  # Intensify frag penalty with entropy
+    
+    # Exponential synergy boost (analysis recommendation)
+    util_exponent = np.exp(orig_utilization)  # Aggressive enhancement for used bins
+    frag_penalty = frag_scale * frag_weight
+    
+    # Score assembly with hierarchical components
+    scores[mask] = ((tight_base * tight_weight + fit_alignment * align_weight) * util_exponent) - frag_penalty
+    
+    return scores
+```

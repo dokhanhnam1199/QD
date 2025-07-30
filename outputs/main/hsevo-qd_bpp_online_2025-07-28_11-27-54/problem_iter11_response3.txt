@@ -1,0 +1,45 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Score bins using dual exponential penalties for item & bin-aware thresholds.
+    
+    Combines residual minimization with fragmentation avoidance via:
+    1. Feasibility masking to exclude undersized bins
+    2. Dual penalties based on item-relative tight fit (0.15*item) and bin distribution median
+    3. Smooth continuous scoring through exponential penalty blending
+    
+    Args:
+        item: Size of incoming item.
+        bins_remain_cap: Array of remaining capacities for each bin.
+    
+    Returns:
+        Array of priority scores for each bin.
+    """
+    can_fit = bins_remain_cap >= item
+    r = bins_remain_cap - item  # Residual after placement
+    
+    # Early return for no feasible bins (avoid division by zero)
+    if not np.any(can_fit):
+        return np.full_like(r, -np.inf, dtype=np.float64)
+    
+    # Adaptive thresholds
+    tight_threshold = 0.15 * item  # Fragmentation boundary
+    T_median = np.clip(np.median(bins_remain_cap), 1e-8, None)  # From v0
+    
+    # Feasible residual mask for safe calculations
+    feasible_r = np.where(can_fit, r, np.inf)
+    
+    # Dual exponential penalties
+    penalty_frag = np.exp(-feasible_r / (tight_threshold + 1e-9))  # Item-relative penalty
+    penalty_bin = np.exp(-feasible_r / T_median)                    # Bin-distribution penalty
+    
+    # Blend penalties with equal weighting (could adjust weights)
+    combined_penalty = (penalty_frag + penalty_bin) / 2
+    
+    # Continuous blended objective: residual minimization with dual penalty shaping
+    blended_score = -r - combined_penalty  # Primary: residual, Secondary: penalties
+    
+    # Apply feasibility mask
+    return np.where(can_fit, blended_score, -np.inf)
+```

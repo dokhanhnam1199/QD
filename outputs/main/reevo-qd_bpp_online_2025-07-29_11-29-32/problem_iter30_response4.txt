@@ -1,0 +1,47 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Enhanced priority scores combining BF, WF heuristics with adaptive thresholds and piecewise blending.
+    
+    Items > 0.5 use pure BF (single occupancy). Items <= 0.1 use pure WF (reserves space).
+    Items between 0.1 and 0.5 use inverse slack weighting to prioritize near-fit bins.
+    """
+    can_fit = bins_remain_cap >= item
+    slack = bins_remain_cap - item
+    
+    # Parameter definitions
+    LARGE_ITEM_THRESH = 0.5
+    SMALL_ITEM_THRESH = 0.1
+    MID_TRANSITION_THRESH = 0.25
+
+    # Best Fit component (minimize slack)
+    bf_component = -slack  
+
+    # Worst Fit component (maximize remaining capacity)
+    wf_component = bins_remain_cap  
+
+    # Dynamic weight calculation
+    if item > LARGE_ITEM_THRESH:
+        # Large items (>0.5): pure BF to avoid fragmenting bins
+        w_bf, w_wf = 1.0, 0.0
+    elif item <= SMALL_ITEM_THRESH:
+        # Tiny items (<=0.1): pure WF to preserve large spaces
+        w_bf, w_wf = 0.0, 1.0
+    else:
+        # For mid-sized items (0.1 < item <= 0.5), use smooth weight transition
+        # Weighting based on normalized distance to slack-based optimal (squared slack minimization)
+        w_bf = 1.0 - ((np.clip(item, SMALL_ITEM_THRESH, LARGE_ITEM_THRESH) - SMALL_ITEM_THRESH) / 
+                     (LARGE_ITEM_THRESH - SMALL_ITEM_THRESH))
+        w_wf = 1.0 - w_bf
+
+    # Composite priority with inverse slack weighting for mid-sized items
+    composite = w_bf * bf_component + w_wf * wf_component
+    
+    # Add a small penalty for bins with remaining capacity between 0.2-0.4 to avoid mid-capacity fragmentation
+    composite = np.where((bins_remain_cap > 0.2) & (bins_remain_cap < 0.4), 
+                        composite - 0.05 * np.abs(np.sin(5 * item)),  # Small periodic penalty
+                        composite)
+
+    # Mask infeasible bins
+    priority = np.where(can_fit, composite, -np.inf)
+    return priority
+```

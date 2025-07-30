@@ -1,0 +1,41 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority scores using a smooth multi-objective heuristic with contextual adaptation.
+    
+    Combines residual minimization (best-fit) and fragmentation avoidance (worst-fit) objectives,
+    dynamically blending between them based on item-to-bin size ratios. Uses exponential scoring
+    and distribution statistics for continuity and adaptability.
+    
+    Args:
+        item: Size of the item to be packed.
+        bins_remain_cap: Array of remaining capacities for each bin.
+    
+    Returns:
+        Array of priority scores for each bin.
+    """
+    can_fit = bins_remain_cap >= item
+    if not np.any(can_fit):
+        return np.full_like(bins_remain_cap, -np.inf)
+    
+    remaining_after = bins_remain_cap - item
+    mu = np.mean(bins_remain_cap)
+    sigma = np.std(bins_remain_cap)
+    epsilon = 1e-8  # For numerical stability
+    
+    # Dynamic item-to-bin ratio for contextual adaptation
+    item_ratio = item / (bins_remain_cap + epsilon)
+    
+    # Smooth sigmoid blending factor transitioning at item_ratio=0.5
+    blend = 1.0 / (1.0 + np.exp(- (item_ratio - 0.5) * 10))
+    
+    # Residual minimization component (best-fit): exponential decay with remaining_after
+    residual_term = np.exp(-remaining_after / (mu + epsilon))
+    
+    # Fragmentation avoidance component (worst-fit): exponential growth with remaining_after
+    frag_term = np.exp((remaining_after - mu) / (sigma + epsilon))
+    
+    # Continuity-driven score blending with adaptive weights
+    score = blend * residual_term + (1 - blend) * frag_term
+    
+    return np.where(can_fit, score, -np.inf)
+```

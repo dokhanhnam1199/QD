@@ -1,0 +1,44 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Adaptive scoring combining item-relative waste penalties and capacity-aware exponential scaling.
+    
+    Uses dynamic large/small item classification with smooth blending of fit efficiency and
+    bin capacity statistics to minimize fragmentation while maintaining feasibility.
+    """
+    can_fit = bins_remain_cap >= item
+    if not bins_remain_cap.size:
+        return np.array([])
+    
+    eps = 1e-9
+    # Contextual statistics for adaptive behavior
+    harmonic_mean = len(bins_remain_cap) / np.sum(1.0 / (bins_remain_cap + eps))
+    mean_remain = bins_remain_cap.mean()
+    
+    # Dynamic item size classification
+    is_large = item > harmonic_mean * 0.8
+    
+    # Primary components for all items
+    fit_ratio = item / (bins_remain_cap + eps)
+    leftover = bins_remain_cap - item
+    
+    # Item-relative waste measurement with smooth penalty
+    relative_waste = np.clip(leftover / (item + eps), 0, None)
+    waste_penalty = np.exp(-relative_waste * 1.5)
+    
+    # Adaptive bin capacity scaling
+    capacity_ratio = bins_remain_cap / (harmonic_mean + eps)
+    # Prefer bins below harmonic mean for small items
+    capacity_scaling = np.exp(-capacity_ratio * 0.3)  
+    
+    # Base fit efficiency with waste minimization
+    fit_component = np.exp(fit_ratio * 2) * waste_penalty * can_fit
+    
+    # Strategy-specific blending
+    if is_large:
+        score = fit_component  # Focus on tight fits
+    else:
+        # Capacity scaling for small item placement strategy
+        score = fit_component * capacity_scaling
+    
+    return np.where(can_fit, score, -np.inf)
+```

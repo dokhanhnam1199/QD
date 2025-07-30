@@ -1,0 +1,59 @@
+def priority_v2(item: float, bins_remain_cap: np.ndarray, 
+                eps= 2.6301529346191693e-07, 
+                z_cap_weight= 0.9514180249367724, 
+                frag_weight_factor= 0.4252864692647474, 
+                balance_weight_factor= 0.08789087494557082, 
+                balance_multiplier_normal= 1.18243692052362, 
+                balance_multiplier_large= 1.1092788974071222) -> np.ndarray:
+    """
+    Combined adaptive Z-synergy with entropy-weighted fragmentation and balance control.
+    Uses metric normalization, system variance-adaptive weights, and item-classification dynamics.
+    """
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=np.float64)
+    
+    eligible = bins_remain_cap >= item
+    if not eligible.any():
+        return np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    # Metrics and system descriptors
+    leftover = bins_remain_cap - item
+    origin_cap = np.max(bins_remain_cap)
+    tightness = item / (bins_remain_cap + eps)
+    utilization = (origin_cap - bins_remain_cap) / (origin_cap + eps)
+    fit_quality = 1.0 / (leftover + eps)
+    
+    system_avg = bins_remain_cap.mean()
+    system_std = bins_remain_cap.std()
+    system_cv = system_std / (system_avg + eps)
+    large_item = item > (system_avg + eps)
+    
+    # Z-score normalization across eligible bins
+    eligible_metrics = {
+        'fit': fit_quality[eligible],
+        'tight': tightness[eligible],
+        'cap': bins_remain_cap[eligible]
+    }
+    mean = {k: np.mean(v) for k, v in eligible_metrics.items()}
+    std = {k: np.std(v) for k, v in eligible_metrics.items()}
+    
+    # Z-score computation for key metrics
+    z_fit = (fit_quality - mean['fit']) / (std['fit'] + eps)
+    z_tight = (tightness - mean['tight']) / (std['tight'] + eps)
+    z_cap = (bins_remain_cap - mean['cap']) / (std['cap'] + eps)
+    
+    # Primary synergy term with exponential enhancer
+    enhancer = np.exp(utilization * tightness)
+    primary_score = (z_fit + z_tight + z_cap_weight * z_cap) * enhancer
+    
+    # Entropy-weighted penalties for fragmentation and balance
+    frag_penalty = 1.0 - np.exp(-leftover / (origin_cap + eps))
+    frag_weight = frag_weight_factor * system_cv
+    
+    balance_term = -np.abs(leftover - system_avg)
+    balance_weight = balance_weight_factor * system_cv * (balance_multiplier_normal if not large_item else balance_multiplier_large)
+    
+    # Hybrid scoring based on multi-metric analysis
+    priority = primary_score - frag_weight * frag_penalty + balance_weight * balance_term
+    
+    return np.where(eligible, priority, -np.inf)

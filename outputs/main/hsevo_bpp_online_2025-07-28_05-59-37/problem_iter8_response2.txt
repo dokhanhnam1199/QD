@@ -1,0 +1,62 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Hybrid priority function combining z-score-normalized metrics, dynamic adaptive weights, 
+    and entropy-aware tie-breaking. Balances tight fit, utilization, and system variance.
+    """
+    mask = bins_remain_cap >= item
+    if not mask.any():
+        return np.full_like(bins_remain_cap, -np.inf)
+    
+    eps = 1e-9
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    remaining = bins_remain_cap[mask].astype(np.float64)
+    
+    # Local/system statistics
+    local_mean, local_std = remaining.mean(), remaining.std()
+    relative_size = np.clip(item / (local_mean + eps), 0, 1)
+    system_mean, system_std = bins_remain_cap.mean(), bins_remain_cap.std()
+    system_cv = system_std / (system_mean + eps) if system_mean > eps else np.inf
+    
+    # Dynamic weight calculation
+    w_inv = relative_size**2 + local_std / (local_mean + eps)
+    w_uti = (1 - relative_size)**2
+    w_exp = 0.5 * (1 + relative_size * local_std)
+    w_balance = 2.0 * system_cv
+    frag_weight = (1.0 / system_cv) if system_cv > 1 else 1.0
+    
+    # Core metric calculation
+    leftover = remaining - item
+    inv_leftover = 1 / (leftover + eps)
+    utilization = item / (remaining + eps)
+    exp_waste = np.exp(-leftover)
+    balance_term = -np.abs((remaining - item) - system_mean)
+    frag_penalty = np.log1p(1.0 / (leftover + system_cv + eps))
+    
+    def zscore(x):
+        std = x.std()
+        return (x - x.mean()) / (std + eps if std > 1e-9 else 1.0)
+    
+    # Normalized components
+    normalized = [
+        zscore(inv_leftover) * w_inv,
+        zscore(utilization) * w_uti,
+        zscore(exp_waste) * w_exp,
+        zscore(balance_term) * w_balance,
+        zscore(frag_penalty) * frag_weight
+    ]
+    
+    # Variance-sensitive tiebreaker
+    N = len(bins_remain_cap)
+    total = bins_remain_cap.sum()
+    squares = (bins_remain_cap**2).sum()
+    delta_sq = -2 * item * remaining + item**2
+    mu_new = (total - item) / N
+    
+    tiebreaker = 0.1 * (1 + np.sqrt(system_cv)) * (
+        -((squares + delta_sq) / N - mu_new**2)
+    ) / (np.sqrt(np.abs(delta_sq) + eps) + 1e-5)
+    
+    scores[mask] = np.sum(normalized, axis=0) + tiebreaker
+    return scores
+```

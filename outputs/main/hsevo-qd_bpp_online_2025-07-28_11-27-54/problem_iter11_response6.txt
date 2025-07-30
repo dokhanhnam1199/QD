@@ -1,0 +1,51 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Adaptive priority combining item size classification with contextual thresholds.
+    
+    Uses harmonic mean for item size classification and item-relative thresholds,
+    blending exponential fit optimization with smooth penalty functions for both
+    large and small items to balance space efficiency and fragmentation avoidance.
+    """
+    if len(bins_remain_cap) == 0:
+        return np.array([])
+    
+    eps = 1e-9
+    # Feasibility mask and leftover space calculation
+    can_fit = bins_remain_cap >= item
+    leftover = bins_remain_cap - item
+    
+    # Adaptive item size classification using harmonic mean
+    harmonic_mean = len(bins_remain_cap) / (np.sum(1.0 / (bins_remain_cap + eps)) + eps)
+    is_large = item > (harmonic_mean * 0.8)
+    
+    # Contextual thresholds based on item size
+    tight_threshold = 0.15 * item
+    moderate_threshold = 0.4 * item
+    
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    if not np.any(can_fit):
+        return scores
+        
+    # Process only viable bins
+    fit_idx = can_fit.nonzero()[0]
+    fit_cap = bins_remain_cap[fit_idx]
+    fit_leftover = leftover[fit_idx]
+    
+    if is_large:
+        # Large items: maximize fit ratio with tight leftover penalty
+        fit_ratio = item / (fit_cap + eps)
+        fit_component = np.exp(fit_ratio * 2)
+        tight_penalty = fit_leftover / (tight_threshold + eps)
+        penalty_component = np.exp(-tight_penalty * 2)
+        scores[fit_idx] = fit_component * penalty_component
+    else:
+        # Small items: capacity scaling with moderate threshold preference
+        capacity_scaling = fit_cap / (harmonic_mean + eps)
+        deviation = np.abs(fit_leftover - moderate_threshold)
+        threshold_penalty = np.sqrt(deviation)  # Smooth root scaling
+        penalty_component = np.exp(-threshold_penalty * 0.3)
+        scores[fit_idx] = (1.0 + capacity_scaling) * penalty_component
+    
+    return scores
+```

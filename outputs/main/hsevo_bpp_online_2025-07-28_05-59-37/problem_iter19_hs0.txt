@@ -1,0 +1,66 @@
+import numpy as np
+
+def priority_v2(
+    item: float, 
+    bins_remain_cap: np.ndarray,
+    eps= 6.4962014217795195e-09,
+    fit_weight= 0.3045451171990413,
+    tight_weight= 2.1891891016451317,
+    predictive_balance_weight= 0.8458182062767244,
+    frag_weight= 0.49791198103115264) -> np.ndarray:
+    """
+    Predictive variance-aware binning with min-max synergy and reinforcement-inspired balance.
+    Combines normalized fit metrics with variance delta prediction and static fragmentation weights.
+    """
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=np.float64)
+    
+    eligible = bins_remain_cap >= item
+    if not eligible.any():
+        return np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    # Metric definitions
+    leftover = bins_remain_cap - item
+    tightness = item / (bins_remain_cap + eps)
+    fit_quality = 1.0 / (leftover + eps)
+    
+    # Min-max normalization helper
+    def normalize(arr):
+        min_val = arr.min()
+        max_val = arr.max()
+        denominator = (max_val - min_val) if (max_val > min_val) else 1.0
+        return (arr - min_val) / (denominator + eps)
+    
+    # Normalized metrics (higher = better)
+    fit_norm = normalize(fit_quality)
+    tight_norm = normalize(tightness)
+    
+    # Fragmentation penalty (static weight, higher penalty for smaller leftovers)
+    leftover_minmax = (leftover - leftover.min()) / (leftover.ptp() + eps)
+    frag_penalty = 1.0 - leftover_minmax  # Higher penalty for smaller leftovers
+    
+    # Predictive variance modeling: calculate variance delta for each bin
+    n = bins_remain_cap.size
+    current_sum = bins_remain_cap.sum()
+    current_sum_sq = (bins_remain_cap**2).sum()
+    
+    # Vectorized variance delta calculation
+    old_val = bins_remain_cap
+    new_val = old_val - item
+    new_sum = current_sum - item
+    new_sum_sq = current_sum_sq - old_val**2 + new_val**2
+    
+    new_mean = new_sum / n
+    new_var = (new_sum_sq / n) - new_mean**2
+    current_var = (current_sum_sq / n) - (current_sum / n)**2
+    
+    delta_var = new_var - current_var  # Negative delta improves balance
+    predictive_balance = -delta_var    # Higher = better balance impact
+    
+    # Core synergy with balance reinforcement
+    synergy = fit_weight * fit_norm + tight_weight * tight_norm + predictive_balance_weight * predictive_balance
+    
+    # Final priority with static fragmentation control
+    priority = synergy - frag_weight * frag_penalty
+    
+    return np.where(eligible, priority, -np.inf)

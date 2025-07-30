@@ -1,0 +1,112 @@
+[
+  {
+    "stdout_filepath": "problem_iter2_response0.txt_stdout.txt",
+    "code_path": "problem_iter2_code0.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Priority combining inv_waste, utilization, and exp_waste with adaptive tie-breaking for real-time opt.\"\"\"\n    mask = bins_remain_cap >= item\n    scores = np.full_like(bins_remain_cap, -np.inf)\n    if not mask.any():\n        return scores\n    \n    eps = 1e-9\n    remaining = bins_remain_cap[mask]\n    \n    # v0-derived factors: inv_leftover + utilization\n    inv_leftover = 1.0 / (remaining - item + eps)\n    utilization = item / (remaining + eps)\n    \n    # v1-derived exponential sensitivity to waste\n    exp_waste = np.exp(-(remaining - item))\n    \n    # Dynamic synergy: Combine v0's stability with v1's waste-awareness\n    # Weights chosen to preserve metric dominance while allowing adaptive tie-breaking\n    scores[mask] = inv_leftover + utilization + 0.1 * exp_waste\n    return scores",
+    "response_id": 0,
+    "tryHS": false,
+    "obj": 4.01874750698045,
+    "SLOC": 14.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response1.txt_stdout.txt",
+    "code_path": "problem_iter2_code1.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines Best Fit for large items and fit+utilization for small items using dynamic thresholding and adaptive tie-breaking.\"\"\"\n    if len(bins_remain_cap) == 0:\n        return np.array([], dtype=np.float64)\n    \n    C_est = bins_remain_cap.max()\n    valid = bins_remain_cap >= item\n    \n    if not np.any(valid):\n        return -np.inf * np.ones_like(bins_remain_cap)\n    \n    # Dynamic thresholds and metrics\n    avg_remain = bins_remain_cap.mean()\n    is_large = item > avg_remain\n    \n    fit_score = item - bins_remain_cap  # Best Fit priority\n    utilization = (C_est - bins_remain_cap + item) / C_est  # Utilization ratio after placement\n    \n    # Adaptive tie-breaker weight scaled by bin capacity\n    epsilon = 1e-6 * C_est  # Small dynamic weight to prevent dominance\n    \n    # Combine strategies based on item size\n    priority = np.where(\n        valid,\n        fit_score + (~is_large) * epsilon * utilization,\n        -np.inf\n    )\n    \n    return priority",
+    "response_id": 1,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 14.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response2.txt_stdout.txt",
+    "code_path": "problem_iter2_code2.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Priority combining dynamic item size classification and adaptive tie-breaking.\n    \n    Uses current mean remaining capacity to classify item as large/small.\n    Adjusts tie-breaking weight (epsilon) to prioritize utilization for small items.\n    \"\"\"\n    if len(bins_remain_cap) == 0:\n        return np.array([], dtype=np.float64)\n    \n    # Dynamic threshold based on current average remaining capacity\n    threshold = np.mean(bins_remain_cap)\n    large_item = item > threshold\n    \n    valid = bins_remain_cap >= item\n    if not np.any(valid):\n        return -np.inf * np.ones_like(bins_remain_cap)\n    \n    remaining_after = bins_remain_cap - item\n    \n    # Adaptive epsilon weights based on item size classification\n    if large_item:\n        # Prioritize minimal leftover with small tie-breaker (v0-like)\n        epsilon = 1e-6\n    else:\n        # Prioritize tighter packing with larger tie-breaker for small items\n        epsilon = 1e-3\n    \n    priority = -remaining_after - epsilon * bins_remain_cap\n    return np.where(valid, priority, -np.inf)",
+    "response_id": 2,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 14.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response3.txt_stdout.txt",
+    "code_path": "problem_iter2_code3.py",
+    "code": "import numpy as np\nimport random\nimport math\nimport scipy\nimport torch\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines Best Fit with dynamic tie-breaking by utilization ratio scaled adaptively.\n    \n    Uses Best Fit's negative leftover space as primary priority, augmented with a \n    dynamic epsilon-weighted utilization ratio (item/bin_remaining) for tie-breaking.\n    Epsilon scales inversely with leftover standard deviation to balance adaptability \n    and stability.\n    \"\"\"\n    mask = bins_remain_cap >= item\n    leftover = bins_remain_cap - item\n    best_fit = -leftover\n    \n    # Dynamic epsilon based on leftover variance (less variance => higher epsilon)\n    valid_leftover = leftover[mask]\n    std = np.std(valid_leftover) if len(valid_leftover) > 1 else 1e-6\n    epsilon = 1e-4 / (std + 1e-9)\n    \n    # Utilization ratio (item / remaining_cap) as adaptive tie-breaker\n    utilization = np.zeros_like(bins_remain_cap, dtype=np.float64)\n    np.divide(item, bins_remain_cap, where=mask, out=utilization)\n    \n    # Combined priority with dynamic scaling\n    priority = np.where(mask, best_fit + epsilon * utilization, -np.inf)\n    return priority",
+    "response_id": 3,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 14.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response4.txt_stdout.txt",
+    "code_path": "problem_iter2_code4.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Hybrid priority using inverse leftover space and utilization ratio with dynamic weight adjustment.\n    Inspired by synergy of v0's best-fit focus and v1's threshold adaptability, combining:\n        1. Inverse leftover minimization for large items (exponential decay effect)\n        2. Utilization ratio tie-breaking for small items\n        3. Dynamic weights based on item-to-mean-capacity ratio\n    \"\"\"\n    if bins_remain_cap.size == 0:\n        return np.array([], dtype=np.float64)\n        \n    eligible = bins_remain_cap >= item\n    mean_remain = np.mean(bins_remain_cap)\n    \n    # Base metrics for eligible bins\n    cap_elig = bins_remain_cap[eligible]\n    leftover = cap_elig - item\n    \n    # Inverse leftover (epsilon prevents division by zero, dominates for large items)\n    inv_leftover = 1.0 / (leftover + 1e-9)\n    # Bin utilization (higher = more filled, better for small items)\n    utilization = 1.0 - cap_elig\n    \n    # Dynamic weight adjustment: emphasizes leftover for large items, utilization for small items\n    leftover_weight = 1.0 + np.clip((item - mean_remain) / max(mean_remain, 0.1), 0, 1)\n    util_weight = 1.0 + np.clip((mean_remain - item) / max(mean_remain, 0.1), 0, 1)\n    \n    # Combined priority (product synergy with weighted components)\n    priority_value = (inv_leftover * leftover_weight) * (utilization * util_weight)\n    \n    # Initialize result with -inf for non-eligible\n    priority = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)\n    priority[eligible] = priority_value\n    return priority",
+    "response_id": 4,
+    "tryHS": false,
+    "obj": 149.30195452732352,
+    "SLOC": 14.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response5.txt_stdout.txt",
+    "code_path": "problem_iter2_code5.py",
+    "code": "import numpy as np\nimport random\nimport math\nimport scipy\nimport torch\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Priority combining fit quality and dynamic utilization adjustment.\n    \n    Prioritizes bins with:\n    1. Sufficient capacity to fit the item (ineligible bins get -inf)\n    2. A score combining (1) perfect fit bias using inverse leftover, and (2) \n       dynamic weighting by bin utilization ratio measured via remaining capacity.\n    \"\"\"\n    if bins_remain_cap.size == 0:\n        return np.array([], dtype=np.float64)\n    \n    orig_cap = np.max(bins_remain_cap)\n    if orig_cap <= 1e-9 or item <= 1e-9:\n        # Fallback to v0 when capacity not determined or item negligible\n        return np.where(\n            bins_remain_cap >= item,\n            1.0 / (bins_remain_cap - item + 1e-9),\n            -np.inf\n        )\n    \n    eligible = bins_remain_cap >= item\n    utilization = (orig_cap - bins_remain_cap) / orig_cap\n    \n    leftover = bins_remain_cap - item\n    fit_quality = 1.0 / (leftover + 1e-9)\n    \n    # Dynamic synergy: amplify fit quality in more utilized bins\n    scores = fit_quality * (1 + utilization)\n    return np.where(eligible, scores, -np.inf)",
+    "response_id": 5,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 14.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response6.txt_stdout.txt",
+    "code_path": "problem_iter2_code6.py",
+    "code": "import numpy as np\nimport random\nimport math\nimport scipy\nimport torch\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines Best Fit with dynamic hybrid Worst Fit using real-time average to reduce fragility and improve bin usage.\"\"\"\n    can_fit = bins_remain_cap >= item\n    \n    # Calculate dynamic threshold based on average remaining capacity\n    avg_remaining = np.mean(bins_remain_cap) if bins_remain_cap.size else 1.0\n    \n    # Switch between best-fit and worst-fit based on item size relative to current system state\n    if item > avg_remaining:\n        # Best Fit for larger items: minimize leftover space (directly from v0)\n        priority = np.where(can_fit, -(bins_remain_cap - item), -np.inf)\n    else:\n        # Worst Fit for smaller items: preserve larger gaps (enhanced by v1's non-tight logic)\n        priority = np.where(can_fit, bins_remain_cap - item, -np.inf)\n    \n    return priority",
+    "response_id": 6,
+    "tryHS": false,
+    "obj": 149.30195452732352,
+    "SLOC": 14.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response7.txt_stdout.txt",
+    "code_path": "problem_iter2_code7.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Adaptive priority combining tight-fit best-fit & small-item worst-fit with utilization tie-breaker.\"\"\"\n    possible = bins_remain_cap >= item\n    leftover = bins_remain_cap - item\n    \n    # Dynamic tightness threshold per bin (item > 50% of current bin capacity)\n    tight = (item > bins_remain_cap / 2) & possible\n    \n    # Primary heuristics: Best Fit for tight fits, Worst Fit for others\n    primary = np.where(tight, -leftover, leftover)\n    \n    # Tie-breaker: Bin utilization (normalized current occupancy) with epsilon weight\n    utilization = 1 - bins_remain_cap\n    tie_breaker = 1e-6 * utilization  # Small weight to avoid overriding primary rules\n    \n    # Composite priority: synergized primary decision + adaptive utilization bias\n    priority = primary + tie_breaker\n    \n    return np.where(possible, priority, -np.inf)",
+    "response_id": 7,
+    "tryHS": false,
+    "obj": 88.67171918627844,
+    "SLOC": 14.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response8.txt_stdout.txt",
+    "code_path": "problem_iter2_code8.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"\n    Priority combines Best Fit (leftover minimization) and Worst Fit (remaining space maximization) dynamically.\n    Weighting adjusts based on item's relative size to current maximum bin capacity estimate.\n    \"\"\"\n    if len(bins_remain_cap) == 0:\n        return np.array([], dtype=np.float64)\n    \n    C_est = bins_remain_cap.max()\n    valid = bins_remain_cap >= item\n    \n    if not np.any(valid):\n        return -np.inf * np.ones_like(bins_remain_cap)\n    \n    relative_size = item / C_est\n    weight = relative_size ** 2  # Dynamic weight emphasizes Best Fit for larger items\n    \n    # Blend Best Fit and Worst Fit: [0, 1] weight on Best Fit, [1, 0] on Worst Fit\n    priorities = np.where(valid,\n                          weight * (item - bins_remain_cap) + (1 - weight) * bins_remain_cap,\n                          -np.inf)\n    return priorities",
+    "response_id": 8,
+    "tryHS": false,
+    "obj": 144.31591543677703,
+    "SLOC": 14.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response9.txt_stdout.txt",
+    "code_path": "problem_iter2_code9.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"\n    Returns priority scores combining inverse leftover space, utilization ratio, \n    and exponential decay of leftover space to prioritize tight fits and efficient packing.\n    Adapts synergy across multi-metric factors for better real-time bin selection.\n    \"\"\"\n    mask = bins_remain_cap >= item\n    scores = np.full_like(bins_remain_cap, -np.inf)\n    if not mask.any():\n        return scores\n    \n    eps = 1e-9\n    s_j = bins_remain_cap[mask]\n    # Inverse of leftover space (heavily favors tight fits)\n    inv_leftover = 1.0 / (s_j - item + eps)\n    # Item-to-remaining capacity utilization (promotes filling available space)\n    utilization = item / (s_j + eps)\n    # Exponential decay penalty for non-perfect fits (sharp disincentive for large leftover)\n    leftover = s_j - item\n    exp_decay = np.exp(-leftover)  # Normalize by input size for stability if needed\n    \n    # Dynamic synergy: sum of complementary metrics\n    combined = inv_leftover * (1 + utilization) + exp_decay\n    scores[mask] = combined\n    return scores",
+    "response_id": 9,
+    "tryHS": false,
+    "obj": 4.108496210610296,
+    "SLOC": 14.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  }
+]

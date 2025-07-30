@@ -1,0 +1,51 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    mask = bins_remain_cap >= item
+    scores = np.full_like(bins_remain_cap, -np.inf)
+    if not mask.any():
+        return scores
+
+    eps = 1e-9
+    remaining = bins_remain_cap[mask]
+    
+    # Global state monitoring
+    system_avg = bins_remain_cap.mean()
+    system_std = bins_remain_cap.std()
+    system_cv = system_std / (system_avg + eps)  # Coefficient of variation
+    
+    # Core heuristic components
+    leftover = remaining - item
+    inv_leftover = 1.0 / (leftover + eps)
+    utilization = item / (remaining + eps)
+    exp_waste = np.exp(-leftover)
+    
+    # Adaptive balancing logic
+    remaining_after = remaining - item
+    load_balance_factor = np.abs(remaining_after - system_avg)
+    load_balance_score = -load_balance_factor  # Prioritize bins reducing systemic imbalance
+    
+    # Fragmentation mitigation term (entropy-aware)
+    fragmentation_penalty = np.log1p(1.0 / (leftover + system_cv))
+    
+    # Dynamic weighting strategy
+    w_inv = 1.0 + 0.7 * system_cv  # Inverse left weight increases with system variance
+    w_util = 0.9 / (1.0 + np.exp(-utilization * 2))  # S-shaped activation based on local fit
+    w_balance = 2.0 * system_cv  # Balance importance scales with fragmentation level
+    
+    # Real-time validation layer - self-consistency check
+    fit_consistency = 1.0 / (1e-6 + np.abs(remaining_after - (1.0 - system_avg)))
+    
+    # Multimodal synergy calculation
+    scores[mask] = (
+        w_inv * inv_leftover + 
+        w_util * utilization + 
+        w_balance * load_balance_score + 
+        0.5 * exp_waste * (1 + system_cv) +
+        fragmentation_penalty * (1/system_cv if system_cv > 1 else 1) +
+        fit_consistency
+    )
+    
+    return scores
+```

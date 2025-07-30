@@ -1,0 +1,44 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Priority combining residual minimization, adaptive fragmentation penalties, and item-relative rewards with dual thresholding.
+    
+    Combines v0's dynamic thresholds (feasible-bin statistics) with v1-inspired fragmentation control:
+    - Residual minimization via linear penalty
+    - Dual exponential penalties for fragmentation avoidance (mu±std thresholds)
+    - Item-relative reward scaled by bin/item context
+    - Rigorous feasibility masking (-∞ for invalid bins)
+    """
+    feasible = bins_remain_cap >= item
+    if not feasible.any():
+        return np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    r = bins_remain_cap - item
+    feasible_r = r[feasible]
+    
+    # Dynamic context-aware parameters from feasible bins
+    mu = feasible_r.mean()
+    std = feasible_r.std()
+    tau = mu + std + 1e-9  # Scale factor for exponential terms
+    beta = item / tau      # Item-to-bin capacity ratio
+    
+    # Core components
+    residual_term = -r  # Prefer smaller residuals
+    
+    # Fragmentation penalty (v0-style): penalize small residuals globally
+    frag_term = -beta * np.exp(-r / tau)
+    
+    # Threshold penalty (v1-inspired): penalize residuals below (mu - std)
+    threshold_floor = mu - std
+    delta = np.clip(threshold_floor - r, 0.0, None)  # Non-zero for underfilled bins
+    threshold_term = -beta * np.exp(-delta / (tau + 1e-9))
+    
+    # Item-relative reward: high reward when residual/item ratio is small
+    with np.errstate(divide='ignore', invalid='ignore'):
+        item_rel_scale = r / (item + 1e-9)
+    item_rel_reward = np.exp(-item_rel_scale)
+    
+    # Multi-objective score blending
+    score = residual_term + frag_term + threshold_term + item_rel_reward
+    
+    return np.where(feasible, score, -np.inf).astype(np.float64)
+```

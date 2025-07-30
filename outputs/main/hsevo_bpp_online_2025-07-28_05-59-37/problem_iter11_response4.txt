@@ -1,0 +1,84 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Entropy-adapted Z-synergy with item-size pathing and continuity tiebreakers.
+    
+    Combines tunable tight/util synergy where weights depend on item size relative to 
+    bin medians, enhanced fragmentation control with system entropy memory, and
+    continuity-sensitive tiebreakers leveraging leftover clustering predictivity.
+    """
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=np.float64)
+    
+    eps = 1e-9
+    mask = bins_remain_cap >= item
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    if not mask.any():
+        return scores
+
+    origin_cap = bins_remain_cap.max()
+    rem_cap = bins_remain_cap[mask]
+    leftover = rem_cap - item
+
+    # Use tight_fit with exponential sensitivity adjustment
+    inv_waste = 1.0 / (leftover + eps)
+    exp_tight = np.exp(-2.0 * leftover / (origin_cap + eps))
+    tight_fit = inv_waste + 2.0 * exp_tight
+
+    # Utilization metric with floor regularization
+    bin_util = (origin_cap - rem_cap) / (origin_cap + eps)
+
+    # Z-score normalization with bias correction
+    t_mean, t_std = tight_fit.mean(), tight_fit.std(ddof=1)
+    u_mean, u_std = bin_util.mean(), bin_util.std(ddof=1)
+    z_tight = (tight_fit - t_mean) / (t_std + 1.2 * eps)
+    z_util = (bin_util - u_mean) / (u_std + 1.2 * eps)
+
+    # System entropy from logarithmic cap distribution
+    log_caps = np.log(bins_remain_cap[ bins_remain_cap > 0 ] + eps)
+    if log_caps.size > 1:
+        entropic_scale = log_caps.std()  # Higher sensitivity to distributional shape
+    else:
+        entropic_scale = 0.0
+    
+    # Item sizing heuristic relative to active bins
+    active_caps = bins_remain_cap[ bins_remain_cap > 0 ]
+    median_cap = np.median(active_caps) if active_caps.size else origin_cap
+    is_small_item = item / (median_cap + eps) < 0.75
+
+    # Predictive synergy formulation
+    entropy_amp = (1.0 + entropic_scale) ** 1.5
+    
+    if is_small_item:
+        tight_weight = 1.8 + entropy_amp  # Priority small-item consolidation
+        util_weight = 0.3  # Prevent underutilization penalty
+    else:
+        tight_weight = 1.0 
+        util_weight = 1.2 + entropy_amp  # Reward fuller bins
+    
+    synergy = (tight_weight * z_tight) * (1.0 + (util_weight * z_util))
+
+    # Enhanced frag control with lifetime decay
+    leftover_norm = leftover / (origin_cap + eps)
+    base_frag = -np.expm1(-leftover_norm ** 1.25)
+    cap_highway = np.exp(-3.0 * ((leftover - median_cap)**2) / ((origin_cap * 0.4)**2 + eps))
+    frag_penalty = base_frag - cap_highway  # EPS decay for cluster alignment
+
+    # Dynamic weight with memory effects
+    entropic_activity = bins_remain_cap.shape[0] / (origin_cap + eps)
+    frag_weight = 0.8 * entropy_amp * (1.0 + entropic_activity) 
+
+    # Core score calculation
+    scores_masked = synergy - (frag_weight * frag_penalty)
+
+    # Tiebreakers with thermalization
+    if active_caps.size > 2:
+        # Preserve topological continuity through spectral alignment
+        dist_to_mean = np.abs(leftover - rem_cap.mean()) / rem_cap.std()
+        continuity_bonus = np.exp(-0.7 * dist_to_mean)
+        scores_masked += 0.15 * continuity_bonus  # Second-order reinforcement
+
+    scores[mask] = scores_masked
+    
+    return scores
+```
