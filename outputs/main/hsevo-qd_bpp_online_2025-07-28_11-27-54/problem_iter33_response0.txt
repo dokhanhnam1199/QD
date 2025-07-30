@@ -1,0 +1,55 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority scores using adaptive multi-objective blending with smooth exponential scoring.
+    
+    Combines residual minimization and bin density maximization via:
+    1. Context-aware weights based on item size relative to capacity distribution
+    2. Smooth exponential scoring with adaptive temperature scaling
+    3. Strict feasibility masking
+    
+    Args:
+        item: Size of the item to be packed.
+        bins_remain_cap: Array of remaining capacities for each bin.
+    
+    Returns:
+        Array of priority scores for each bin.
+    """
+    # Feasibility mask with strict -inf for invalid bins
+    feasible = bins_remain_cap >= item
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    if not np.any(feasible):
+        return scores
+    
+    # Extract valid bin states
+    valid_cap = bins_remain_cap[feasible]
+    valid_residual = valid_cap - item
+    
+    # Calculate bin density (used capacity fraction)
+    density = 1.0 - valid_cap
+    
+    # Adaptive weight calculation using item-to-mean ratio
+    mean_cap = np.mean(bins_remain_cap)
+    item_norm = item / (mean_cap + 1e-8)
+    
+    # Logistic weight transition based on normalized item size
+    weight_residual = 1.0 / (1.0 + np.exp(-4 * (item_norm - 0.5)))
+    weight_density = 1.0 - weight_residual
+    
+    # Adaptive temperature scaling using coefficient of variation
+    cap_std = np.std(bins_remain_cap)
+    temp = 1.0 + (cap_std / (mean_cap + 1e-8))  # CV-based temperature
+    
+    # Smooth exponential scoring components
+    residual_score = np.exp(-valid_residual * temp)
+    density_score = np.exp(density * temp)
+    
+    # Multi-objective blending
+    blended_score = weight_residual * residual_score + weight_density * density_score
+    
+    # Assign scores to feasible bins
+    scores[feasible] = blended_score
+    return scores
+```

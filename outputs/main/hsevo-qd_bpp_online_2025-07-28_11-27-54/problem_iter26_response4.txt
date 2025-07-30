@@ -1,0 +1,42 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Priority heuristic combining median-based thresholds with logistic blending of objectives.
+    
+    Uses robust statistics (median, MAD) for adaptive scaling, logistic interpolation between
+    residual minimization and item-relative rewards, and exponential fragmentation penalties.
+    Balances contextual density optimization with robustness to outlier bin states.
+    """
+    feasible = bins_remain_cap >= item
+    if not feasible.any():
+        return np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    r = bins_remain_cap - item
+    feasible_r = r[feasible]
+    
+    # Robust statistics using median and MAD
+    median_r = np.median(feasible_r)
+    mad_r = np.median(np.abs(feasible_r - median_r))
+    eps = 1e-9
+    tau = median_r + mad_r + eps  # Dynamic threshold with robust statistics
+    
+    # Core components
+    residual_objective = -r
+    beta = item / tau
+    fragmentation_penalty = -beta * np.exp(-r / tau)
+    
+    # Item-relative reward with logistic blending weight
+    item_rel_scale = np.clip(r / (item + eps), 0, None)
+    item_relative_reward = np.exp(-item_rel_scale)
+    
+    # Logistic interpolation weight based on residual vs threshold
+    logistic_weight = 1.0 / (1.0 + np.exp((r - tau) / (tau + eps) + eps))
+    
+    # Multi-objective combination with adaptive blending
+    score = (
+        logistic_weight * residual_objective + 
+        (1 - logistic_weight) * item_relative_reward + 
+        fragmentation_penalty
+    )
+    
+    return np.where(feasible, score, -np.inf).astype(np.float64)
+```

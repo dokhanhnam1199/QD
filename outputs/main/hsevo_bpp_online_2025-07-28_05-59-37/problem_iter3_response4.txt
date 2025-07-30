@@ -1,0 +1,157 @@
+```python
+import numpy as np
+from typing import Optional
+import collections
+import threading
+
+# Global state manager with adaptive learning capabilities
+class AdaptivePackingState:
+    _instance_lock = threading.Lock()
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            with cls._instance_lock:
+                if not cls._instance:
+                    cls._instance = super(AdaptivePackingState, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self, window_size=1000):
+        if hasattr(self, 'initialized'):
+            return
+            
+        self.utilization_weight = 0.4
+        self.waste_weight = 0.5
+        self.entropy_weight = 0.1
+        self.capacity_history = collections.deque(maxlen=window_size)
+        self.size_history = collections.deque(maxlen=window_size)
+        self.efficiency_weights = collections.deque(maxlen=100)
+        self.preference_trend = collections.deque(maxlen=100)
+        self.lock = threading.Lock()
+        self.initialized = True
+
+    def adapt_weights(self, item: float, valid_caps: np.ndarray, scores: np.ndarray):
+        """Dynamically adjust decision weights based based on item statistics and packing patterns."""
+        with self.lock:
+            # Update historical records
+            self.capacity_history.append(np.mean(valid_caps) if valid_caps.size > 0 else 0)
+            self.size_history.append(item)
+            
+            # Analyze distribution patterns
+            small_items = sum(sz <= 0.1 for sz in self.size_history)
+            large_items = sum(sz >= 0.7 for sz in self.size_history)
+            
+            # Basic decision making based on item statistics
+            if len(self.size_history) >= 10:
+                size_ratio = small_items / (large_items + 1)
+                
+                # Adjust weights in favor of entropy preservation when many small items
+                if size_ratio > 2 and self.entropy_weight < 0.35:
+                    self.entropy_weight += 0.025
+                elif size_ratio < 0.5 and self.entropy_weight > 0.05:
+                    self.entropy_weight -= 0.01
+                
+                # Adjust utilization weight based on score dynamics
+                if scores.size > 1:
+                    max_score = np.max(scores)
+                    second_best = np.partition(scores, -2)[-2] if scores.size > 1 else -np.inf
+                    
+                    # When choices are ambiguous, increase entropy weight
+                    if np.isfinite(second_best) and max_score < second_best * 1.2:
+                        self.entropy_weight = min(0.35, self.entropy_weight * 1.05)
+                        
+                # Recalibrate weights to sum to 1
+                total = self.utilization_weight + self.waste_weight + self.entropy_weight
+                self.utilization_weight = max(0.05, self.utilization_weight / (total + 1e-9))
+                self.waste_weight = max(0.05, self.waste_weight / (total + 1e-9))
+                self.entropy_weight = max(0.05, self.entropy_weight / (total + 1e-9))
+                
+            # Store current preference
+            if scores.size > 0 and np.isfinite(scores).any():
+                self.preference_trend.append(np.argmin(valid_caps) if valid_caps.size > 0 else 0)
+                
+state = AdaptivePackingState()
+
+def is_viable(item: float, capacity: np.ndarray) -> np.ndarray:
+    """Determine which bins can accept the current item."""
+    return capacity >= item
+
+def calculate_utilization(item: float, capacity: np.ndarray) -> np.ndarray:
+    """Compute utilization efficiency on a per-bin basis."""
+    return item / (capacity + 1e-9)
+
+def calculate_inverse_waste(item: float, capacity: np.ndarray) -> np.ndarray:
+    """Quantify wasted space in a inverse way - smaller waste = higher score."""
+    return 1.0 / (capacity - item + 1e-9)
+
+def calculate_fragility_impact(item: float, capacity: np.ndarray) -> np.ndarray:
+    """Calculate the potential fragility of each bin after accepting this item."""
+    mask = is_viable(item, capacity)
+    fragility = np.zeros_like(capacity)
+    
+    if mask.any():
+        used = capacity[mask] - item
+        fragility[mask] = 1.0 / (np.log2(used/item + 2) + 1e-9)
+    return fragility
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive packing heuristic that evolves based on item stream characteristics.
+    
+    Incorporates:
+    - Dynamic weight adjustment for different packing patterns
+    - Entropy-aware tie-breaking strategy
+    - Fragility analysis to prevent capacity traps
+    - Self-optimization based on historical feedback
+    
+    Objectives:
+    1. Maximize capacity utilization
+    2. Minimize wasted space
+    3. Preserve packing flexibility
+    4. Adapt to item distributions in real-time
+    
+    Args:
+        item: Size of item to pack
+        bins_remain_cap: Array of remaining capacities for each bin
+    
+    Returns:
+        np.ndarray: Priority scores for each bin
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    # Filter viable bins
+    viable = is_viable(item, bins_remain_cap)
+    if not viable.any():
+        return scores
+    
+    # Calculate core metrics
+    cap_viable = bins_remain_cap[viable]
+    utilization = calculate_utilization(item, cap_viable)
+    inverse_waste = calculate_inverse_waste(item, cap_viable)
+    fragility = calculate_fragility_impact(item, cap_viable)
+    
+    # Combine components with adaptive weights
+    core_array = (
+        state.utilization_weight * utilization +
+        state.waste_weight * inverse_waste +
+        state.entropy_weight * fragility
+    )
+    
+    # Tie-breaking mechanism
+    # When scores are too close, prefer bins slightly larger than item size
+    if np.count_nonzero(viable) > 1 and np.any(np.isclose(core_array, np.max(core_array), atol=1e-9)):
+        delta = (cap_viable - item) / (cap_viable + 1e-9)
+        secondary_key = -delta  # Prefer smaller deltas (better fits)
+        
+        # Add a small boost to differentiate near-equal scores
+        core_array += 0.001 * secondary_key
+    
+    # Update scores array
+    scores[viable] = core_array
+    
+    # Update adaptive state for next iteration
+    cap_used = cap_viable if viable.any() else np.array([])
+    state.adapt_weights(item, cap_used, scores[scores != -np.inf])
+    
+    return scores
+```

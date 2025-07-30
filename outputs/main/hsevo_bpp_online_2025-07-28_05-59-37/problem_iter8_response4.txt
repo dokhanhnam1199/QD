@@ -1,0 +1,37 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Z-score normalized synergy of tight-fit and utilization + entropy-aware balancing via system variance."""
+    eps = 1e-9
+    mask = bins_remain_cap >= item
+    scores = np.full_like(bins_remain_cap, -np.inf)
+    
+    if not mask.any():
+        return scores
+    
+    C_est = bins_remain_cap.max() if bins_remain_cap.size > 0 else 1.0
+    remaining = bins_remain_cap[mask]
+    
+    # Core metrics
+    leftover = remaining - item + eps
+    inv_leftover = 1.0 / leftover
+    utilization = item / (remaining + eps)
+    
+    # Multi-metric synergy normalized per-z-score
+    multiplicative_term = inv_leftover * utilization
+    z_ilu = (multiplicative_term - multiplicative_term.mean()) / (multiplicative_term.std() + eps)
+    
+    # Adaptive fragmentation penalty with exponential waste decay
+    norm_leftover = leftover / C_est
+    exp_waste = np.exp(-norm_leftover)
+    z_exp = (exp_waste - exp_waste.mean()) / (exp_waste.std() + eps)
+    
+    # Entropy control via load balance (normalized filled fraction)
+    filled_frac = (C_est - remaining) / C_est
+    system_var = np.var(bins_remain_cap) / (C_est**2 + eps)
+    load_balance_term = filled_frac * (1 + system_var)
+    z_balance = (load_balance_term - load_balance_term.mean()) / (load_balance_term.std() + eps)
+    
+    # Hierarchical score with entropy-weighted tie-breaking
+    scores[mask] = z_ilu + 0.1 * z_exp + 0.05 * system_var * z_balance
+    return scores
+```

@@ -1,0 +1,61 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Z-score normalized balance with exponential utilization boosting and adaptive component weights.
+    
+    Combines dynamic BF/WF tendencies separated by item class with entropy-driven balance control 
+    and hierarchical tie-breakers using:
+    - Adaptive weights based on system CV and leftover variance
+    - Exponential utilization enhancement for dynamic differentiation
+    - Multi-metric synergy (tightness + balance + utilization)
+    - Z-score normalization of key components
+    """
+    if len(bins_remain_cap) == 0:
+        return np.array([], dtype=np.float64)
+    
+    valid_mask = bins_remain_cap >= item
+    priority = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    if not np.any(valid_mask):
+        return priority
+    
+    # System metrics
+    system_avg = bins_remain_cap.mean()
+    system_std = bins_remain_cap.std()
+    system_cv = system_std / (system_avg + 1e-9) if system_avg > 1e-9 else 0.0
+    
+    # Item classification
+    large_item = item > system_avg  # Threshold at system mean
+    
+    # Primary metrics
+    leftover = bins_remain_cap - item
+    valid_leftover = leftover[valid_mask]
+    
+    # Exponential utilization enhancement
+    utilization = np.zeros_like(bins_remain_cap, dtype=np.float64)
+    np.divide(item, bins_remain_cap, where=valid_mask, out=utilization)
+    exp_util = np.exp(utilization * (1.5 if large_item else 2.5))  # Dynamic scaling
+    
+    # Z-score normalized components
+    tightness_z = (-leftover - system_avg) / (system_std + 1e-9)  # Negative space
+    bin_cap_z = (bins_remain_cap - system_avg) / (system_std + 1e-9)  # Fullness
+    
+    # Core terms
+    tightness_component = tightness_z - 1e-5 * bin_cap_z  # Encourage tighter fits
+    
+    # System balance term
+    load_balance = -np.abs(leftover - system_avg) / (system_std + 1e-9)
+    balance_weight = 1.5 * np.sqrt(system_cv) * (1.5 if not large_item else 1.0)
+    
+    # Entropy-regularized tiebreaker
+    leftover_std = np.std(valid_leftover) if len(valid_leftover) > 1 else 1e-6
+    util_weight = 0.8 / (leftover_std + 1e-9)
+    
+    # Synergistic combination
+    priority[valid_mask] = (
+        tightness_component[valid_mask] * (1.2 if large_item else 1.0)
+        + balance_weight * load_balance[valid_mask]
+        + util_weight * exp_util[valid_mask]
+    )
+    
+    return priority
+```

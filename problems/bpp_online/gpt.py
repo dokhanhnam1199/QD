@@ -1,10 +1,10 @@
 import numpy as np
-import random
-import math
-import scipy
-import torch
+
 def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
-    """Returns priority with which we want to add item to each bin.
+    """Returns priority scores for bins based on Best Fit heuristic.
+
+    Bins that can fit the item are prioritized by smallest remaining capacity after placement.
+    Infeasible bins receive -inf priority.
 
     Args:
         item: Size of item to be added to the bin.
@@ -13,4 +13,6 @@ def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
     Return:
         Array of same size as bins_remain_cap with priority score of each bin.
     """
-    return np.zeros_like(bins_remain_cap)
+    can_fit = bins_remain_cap >= item
+    priority = np.where(can_fit, -(bins_remain_cap - item), -np.inf)
+    return priority

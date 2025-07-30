@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    mask = bins_remain_cap >= item
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    if not mask.any():
+        return scores
+
+    eps = 1e-9
+    remaining = bins_remain_cap[mask].astype(np.float64)
+    
+    # Base factors from v1
+    leftover = remaining - item
+    inv_leftover = 1.0 / (leftover + eps)
+    utilization = item / (remaining + eps)
+    exp_waste = np.exp(-leftover)
+    
+    # Dynamic weight adjustment based on relative item size and distribution entropy
+    mean_remaining = remaining.mean()
+    std_remaining = remaining.std()
+    relative_size = np.clip(item / (mean_remaining + eps), 0, 1)  # normalize to [0,1]
+    
+    # Adaptive weights via piecewise functions inspired by real-time bin status
+    w_inv = (relative_size**2 + (std_remaining/(mean_remaining + eps))) 
+    w_uti = (1 - relative_size)**2
+    w_exp = 0.5 * (1 + relative_size * std_remaining)
+    
+    # Fragmentation/entropy-based tiebreaker: variance normalization
+    bin_count = bins_remain_cap.size
+    sum_old = bins_remain_cap.sum()
+    sum_squares_old = (bins_remain_cap**2).sum()
+    delta_sum_squares = (-2 * item * remaining + item**2)
+    sum_squares_new = sum_squares_old + delta_sum_squares
+    mu_new = (sum_old - item) / bin_count
+    variance_new = (sum_squares_new / bin_count) - mu_new**2
+    
+    # Adaptation tweak: calculate sensitivity of variance contribution
+    moment_ratio = np.sqrt(np.abs(variance_new + eps)) + 1e-5
+    
+    # Dynamic score composition: combine weighted base factors and normalized variance difference
+    main_score = (w_inv * inv_leftover) + (w_uti * utilization) + (w_exp * exp_waste)
+    tie_breaker = -variance_new / moment_ratio  # Prefer lower variance outcomes
+    
+    # Final score with auto-scaled tiebreaker using magic (could be further optimized)
+    scores[mask] = main_score + 1e-4 * tie_breaker
+    
+    return scores
+```

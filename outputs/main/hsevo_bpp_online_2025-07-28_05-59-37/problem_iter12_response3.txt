@@ -1,0 +1,92 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=np.float64)
+    
+    eps = 1e-9
+    if item < eps:
+        return np.where(
+            bins_remain_cap >= 0, 
+            -np.log(bins_remain_cap + eps) * (bins_remain_cap > 0) + 1e-3,
+            -np.inf
+        )
+    
+    eligible = bins_remain_cap >= item
+    if not np.any(eligible):
+        return np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    # System state analytics
+    sys_avg = np.mean(bins_remain_cap)
+    sys_std = np.std(bins_remain_cap)
+    sys_cv = sys_std / (sys_avg + eps)
+    
+    # Placement metrics
+    avail_cap = bins_remain_cap[eligible]
+    remain_cap_post = np.where(eligible, bins_remain_cap - item, bins_remain_cap)
+    tightness = item / (avail_cap + eps)
+    leftover = avail_cap - item
+    
+    # Reinforcement learning-inspired reward structure
+    fit_reward = 1.0 / (leftover + eps) * item
+    tightness_reward = 1.0 / (tightness + 1e-3)
+    variance_reward = -np.abs(leftover - sys_avg)
+    
+    gradient_magnitude = abs(np.gradient(bins_remain_cap)).mean() + eps
+    adaptive_rate = 1.0 / (1.0 + gradient_magnitude)
+    
+    reward = (
+        .5 * fit_reward + 
+        .35 * tightness_reward + 
+        .15 * variance_reward
+    ) * adaptive_rate
+    
+    # Entropy forecasting matrix
+    entropy_base = -(bins_remain_cap / sys_avg) * np.log(bins_remain_cap / sys_avg + eps)
+    
+    entropy_forecast = -(
+        remain_cap_post / sys_avg
+    ) * np.log(remain_cap_post / sys_avg + eps)
+    
+    entropy_diff = entropy_forecast - entropy_base
+    
+    imbalance_sensitivity = 1.0 / (abs(remain_cap_post - sys_avg) + 1e-4)
+    imbalance_sensitivity /= imbalance_sensitivity.sum() + eps
+    
+    entropy_gain = np.where(
+        eligible, -entropy_diff * tightness, -np.inf
+    )
+    entropy_gain_norm = (entropy_gain - np.min(entropy_gain)) / (np.ptp(entropy_gain) + eps)
+    
+    # Sensitivity-adjusted lookahead policy
+    lookahead_policy = np.exp(-(bins_remain_cap / (sys_avg + eps)) ** 2) * entropy_gain_norm
+    
+    # Multi-scale sensitivity harmonization
+    grad_order1 = np.gradient(bins_remain_cap)
+    grad_order2 = np.gradient(grad_order1)
+    
+    state_complexity = np.clip(abs(grad_order2), 0, 1)
+    complexity_sensitivity = 1.0 - np.tanh(sys_cv)
+    
+    mixed_sensitivity = .4 * tightness + .3 * (leftover / sys_avg) * (1 - complexity_sensitivity) + \
+                        .3 * abs(grad_order2) * complexity_sensitivity
+    
+    # Adaptive weight matrix with entropy flow dynamics
+    smoothed_state = np.convolve(bins_remain_cap, np.ones(5)/5, mode='same')
+    state_change = abs(remain_cap_post - smoothed_state)
+    entropy_flow = np.where(eligible, 1.0 / (state_change + 1e-4), -np.inf)
+    
+    reward_weight = .3 + .7 * entropy_flow / (entropy_flow.max() + eps)
+    entropy_weight = .5 + .5 * (1 / (1 + np.exp(-sys_cv)))
+    
+    priority = (
+        reward_weight * reward + 
+        entropy_weight * lookahead_policy + 
+        .2 * entropy_gain_norm + 
+        .1 * mixed_sensitivity
+    )
+    
+    large_deviation = abs(bins_remain_cap - sys_avg) > 1.5 * sys_std
+    priority[large_deviation] *= .9
+    
+    return np.where(eligible, priority, -np.inf)
+```

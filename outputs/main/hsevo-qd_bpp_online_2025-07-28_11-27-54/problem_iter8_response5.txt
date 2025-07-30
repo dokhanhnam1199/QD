@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Priority function combining adaptive thresholds and item-relative smooth scoring.
+    
+    Uses harmonic mean for item size classification and smooth exponential blending of:
+    - Fit ratio efficiency
+    - Normalized underfill penalty
+    
+    Incorporates item-relative scaling through dynamically adjusted penalty decay rates 
+    to balance tight packing and fragmentation avoidance.
+    """
+    
+    if len(bins_remain_cap) == 0:
+        return np.array([])
+    
+    # Feasibility mask for valid bins
+    can_fit = bins_remain_cap >= item
+    
+    # Small epsilon to prevent division by zero
+    eps = 1e-9
+    
+    # Adaptive context analysis using harmonic mean
+    harmonic_mean = len(bins_remain_cap) / (np.sum(1.0 / (bins_remain_cap + eps)) + eps)
+    is_large = item > (harmonic_mean * 0.75)  # Softer threshold than v0
+    
+    # Post-placement metrics
+    remaining_after = bins_remain_cap - item
+    remaining_safe = np.clip(remaining_after, 0, None)
+    
+    # Core terms from v0 with enhanced adaptability
+    with np.errstate(divide='ignore', invalid='ignore'):
+        fit_ratio = item / (bins_remain_cap + eps)
+        
+        # Smooth capacity normalization relative to standard deviation
+        cap_deviation = bins_remain_cap.std() + eps
+        capacity_weighting = 1.0 + np.clip(
+            (bins_remain_cap - harmonic_mean) / cap_deviation, 
+            -1, 1
+        )
+        
+        # Dynamically scaled exponential components
+        fit_component = np.exp(fit_ratio * 2.5)  # Stronger emphasis on tight fits
+        
+        # Item-relative penalty scaling
+        normalized_residual = remaining_safe / (item + eps)
+        penalty_component = np.exp(-normalized_residual * 0.8)  # Partially inherits v1's item-relative logic
+    
+    # Adaptive strategy selection with blended components
+    if is_large:
+        # Prioritize tight packing with exponential dominance for large items
+        score = fit_component * penalty_component
+    else:
+        # Reward under-filled bins with mild preference for residual reduction
+        small_item_weight = capacity_weighting * 0.7 + 0.3
+        score = small_item_weight * np.sqrt(penalty_component)  # Slower decay for small item penalties
+    
+    # Final score masking and continuity enforcement
+    return np.where(can_fit, score * can_fit, -np.inf)
+```

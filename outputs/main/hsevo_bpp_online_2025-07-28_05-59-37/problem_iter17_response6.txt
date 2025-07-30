@@ -1,0 +1,78 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Hybrid priority combining min-max synergy, predictive variance analysis,
+    and stability-aware reinforcement for online BPP. Uses item classification
+    and fragmentation-anticipation penalties.
+    """
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=np.float64)
+    
+    if item <= 1e-9:
+        return np.where(bins_remain_cap >= 0, 0.01 * bins_remain_cap, -np.inf)
+    
+    eligible = bins_remain_cap >= item
+    if not np.any(eligible):
+        return np.full_like(bins_remain_cap, -np.inf)
+    
+    C_est = bins_remain_cap.max() if bins_remain_cap.max() > 0 else item * 2
+    
+    # Metric calculations
+    leftover = bins_remain_cap - item
+    tightness = item / (bins_remain_cap + 1e-9)
+    fit_score = 1.0 / (leftover + 1e-9)
+    
+    # Min-Max normalization
+    tight_min, tight_max = tightness[eligible].min(), tightness[eligible].max()
+    fit_min, fit_max = fit_score[eligible].min(), fit_score[eligible].max()
+    norm_tight = (tightness - tight_min) / (tight_max - tight_min + 1e-9)
+    norm_fit = (fit_score - fit_min) / (fit_max - fit_min + 1e-9)
+    
+    # Item classification and adaptive weights
+    is_large = item > 0.7 * C_est
+    fit_weight = 0.8 if is_large else 0.5
+    tight_weight = 0.2 if is_large else 0.5
+    base_score = fit_weight * norm_fit + tight_weight * norm_tight
+    
+    # Predictive variance modeling
+    n = len(bins_remain_cap)
+    current_sum = bins_remain_cap.sum()
+    current_sum_sq = (bins_remain_cap ** 2).sum()
+    current_var = (current_sum_sq / n) - (current_sum / n) ** 2
+    
+    new_cap_elig = bins_remain_cap[eligible] - item
+    delta_sq_elig = new_cap_elig**2 - bins_remain_cap[eligible]**2
+    new_sum_sq_elig = current_sum_sq + delta_sq_elig
+    new_mean_elig = (current_sum - item) / n
+    new_var_elig = (new_sum_sq_elig / n) - new_mean_elig**2
+    delta_var_elig = new_var_elig - current_var
+    
+    variance_term = np.zeros_like(bins_remain_cap, dtype=np.float64)
+    variance_term[eligible] = -delta_var_elig / (np.abs(current_var) + 1e-9)
+    
+    # Fragmentation anticipation
+    frag_term = np.zeros_like(bins_remain_cap)
+    frag_term[eligible] = np.exp(-leftover[eligible] / (C_est / 3 + 1e-9))
+    
+    # Stability preservation
+    median_cap = np.median(bins_remain_cap[eligible]) if eligible.any() else C_est
+    proximity = np.abs(bins_remain_cap - median_cap) / (C_est + 1e-9)
+    
+    # Priority assembly
+    priority = (
+        base_score
+        + 0.2 * variance_term
+        - 0.1 * frag_term
+        - 0.05 * proximity
+    )
+    
+    # Reinforcement decay
+    priority *= np.exp(-0.05 * leftover / (C_est + 1e-9))
+    
+    # Deterministic tie-breaking
+    priority += 1e-7 * (1.0 / (tightness + 1e-9)) * (1.0 / (proximity + 1e-9))
+    
+    return np.where(eligible, priority, -np.inf)
+```

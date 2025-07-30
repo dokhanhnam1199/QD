@@ -1,0 +1,50 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Priority combining utilization efficiency, inverse waste control, and 
+    fragility analysis with system load adaptive weighting.
+    
+    Key enhancements:
+    1. Multi-metric synergy: Captures capacity usage (utilization), waste penalty (inv_waste), and future flexibility (fragility)
+    2. Non-linear sensitivity: Sigmoid-based tie-breaking rewards near-perfect fits
+    3. System awareness: Weight modulation based on bin saturation levels
+    
+    Args:
+        item: Size of item to pack
+        bins_remain_cap: Array of remaining capacities for each bin
+    
+    Returns:
+        np.ndarray: Prioritized scoring matrix for bin assignment
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    viable = bins_remain_cap >= item
+    
+    if not viable.any():
+        return scores
+
+    cap_viable = bins_remain_cap[viable]
+    system_fullness = 1.0 - (np.mean(bins_remain_cap) / bins_remain_cap.max())
+
+    # Core fitness metrics
+    utilization = item / (cap_viable + 1e-9)           # Maximize usage
+    inv_waste = 1.0 / (cap_viable - item + 1e-9)       # Minimize critical space traps
+    fragility = np.log2(cap_viable - item + 2)         # Prevent unusable pockets
+    
+    # Dynamic weight initialization
+    weight_util = 0.35 * (1 + system_fullness)  # Higher when system is dense
+    weight_invw = 0.35                          # Base waste control
+    weight_frag = 0.3 * (1 - system_fullness)   # More conservation when sparse
+    
+    # Prioritize dense packing while keeping viability
+    core_metric = (weight_util * utilization) + (weight_invw * inv_waste) + (weight_frag / fragility)
+    
+    # Sigmoid-penalized tie-breaking for near-similar choices
+    if len(cap_viable) > 1 and np.ptp(core_metric) < 0.1:
+        waste_ratio = (cap_viable - item) / cap_viable
+        penalty = 0.0125 * (1 - (1 / (1 + np.exp(-6 * waste_ratio + 2))))
+
+        core_metric += penalty  # Favor slight overfill margins
+        
+    scores[viable] = core_metric
+    return scores
+```

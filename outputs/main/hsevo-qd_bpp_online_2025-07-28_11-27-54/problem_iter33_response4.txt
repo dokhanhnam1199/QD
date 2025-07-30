@@ -1,0 +1,41 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    can_fit = bins_remain_cap >= item
+    feasible_bins = bins_remain_cap[can_fit]
+    
+    if not np.any(can_fit):
+        return np.full_like(bins_remain_cap, -np.inf)
+    
+    # Residual-based component (Best Fit aspect)
+    residual_based = item - bins_remain_cap  # Higher = better (less negative)
+    
+    # Utilization-based component (density aspect)
+    utilization_based = 1.0 - bins_remain_cap  # Current bin utilization
+    
+    # Adaptive weight based on coefficient of variation (CV) of feasible remaining capacities
+    mean_remaining = feasible_bins.mean()
+    std_remaining = feasible_bins.std()
+    cv = std_remaining / (mean_remaining + 1e-8)
+    # Softened inverse CV weight prioritizes density when capacity variation is low
+    util_weight = 1.0 / (1.0 + np.sqrt(cv))
+    
+    # Z-score normalization for multi-objective balance
+    # Residual z-scores
+    res_mean = residual_based[can_fit].mean()
+    res_std = residual_based[can_fit].std()
+    res_z = (residual_based - res_mean) / (res_std + 1e-8)
+    
+    # Utilization z-scores
+    util_mean = utilization_based[can_fit].mean()
+    util_std = utilization_based[can_fit].std()
+    util_z = (utilization_based - util_mean) / (util_std + 1e-8)
+    
+    # Smooth logistic blending of normalized components
+    combined_z = (1.0 - util_weight) * res_z + util_weight * util_z
+    smooth_priority = np.tanh(combined_z)  # Smooth hyperbolic tangent squashing
+    
+    # Enforce feasibility mask
+    return np.where(can_fit, smooth_priority, -np.inf)
+```

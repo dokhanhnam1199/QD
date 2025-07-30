@@ -1,0 +1,42 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive item classification using median split with statistical exponential scoring.
+    Combines Worst/Best Fit duality with fragmentation avoidance via mu-sigma thresholding.
+    """
+    valid_mask = bins_remain_cap >= item
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    if not np.any(valid_mask):
+        return priorities
+    
+    mu = np.mean(bins_remain_cap)
+    sigma = np.std(bins_remain_cap)
+    epsilon = 1e-8
+    penalty_factor = 1.0 / (mu + epsilon)
+    threshold = mu - sigma  # Fragmentation threshold
+    
+    # Dynamic item classification using median remaining capacity
+    item_threshold = np.median(bins_remain_cap)
+    is_small_item = item <= item_threshold
+    
+    residual = bins_remain_cap - item
+    feasible_residual = residual[valid_mask]
+    
+    if is_small_item:
+        # Prioritize large remaining (Worst Fit) with scaled exponential
+        scores = np.exp(feasible_residual * penalty_factor)
+    else:
+        # Prioritize minimal residual (Best Fit) with scaled exponential
+        scores = np.exp(-feasible_residual * penalty_factor)
+    
+    # Apply fragmentation penalty for residual < threshold
+    delta = np.clip(threshold - feasible_residual, a_min=0.0, a_max=None)
+    penalty = np.exp(-delta * penalty_factor)
+    total_scores = scores * penalty
+    
+    priorities[valid_mask] = total_scores
+    return priorities
+```

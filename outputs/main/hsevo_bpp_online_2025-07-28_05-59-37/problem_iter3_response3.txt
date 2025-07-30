@@ -1,0 +1,49 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    mask = bins_remain_cap >= item
+    scores = np.full_like(bins_remain_cap, -np.inf)
+    if not mask.any():
+        return scores
+    
+    eps = 1e-9
+    remaining = bins_remain_cap[mask]
+    
+    # Adaptive statistics tracking
+    item_rel = item / (remaining.mean() + eps)
+    sigma = remaining.std()
+    skew = np.abs((remaining - remaining.mean()) / (sigma + eps))
+    entropy = -((remaining / (remaining.sum() + eps)) * np.log(remaining / (remaining.sum() + eps) + eps)).sum()
+    
+    # Dynamic component weights
+    best_weight = np.abs(np.log(item_rel + eps)) + entropy  # Stronger best-fit when skewed
+    balance_weight = 1 - item_rel + entropy  # Adapt to uniformity needs
+    frag_weight = item_rel  # Fragmentation penalty scales with item size
+    
+    # Core components (v1-inspired)
+    inv_leftover = 1.0 / (remaining - item + eps)
+    utilization = item / (remaining + eps)
+    exp_waste = np.exp(-(remaining - item))
+    
+    # Entropy-aware fragmentation metric
+    frag_mask = (remaining - item) < (remaining.mean() / (1 + skew.mean() + eps))
+    frag_penalty = np.where(frag_mask, 0.1, -0.1)  # Reward meaningful fragmentations
+    
+    # Adaptive bin utilization balance
+    balance_score = 1 / (1 + np.exp(2 * (remaining - (remaining.mean() + sigma))))
+    
+    # Synergistic score calculation
+    synergy_score = (
+        best_weight * inv_leftover +
+        balance_weight * balance_score +
+        0.5 * exp_waste +
+        frag_weight * frag_penalty
+    )
+    
+    # Adaptive tie-breaking via bin heterogeneity metrics
+    secondary_tiebreaker = -skew if entropy > 0.7 else skew
+    
+    scores[mask] = synergy_score + 0.01 * secondary_tiebreaker  # Small tilt for real-time adaptability
+    return scores
+```

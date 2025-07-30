@@ -1,0 +1,62 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=np.float64)
+    
+    orig_cap = np.max(bins_remain_cap)
+    if orig_cap <= 1e-9 or item <= 1e-9:
+        return np.where(
+            bins_remain_cap >= item,
+            bins_remain_cap - 2 * (bins_remain_cap - item),
+            -np.inf
+        )
+    
+    eligible = bins_remain_cap >= item
+    if not np.any(eligible):
+        return np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    
+    leftover = bins_remain_cap - item
+    utilization = 1.0 - bins_remain_cap / orig_cap
+    tightness = item / (bins_remain_cap + 1e-9)
+    fit_quality = 1.0 / (leftover + 1e-9)
+    
+    elig_indices = np.where(eligible)[0]
+    elig_fit = fit_quality[eligible]
+    elig_cap = bins_remain_cap[eligible]
+    
+    mean_fit, std_fit = np.mean(elig_fit), np.std(elig_fit)
+    mean_cap, std_cap = np.mean(elig_cap), np.std(elig_cap)
+    z_fit = (fit_quality - mean_fit) / (std_fit + 1e-9)
+    z_cap = (bins_remain_cap - mean_cap) / (std_cap + 1e-9)
+    
+    system_avg = np.mean(bins_remain_cap)
+    system_std = np.std(bins_remain_cap)
+    system_cv = system_std / (system_avg + 1e-9) if system_avg > 0 else 0
+    
+    n_bins = bins_remain_cap.size
+    s_total = bins_remain_cap.sum()
+    s2_total = (bins_remain_cap ** 2).sum()
+    delta_s2 = (leftover ** 2) - (bins_remain_cap ** 2)
+    new_s2 = s2_total + delta_s2
+    new_s = s_total - item
+    new_mean = new_s / n_bins
+    new_var = new_s2 / n_bins - new_mean ** 2
+    rel_variance = (new_var - np.std(bins_remain_cap) ** 2) / (np.std(bins_remain_cap) ** 2 + 1e-9)
+    entropy_penalty = np.where(eligible, -rel_variance, np.inf)
+    
+    spatial_sensitivity = np.abs(bins_remain_cap - system_avg) / (system_std + 1e-9)
+    sensitivity_weight = 1.0 / (spatial_sensitivity + 1e-9)
+    adaptive_weights = np.sqrt(system_cv ** 2) * sensitivity_weight
+    
+    fit_primary = z_fit * tightness + z_cap * spatial_sensitivity
+    entropy_response = entropy_penalty * np.exp(-utilization)
+    
+    priority = fit_primary * (1 + system_cv) + adaptive_weights * entropy_response
+    
+    # Perturbation mechanism
+    if np.any(eligible):
+        eps = 1e-6 * system_cv * (np.random.rand(n_bins) - 0.5)
+        priority += np.where(eligible, eps, 0)
+    
+    return np.where(eligible, priority, -np.inf)
+```

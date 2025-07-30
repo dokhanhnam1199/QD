@@ -1,0 +1,36 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    can_fit = bins_remain_cap >= item
+    eps = 1e-8
+    
+    # Adaptive statistics of current bin capacities
+    mu = np.mean(bins_remain_cap)
+    sigma = np.std(bins_remain_cap)
+    
+    # Dynamic threshold: bins below mu - sigma are prioritized
+    threshold = mu - sigma
+    
+    # Calculate remaining space after placement
+    remaining_after = bins_remain_cap - item
+    
+    # Fragmentation penalty using logistic decay (smooth gradient)
+    frag_penalty = 1.0 / (1.0 + np.exp((remaining_after - threshold) / (sigma + eps)))
+    
+    # Fit component: rewards tight fits (negative of remaining space)
+    fit_component = -remaining_after
+    
+    # Future capacity component: rewards alignment with threshold using quadratic smoothness
+    future_component = -np.square((remaining_after - threshold) / (sigma + eps))
+    
+    # Dynamic multi-objective blending based on current distribution spread
+    sigma_norm = sigma / (mu + eps)
+    blend_weight = 1.0 / (1.0 + np.sqrt(sigma_norm))  # High spread favors future capacity
+    
+    # Combine components with adaptive weighting
+    combined_score = blend_weight * fit_component * frag_penalty + (1.0 - blend_weight) * future_component
+    
+    # Enforce feasibility with -inf mask
+    return np.where(can_fit, combined_score, -np.inf)
+```

@@ -1,0 +1,37 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Adaptive priority function combining Best/Worst Fit with non-linear penalties."""
+    eps = 1e-8  # Small epsilon to prevent zero weights (point 4)
+    
+    # Feasibility filter (point 2)
+    can_fit = bins_remain_cap >= item
+    if not np.any(can_fit):
+        return np.full_like(bins_remain_cap, -np.inf)
+    
+    # Bin state calculations (point 5: math-guided modeling)
+    residual = bins_remain_cap - item
+    item_ratio = item  # Assuming normalized bin capacity of 1
+    
+    # Adaptive blending parameters (polynomial expression in point 1)
+    alpha = item_ratio**3  # Enhanced sensitivity to large items
+    beta = 1.0 - alpha
+    
+    # Best Fit component: minimize residual slack
+    best_fit = -residual  
+    
+    # Worst Fit component: maximize current slack scaled by residual stability
+    worst_fit = bins_remain_cap * (1.0 / (np.sqrt(residual + 1.0) + 1e-4))  # Blended with epsilon
+    
+    # Non-linear residual deviation penalty (point 3)
+    slack_balance = bins_remain_cap - residual
+    deviation = residual - item_ratio**2
+    hybrid_penalty = (deviation ** 2) * alpha + (1 - alpha) * (slack_balance ** 2)
+    
+    # Priority score calculation with noise regularization (point 4)
+    score = alpha * best_fit + beta * worst_fit - 0.5 * hybrid_penalty + 1e-5 * np.random.rand(*bins_remain_cap.shape)
+    
+    # Final score with feasibility masking
+    return np.where(can_fit, score + eps, -np.inf)
+```
