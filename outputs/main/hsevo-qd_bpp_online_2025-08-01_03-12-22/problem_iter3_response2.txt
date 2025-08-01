@@ -1,0 +1,90 @@
+```python
+import numpy as np
+
+# Assume BIN_CAPACITY is 1.0, a common normalization for Bin Packing Problem.
+# If bins_remain_cap represents arbitrary units, this value should be adjusted
+# to the true maximum capacity of a bin.
+BIN_CAPACITY = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which to add an item to each bin,
+    implementing a 'Best Fit' heuristic with an 'Anti-Mid-Gap' bias.
+
+    This heuristic extends the traditional 'Best Fit' by introducing a penalty
+    for creating 'medium-sized' remaining capacities within bins. The goal is
+    to minimize the 'Swiss cheese' effect where many bins are left with awkward,
+    hard-to-fill gaps. It promotes resulting bin states that are either
+    very full (small remaining capacity) or very empty (large remaining capacity).
+
+    The priority score for each bin is a weighted sum of two components:
+    1.  **Best Fit Component:** Rewards bins that, after placing the item,
+        have the smallest remaining capacity. A perfect fit (0 remaining)
+        receives the highest score for this component. This is normalized
+        to be between 0 (worst fit in an available bin) and 1 (perfect fit).
+    2.  **Anti-Mid-Gap Component:** Rewards bins whose remaining capacity
+        after item placement is far from 50% of the bin's total capacity.
+        This component has a quadratic form: (normalized_remainder - 0.5)^2.
+        It is maximized when the remainder is 0% or 100% and minimized at 50%.
+        This component helps push the heuristic away from leaving bins half-full.
+
+    The weights (W_BF, W_AMG) are tunable parameters that balance the
+    influence of these two objectives. Empirical testing on diverse problem
+    instances would be crucial for fine-tuning these weights.
+
+    Args:
+        item: Size of the item to be added to the bin.
+        bins_remain_cap: A NumPy array containing the remaining capacity
+                         of each bin.
+
+    Returns:
+        A NumPy array of the same size as `bins_remain_cap`, where each
+        element is the priority score for the corresponding bin.
+        Bins where the item does not fit receive a score of -np.inf,
+        ensuring they are never selected. The bin with the highest score
+        is chosen for the item.
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bins can fit the item, return scores with -inf.
+    if not np.any(can_fit_mask):
+        return scores
+
+    # Calculate remaining capacity after placing the item in suitable bins.
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # --- Component 1: Normalized Best Fit ---
+    # Maximizing -(remaining_after_fit) is equivalent to minimizing remaining_after_fit.
+    # To normalize it to a [0, 1] range (where 1 is best fit), we use:
+    # (BIN_CAPACITY - remaining_after_fit) / BIN_CAPACITY
+    # A remainder of 0 gives 1.0. A remainder of BIN_CAPACITY gives 0.0.
+    normalized_best_fit_score = (BIN_CAPACITY - remaining_after_fit) / BIN_CAPACITY
+
+    # --- Component 2: Anti-Mid-Gap ---
+    # This component penalizes remainders close to 0.5 * BIN_CAPACITY.
+    # We normalize remaining_after_fit to [0, 1] for this calculation.
+    normalized_remainder = remaining_after_fit / BIN_CAPACITY
+    # The score is (x - 0.5)^2. This is 0 at x=0.5 and max at x=0 or x=1 (value 0.25).
+    score_anti_mid_gap = np.power(normalized_remainder - 0.5, 2)
+
+    # --- Combine Components with Tunable Weights ---
+    # These weights are hyperparameters. Their optimal values would typically
+    # be determined through empirical tuning against a diverse set of
+    # bin packing problem instances.
+    W_BF = 0.7  # Weight for the Best Fit component. Emphasizes tight packing.
+    W_AMG = 0.3 # Weight for the Anti-Mid-Gap component. Discourages 'medium' gaps.
+
+    # Calculate the combined score for bins where the item fits.
+    combined_scores_for_fit_bins = (
+        W_BF * normalized_best_fit_score +
+        W_AMG * score_anti_mid_gap
+    )
+
+    # Assign the calculated scores to the appropriate bins.
+    scores[can_fit_mask] = combined_scores_for_fit_bins
+
+    return scores
+```

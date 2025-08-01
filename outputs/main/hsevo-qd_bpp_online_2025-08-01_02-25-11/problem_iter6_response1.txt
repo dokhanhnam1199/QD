@@ -1,0 +1,71 @@
+```python
+import numpy as np
+
+# Assume a global or configurable bin capacity for normalization.
+# For many normalized Bin Packing Problem instances, this is 1.0.
+# If the problem statement implies capacities can vary or are not normalized,
+# this assumption (_BIN_CAPACITY_ASSUMED) might need to be dynamic or passed as input.
+_BIN_CAPACITY_ASSUMED = 1.0 
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin for online Bin Packing.
+
+    This implementation enhances the traditional "Best Fit" heuristic by incorporating
+    a strong, linearly-weighted "Consolidation Bonus". The goal is to more aggressively
+    fill up existing partially-filled bins before opening new ones.
+
+    The priority score for a feasible bin is calculated as a combination of:
+    1.  **Best Fit Component:** Derived from `-(remaining_capacity_after_placement)`.
+        This part aims to minimize the leftover space in a bin after placing the item,
+        promoting a tight fit.
+    2.  **Linear Consolidation Bonus:** A bonus proportional to `(original_bin_capacity - current_remaining_capacity)`.
+        This term directly reflects how much a bin is ALREADY filled. By adding this bonus,
+        bins that are more filled receive a higher score, encouraging their use.
+
+    Mathematically, for a feasible bin:
+    `P_v2 = -(bins_remain_cap - item) + K * (_BIN_CAPACITY_ASSUMED - bins_remain_cap)`
+    Simplifying:
+    `P_v2 = item - bins_remain_cap + K * _BIN_CAPACITY_ASSUMED - K * bins_remain_cap`
+    `P_v2 = item + K * _BIN_CAPACITY_ASSUMED - (1 + K) * bins_remain_cap`
+
+    Where `K` is a positive constant (`CONSOLIDATION_WEIGHT_K`) that determines the
+    strength of the consolidation preference. A larger `K` makes the preference for
+    bins with smaller `bins_remain_cap` (i.e., more filled bins) even stronger.
+    Setting `K=1.0` effectively gives equal weight to the 'tightness of fit'
+    (how much `bins_remain_cap` changes relative to `item`) and the 'amount already filled'.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # 1. Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bins can fit the item, return the initialized priorities (-inf everywhere)
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Parameter for the consolidation bonus strength.
+    # K=1.0 provides a balanced approach where the "amount already filled"
+    # has a significant impact on the overall priority, amplifying the preference
+    # for partially-filled bins.
+    CONSOLIDATION_WEIGHT_K = 1.0 
+
+    # Calculate the priority score for feasible bins using the combined formula.
+    # This formula directly implements: `item + K * _BIN_CAPACITY_ASSUMED - (1 + K) * bins_remain_cap`
+    # Maximizing this priority effectively minimizes `(1 + K) * bins_remain_cap`,
+    # strongly favoring bins that are already more filled (smaller `bins_remain_cap`)
+    # while still considering the item's fit.
+    priorities[can_fit_mask] = (
+        item
+        + CONSOLIDATION_WEIGHT_K * _BIN_CAPACITY_ASSUMED
+        - (1 + CONSOLIDATION_WEIGHT_K) * bins_remain_cap[can_fit_mask]
+    )
+
+    return priorities
+```

@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+    This version implements a hybrid strategy combining Perfect Fit and Worst Fit principles:
+
+    1.  **Perfect Fit (PF):** Gives the absolute highest priority to any bin that would be
+        exactly filled by the current item (leaving zero remaining capacity). This is
+        highly desirable in bin packing as it effectively "closes" a bin optimally.
+    2.  **Worst Fit (WF):** For bins that cannot achieve a perfect fit but can still
+        accommodate the item, this strategy prioritizes the bin that would leave the
+        *largest* amount of remaining space after packing the item. This approach aims
+        to keep bins' remaining capacities as varied as possible, potentially preserving
+        larger empty spaces for future large items or keeping bins "open" longer.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority. Bins that cannot fit the item
+        at all will have a very low (negative infinity) priority, ensuring they are not chosen.
+    """
+    # Initialize priority scores with a very low value (negative infinity).
+    # This ensures that bins incapable of fitting the item are never chosen
+    # if there's any other viable option.
+    priorities = np.full_like(bins_remain_cap, np.NINF, dtype=float)
+
+    # Calculate the remaining capacity for each bin if the current item were placed in it.
+    # A negative value means the item does not fit.
+    potential_remaining = bins_remain_cap - item
+
+    # Create a boolean mask for bins where the item can actually fit (remaining capacity >= 0).
+    can_fit_mask = potential_remaining >= 0
+
+    # --- Apply Worst Fit (WF) logic for all bins that can accommodate the item ---
+    # For bins that can fit, their initial priority is the amount of space left.
+    # We want to maximize this value to achieve the Worst Fit (most remaining space).
+    priorities[can_fit_mask] = potential_remaining[can_fit_mask]
+
+    # --- Apply Perfect Fit (PF) logic to override WF for exact fits ---
+    # Identify bins that would have close to zero remaining capacity after placing the item.
+    # Use a small epsilon for floating point comparisons to account for precision issues.
+    EPSILON = 1e-9
+    perfect_fit_mask = np.abs(potential_remaining) < EPSILON
+
+    # Define a very high priority score for perfect fits. This value must be
+    # significantly larger than any possible Worst Fit score (which would be
+    # at most the bin's total capacity if a single tiny item is placed in an empty bin).
+    # Using half of the maximum float value ensures it's numerically stable and distinct.
+    VERY_HIGH_PRIORITY = np.finfo(float).max / 2.0 
+
+    # Assign the very high priority to bins that are both able to fit the item
+    # AND result in a perfect fit. The `can_fit_mask` check here is technically
+    # redundant because `potential_remaining >= 0` for perfect fits, but good for clarity.
+    priorities[perfect_fit_mask & can_fit_mask] = VERY_HIGH_PRIORITY
+
+    return priorities
+```

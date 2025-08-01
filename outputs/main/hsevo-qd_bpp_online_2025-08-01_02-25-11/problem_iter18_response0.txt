@@ -1,0 +1,139 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This heuristic is a "Hybrid, Adaptive, Non-linear, State-aware" approach,
+    extending Best Fit by focusing on the 'quality' of remaining space and
+    aggressively incentivizing bin completion while penalizing problematic fragmentation.
+
+    The priority calculation is composed of:
+    1.  **Best Fit Core (Modified):** The foundational component is still
+        based on minimizing the remaining capacity, but its influence is
+        modulated by non-linear additions.
+    2.  **Exact Fit Bonus (Dominant Non-linear):** Provides a substantial,
+        discrete bonus for bins where the item fits perfectly. This is the
+        highest priority and aims to 'close' bins efficiently.
+    3.  **Tiered Fragmentation Penalty (Non-linear & Adaptive):** Instead of
+        a single penalty, this version introduces distinct penalty zones,
+        each with its own non-linear response, dynamically scaled to the
+        current `item` size:
+        *   **Very Small Fragment Penalty:** Applies a strong, non-linear
+            penalty to bins left with a tiny, non-zero remaining capacity
+            (e.g., <10% of `item` size). The penalty is harsher as the remainder
+            approaches zero, discouraging creation of near-unusable slivers.
+        *   **Near-Item Fragment Penalty:** Applies a strong, non-linear
+            penalty to bins left with capacity just slightly less than the
+            `item` size (e.g., >90% of `item` size, but less than `item`).
+            The penalty increases as the remainder approaches `item` size,
+            discouraging large, unfillable 'holes'.
+        *   **Intermediate Fragment Penalty:** Applies a moderate, constant
+            penalty to remaining capacities falling between the two extreme
+            fragmentation zones. This lightly discourages "middle-ground"
+            remainders that are neither perfectly filled nor clearly large
+            enough for another `item`-sized piece.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Mask for bins where the item can fit (capacity >= item size)
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bin can fit the item, return priorities initialized to -inf
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Extract capacities for only the fitting bins
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # Calculate potential remaining capacity if the item were placed
+    potential_remaining_cap = fitting_bins_remain_cap - item
+
+    # --- Core Priority Calculation (Best Fit component) ---
+    # We negate the potential remaining capacity. Smaller remainder -> higher (less negative) priority.
+    # This serves as the baseline score before non-linear adjustments.
+    calculated_priorities = -potential_remaining_cap
+
+    # --- Non-linear Adjustments for Space Quality and Bin Completion ---
+
+    # Define thresholds and constants
+    EXACT_FIT_THRESHOLD = 1e-9  # Tolerance for floating point comparisons to zero
+    EXACT_FIT_BONUS = 1000.0    # A large bonus to ensure exact fits are top priority
+
+    # Fragmentation Zone Parameters (relative to item size)
+    # These are tunable parameters to control the heuristic's behavior.
+    FRAG_SMALL_THRESHOLD_REL = 0.1 # Upper bound for 'very small' fragments (e.g., < 10% of item)
+    FRAG_SMALL_PENALTY_FACTOR = 50.0 # Strength of penalty for very small fragments
+
+    FRAG_LARGE_THRESHOLD_REL = 0.9 # Lower bound for 'near-item' fragments (e.g., > 90% of item)
+    FRAG_LARGE_PENALTY_FACTOR = 20.0 # Strength of penalty for near-item fragments
+
+    INTERMEDIATE_PENALTY = 2.0  # Moderate, constant penalty for 'middle ground' fragments
+
+    # 1. Exact Fit Bonus: A strong, discrete non-linear bonus for perfect fits.
+    # This highly prioritizes bins that can be perfectly filled.
+    exact_fit_mask = np.isclose(potential_remaining_cap, 0.0, atol=EXACT_FIT_THRESHOLD)
+    calculated_priorities[exact_fit_mask] += EXACT_FIT_BONUS
+
+    # Apply fragmentation penalties only if the item size is positive
+    # and there are non-exact fits to consider.
+    if item > EXACT_FIT_THRESHOLD:
+        non_exact_fit_mask = ~exact_fit_mask
+        current_rem_caps_for_penalty = potential_remaining_cap[non_exact_fit_mask]
+
+        if current_rem_caps_for_penalty.size > 0:
+            # Mask relative to current_rem_caps_for_penalty array
+            
+            # 2. Strong Penalty for Very Small, Non-Zero Fragments
+            # These are typically unusable and represent significant waste.
+            # Penalty increases as remaining capacity approaches zero within this zone.
+            small_frag_zone_mask = (current_rem_caps_for_penalty > EXACT_FIT_THRESHOLD) & \
+                                   (current_rem_caps_for_penalty <= item * FRAG_SMALL_THRESHOLD_REL)
+
+            if np.any(small_frag_zone_mask):
+                # Normalized value from 0 (at threshold) to 1 (at almost zero)
+                normalized_val = current_rem_caps_for_penalty[small_frag_zone_mask] / (item * FRAG_SMALL_THRESHOLD_REL + EXACT_FIT_THRESHOLD)
+                # Penalty is stronger when normalized_val is smaller (i.e., remainder is closer to 0)
+                penalty = -FRAG_SMALL_PENALTY_FACTOR * (1 - normalized_val)
+                calculated_priorities[non_exact_fit_mask][small_frag_zone_mask] += penalty
+
+            # 3. Strong Penalty for Fragments Just Under Item Size
+            # These waste a large portion of bin capacity and are "almost" a fit for another item.
+            # Penalty increases as remaining capacity approaches item size within this zone.
+            large_frag_zone_mask = (current_rem_caps_for_penalty >= item * FRAG_LARGE_THRESHOLD_REL) & \
+                                   (current_rem_caps_for_penalty < item)
+
+            if np.any(large_frag_zone_mask):
+                # Normalized value from 0 (at threshold) to 1 (at almost item size)
+                range_size = item * (1 - FRAG_LARGE_THRESHOLD_REL)
+                # Avoid division by zero if range is too small due to item size
+                if range_size < EXACT_FIT_THRESHOLD:
+                    normalized_val = np.ones_like(current_rem_caps_for_penalty[large_frag_zone_mask]) # Treat all as max penalty
+                else:
+                    normalized_val = (current_rem_caps_for_penalty[large_frag_zone_mask] - item * FRAG_LARGE_THRESHOLD_REL) / range_size
+                # Penalty is stronger when normalized_val is larger (i.e., remainder is closer to item)
+                penalty = -FRAG_LARGE_PENALTY_FACTOR * normalized_val
+                calculated_priorities[non_exact_fit_mask][large_frag_zone_mask] += penalty
+
+            # 4. Moderate Penalty for Intermediate Fragments
+            # For bins whose remaining capacity is not in the extreme fragmentation zones
+            # and not an exact fit. This slightly discourages these "neither here nor there"
+            # remaining capacities.
+            intermediate_frag_zone_mask = (current_rem_caps_for_penalty > item * FRAG_SMALL_THRESHOLD_REL) & \
+                                          (current_rem_caps_for_penalty < item * FRAG_LARGE_THRESHOLD_REL)
+
+            if np.any(intermediate_frag_zone_mask):
+                calculated_priorities[non_exact_fit_mask][intermediate_frag_zone_mask] -= INTERMEDIATE_PENALTY
+
+    # Assign the calculated priorities to the fitting bins in the main array
+    priorities[can_fit_mask] = calculated_priorities
+
+    return priorities
+```

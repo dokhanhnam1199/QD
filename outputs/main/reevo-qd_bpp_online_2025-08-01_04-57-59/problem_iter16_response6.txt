@@ -1,0 +1,91 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    implementing an even more aggressively enhanced Best Fit heuristic
+    compared to priority_v1, focusing on even stronger non-linear rewards
+    for near-perfect fits to minimize fragmentation, with an adaptively
+    determined threshold for "near-perfect" fits.
+
+    This version refines the Best Fit principle by applying a more
+    pronounced non-linear penalty reduction for bins that result in a
+    very small positive remaining capacity. Perfect fits (0 remaining
+    capacity) retain the highest priority (score 0).
+
+    Crucially, the 'near-perfect' threshold for applying the aggressive
+    non-linear reward is now adaptive. It is determined as the minimum
+    of a small absolute value (e.g., 2% of a typical normalized bin capacity,
+    assuming 1.0 is a full bin) and a small fraction (e.g., 10%) of the
+    current item's size. This ensures that for smaller items, the definition
+    of 'near-perfect' scales proportionally, while for larger items, it's capped
+    by a reasonable absolute small value. This effectively "leverages problem data"
+    (the current item's size) for a more informed and dynamic choice of the
+    critical threshold.
+
+    For remaining capacities within this adaptive 'near-perfect' threshold,
+    the penalty is drastically reduced using a higher-order polynomial decay
+    (quartic, power_factor = 4), making these bins extremely desirable.
+    For capacities above the threshold, a standard linear Best Fit penalty is applied.
+    This aims to further 'trap' items efficiently and prevent the creation of
+    many sparsely filled bins, thereby reducing overall fragmentation and
+    improving packing density.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+                         Assumed to be normalized, e.g., max capacity is 1.0.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate a more desirable bin.
+    """
+    # Initialize all priorities to a very low negative number (effectively -infinity)
+    # for bins that cannot accommodate the item.
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate remaining capacity after fit for eligible bins
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # Define an adaptive threshold for what constitutes a "near-perfect" fit.
+    # This threshold is the minimum of a small absolute value (e.g., 0.02, 2% of a bin)
+    # and a small fraction of the current item's size (e.g., 10% of item).
+    # This makes the threshold more responsive to the scale of the item being placed.
+    absolute_min_gap_threshold = 0.02
+    relative_item_gap_factor = 0.1
+
+    # Ensure the threshold is always a positive float to prevent division by zero
+    # or issues with zero exponents in the non-linear scaling formula.
+    # np.finfo(float).eps represents the smallest positive representable float.
+    near_perfect_threshold = np.maximum(
+        np.finfo(float).eps,
+        min(absolute_min_gap_threshold, item * relative_item_gap_factor)
+    )
+
+    # Power factor for the non-linear scaling.
+    # A higher power_factor provides an even more aggressive incentive for very small
+    # remaining capacities. A value of 4 (quartic) is chosen for a strong emphasis
+    # on minimizing the smallest gaps, building on the increased power from priority_v1.
+    power_factor = 4
+
+    # Apply a non-linear penalty for remaining capacity.
+    # If remaining_after_fit is within (0, near_perfect_threshold],
+    # the penalty is drastically reduced using a quartic function.
+    # The formula (r^k / T^(k-1)) ensures continuity at T (r=T gives T)
+    # and makes smaller 'r' values result in much less penalty (closer to 0).
+    scaled_remaining = np.where(
+        (remaining_after_fit > 0) & (remaining_after_fit <= near_perfect_threshold),
+        (remaining_after_fit ** power_factor) / (near_perfect_threshold ** (power_factor - 1)),
+        remaining_after_fit  # Standard linear penalty for remaining > threshold
+    )
+
+    # If remaining_after_fit is exactly 0, scaled_remaining will be 0, and score will be 0,
+    # making perfect fits the highest priority.
+    # Otherwise, the score is the negative of the scaled remaining capacity.
+    scores[can_fit_mask] = -scaled_remaining
+
+    return scores
+```

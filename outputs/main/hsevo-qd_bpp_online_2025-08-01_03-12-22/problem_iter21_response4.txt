@@ -1,0 +1,94 @@
+```python
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    base_priority_for_fit: float = 10.0,
+    tight_fit_bonus_factor: float = 150.0,
+    tight_fit_decay_rate: float = 0.05,
+    relative_fill_bonus_factor: float = 25.0,
+    min_priority_for_valid_fit: float = 1.0,
+    non_fitting_priority: float = -100.0
+) -> np.ndarray:
+    """Returns priority with which to add an item to each bin, optimized for online BPP.
+
+    This function implements an advanced "Best Fit Decreasing"-like strategy,
+    aggressively prioritizing bins that lead to very small remaining capacities
+    (near bin closure) and rewarding efficient utilization of the bin's current
+    available space. It employs an exponential bonus for tight fits, making
+    even slightly better fits significantly more attractive.
+
+    Args:
+        item: Size of item to be added to the bin. Must be greater than 0.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+        base_priority_for_fit: A base score given to any bin where the item can fit.
+                               This ensures a minimum positive score for valid placements.
+        tight_fit_bonus_factor: A multiplier for the exponential bonus. This bonus
+                                is highest for perfect fits (remaining capacity 0)
+                                and decays rapidly as remaining capacity increases.
+                                A higher factor makes tight fits extremely desirable.
+        tight_fit_decay_rate: Controls how quickly the 'tight fit' bonus diminishes
+                              as the remaining capacity after placement increases.
+                              A smaller value means the bonus decays more rapidly,
+                              very strongly favoring extremely tight fits (e.g., 0.01 for 1% of bin size).
+        relative_fill_bonus_factor: A multiplier for a bonus that rewards placing
+                                    an item into a bin where it occupies a significant
+                                    proportion of the bin's *current* available capacity.
+                                    This encourages "filling up" bins that are already
+                                    partially utilized or finding relatively large items
+                                    for smaller remaining spaces.
+        min_priority_for_valid_fit: The minimum priority score a bin can receive if
+                                    the item fits. Acts as a floor.
+        non_fitting_priority: The priority score assigned to bins where the
+                              item does not fit. Typically a very low or negative value
+                              to ensure these are never selected unless no other options exist.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize all priorities with the score for non-fitting bins
+    priorities = np.full_like(bins_remain_cap, fill_value=non_fitting_priority, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Only process if there are bins where the item can fit
+    if np.any(can_fit_mask):
+        fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+        remaining_after_placement = fitting_bins_remain_cap - item
+
+        # 1. Exponential Tight Fit Bonus (Primary "Best Fit" mechanism)
+        # This bonus is maximized when remaining_after_placement is 0 and decays
+        # exponentially as it increases, making very tight fits highly rewarding.
+        # The `tight_fit_decay_rate` dictates the steepness of this reward curve,
+        # aggressively penalizing even slightly larger remaining capacities.
+        tight_fit_bonus = tight_fit_bonus_factor * np.exp(-remaining_after_placement / tight_fit_decay_rate)
+
+        # 2. Relative Fill Efficiency Bonus
+        # This bonus rewards the item consuming a large proportion of the bin's
+        # current available capacity. This helps to differentiate between bins
+        # that yield a similar 'remaining_after_placement' but have different
+        # initial available capacities, promoting efficient usage of already-open bins.
+        # A small epsilon is added to the denominator to prevent division by zero,
+        # although with `item > 0` and `bins_remain_cap >= item`, `fitting_bins_remain_cap`
+        # should always be positive.
+        epsilon = 1e-9
+        relative_fill_ratio = item / (fitting_bins_remain_cap + epsilon)
+        relative_fill_bonus = relative_fill_bonus_factor * relative_fill_ratio
+
+        # Combine the base priority, exponential tight fit bonus, and relative fill bonus.
+        # The base priority ensures that any valid fit starts with a positive and non-trivial score.
+        calculated_priorities = base_priority_for_fit + tight_fit_bonus + relative_fill_bonus
+
+        # Ensure that the calculated priority does not fall below a minimum allowed value.
+        # This prevents valid placement options from receiving an extremely low or
+        # negative priority if the fit is poor but still technically possible,
+        # ensuring they are considered more viable than not fitting at all.
+        calculated_priorities = np.maximum(calculated_priorities, min_priority_for_valid_fit)
+
+        # Assign the calculated priorities to the corresponding bins
+        priorities[can_fit_mask] = calculated_priorities
+
+    return priorities
+```

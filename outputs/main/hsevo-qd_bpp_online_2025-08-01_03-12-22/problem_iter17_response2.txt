@@ -1,0 +1,55 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines proportional fill and non-linear Best Fit, emphasizing aggressive bin closure.
+
+    This heuristic prioritizes bins that achieve high proportional utilization
+    and heavily rewards those that lead to very small or perfectly filled remaining space.
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins with sufficient remaining capacity for the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bin can fit the item, return scores with -inf for all
+    if not np.any(can_fit_mask):
+        return scores
+
+    # Tunable parameters based on analysis: aggressive bin closure and well-calibrated principles.
+    # w_fill_ratio: Weight for the item's proportional fill of the *current* bin capacity.
+    # w_new_rem_cap_penalty: Weight for the non-linear penalty/bonus based on *new* remaining capacity.
+    # rem_cap_exponent: Controls the sharpness of the non-linear penalty for new remaining capacity;
+    #                   higher values strongly favor perfect/near-perfect fits.
+    # epsilon: Small value to prevent division by zero and ensure scores are finite for perfect fits.
+    w_fill_ratio: float = 1.0
+    w_new_rem_cap_penalty: float = 100.0
+    rem_cap_exponent: float = 3.0
+    epsilon: float = 1e-6
+
+    # Extract remaining capacities for only the bins that can fit the item.
+    valid_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # Term 1: Proportional Fill (inspired by priority_v0's 'fill ratio')
+    # Rewards bins where the item occupies a larger proportion of the available space.
+    fill_ratio_score = item / valid_bins_remain_cap
+
+    # Calculate the remaining capacity *after* placing the item.
+    new_remaining_capacity = valid_bins_remain_cap - item
+
+    # Term 2: Non-linear Best Fit / Aggressive Bin Closure Bonus
+    # This term heavily penalizes larger new remaining capacities and provides a very
+    # strong bonus for very small or perfect remaining capacities due to the inverse
+    # and exponent. This directly implements the "non-linear rem_cap_penalty_exponent"
+    # and encourages "intelligent bin closure."
+    # Add epsilon to handle exact zero remaining capacity and smooth the curve.
+    new_rem_cap_score = 1.0 / ((new_remaining_capacity + epsilon) ** rem_cap_exponent)
+
+    # Combine the two terms with their respective weights.
+    # The higher weight on `new_rem_cap_score` ensures a strong preference for
+    # minimizing leftover space and closing bins efficiently.
+    scores[can_fit_mask] = (w_fill_ratio * fill_ratio_score +
+                            w_new_rem_cap_penalty * new_rem_cap_score)
+
+    return scores
+```

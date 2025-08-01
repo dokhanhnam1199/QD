@@ -1,0 +1,71 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add an item to each bin.
+
+    This heuristic implements a tiered Best-Fit strategy, ensuring optimal
+    outcomes (perfect fits) are strongly prioritized and wasted space is minimized.
+
+    The design addresses the "Prior reflection" by:
+    1.  **Prioritizing Optimal Outcomes (Perfect Fits):** Perfect fits (leaving 0 remaining capacity)
+        are assigned an exceptionally high score, placing them in the highest priority tier.
+    2.  **Minimizing Wasted Space (Best Fit):** For bins where the item fits but not perfectly,
+        priority is given to those that result in the smallest positive remaining capacity.
+        This is achieved by scoring them inversely to the remaining capacity (a smaller
+        remainder yields a higher score), effectively implementing a Best-Fit heuristic.
+    3.  **Leveraging Problem Data:** The maximum initial bin capacity is used to
+        scale scores and ensure a clear, robust separation between priority tiers.
+    4.  **Invalid Placements:** Bins where the item does not fit are assigned the
+        lowest possible score (`-np.inf`), making them unselectable.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    if bins_remain_cap.size == 0:
+        # If there are no bins, return an empty array. The calling logic
+        # typically handles opening a new bin in such a scenario.
+        return np.array([])
+
+    # Initialize all priority scores to -infinity. This ensures that any bin
+    # where the item does not fit will not be selected by argmax.
+    priority_scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Calculate the hypothetical remaining capacity if the item were placed in each bin.
+    hypothetical_remaining = bins_remain_cap - item
+
+    # Determine a base value for scaling scores and ensuring tier separation.
+    # This is typically the maximum possible capacity any bin could have.
+    # Use 1.0 as a fallback if all bins happen to have 0 or negative capacity,
+    # ensuring the scaling factor remains positive.
+    max_bin_capacity_val = np.max(bins_remain_cap)
+    if max_bin_capacity_val <= 0:
+        max_bin_capacity_val = 1.0 # Ensure positive base for scoring
+
+    # --- Step 1: Assign scores for bins where the item fits (non-perfect or perfect initial value) ---
+    # We want to prioritize bins that leave less space. A score of
+    # `max_bin_capacity_val - hypothetical_remaining` achieves this:
+    # - If `hypothetical_remaining` is small (e.g., close to 0), score is high (close to `max_bin_capacity_val`).
+    # - If `hypothetical_remaining` is large (e.g., close to `max_bin_capacity_val`), score is low (close to 0).
+    # Scores in this tier will generally range from 0 to `max_bin_capacity_val`.
+    can_fit_mask = hypothetical_remaining >= 0
+    priority_scores[can_fit_mask] = max_bin_capacity_val - hypothetical_remaining[can_fit_mask]
+
+    # --- Step 2: Elevate perfect fits to the highest priority tier ---
+    # A perfect fit occurs when hypothetical_remaining is exactly 0.
+    # Their current score (from Step 1) would be `max_bin_capacity_val`.
+    # To make perfect fits unambiguously the highest priority, we add a significant
+    # offset that pushes their score well above any possible score from Step 1.
+    perfect_fit_mask = hypothetical_remaining == 0
+    if np.any(perfect_fit_mask): # Apply offset only if there are perfect fits
+        # This offset ensures the perfect fit score is higher than `max_bin_capacity_val`
+        # (the highest possible score from the non-perfect fit calculation).
+        perfect_fit_tier_offset = max_bin_capacity_val + 1.0
+        priority_scores[perfect_fit_mask] += perfect_fit_tier_offset
+
+    return priority_scores
+```

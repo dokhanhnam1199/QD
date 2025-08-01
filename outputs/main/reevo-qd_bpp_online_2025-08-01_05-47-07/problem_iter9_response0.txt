@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+    This heuristic refines the Best-Fit strategy by giving an overwhelmingly
+    high priority to perfect fits, ensuring they are always selected first.
+    For non-perfect fits, it falls back to a tightest-fit (Best-Fit) strategy.
+    This explicitly rewards full bin utilization and minimizes wasted space,
+    while addressing "arbitrary or poor quality outcomes" by making the
+    optimal perfect fit choice numerically distinct and highly preferred.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Calculate the remaining capacity for each bin if the item were placed in it.
+    # A negative value indicates the item does not fit.
+    hypothetical_remaining = bins_remain_cap - item
+
+    # Initialize priority scores for all bins to a very low value (-infinity).
+    # This ensures that bins where the item does not fit will never be selected.
+    priority_scores = np.full_like(bins_remain_cap, -np.inf)
+
+    # Create a boolean mask for bins where the item actually fits (i.e.,
+    # hypothetical_remaining is non-negative).
+    fits_mask = hypothetical_remaining >= 0
+
+    # For bins where the item fits, assign a score based on the remaining capacity.
+    # To implement a Best-Fit-like strategy, we want to select the bin that results
+    # in the *smallest* hypothetical_remaining value (tightest fit).
+    # Since np.argmax selects the maximum score, we negate the hypothetical_remaining.
+    # A smaller positive hypothetical_remaining (e.g., 0.01) will result in a
+    # larger score (e.g., -0.01).
+    priority_scores[fits_mask] = -hypothetical_remaining[fits_mask]
+
+    # **Improvement for v2: Explicitly boost perfect fits.**
+    # This directly addresses "rewarding full bin utilization" by making
+    # a perfect fit (hypothetical_remaining == 0) unequivocally the highest priority.
+    # While v1 already made 0 the highest possible score for fitting bins,
+    # this makes its numerical priority significantly higher than any non-zero tight fit,
+    # reinforcing its optimality and avoiding any "arbitrary" tie-breaking if floating point
+    # precision were to make a very small positive remnant score equal to a perfect fit score
+    # (though unlikely with standard floats, it makes the intent clear and robust).
+    perfect_fit_mask = (hypothetical_remaining == 0)
+
+    # Determine a bonus value that is guaranteed to be larger than any possible
+    # negative score derived from -hypothetical_remaining.
+    # The maximum possible value for hypothetical_remaining (when fitting)
+    # would be the original bin capacity (if item is very small).
+    # So, a bonus slightly larger than the maximum bin capacity ensures this.
+    if bins_remain_cap.size > 0:
+        PERFECT_FIT_BONUS = np.max(bins_remain_cap) + 1.0
+    else:
+        # Fallback for empty bins_remain_cap array (though it should not happen in typical BPP)
+        PERFECT_FIT_BONUS = 1000.0 
+    
+    priority_scores[perfect_fit_mask] = PERFECT_FIT_BONUS
+
+    return priority_scores
+```

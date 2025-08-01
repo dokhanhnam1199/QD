@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines Best Fit with proportional filling and bonuses for tight fits.
+
+    Prioritizes bins by minimal remaining capacity, maximizing item's proportional fill,
+    giving strong bonus for perfect fits, and penalizing small, fragmented remainders.
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can be placed
+    can_fit_mask = bins_remain_cap >= item
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # If no bins can fit the item, return -inf for all to ensure no selection
+    if not np.any(can_fit_mask):
+        return scores
+
+    # Calculate remaining capacity if item were placed in each fitting bin
+    remaining_after_fit = fitting_bins_remain_cap - item
+
+    # Component 1: Best Fit Principle - rewards smaller remaining capacity (0 for perfect fit)
+    # This aligns with the 'priority_v0' (Better code) by minimizing wasted space.
+    best_fit_component = -remaining_after_fit
+
+    # Component 2: Proportional Fill - rewards items that fill a higher percentage of the bin's current capacity
+    # This component is highly weighted as it correlates with aggressively filling bins towards closure,
+    # as suggested by the analysis of the top-performing heuristics.
+    # np.finfo(float).eps is added to prevent division by zero for robustness.
+    proportional_fill_component = item / (fitting_bins_remain_cap + np.finfo(float).eps)
+
+    # Component 3: Perfect Fit Bonus - a strong non-linear reward for exact fits
+    # This encourages achieving full bin utilization and closing bins, a recurring theme in top heuristics.
+    perfect_fit_bonus = np.where(remaining_after_fit == 0, 100.0, 0.0)
+
+    # Component 4: Small Remainder Penalty - discourages leaving very small, potentially unusable fragments
+    # This addresses the observed benefit of actively managing fragmented space.
+    # The threshold and penalty strength are chosen based on the analysis.
+    small_remainder_threshold = 0.05  # e.g., an absolute small value
+    small_remainder_penalty = np.where(
+        (remaining_after_fit > 0) & (remaining_after_fit < small_remainder_threshold),
+        -10.0,
+        0.0
+    )
+
+    # Combine components with empirically chosen weights.
+    # The weights reflect the emphasis drawn from the "Analyze & experience" section:
+    # - Proportional fill (Component 2) is given a significant weight as it was a key factor in high-ranked heuristics.
+    # - Perfect fit bonus (Component 3) and small remainder penalty (Component 4) act as strong non-linear modifiers.
+    combined_scores = (
+        1.0 * best_fit_component +           # Base Best Fit contribution
+        5.0 * proportional_fill_component +  # High weight for proportional filling
+        perfect_fit_bonus +                  # Strong bonus for exact fits
+        small_remainder_penalty              # Penalty for small fragments
+    )
+
+    # Assign calculated scores to the fitting bins
+    scores[can_fit_mask] = combined_scores
+
+    return scores
+```

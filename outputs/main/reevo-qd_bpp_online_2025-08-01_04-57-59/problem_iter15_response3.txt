@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    combining Best Fit-like strategy with bin utilization, and using non-linear rewards.
+
+    This strategy aims to:
+    1. Aggressively prioritize near-perfect fits (smallest potential remaining space)
+       using a non-linear (power-law) reward function to minimize fragmentation.
+    2. Incorporate bin utilization by giving a secondary preference to bins that are
+       already more full (smaller current remaining capacity) to encourage "closing" bins,
+       thereby maximizing bin efficiency and strategically preserving capacity in emptier bins.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot fit the item will have a priority score of 0.
+        A higher score indicates a more desirable bin for the item.
+    """
+    # Hyperparameters (tuned based on the reflection for an aggressive, combined strategy)
+    EPSILON = 1e-9  # Small positive value to prevent division by zero for exact fits
+    BF_POWER = 2    # Exponent for the Best Fit term to make the reward for tight fits more aggressive
+    WEIGHT_BEST_FIT = 1.0 # Weight for the Best Fit component (primary focus)
+    WEIGHT_UTILIZATION = 0.1 # Weight for the Bin Utilization component (secondary focus)
+
+    # Calculate the remaining capacity if the item were to be placed in each bin.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Initialize priority scores. Default to 0, meaning no priority or cannot fit.
+    priority_scores = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit (remaining space must be non-negative).
+    can_fit_mask = potential_remaining_space >= 0
+
+    # Apply calculations only to the bins where the item fits.
+    # Extract relevant subsets for vectorized computation
+    pr_space_fit = potential_remaining_space[can_fit_mask]
+    br_cap_fit = bins_remain_cap[can_fit_mask]
+
+    # Component 1: Aggressively prioritize near-perfect fits (Best Fit)
+    # The inverse of (potential_remaining_space^BF_POWER) heavily rewards very small remaining spaces.
+    best_fit_component = WEIGHT_BEST_FIT / ((pr_space_fit**BF_POWER) + EPSILON)
+
+    # Component 2: Bin Utilization (preference for already fuller bins)
+    # The inverse of current_remaining_capacity rewards bins that are already closer to full.
+    utilization_component = WEIGHT_UTILIZATION / (br_cap_fit + EPSILON)
+
+    # Combine the two components with their respective weights
+    priority_scores[can_fit_mask] = best_fit_component + utilization_component
+
+    return priority_scores
+```

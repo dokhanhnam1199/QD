@@ -1,0 +1,102 @@
+```python
+import numpy as np
+
+class BinPackingHeuristics:
+    @staticmethod
+    def priority_v1(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+        """Returns priority with which we want to add item to each bin,
+        implementing a Best-Fit-like heuristic.
+        Bins that fit the item are prioritized based on how little space
+        would be left after placing the item (i.e., tighter fits get higher scores).
+        Bins that cannot fit the item receive a very low priority.
+
+        Args:
+            item: Size of item to be added to the bin.
+            bins_remain_cap: Array of remaining capacities for each bin.
+
+        Return:
+            Array of same size as bins_remain_cap with priority score of each bin.
+        """
+        # Initialize all priorities to a very low number. This ensures that
+        # bins which cannot accommodate the item are effectively deprioritized.
+        # Using -np.inf makes them guaranteed to not be chosen if any valid bin exists.
+        priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+        # Create a boolean mask for bins where the item can actually fit.
+        can_fit_mask = bins_remain_cap >= item
+
+        # For bins that can fit the item, calculate the remaining capacity after placement.
+        # We want to minimize this remaining capacity to achieve a "best fit".
+        # By taking the negative of the remaining capacity, a smaller positive remainder
+        # (i.e., a tighter fit) results in a larger (less negative) priority score.
+        # A perfect fit (remaining_capacity == 0) results in a score of 0.
+        # A bin that is barely larger than the item will get a score close to 0.
+        # A bin much larger than the item will get a more negative score.
+        remaining_capacity_after_fit = bins_remain_cap[can_fit_mask] - item
+        priorities[can_fit_mask] = -remaining_capacity_after_fit
+
+        return priorities
+
+    @staticmethod
+    def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+        """Returns priority with which we want to add item to each bin,
+        implementing a hybrid heuristic for improved bin packing efficiency
+        by balancing bin consolidation and fragmentation avoidance.
+
+        Bins that fit the item are prioritized as follows:
+        1. Perfect Fits: Bins where the item fits exactly, leaving zero remaining
+           capacity, receive the absolute highest priority. This ensures complete
+           utilization of a bin and effectively "closes" it, leading to strong
+           bin consolidation.
+        2. Non-Perfect Fits (remaining capacity > 0): Among these, bins that leave
+           the LARGEST remaining capacity are prioritized. This implements a
+           Worst-Fit strategy for non-perfect scenarios. The rationale is to
+           avoid creating small, awkward, and potentially unusable "fragments"
+           or gaps within bins. By leaving larger, more flexible spaces, the
+           heuristic aims to maximize the probability that subsequent items can
+           fit into existing bins, thus reducing the need to open new bins and
+           improving overall space utilization.
+
+        Bins that cannot fit the item receive a very low priority (-np.inf),
+        ensuring they are never chosen if any valid bin exists.
+
+        Args:
+            item: Size of item to be added to the bin.
+            bins_remain_cap: Array of remaining capacities for each bin.
+
+        Return:
+            Array of same size as bins_remain_cap with priority score of each bin.
+        """
+        # Initialize all priorities to a very low number, ensuring bins that
+        # cannot fit the item are effectively deprioritized.
+        priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+        # Create a boolean mask for bins where the item can actually fit.
+        can_fit_mask = bins_remain_cap >= item
+
+        # Calculate the remaining capacity after placing the item in potential bins.
+        # This operation is only performed on bins that can actually fit the item.
+        remainders = bins_remain_cap[can_fit_mask] - item
+
+        # Define a sufficiently high score for perfect fits.
+        # This ensures that a perfect fit is always preferred over any non-perfect fit,
+        # as remainders for non-perfect fits will typically be much smaller (e.g.,
+        # within the range of bin capacities). A constant like 1e9 should suffice,
+        # assuming bin capacities don't exceed this.
+        MAX_PERFECT_FIT_SCORE = 1e9
+
+        # Identify bins where the item fits perfectly (remainder is zero).
+        perfect_fit_mask = (remainders == 0)
+
+        # Assign the highest priority to perfect fits.
+        priorities[can_fit_mask][perfect_fit_mask] = MAX_PERFECT_FIT_SCORE
+
+        # For non-perfect fits (where remainder > 0), we apply a Worst-Fit strategy.
+        # This means we want to prioritize bins that leave the largest positive remainder.
+        # By doing so, we aim to keep remaining spaces flexible and avoid small,
+        # hard-to-fill gaps, which contributes to reducing fragmentation.
+        non_perfect_fit_mask = (remainders > 0)
+        priorities[can_fit_mask][non_perfect_fit_mask] = remainders[non_perfect_fit_mask]
+
+        return priorities
+```

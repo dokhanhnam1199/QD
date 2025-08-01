@@ -1,0 +1,81 @@
+```python
+import numpy as np
+
+# BIN_CAPACITY: This constant defines the maximum capacity of any bin.
+# In standard Bin Packing Problems, items and capacities are often normalized,
+# with item sizes typically in [0, 1] and BIN_CAPACITY set to 1.0.
+# Since the input 'item' is a float, we assume this normalization.
+# If your problem uses different raw capacities (e.g., integer sizes),
+# this constant should be adjusted to reflect the actual bin capacity.
+BIN_CAPACITY = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns a priority score for each bin, implementing an adaptive
+    Best-Fit heuristic with a state-aware bias to avoid leaving 'awkward'
+    mid-sized gaps.
+
+    This heuristic is designed to:
+    1.  Prioritize bins based on the Best-Fit principle: selecting the bin
+        that leaves the smallest amount of remaining space after the item is placed.
+    2.  Incorporate an adaptive bias: Penalize bins that, after placing the item,
+        would result in a remaining capacity around the midpoint (e.g., 0.5 * BIN_CAPACITY).
+        This encourages bin placements that lead to either very small (nearly full bin)
+        or very large (nearly empty/new bin) remaining capacities. This strategy aims
+        to reduce fragmentation and ensure bins are left in states that are more
+        "useful" for future items, thereby rectifying accumulating sub-optimality.
+
+    Args:
+        item: Size of the item to be added to a bin.
+        bins_remain_cap: A NumPy array containing the remaining capacities for each bin.
+
+    Returns:
+        A NumPy array of the same size as bins_remain_cap, where each element
+        is the priority score for the corresponding bin. Higher scores indicate
+        higher priority. Bins that cannot fit the item receive a very low priority
+        (-np.inf).
+    """
+    # Initialize all priorities to a very low number. Bins that cannot
+    # accommodate the item will retain this low priority, ensuring they are not chosen.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # --- Step 1: Calculate the Base Best-Fit Score ---
+    # For bins that can fit the item, calculate the remaining capacity after placement.
+    # The Best-Fit principle prioritizes tighter fits (less remaining space).
+    # By taking the negative of the remaining capacity, a smaller positive remainder
+    # (i.e., tighter fit) results in a larger (less negative or positive) base score.
+    # A perfect fit (remaining_capacity_after_fit == 0) results in a base score of 0.
+    remaining_capacity_after_fit = bins_remain_cap[can_fit_mask] - item
+    base_scores = -remaining_capacity_after_fit
+
+    # --- Step 2: Apply a Gap Avoidance Bias ---
+    # This bias penalizes outcomes where the bin's remaining capacity after placement
+    # is neither very small (near 0) nor very large (near BIN_CAPACITY).
+    # Mid-sized gaps can be difficult to fill later, leading to sub-optimal solutions.
+    
+    # Define the midpoint capacity where the penalty is highest.
+    midpoint_capacity = BIN_CAPACITY / 2.0
+    
+    # 'penalty_strength' controls how much this bias influences the decision.
+    # A value of 0.5 means the maximum penalty is half the range of base_scores,
+    # ensuring Best-Fit still has significant weight.
+    penalty_strength = 0.5 
+
+    # Calculate a factor that is 1.0 when remaining_capacity_after_fit is at the midpoint,
+    # and decreases linearly to 0.0 as it approaches 0 or BIN_CAPACITY.
+    # We add a small epsilon (1e-9) to the denominator to prevent division by zero
+    # if midpoint_capacity happens to be zero (e.g., if BIN_CAPACITY is tiny).
+    normalized_distance_from_midpoint = np.abs(remaining_capacity_after_fit - midpoint_capacity) / (midpoint_capacity + 1e-9)
+    gap_penalty_factor = (1.0 - normalized_distance_from_midpoint)
+    
+    # Calculate the actual penalty to be applied to the score.
+    gap_penalty = penalty_strength * gap_penalty_factor
+    
+    # The final priority for fitting bins is the base Best-Fit score minus the gap avoidance penalty.
+    # This means bins leading to "awkward" gaps will have their priority reduced.
+    priorities[can_fit_mask] = base_scores - gap_penalty
+
+    return priorities
+```

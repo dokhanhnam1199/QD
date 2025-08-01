@@ -1,0 +1,63 @@
+import numpy as np
+import random
+import math
+import scipy
+import torch
+
+def priority_v2(item: float,
+                bins_remain_cap: np.ndarray,
+                base_fit_priority: float = 60.217522203391816,
+                remaining_capacity_penalty_factor: float = 3.1208828586286055,
+                min_allowed_priority: float = 0.9025037195565663,
+                non_fitting_priority: float = -0.2565282500200645) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This function calculates priority based on a "Best Fit" strategy:
+    bins that can accommodate the item and have less remaining capacity after
+    placement are prioritized higher.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+        base_fit_priority: A base score given to any bin where the item can fit.
+                           This sets the initial priority before any penalties.
+        remaining_capacity_penalty_factor: A multiplier for the penalty applied
+                                           based on the remaining capacity after
+                                           the item is placed. A higher value
+                                           means larger remaining capacities
+                                           are penalized more heavily,
+                                           encouraging a "best-fit" approach.
+        min_allowed_priority: The minimum priority score a bin can receive if
+                              the item fits. This acts as a floor, preventing
+                              priorities from becoming too low or negative
+                              for valid placements.
+        non_fitting_priority: The priority score assigned to bins where the
+                              item does not fit. Typically 0 or a negative value.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize all priorities with the value for non-fitting bins
+    priorities = np.full_like(bins_remain_cap, fill_value=non_fitting_priority, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Only process if there are bins where the item can fit
+    if np.any(can_fit_mask):
+        # Calculate the remaining capacity for bins where the item could be placed
+        remaining_after_placement = bins_remain_cap[can_fit_mask] - item
+
+        # Calculate the priority for these bins
+        # The formula applies a penalty based on the remaining capacity:
+        # P = base_fit_priority - (penalty_factor * remaining_capacity)
+        # This encourages smaller remaining capacities (best fit).
+        calculated_priorities = base_fit_priority - (remaining_capacity_penalty_factor * remaining_after_placement)
+
+        # Ensure that the calculated priority does not fall below a minimum allowed value
+        calculated_priorities = np.maximum(calculated_priorities, min_allowed_priority)
+
+        # Assign the calculated priorities to the corresponding bins
+        priorities[can_fit_mask] = calculated_priorities
+
+    return priorities

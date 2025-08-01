@@ -1,0 +1,96 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin for Online Bin Packing.
+
+    This heuristic prioritizes tight fits, minimizes fragmentation, encourages bin consolidation,
+    and uses tunable parameters for effective decision-making, building upon previous versions.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Calculate the remaining capacity for each bin if the item were placed in it.
+    # A negative value indicates the item does not fit.
+    hypothetical_remaining = bins_remain_cap - item
+
+    # Initialize priority scores for all bins to a very low value (-infinity).
+    # This ensures that bins where the item does not fit will never be selected
+    # by argmax.
+    priority_scores = np.full_like(bins_remain_cap, -np.inf)
+
+    # Create a boolean mask for bins where the item actually fits (i.e.,
+    # hypothetical_remaining is non-negative).
+    fits_mask = hypothetical_remaining >= 0
+
+    # If no bin fits, all scores remain -inf. The calling logic should handle opening a new bin.
+    if not np.any(fits_mask):
+        return priority_scores
+
+    # --- Heuristic Parameters (Tunable) ---
+    # These parameters are designed to be proportional to the bin capacity,
+    # making the heuristic more generalizable across different absolute scales.
+    # Assuming a typical normalized BPP where bin capacity is 1.0.
+    ASSUMED_BIN_CAPACITY = 1.0
+
+    # 1. Best-Fit Component Weight: Prioritizes tighter fits.
+    #    A higher score is given for a smaller `hypothetical_remaining` (tighter fit).
+    #    This is the primary component.
+    BEST_FIT_WEIGHT = 1.0
+
+    # 2. Perfect Fit Bonus: A substantial reward for exact fits (leaving 0 remaining capacity).
+    #    This strongly encourages completely filling a bin.
+    PERFECT_FIT_BONUS = ASSUMED_BIN_CAPACITY * 1.0
+
+    # 3. Small Fragment Penalty: Penalizes leaving very small, potentially unusable spaces.
+    #    Fragments smaller than this threshold (relative to ASSUMED_BIN_CAPACITY) are penalized.
+    SMALL_FRAGMENT_THRESHOLD = ASSUMED_BIN_CAPACITY * 0.05
+    # The penalty applied. It should be significant enough to deter creating small fragments.
+    FRAGMENT_PENALTY = ASSUMED_BIN_CAPACITY * 0.5
+
+    # 4. Consolidation Tie-Breaker: Slightly favors bins that are already fuller
+    #    (i.e., have less remaining capacity *before* placing the current item).
+    #    This aims to "consolidate" items into fewer bins. It must be a very small
+    #    value to act only as a tie-breaker and not overshadow primary fit logic.
+    CONSOLIDATION_PENALTY_RATE = 1e-6 # A small positive rate
+
+    # Extract relevant data for bins where the item fits
+    current_hypothetical_remaining = hypothetical_remaining[fits_mask]
+    current_bins_remain_cap = bins_remain_cap[fits_mask] # Original capacity before placing item
+
+    # Initialize scores for the bins where the item fits.
+    scores_for_fitting = np.zeros_like(current_hypothetical_remaining)
+
+    # --- Component 1: Best-Fit Principle ---
+    # Higher score for smaller `current_hypothetical_remaining`.
+    # Negating it makes smaller values result in larger (less negative) scores.
+    scores_for_fitting += BEST_FIT_WEIGHT * (-current_hypothetical_remaining)
+
+    # --- Component 2: Perfect Fit Bonus ---
+    # Identify bins where the item perfectly fills the remaining space.
+    perfect_fit_mask = current_hypothetical_remaining == 0
+    scores_for_fitting[perfect_fit_mask] += PERFECT_FIT_BONUS
+
+    # --- Component 3: Small Fragment Penalty ---
+    # Identify bins that would result in a small, positive remaining capacity.
+    # Exclude perfect fits (already handled by `current_hypothetical_remaining > 0`).
+    small_fragment_mask = (current_hypothetical_remaining > 0) & \
+                          (current_hypothetical_remaining <= SMALL_FRAGMENT_THRESHOLD)
+    scores_for_fitting[small_fragment_mask] -= FRAGMENT_PENALTY
+
+    # --- Component 4: Consolidation Tie-Breaker ---
+    # Apply a minor penalty proportional to the bin's original remaining capacity.
+    # Bins that were already more full (smaller `current_bins_remain_cap`)
+    # receive a smaller penalty, thus slightly boosting their score.
+    scores_for_fitting -= current_bins_remain_cap * CONSOLIDATION_PENALTY_RATE
+
+    # Assign the calculated scores back to the main priority_scores array
+    # only for the bins where the item fits.
+    priority_scores[fits_mask] = scores_for_fitting
+
+    return priority_scores
+```

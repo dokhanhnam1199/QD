@@ -1,0 +1,83 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    implementing a Best Fit heuristic with an explicit, strong bonus for tight
+    and near-perfect fits, aiming to minimize remaining capacity and reduce fragmentation.
+
+    This strategy prioritizes bins that result in the smallest remaining capacity
+    (Best Fit). It applies a significant positive bonus for perfect fits and a
+    gradually decreasing positive bonus for "near-perfect" fits (i.e., those
+    leaving a very small, but positive, remaining capacity). This encourages
+    filling bins as much as possible, beyond just finding the tightest fit,
+    to reduce overall fragmentation and improve packing density. The bonuses
+    are chosen to ensure that a perfect fit is always the highest priority,
+    and any near-perfect fit is always preferred over any "loose" fit.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate a more desirable bin.
+    """
+    # Initialize all priorities to a very low negative number (effectively -infinity)
+    # for bins that cannot accommodate the item.
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate remaining capacity after fit for eligible bins
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # Define a threshold for what constitutes a "near-perfect" fit.
+    # This threshold assumes items and bin capacities are normalized, e.g., to 1.0.
+    # A remaining capacity <= 0.05 (e.g., 5% of a standard bin) is considered near-perfect.
+    near_perfect_threshold = 0.05
+
+    # Define bonus magnitudes. These values assume typical item/bin sizes are
+    # in a range where the `remaining_after_fit` values are also relatively small (e.g., 0 to 1).
+    # The maximum possible remaining capacity could be a full bin (e.g., 1.0).
+    # The bonuses are designed to ensure clear prioritization:
+    # perfect_fit > near_perfect_fit (any) > regular_fit (any)
+    PERFECT_FIT_BONUS = 2.0  # Ensures perfect fit is highest priority (score: 0 + 2.0 = 2.0)
+    
+    # Max bonus for near-perfect fits (when remaining_after_fit is close to 0, but > 0)
+    MAX_NEAR_PERFECT_BONUS = 1.5 
+    
+    # Min bonus for near-perfect fits (at the near_perfect_threshold)
+    # This value must be positive and sufficiently high to make any near-perfect fit
+    # score higher than any regular fit's score. For example, if max regular fit remaining
+    # is 1.0, and base score is -1.0, a min bonus of 0.5 ensures score is at least -0.05 + 0.5 = 0.45,
+    # which is greater than any negative regular fit score.
+    MIN_NEAR_PERFECT_BONUS = 0.5 
+
+    # Base score: Best Fit - prioritize smaller remaining capacities by making scores less negative.
+    # Score is `-(remaining_capacity)`. A perfect fit has a base score of 0.
+    scores[can_fit_mask] = -remaining_after_fit
+
+    # Apply bonus for perfect fits
+    perfect_fit_mask = remaining_after_fit == 0
+    scores[can_fit_mask][perfect_fit_mask] += PERFECT_FIT_BONUS
+
+    # Apply bonus for near-perfect fits (0 < remaining_after_fit <= near_perfect_threshold)
+    # This needs to be applied only to eligible bins that are *not* perfect fits.
+    # Using 'bitwise AND' for clarity and robustness with numpy masks.
+    near_perfect_fit_mask = (remaining_after_fit > 0) & (remaining_after_fit <= near_perfect_threshold)
+    
+    # Calculate linear interpolation factor for bonus:
+    # This factor is 1.0 when remaining_after_fit is close to 0, and 0.0 at near_perfect_threshold.
+    interpolation_factor = 1.0 - (remaining_after_fit[near_perfect_fit_mask] / near_perfect_threshold)
+    
+    # Calculate the actual bonus for near-perfect fits:
+    # The bonus ranges from MAX_NEAR_PERFECT_BONUS (for r -> 0+) down to MIN_NEAR_PERFECT_BONUS (for r = threshold).
+    near_perfect_bonus = MIN_NEAR_PERFECT_BONUS + (MAX_NEAR_PERFECT_BONUS - MIN_NEAR_PERFECT_BONUS) * interpolation_factor
+
+    # Add the calculated bonus to the scores for bins with near-perfect fits
+    scores[can_fit_mask][near_perfect_fit_mask] += near_perfect_bonus
+
+    return scores
+```

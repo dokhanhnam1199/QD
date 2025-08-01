@@ -1,0 +1,77 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_total_capacity: float) -> np.ndarray:
+    """Returns priority for adding item to each bin, combining a Best-Fit-like approach
+    with a strategic penalty for leaving bins in a 'fragmented' (mid-range) state.
+
+    This heuristic aims to:
+    1. Prefer bins that offer a very tight fit (minimizing wasted space in that specific bin).
+    2. Strategically penalize choices that would leave a bin with a 'medium' amount of remaining
+       capacity (e.g., 20-80% full). Such states are less desirable as they are often too small
+       for large items and too large to be easily 'closed' by small items, leading to fragmentation.
+       Conversely, it implicitly rewards states where a bin becomes nearly full (remaining capacity close to 0)
+       or remains largely empty (remaining capacity close to bin_total_capacity - item when item is small),
+       as these are typically more 'useful' states for future packing.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+        bin_total_capacity: The maximum capacity of a single bin. This is crucial for
+                            normalizing the fragmentation penalty.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize all priorities to a very low number. Bins that cannot fit the item
+    # will retain this value, effectively deprioritizing them.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can actually fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bin can fit the item, all priorities remain -np.inf,
+    # indicating that a new bin should likely be opened (handled by external logic).
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Calculate the remaining capacity of the bin after placing the item.
+    new_remain_cap = bins_remain_cap[can_fit_mask] - item
+
+    # --- Best-Fit Component ---
+    # This component rewards tighter fits. A smaller `new_remain_cap` results in a higher score
+    # (less negative, or closer to zero for a perfect fit).
+    # Equivalent to item - bins_remain_cap[can_fit_mask]
+    score_best_fit = -new_remain_cap
+
+    # --- Fragmentation Penalty Component ---
+    # This component penalizes leaving a bin in a 'fragmented' state.
+    # We use a quadratic penalty: new_remain_cap * (bin_total_capacity - new_remain_cap).
+    # This term is 0 when new_remain_cap is 0 or bin_total_capacity, and peaks when
+    # new_remain_cap is bin_total_capacity / 2.
+    # We want to penalize this peak, so we subtract it from the overall priority.
+
+    # Normalize new_remain_cap to a [0, 1] range relative to bin_total_capacity
+    # for consistent penalty scaling, regardless of the absolute bin capacity.
+    normalized_new_remain_cap = new_remain_cap / bin_total_capacity
+
+    # Calculate the raw fragmentation penalty term. This term ranges from 0 to 0.25 (at mid-point).
+    fragmentation_penalty_term = normalized_new_remain_cap * (1.0 - normalized_new_remain_cap)
+
+    # A tunable weight for the fragmentation penalty. This factor allows for
+    # adapting the heuristic's emphasis between strict best-fit and avoiding fragmentation.
+    # A higher weight places more emphasis on avoiding fragmented bins.
+    # A value of 0.0 makes this heuristic behave like Best-Fit (priority_v1).
+    # A moderate value (e.g., 0.5 to 2.0) introduces strategic behavior.
+    FRAGMENTATION_PENALTY_WEIGHT = 1.0  # This is a key control point for tuning.
+
+    score_fragmentation_penalty = -FRAGMENTATION_PENALTY_WEIGHT * fragmentation_penalty_term
+
+    # Combine the two components.
+    # The Best-Fit component drives towards minimizing immediate remaining space.
+    # The Fragmentation component pushes away from leaving "awkward" mid-range spaces,
+    # implicitly encouraging bins to be either nearly full or still significantly empty.
+    priorities[can_fit_mask] = score_best_fit + score_fragmentation_penalty
+
+    return priorities
+```

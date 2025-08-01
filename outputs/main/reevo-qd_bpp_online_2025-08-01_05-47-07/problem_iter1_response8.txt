@@ -1,0 +1,74 @@
+```python
+import numpy as np
+import sys
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+    This version implements a Modified Best-Fit strategy with a preference for
+    bins with lower indices (older/more "settled" bins).
+
+    The core idea is:
+    1. **Best Fit Principle:** Prioritize bins that result in the smallest remaining capacity
+       after the item is placed. This minimizes wasted space within a bin and encourages
+       bins to be filled completely. A perfect fit (0 remaining capacity) receives the highest score.
+       Score contribution: `-(bins_remain_cap - item)`.
+       (Smaller positive remaining capacity leads to a higher, less negative score).
+    2. **Positional Bias (Tie-breaker/Preference):** Add a slight positive bias to bins
+       with lower indices. This means if two or more bins offer an equally good "Best Fit",
+       the one that was "opened" earlier (lower index) will be preferred. This can help
+       in consistently closing off earlier bins.
+       Score contribution: `alpha * (num_bins - 1 - bin_index)`.
+
+    Bins where the item cannot fit receive a very low priority to ensure they are never selected.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    num_bins = len(bins_remain_cap)
+    
+    # Calculate potential remaining capacity if the item is placed into each bin.
+    # A smaller positive potential_rem_cap means a tighter, more efficient fit.
+    potential_rem_cap = bins_remain_cap - item
+
+    # Base Best-Fit scores: Maximize -potential_rem_cap.
+    # If potential_rem_cap is 0 (perfect fit), score is 0.
+    # If potential_rem_cap is 0.1, score is -0.1.
+    # If potential_rem_cap is 0.5, score is -0.5.
+    # So, higher score means better (smaller positive) remaining capacity.
+    base_scores = -potential_rem_cap
+
+    # Add a positional bias to favor bins with lower indices.
+    # This acts as a tie-breaker for equally good best fits, or a slight preference.
+    # alpha should be a small positive constant. It needs to be small enough
+    # not to disrupt the Best Fit primary sorting, but large enough to break ties.
+    # A value like 0.001 ensures it's usually less than typical differences
+    # in remaining capacities (assuming capacities are floats like 0.1, 0.05 etc.).
+    alpha = 0.001 
+    
+    # Create an array of indices [0, 1, ..., num_bins-1]
+    bin_indices = np.arange(num_bins)
+    
+    # Calculate the bias term:
+    # (num_bins - 1 - bin_index) ensures that bin_indices[0] (the first bin)
+    # gets the largest positive bias (alpha * (num_bins - 1)), and
+    # bin_indices[num_bins-1] (the last bin) gets the smallest bias (alpha * 0).
+    bin_index_bias = alpha * (num_bins - 1 - bin_indices)
+
+    # Combine the Best-Fit score with the positional bias.
+    priorities = base_scores + bin_index_bias
+    
+    # Identify bins where the item cannot fit (remaining capacity is less than item size).
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Assign a very low priority to bins where the item cannot fit.
+    # This ensures these bins are never selected as long as there's a valid option.
+    # Using -sys.float_info.max ensures it's the absolute lowest float value.
+    min_priority_val = -sys.float_info.max
+    priorities[~can_fit_mask] = min_priority_val
+
+    return priorities
+```

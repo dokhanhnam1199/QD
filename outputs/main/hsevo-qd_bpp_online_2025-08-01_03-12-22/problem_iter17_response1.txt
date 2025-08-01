@@ -1,0 +1,47 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray,
+                BIN_CAPACITY: float = 1.0,
+                base_fit_score: float = 0.7,
+                remaining_capacity_weight: float = 1.5,
+                perfect_fit_bonus: float = 1.8,
+                fragment_penalty: float = 0.4,
+                fragment_threshold_ratio: float = 0.08,
+                min_allowed_priority: float = 0.05,
+                non_fitting_priority: float = -np.inf,
+                epsilon: float = 1e-9) -> np.ndarray:
+    """
+    Prioritizes bins by combining Best Fit, a strong perfect-fit bonus for
+    intelligent bin closure, and a penalty for small, fragmented remaining space.
+    """
+    priorities = np.full_like(bins_remain_cap, fill_value=non_fitting_priority, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    if np.any(can_fit_mask):
+        fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+        remaining_after_placement = fitting_bins_remain_cap - item
+
+        # Base score: Higher for less remaining capacity (Best Fit principle).
+        # Normalizing the penalty by BIN_CAPACITY makes it less sensitive to absolute scales.
+        calculated_priorities = base_fit_score - (remaining_capacity_weight * (remaining_after_placement / BIN_CAPACITY))
+
+        # Apply a significant bonus for perfect fits, encouraging bin closure.
+        perfect_fit_mask = np.isclose(remaining_after_placement, 0.0, atol=epsilon)
+        calculated_priorities[perfect_fit_mask] += perfect_fit_bonus
+
+        # Apply a penalty for leaving very small, non-zero fragments.
+        fragment_threshold = fragment_threshold_ratio * BIN_CAPACITY
+        fragment_mask = (remaining_after_placement > epsilon) & (remaining_after_placement < fragment_threshold)
+        calculated_priorities[fragment_mask] -= fragment_penalty
+
+        # Ensure that the calculated priority does not fall below a minimum allowed value
+        calculated_priorities = np.maximum(calculated_priorities, min_allowed_priority)
+
+        # Assign the calculated priorities to the corresponding bins
+        priorities[can_fit_mask] = calculated_priorities
+
+    return priorities
+```

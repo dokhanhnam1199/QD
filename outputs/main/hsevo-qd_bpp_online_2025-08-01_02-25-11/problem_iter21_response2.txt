@@ -1,0 +1,175 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_capacity: float) -> np.ndarray:
+    """Prioritizes bins combining best fit, enhanced near-fit completion bonuses,
+    a dynamic Gaussian fragmentation penalty, a strategic useful large space bonus,
+    and a bonus for achieving 'optimal' bin fill percentages. Aims for advanced
+    global efficacy by deeply considering the quality and state of bin space.
+
+    Args:
+        item (float): The size of the item to be packed.
+        bins_remain_cap (np.ndarray): An array of remaining capacities for each bin.
+        bin_capacity (float): The total (initial) capacity of each bin.
+
+    Returns:
+        np.ndarray: An array of priority scores for each bin. The bin with the
+                    highest priority score should be selected.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Mask for bins where the item can fit (capacity >= item size)
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bin can fit the item, return priorities initialized to -inf
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Extract capacities for only the fitting bins
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # Calculate potential remaining capacity if the item were placed
+    potential_remaining_cap = fitting_bins_remain_cap - item
+
+    # Initialize calculated priorities for fitting bins based on Best Fit principle
+    # (smaller remainder => higher priority, hence negation)
+    calculated_priorities = -potential_remaining_cap
+
+    # --- Hybrid/Non-linear/Adaptive Components ---
+
+    # Tolerance for floating point comparisons to zero
+    EXACT_FIT_THRESHOLD = 1e-9
+
+    # 1. Perfect Fit Bonus:
+    # Ensures exact fits are always chosen first with the highest possible priority (infinity).
+    perfect_fit_mask = np.isclose(potential_remaining_cap, 0.0, atol=EXACT_FIT_THRESHOLD)
+    if np.any(perfect_fit_mask):
+        calculated_priorities[perfect_fit_mask] = np.inf
+
+    # 2. Enhanced Near-Exact Fit & Bin Completion Bonus (Exponential Decay with Utilization Scaling):
+    # This provides a strong incentive for bins that can be almost perfectly filled.
+    # It gives an additional boost if the bin was already highly utilized,
+    # encouraging the completion of already active bins.
+    NEAR_EXACT_FIT_BONUS_MAGNITUDE = 7500.0  # Max bonus for a perfect or near-perfect fit
+    NEAR_EXACT_FIT_BONUS_DECAY = 75.0       # Steepness of the exponential decay (rapid drop-off)
+    MIN_UTILIZATION_FOR_ENHANCED_COMPLETION = 0.6 # Bin must be at least 60% full to get enhanced bonus
+    ENHANCED_COMPLETION_FACTOR = 1.5      # Multiplier for the bonus if highly utilized
+
+    # Apply this bonus for very small non-zero remainders (e.g., less than 15% of item size)
+    near_exact_mask = (potential_remaining_cap > EXACT_FIT_THRESHOLD) & \
+                      (potential_remaining_cap < 0.15 * item)
+
+    if np.any(near_exact_mask):
+        # Calculate the base exponential bonus for near-exact fits
+        bonus = NEAR_EXACT_FIT_BONUS_MAGNITUDE * np.exp(-NEAR_EXACT_FIT_BONUS_DECAY * potential_remaining_cap[near_exact_mask])
+
+        # Calculate initial utilization ratio for these specific bins
+        initial_utilization_ratio = (bin_capacity - fitting_bins_remain_cap[near_exact_mask]) / bin_capacity
+        
+        # Apply an enhanced factor if the bin was already significantly utilized
+        highly_utilized_segment_mask = (initial_utilization_ratio >= MIN_UTILIZATION_FOR_ENHANCED_COMPLETION)
+        
+        if np.any(highly_utilized_segment_mask):
+            bonus[highly_utilized_segment_mask] *= ENHANCED_COMPLETION_FACTOR
+
+        calculated_priorities[near_exact_mask] += bonus
+
+    # 3. Dynamic Gaussian Fragmentation Penalty ("Valley of Despair"):
+    # Applies a strong, non-linear penalty for leaving "awkward" small-to-medium
+    # remnants that are difficult to fill later. The penalty peaks around specific
+    # problematic remainder sizes (relative to both the item and the bin's total capacity).
+    # The penalty is also scaled down if the bin is already very full, as it's closer to completion.
+    if item > EXACT_FIT_THRESHOLD and bin_capacity > EXACT_FIT_THRESHOLD:
+        GAUSSIAN_PENALTY_AMPLITUDE = 300.0  # Strength of the penalty
+
+        # Center 1: Problematic remainder relative to the item size
+        GAUSSIAN_PENALTY_CENTER_RATIO_ITEM = 0.4 # E.g., 40% of item's size
+        GAUSSIAN_PENALTY_SPREAD_ITEM = 0.1 * item + EXACT_FIT_THRESHOLD # Adaptive to item size, with floor
+
+        # Center 2: Problematic remainder relative to the overall bin capacity
+        GAUSSIAN_PENALTY_CENTER_RATIO_BIN = 0.2 # E.g., 20% of total bin capacity
+        GAUSSIAN_PENALTY_SPREAD_BIN = 0.05 * bin_capacity + EXACT_FIT_THRESHOLD # Adaptive to bin capacity, with floor
+
+        # Penalty is relevant for remainders that are positive and within the bin's max capacity
+        penalty_zone_mask = (potential_remaining_cap > EXACT_FIT_THRESHOLD) & \
+                            (potential_remaining_cap <= bin_capacity)
+
+        if np.any(penalty_zone_mask):
+            segment_potential_remaining_cap = potential_remaining_cap[penalty_zone_mask]
+
+            # Calculate penalty based on item-relative fragmentation
+            target_fragment_item = GAUSSIAN_PENALTY_CENTER_RATIO_ITEM * item
+            diff_sq_item = (segment_potential_remaining_cap - target_fragment_item)**2
+            penalty_item = -GAUSSIAN_PENALTY_AMPLITUDE * np.exp(-diff_sq_item / (2 * GAUSSIAN_PENALTY_SPREAD_ITEM**2))
+
+            # Calculate penalty based on bin-capacity-relative fragmentation
+            target_fragment_bin = GAUSSIAN_PENALTY_CENTER_RATIO_BIN * bin_capacity
+            diff_sq_bin = (segment_potential_remaining_cap - target_fragment_bin)**2
+            penalty_bin = -GAUSSIAN_PENALTY_AMPLITUDE * np.exp(-diff_sq_bin / (2 * GAUSSIAN_PENALTY_SPREAD_BIN**2))
+            
+            # Take the maximum (least favorable, i.e., most negative) of the two penalties
+            combined_penalty = np.maximum(penalty_item, penalty_bin)
+
+            # Scale penalty based on initial bin utilization:
+            # Less penalty if the bin is already very full (closer to being closed anyway).
+            initial_utilization_ratio_for_penalty_zone = (bin_capacity - fitting_bins_remain_cap[penalty_zone_mask]) / bin_capacity
+            
+            # Non-linear scaling: higher utilization reduces the penalty.
+            # E.g., (1 - utilization)**power. Power of 0.5 gives a softer reduction.
+            penalty_reduction_factor = (1.0 - initial_utilization_ratio_for_penalty_zone)**0.5
+            
+            # Ensure the reduction factor is within reasonable bounds (0.1 to 1.0)
+            penalty_reduction_factor = np.clip(penalty_reduction_factor, 0.1, 1.0) 
+            
+            calculated_priorities[penalty_zone_mask] += combined_penalty * penalty_reduction_factor
+
+    # 4. Strategic Useful Large Space Bonus (Logarithmic with multiple thresholds):
+    # Incentivizes leaving a bin with a significantly large remaining capacity,
+    # ensuring it's useful for future large items. This considers two criteria:
+    # enough space for another item of similar size, or a substantial portion of bin capacity.
+    USEFUL_SPACE_BONUS_FACTOR = 15.0 # Magnitude of this bonus
+    
+    # Threshold 1: Remainder is at least the current item's size
+    MIN_USEFUL_SPACE_THRESHOLD_ITEM = 1.0 * item
+    # Threshold 2: Remainder is at least 25% of the total bin capacity
+    MIN_USEFUL_SPACE_THRESHOLD_BIN_RATIO = 0.25 * bin_capacity
+
+    large_useful_mask_item = potential_remaining_cap >= MIN_USEFUL_SPACE_THRESHOLD_ITEM
+    large_useful_mask_bin = potential_remaining_cap >= MIN_USEFUL_SPACE_THRESHOLD_BIN_RATIO
+    
+    # A bin gets this bonus if it meets EITHER criteria
+    large_useful_mask = large_useful_mask_item | large_useful_mask_bin 
+
+    if np.any(large_useful_mask):
+        # Logarithmic bonus: scales with remaining capacity but with diminishing returns.
+        # Use log1p (log(1+x)) for numerical stability to handle potential_remaining_cap near zero.
+        bonus = USEFUL_SPACE_BONUS_FACTOR * np.log1p(potential_remaining_cap[large_useful_mask])
+        calculated_priorities[large_useful_mask] += bonus
+        
+    # 5. Optimal Final Bin Fill Percentage Bonus (Gaussian):
+    # Rewards leaving a bin at a "sweet spot" utilization percentage (e.g., 70-85% full)
+    # after placing the item. This promotes efficient bin utilization and avoids
+    # creating bins that are "almost full" but not quite, or "almost empty" but not completely.
+    OPTIMAL_FILL_BONUS_AMPLITUDE = 250.0 # Strength of this bonus
+    OPTIMAL_FILL_CENTER_RATIO = 0.8 # Target 80% filled as an ideal final state
+    OPTIMAL_FILL_SPREAD_RATIO = 0.08 # Width of the sweet spot (standard deviation)
+
+    final_utilization_ratio = (bin_capacity - potential_remaining_cap) / bin_capacity
+
+    # Only apply to bins that are truly partially filled (not perfectly full or perfectly empty)
+    optimal_fill_zone_mask = (final_utilization_ratio > EXACT_FIT_THRESHOLD) & \
+                             (final_utilization_ratio < 1.0 - EXACT_FIT_THRESHOLD)
+
+    if np.any(optimal_fill_zone_mask):
+        segment_final_utilization_ratio = final_utilization_ratio[optimal_fill_zone_mask]
+        
+        # Gaussian bonus for achieving the target utilization ratio
+        bonus = OPTIMAL_FILL_BONUS_AMPLITUDE * np.exp(-((segment_final_utilization_ratio - OPTIMAL_FILL_CENTER_RATIO)**2) / \
+                                                     (2 * OPTIMAL_FILL_SPREAD_RATIO**2))
+        calculated_priorities[optimal_fill_zone_mask] += bonus
+
+    # Assign the calculated priorities (for fitting bins) back to the main priorities array
+    priorities[can_fit_mask] = calculated_priorities
+
+    return priorities
+```

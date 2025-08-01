@@ -1,0 +1,89 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add an item to each bin.
+
+    This implementation represents a sophisticated "Best Fit" strategy, incorporating
+    multi-objective optimization, non-linear functions, and a degree of adaptive
+    behavior to address the online Bin Packing Problem. It goes beyond simple
+    remaining capacity minimization by considering multiple packing objectives.
+
+    Key principles applied:
+    1.  **Prioritize Bin Closure (Multi-objective):** A significant bonus is applied to bins
+        that become "almost full" after the item is placed. This encourages "sealing" off
+        bins, which can reduce the total number of open bins and potentially simplify
+        future packing decisions, aligning with the primary goal of minimizing bin count.
+        This provides a strong, non-linear jump in priority for near-perfect fits.
+
+    2.  **Non-linear Best Fit (Complex Numerical Transformation):** For bins that are not
+        "almost full" after placement, a non-linear penalty is applied based on the
+        potential remaining capacity. This penalty (an inverse exponential) heavily
+        penalizes larger remaining capacities, making very small remaining capacities
+        (tight fits) disproportionately more desirable than in a linear best-fit scenario.
+        This leads to a more aggressive pursuit of tight fits among non-closing bins.
+
+    3.  **Adaptive Tunability (Implicit):** The parameters like `ALMOST_FULL_THRESHOLD`
+        and `NON_LINEAR_EXPONENT_K` are exposed as constants, allowing for fine-tuning
+        to adapt the heuristic's behavior to specific item size distributions or desired
+        packing patterns, offering a degree of implicit adaptiveness.
+
+    Args:
+        item: Size of the item to be added to a bin. Assumed to be a positive float.
+        bins_remain_cap: A NumPy array containing the current remaining capacity of each bin.
+                         It's assumed that the full capacity of any bin is normalized to 1.0,
+                         which is standard for many BPP contexts and simplifies parameter scaling.
+
+    Returns:
+        A NumPy array of the same size as `bins_remain_cap`, where each element is the
+        priority score for the corresponding bin. The bin with the highest score will be selected.
+        Bins where the item cannot fit will have a score of -inf.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # 1. Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate potential remaining capacity if the item were placed in fitting bins
+    potential_remaining_cap = bins_remain_cap[can_fit_mask] - item
+
+    # --- Heuristic Parameters (These values can be tuned for optimal performance) ---
+    # Threshold for a bin to be considered "almost full" after item placement.
+    # E.g., 0.05 means if remaining capacity is < 5% of bin capacity (assuming bin capacity = 1.0).
+    ALMOST_FULL_THRESHOLD = 0.05
+
+    # A large bonus score for bins that become almost full. This ensures they receive
+    # the highest priority, effectively making "closing" a bin a primary objective.
+    ALMOST_FULL_BONUS = 1000.0
+
+    # Scaling factor for the non-linear penalty applied to other bins.
+    # A higher value creates a steeper exponential decay, making very tight fits
+    # (even if not "almost full") significantly more attractive than looser fits.
+    NON_LINEAR_EXPONENT_K = 5.0
+    # ---------------------------------------------------------------------------------
+
+    # Iterate through only the bins where the item can fit to assign priorities
+    fitting_bin_indices = np.where(can_fit_mask)[0]
+
+    for i, p_rem_cap in enumerate(potential_remaining_cap):
+        original_bin_index = fitting_bin_indices[i]
+
+        if p_rem_cap < ALMOST_FULL_THRESHOLD:
+            # Case 1: The bin becomes "almost full" (or perfectly full)
+            # Assign a very high, positive priority score. We subtract a small value
+            # proportional to the remaining capacity to still slightly prefer
+            # perfectly full bins over nearly full ones within this high-priority tier.
+            # A perfect fit (p_rem_cap = 0) gets ALMOST_FULL_BONUS.
+            # A fit at the threshold (p_rem_cap = ALMOST_FULL_THRESHOLD) gets ALMOST_FULL_BONUS - 1.0.
+            priorities[original_bin_index] = ALMOST_FULL_BONUS - (p_rem_cap / ALMOST_FULL_THRESHOLD)
+        else:
+            # Case 2: The bin is not "almost full" after placement.
+            # Apply a non-linear penalty using a negative exponential function.
+            # As 'p_rem_cap' increases, `exp(NON_LINEAR_EXPONENT_K * p_rem_cap)` grows very rapidly,
+            # causing the priority score (which is negative) to drop sharply.
+            # This makes smaller remaining capacities much more attractive than larger ones
+            # in a non-linear fashion.
+            priorities[original_bin_index] = -np.exp(NON_LINEAR_EXPONENT_K * p_rem_cap)
+
+    return priorities
+```

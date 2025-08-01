@@ -1,0 +1,154 @@
+```python
+import numpy as np
+
+# Global constant for bin capacity. In a real system, this might be a parameter
+# passed around or part of a Bin class. For simplicity, assuming a standard capacity.
+BIN_CAPACITY = 1.0 
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns a priority score for each bin, guiding the selection of where to place an item.
+    This heuristic embodies multi-factor, context-sensitive adaptive scoring with
+    an element of probabilistic selection to foster emergent packing patterns,
+    going beyond simple 'Best Fit'.
+
+    The priority score for a bin is a complex function considering:
+    1.  **Fundamental Tightness (Quantum Fit)**: A non-linear assessment of how
+        perfectly the item fits, emphasizing minimal remaining space with an
+        exponential decay. It serves as the primary driver for efficient space
+        utilization.
+    2.  **Desired State Affinity (Harmonic Fullness)**: Rewards bins that, after
+        the item is placed, achieve a dynamically adjusted 'ideal' fullness level.
+        This ideal shifts based on the incoming item's size, aiming to create
+        a balanced distribution of bin states rather than just emptying them or
+        always starting new ones.
+    3.  **Boundary Avoidance (Flux Equilibrium)**: Introduces penalties for
+        situations where placing the item would result in leaving either an
+        extremely small, potentially unusable fragment of space, or an
+        excessively large, underutilized space. This encourages more 'useful'
+        bin states.
+
+    The weights for these components are not fixed but are dynamically
+    calculated based on the incoming item's size and the current statistical
+    distribution of remaining capacities across all bins. This aims for a
+    self-adjusting behavior without explicit historical learning within this
+    function call itself. A small, normally distributed noise component is also
+    added to introduce a 'probabilistic selection' element, preventing rigid
+    deterministic ties and encouraging exploration of potentially similar-priority
+    bins, which can lead to more diverse and robust packing solutions over time.
+
+    Args:
+        item: Size of item to be added to the bin (float, assumed normalized to BIN_CAPACITY).
+        bins_remain_cap: NumPy array of remaining capacities for each bin.
+
+    Returns:
+        NumPy array of the same size as bins_remain_cap, where each element
+        is the priority score for the corresponding bin. Bins where the item
+        cannot fit receive a score of -np.inf to ensure they are never chosen.
+        The bin with the highest score is the preferred choice.
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    can_fit_mask = bins_remain_cap >= item
+    
+    # If no bin can fit the item, return early with all scores as -inf.
+    if not np.any(can_fit_mask):
+        return scores
+
+    fitting_bins_idx = np.where(can_fit_mask)[0]
+    current_bin_caps = bins_remain_cap[fitting_bins_idx]
+    remaining_after_fit = current_bin_caps - item
+
+    # --- Adaptive Parameters & Context-Sensitive Weighting ---
+    # These internal parameters dynamically adjust based on the current problem state.
+    # This reflects the "adaptive scoring" and "high-dimensional tuning" aspects,
+    # fostering emergent and context-sensitive behavior.
+    
+    item_relative_size = item / BIN_CAPACITY # Item size normalized to bin capacity
+    
+    # Calculate properties of the current bin capacity distribution for context
+    # Use clip to prevent division by zero if all capacities are identical
+    std_remain_cap = np.std(bins_remain_cap) 
+    std_remain_cap_normalized = std_remain_cap / BIN_CAPACITY if BIN_CAPACITY > 0 else 0
+    avg_remain_cap_normalized = np.mean(bins_remain_cap) / BIN_CAPACITY if BIN_CAPACITY > 0 else 0
+    
+    # --- Dynamic Weights for Scoring Components ---
+    # These weights are functions of the current state, allowing for non-monotonic
+    # and context-sensitive behavior in the overall heuristic.
+
+    # Weight for Quantum Fit: Prioritize tight fit more for smaller items or if bins are generally full.
+    # This encourages finishing bins when items are small or space is scarce.
+    weight_quantum_fit = 1.0 + 0.5 * (1.0 - item_relative_size) * (1.0 - avg_remain_cap_normalized)
+
+    # Weight for Harmonic Fullness: Emphasize achieving a target fullness more for 'medium' items
+    # and when bin capacities are diverse (more options for optimal filling).
+    weight_harmonic_fullness = 0.8 + 0.7 * (1.0 - np.abs(item_relative_size - 0.5) * 2) * std_remain_cap_normalized
+    
+    # Weight for Flux Equilibrium: Penalize extreme remaining capacities more when bins are already polarized
+    # (high std_remain_cap) or when there's a strong need to balance bin states.
+    weight_flux_equilibrium = 0.6 + 0.8 * std_remain_cap_normalized
+
+    # === Scoring Components Calculation ===
+
+    # Component 1: Fundamental Tightness (Quantum Fit)
+    # A non-linear, exponentially decaying reward. A perfect fit (remainder 0) gives a score of 0.
+    # Larger remainders yield increasingly negative (worse) scores. This is a mutated version
+    # of the 'Best Fit' concept from priority_v1, making the penalty for wasted space more severe.
+    score_quantum_fit = -np.expm1(remaining_after_fit / BIN_CAPACITY) # exp(x)-1, gives 0 for x=0, negative for x>0
+
+    # Component 2: Desired State Affinity (Harmonic Fullness)
+    # Rewards bins that achieve a specific target fullness after the item is placed.
+    # The target fullness dynamically shifts: smaller items tend to be used to 'top off'
+    # bins (higher target fullness), while larger items might aim for less full bins.
+    dynamic_target_fullness = 0.65 + 0.3 * (1.0 - item_relative_size) # Ranges from 0.65 (large item) to 0.95 (small item)
+    
+    # New fullness of the bin after placing the item
+    new_fullness = (BIN_CAPACITY - remaining_after_fit) / BIN_CAPACITY
+    
+    # The variance scale (width of the Gaussian peak) also adapts. Wider for extreme item sizes,
+    # tighter for medium items (desiring more precise placement).
+    fullness_variance_scale = 0.05 + 0.15 * (np.abs(item_relative_size - 0.5) * 2) 
+    
+    # Gaussian-like reward: peaks at dynamic_target_fullness, range [0, 1]
+    # Small epsilon in denominator for numerical stability if variance is extremely small.
+    epsilon_denominator = 1e-9 
+    score_harmonic_fullness = np.exp(-((new_fullness - dynamic_target_fullness)**2) / (2.0 * fullness_variance_scale**2 + epsilon_denominator))
+
+    # Component 3: Boundary Avoidance (Flux Equilibrium)
+    # Penalizes leaving very small, potentially unusable fragments, or very large unused spaces.
+    # This guides towards creating 'useful' remaining capacities and balancing bin utilization.
+    
+    # Adaptive thresholds for "too small" or "too large" remaining capacity
+    min_fragment_threshold = 0.02 * BIN_CAPACITY + 0.05 * item # Penalize leaving tiny unusable bits more
+    max_open_space_threshold = 0.9 * BIN_CAPACITY - 0.05 * item # Penalize wasting a bin for a small item
+    
+    # Sigmoid steepness for smooth, non-linear transitions in penalty
+    sigmoid_steepness = 100.0 / BIN_CAPACITY 
+    
+    # Penalty for leaving very small remaining capacity (approaches 1 as remainder -> 0)
+    penalty_low_rem = 1.0 / (1.0 + np.exp((remaining_after_fit - min_fragment_threshold) * sigmoid_steepness))
+    # Penalty for leaving very large remaining capacity (approaches 1 as remainder -> BIN_CAPACITY-item)
+    penalty_high_rem = 1.0 / (1.0 + np.exp(-(remaining_after_fit - max_open_space_threshold) * sigmoid_steepness))
+    
+    # Combined flux penalty. This is a negative contribution to the total score.
+    score_flux_equilibrium = -(penalty_low_rem + penalty_high_rem)
+    
+    # === Combined Score Calculation ===
+    # A weighted sum of the components. The weights are dynamic, and a small
+    # amount of Gaussian noise is added for 'probabilistic selection' and
+    # to encourage exploration of similar-priority bins, fostering emergent behavior.
+    
+    exploration_noise_scale = 1e-4 * BIN_CAPACITY # Small noise relative to bin capacity, ensures exploration without dominating
+    
+    combined_scores_for_fitting_bins = (
+        weight_quantum_fit * score_quantum_fit +
+        weight_harmonic_fullness * score_harmonic_fullness +
+        weight_flux_equilibrium * score_flux_equilibrium +
+        np.random.normal(0, scale=exploration_noise_scale, size=len(fitting_bins_idx))
+    )
+
+    # Assign the calculated scores back to the original scores array,
+    # leaving -np.inf for bins where the item does not fit.
+    scores[fitting_bins_idx] = combined_scores_for_fitting_bins
+
+    return scores
+```

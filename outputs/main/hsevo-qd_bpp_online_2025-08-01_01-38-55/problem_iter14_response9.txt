@@ -1,0 +1,78 @@
+```python
+import numpy as np
+
+# Assume BIN_CAPACITY is a global constant or can be passed as an argument.
+# For many online BPP instances, item sizes are normalized relative to bin capacity,
+# making BIN_CAPACITY = 1.0 a common and useful default.
+BIN_CAPACITY = 1.0 
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes perfect fits, then balances minimizing leftover space (Best-Fit)
+    with maximizing bin fullness (consolidation) for non-perfect fits.
+    """
+    # Initialize all priorities to a very low number (-np.inf).
+    # This ensures that bins which cannot accommodate the item are effectively
+    # deprioritized and will not be chosen if any valid bin exists.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask to identify bins where the item can actually fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bins can fit the item, return the array with all priorities at -np.inf.
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Extract remaining capacities for only the bins that can fit the item.
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # Calculate the remaining capacity of these bins after placing the item.
+    remaining_after_fit = fitting_bins_remain_cap - item
+
+    # Define a small epsilon for robust floating-point comparisons, especially for
+    # detecting near-zero remaining capacities (perfect fits).
+    epsilon = 1e-9
+
+    # --- Heuristic Parameters (These values are tunable for performance optimization) ---
+    # PERFECT_FIT_SCORE: A very high score assigned to bins where the item
+    # fits perfectly. This ensures perfect fits are always chosen over any
+    # other type of fit, as they fully utilize a bin and reduce fragmentation.
+    PERFECT_FIT_SCORE = 1000.0 
+
+    # WEIGHT_BEST_FIT: Multiplier for the Best-Fit component. A higher positive
+    # value means we more strongly prefer fits that leave less leftover space.
+    # We use -remaining_after_fit so that smaller remainders yield higher scores.
+    WEIGHT_BEST_FIT = 1.0 
+
+    # WEIGHT_CONSOLIDATION: Multiplier for the consolidation component. A higher
+    # positive value means we more strongly prefer placing items into bins that
+    # are already more full (i.e., have less current remaining capacity).
+    # This encourages closing existing bins before opening new ones.
+    WEIGHT_CONSOLIDATION = 0.5 
+    # --- End Heuristic Parameters ---
+
+    # Calculate the current fullness of the fitting bins (how much space is already occupied).
+    # A higher current_fullness indicates a bin that is already more utilized.
+    current_fullness = BIN_CAPACITY - fitting_bins_remain_cap
+
+    # Initialize scores for all fitting bins using a linear combination of
+    # Best-Fit and Consolidation objectives.
+    scores_for_fitting_bins = (
+        WEIGHT_BEST_FIT * (-remaining_after_fit) +  # Prioritizes tight fits
+        WEIGHT_CONSOLIDATION * current_fullness     # Prioritizes existing fullness
+    )
+
+    # Identify true "perfect fits" where the remaining capacity is virtually zero.
+    is_perfect_fit = remaining_after_fit < epsilon
+
+    # Apply the significant bonus for perfect fits. This overrides any score
+    # calculated by the linear combination for these specific bins, ensuring
+    # they are the top priority.
+    scores_for_fitting_bins[is_perfect_fit] = PERFECT_FIT_SCORE
+
+    # Assign the calculated scores back to the original `priorities` array
+    # for only the bins that could fit the item.
+    priorities[can_fit_mask] = scores_for_fitting_bins
+
+    return priorities
+```

@@ -1,0 +1,65 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This function implements a modified Best Fit heuristic. It strongly
+    prioritizes perfect fits. For other fitting bins, it penalizes creating
+    very small, "awkward" remaining capacities more severely than larger
+    remaining capacities, aiming to minimize fragmentation while still
+    preferring to fill bins relatively well.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        The bin with the highest score will be selected.
+    """
+    # Calculate the remaining capacity if the item were placed in each bin.
+    # A negative value means the item does not fit.
+    potential_remaining_cap = bins_remain_cap - item
+
+    # Initialize priorities to an extremely low value for all bins.
+    # Bins where the item does not fit will have -np.inf priority.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item actually fits (remaining capacity >= 0).
+    fitting_bins_mask = potential_remaining_cap >= 0
+    
+    # Get the remaining capacities only for the bins where the item fits
+    fitting_remain_cap = potential_remaining_cap[fitting_bins_mask]
+
+    # Mask for perfect fits (remaining capacity is exactly 0)
+    # Using np.isclose for robustness with floating point comparisons,
+    # though for exact 0.0, '==' is often used for simplicity if inputs are exact.
+    perfect_fit_mask = np.isclose(fitting_remain_cap, 0.0, atol=1e-9)
+
+    # Assign highest possible priority (infinity) to perfect fits.
+    # These should always be chosen if available.
+    priorities[np.where(fitting_bins_mask)[0][perfect_fit_mask]] = np.inf
+
+    # Mask for non-perfect fits (remaining capacity > 0)
+    # This also excludes potential_remaining_cap that are exactly 0.
+    non_perfect_fit_mask = fitting_remain_cap > 1e-9 # Small positive threshold instead of 0 for robustness
+
+    # Constants for the penalty term (can be tuned based on problem scale)
+    # K: Strength of the penalty for small remaining capacities.
+    # epsilon: Small value to prevent division by zero and control sharpness near zero.
+    K = 0.01  
+    epsilon = 1e-6 
+
+    # Calculate scores for non-perfect fits.
+    # The score combines a Best Fit component (-r) with a penalty term (K/(r+epsilon)).
+    # The penalty term becomes very large and negative for small positive 'r',
+    # thus heavily penalizing "awkward gaps".
+    non_perfect_fitting_caps = fitting_remain_cap[non_perfect_fit_mask]
+    score_for_non_perfect_fits = -non_perfect_fitting_caps - K / (non_perfect_fitting_caps + epsilon)
+
+    # Assign these calculated scores to the corresponding bins
+    priorities[np.where(fitting_bins_mask)[0][non_perfect_fit_mask]] = score_for_non_perfect_fits
+
+    return priorities
+```

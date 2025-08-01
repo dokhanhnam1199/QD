@@ -1,0 +1,90 @@
+```python
+import numpy as np
+
+# Assuming a standard bin capacity of 1.0 for normalized items.
+# In Bin Packing Problems, item sizes and bin capacities are often normalized
+# such that the bin capacity is 1.0. If your problem uses a different absolute
+# capacity, adjust MIN_USEFUL_SPACE_THRESHOLD accordingly (e.g., as a percentage).
+BIN_CAPACITY = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This heuristic is an evolution of 'Best Fit' (as in priority_v1),
+    designed to mitigate the issue of creating 'unusable' small fragments
+    of space within bins. While still strongly prioritizing perfect fits,
+    it applies a specific penalty to bins that, upon accommodating the item,
+    would leave a very small, non-zero remaining capacity. The intention is
+    to encourage either perfect utilization or to leave a more substantial,
+    potentially useful amount of space for future items.
+
+    Design Rationale:
+    1.  **Perfect Fit Maximization:** A remaining capacity of 0 (perfect fit)
+        represents the most efficient use of space and is consistently given
+        the highest possible score (0). This directly aligns with the
+        optimization objective of minimizing the total number of bins by
+        maximizing individual bin utilization.
+    2.  **Penalty for 'Useless' Fragments:** A common drawback of pure Best Fit
+        is that it can lead to situations where bins are left with very small,
+        positive remaining capacities (e.g., 0.01). Such tiny spaces are often
+        too small to accommodate typical subsequent items, effectively rendering
+        that bin 'fragmented' and forcing a new bin to be opened sooner than
+        necessary. This heuristic introduces a penalty for these "sub-threshold"
+        remainders. This makes options that would create such fragments less
+        attractive than leaving a larger, potentially more versatile amount of
+        space, or finding a perfect fit.
+    3.  **Encouraging Useful Remainders:** By penalizing fragments below a
+        defined threshold, the heuristic implicitly encourages leaving either
+        a perfectly full bin or a remaining capacity that is substantial
+        enough to potentially fit another item of a reasonable size. This
+        aims for a more robust packing distribution over time.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Scores are calculated based on the negative of the remaining capacity
+        after placement, with a specific penalty applied to very small positive
+        remainders. Bins where the item does not fit receive a score of
+        -infinity to ensure they are never chosen.
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Determine which bins have sufficient remaining capacity for the item.
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Calculate the remaining capacity if the item were placed in fitting bins.
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # Constants for the penalty mechanism:
+    # This threshold defines what is considered a "very small" or "useless" remaining space.
+    # It's a critical design choice; for normalized items where BIN_CAPACITY=1.0,
+    # 0.05 means any space <= 5% of bin capacity is penalized.
+    MIN_USEFUL_SPACE_THRESHOLD = 0.05 * BIN_CAPACITY
+    
+    # This penalty factor is applied to scores of bins that would leave
+    # a remaining capacity within the "useless" threshold. A larger penalty
+    # pushes these options significantly lower in priority.
+    # The value 0.1 (relative to a score range often near zero) is chosen to make
+    # a sub-threshold remainder (e.g., 0.01, original score -0.01) worse than a
+    # slightly larger, non-penalized remainder (e.g., 0.1, original score -0.1).
+    # Specifically, - (0.01 + 0.1) = -0.11, which is worse than -0.1.
+    PENALTY_FOR_SMALL_WASTE = 0.1 
+
+    # Initialize base scores for fitting bins as the negative of remaining capacity (Best Fit principle).
+    temp_scores = -remaining_after_fit
+
+    # Identify bins that would result in a very small, non-zero remainder.
+    # This mask applies to the `remaining_after_fit` array.
+    small_waste_mask_temp = (remaining_after_fit > 0) & (remaining_after_fit <= MIN_USEFUL_SPACE_THRESHOLD)
+
+    # Apply the penalty to the scores of these specific bins.
+    temp_scores[small_waste_mask_temp] -= PENALTY_FOR_SMALL_WASTE
+    
+    # Assign the calculated scores back to the main scores array using the original mask.
+    scores[can_fit_mask] = temp_scores
+
+    return scores
+```

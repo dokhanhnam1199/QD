@@ -1,0 +1,41 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with a strong bonus for proportional fill and penalties for tiny remainders.
+    Prioritizes filling a high proportion of available space while managing fragmentation.
+    """
+    # Initialize scores to negative infinity, ensuring un-fittable bins are never chosen.
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+    if not np.any(can_fit_mask): # If no bin can fit, return all negative infinity scores.
+        return scores
+
+    # 1. Base Score: Best Fit (minimize remaining capacity)
+    # A perfect fit (0 remainder) gets a score of 0.0, which is the highest possible for this component.
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+    scores[can_fit_mask] = -remaining_after_fit
+
+    # 2. Proportional Fill Bonus: Strongly rewards items that fill a high percentage of the *current*
+    # remaining bin capacity. This pushes bins towards being 'proportionally' full quickly.
+    # Add a small epsilon to the denominator for numerical stability, though bins_remain_cap >= item implies it's > 0.
+    proportional_fill_ratio = item / (bins_remain_cap[can_fit_mask] + 1e-9)
+    
+    # Apply a strong, non-linear bonus (e.g., squared) to emphasize higher ratios significantly.
+    PROPORTIONAL_FILL_BONUS_WEIGHT = 0.8 # Empirical weight, can be tuned.
+    scores[can_fit_mask] += PROPORTIONAL_FILL_BONUS_WEIGHT * (proportional_fill_ratio ** 2)
+
+    # 3. Penalty for Tiny, Non-Zero Remainders: Discourages leaving very small, potentially unusable
+    # fragmented space. This directly addresses the "manage fragmented space" insight.
+    TINY_REMAINDER_THRESHOLD = 0.05 # e.g., 5% of normalized bin capacity.
+    PENALTY_FOR_TINY_REMAINDER = 0.005 # A small penalty, to avoid choosing bins that leave tiny gaps.
+
+    # Identify valid bins that would result in a very small, non-zero remainder.
+    tiny_remainder_cond = (remaining_after_fit > 1e-9) & (remaining_after_fit < TINY_REMAINDER_THRESHOLD)
+    scores[can_fit_mask][tiny_remainder_cond] -= PENALTY_FOR_TINY_REMAINDER
+
+    return scores
+```

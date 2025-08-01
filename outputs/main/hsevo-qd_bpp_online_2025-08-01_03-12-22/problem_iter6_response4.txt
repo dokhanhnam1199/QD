@@ -1,0 +1,86 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This heuristic, 'Strategic Best Fit with Dead Space Penalty', refines the
+    'Best Fit' principle by actively discouraging the creation of "dead space"
+    — very small, positive, and often unusable remaining capacities in bins.
+    The core idea is to guide the packing strategy away from leaving remnants
+    that are too small for subsequent typical items, thereby preventing bins
+    from becoming 'trapped' in an inefficient state. This encourages either
+    a perfect fit (zero remaining capacity) or leaving a sufficiently large,
+    more usable capacity.
+
+    The priority score for each bin is primarily based on the negative of the
+    remaining capacity after the item is placed (similar to the Best Fit
+    heuristic). A significant penalty is then applied if this remaining
+    capacity falls within a predefined 'dead space' range (i.e., greater than
+    zero but less than or equal to a `DEAD_SPACE_THRESHOLD`). This penalty
+    makes such bins less attractive unless they offer a perfect fit.
+
+    Args:
+        item: Size of item to be added to the bin. This value should be
+              relative to the bin's total capacity (e.g., if bin capacity is 100,
+              an item of size 20 is passed as 0.2).
+        bins_remain_cap: A NumPy array where each element represents the
+                         remaining capacity of a bin. These values should also
+                         be relative to the bin's total capacity (e.g., 0.5 for
+                         half-full).
+
+    Return:
+        A NumPy array of the same size as `bins_remain_cap`, where each element
+        is the priority score for the corresponding bin. Bins where the item
+        does not fit receive a score of negative infinity (-np.inf) to ensure
+        they are never selected. The bin with the highest (least negative)
+        score is the preferred choice.
+    """
+    # --- Heuristic Parameters ---
+    # These values are crucial for the behavior of this heuristic and
+    # may require tuning based on the specific distribution of item sizes
+    # in the problem instance.
+    #
+    # DEAD_SPACE_THRESHOLD: The upper limit (exclusive) for what is considered
+    # a "dead space" remainder. For example, if 0.2, then any remainder (x)
+    # where 0 < x <= 0.2 will incur a penalty. This should be a value that
+    # represents a typically "unusable" small item size, relative to total bin capacity.
+    DEAD_SPACE_THRESHOLD = 0.2
+
+    # DEAD_SPACE_PENALTY: The amount subtracted from the base score if the
+    # remaining capacity falls within the "dead space" range. A higher
+    # penalty makes these options significantly less desirable.
+    # Best Fit scores typically range from 0 (perfect fit) to -1 (placing item in an empty bin).
+    # A penalty of 0.5 is substantial enough to reorder preferences significantly.
+    DEAD_SPACE_PENALTY = 0.5
+    # --- End Heuristic Parameters ---
+
+    # Initialize scores for all bins to negative infinity.
+    # This ensures that bins where the item cannot fit will never be selected.
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Determine which bins have sufficient remaining capacity for the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    # For the bins where the item fits, calculate the remaining capacity
+    # if the item were to be placed there.
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # 1. Base score: Apply the Best Fit principle.
+    # We want to minimize remaining capacity, so we take the negative.
+    # A perfect fit (0.0 remainder) results in the highest base score (0.0).
+    base_scores = -remaining_after_fit
+
+    # 2. Identify "dead space" remaining capacities.
+    # These are positive remainders that are too small to be generally useful.
+    # A remainder of 0 (perfect fit) is explicitly not penalized.
+    dead_space_mask = (remaining_after_fit > 0) & (remaining_after_fit <= DEAD_SPACE_THRESHOLD)
+
+    # 3. Apply the strategic penalty to bins creating "dead space".
+    base_scores[dead_space_mask] -= DEAD_SPACE_PENALTY
+
+    # Assign the calculated scores back to the appropriate bins.
+    scores[can_fit_mask] = base_scores
+
+    return scores
+```

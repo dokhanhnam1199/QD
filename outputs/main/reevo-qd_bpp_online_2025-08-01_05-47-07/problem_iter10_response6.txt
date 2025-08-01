@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+    This heuristic refines the Best-Fit strategy by:
+    1. Strongly prioritizing bins that will be perfectly filled.
+    2. Applying the standard Best-Fit logic for bins that leave a "useful" amount of remaining capacity.
+    3. Discouraging (penalizing) bins that, after placing the item, would be left with a very small,
+       potentially unusable, amount of remaining capacity, to minimize fragmentation.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    hypothetical_remaining = bins_remain_cap - item
+
+    # Initialize priority scores to a very low value for bins where the item does not fit.
+    priority_scores = np.full_like(bins_remain_cap, -np.inf)
+
+    # Define thresholds for special handling of remaining capacities.
+    # These values might need tuning based on the typical bin capacity and item size distribution.
+    # Assuming typical bin capacity is 1.0.
+    PERFECT_FIT_TOLERANCE = 1e-6 # Tolerance for floating point equality check for perfect fit
+    SMALL_UNUSABLE_GAP_THRESHOLD = 0.05 # e.g., if remaining capacity is less than 5% of bin, it's considered a "small, unusable gap".
+
+    # 1. Mask for bins where the item actually fits (hypothetical_remaining >= 0)
+    fits_mask = hypothetical_remaining >= 0
+
+    # 2. Mask for perfect fits: where hypothetical_remaining is very close to zero.
+    perfect_fit_mask = np.isclose(hypothetical_remaining, 0.0, atol=PERFECT_FIT_TOLERANCE) & fits_mask
+
+    # 3. Mask for "small, potentially unusable" gaps: 0 < hypothetical_remaining < SMALL_UNUSABLE_GAP_THRESHOLD.
+    small_unusable_gap_mask = (hypothetical_remaining > PERFECT_FIT_TOLERANCE) & \
+                              (hypothetical_remaining < SMALL_UNUSABLE_GAP_THRESHOLD) & fits_mask
+
+    # 4. Mask for "regular" (useful) gaps:
+    # These are fits that are not perfect and do not result in a small, unusable gap.
+    regular_gap_mask = fits_mask & ~perfect_fit_mask & ~small_unusable_gap_mask
+
+    # Assign priority scores based on the type of fit:
+
+    # A. Perfect fits receive the highest priority.
+    # A large positive value ensures they are always chosen first if available.
+    priority_scores[perfect_fit_mask] = 100.0
+
+    # B. Regular fits: Apply Best-Fit logic.
+    # The score is the negative of the remaining capacity. A smaller remaining capacity
+    # (i.e., tighter fit) results in a larger (less negative) score.
+    priority_scores[regular_gap_mask] = -hypothetical_remaining[regular_gap_mask]
+
+    # C. Small, potentially unusable gaps: Assign a specific, lower priority.
+    # This value should be worse than any 'regular fit' score but still better than -np.inf
+    # (i.e., preferred over not fitting at all).
+    # For example, if bin capacities are typically 1.0, regular fit scores range from approx -0.05
+    # (for a tightest non-perfect fit) down to around -1.0 (for a new bin with a small item).
+    # A score of -1.0 (or smaller, e.g., -5.0) places these fits below all regular fits.
+    priority_scores[small_unusable_gap_mask] = -1.0 
+
+    return priority_scores
+```

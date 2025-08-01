@@ -1,0 +1,82 @@
+```python
+import numpy as np
+
+# Assume a standard bin size for the Bin Packing Problem.
+# In many contexts, items and bin capacities are normalized, so 1.0 is a common default.
+# If specific problem constraints dictate a different size (e.g., integer capacities),
+# this constant should be adjusted accordingly or passed as an argument.
+BIN_SIZE = 1.0
+
+# Define constants for priority adjustments
+# A large positive bonus for a perfect fit (remaining capacity = 0).
+# Ensures perfect fits are always preferred over any other option.
+PERFECT_FIT_BONUS = 100.0
+# A small negative penalty for opening a new (empty) bin.
+# This encourages filling partially used bins first, provided the fit quality is comparable.
+PENALTY_FOR_EMPTY_BIN = -0.001
+# Tolerance for floating-point comparisons to handle precision issues.
+EPSILON = 1e-9
+
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add an item to each bin.
+
+    This heuristic extends the Best-Fit strategy with specific refinements aimed
+    at minimizing the total number of bins used in an online scenario:
+    1.  **Strong Perfect Fit Preference:** Bins that can be filled perfectly
+        (resulting in zero remaining capacity) are given the highest possible
+        priority. This prioritizes "closing" bins.
+    2.  **Best-Fit as Primary:** For bins that don't result in a perfect fit,
+        the standard Best-Fit logic applies: prefer the bin that leaves the
+        least amount of waste (i.e., the smallest positive remaining capacity).
+    3.  **Bias Against New Bins:** Among bins that do not offer a perfect fit,
+        a small penalty is applied to completely empty bins. This encourages
+        consolidating items into existing, partially-filled bins, deferring
+        the opening of new bins unless absolutely necessary or if they offer
+        a significantly better fit.
+
+    Bins where the item does not fit are always assigned the lowest possible priority (-inf).
+
+    Args:
+        item: Size of the item to be added to a bin.
+        bins_remain_cap: NumPy array of remaining capacities for each bin.
+                         Assumes `BIN_SIZE` (defaulting to 1.0) is the full
+                         capacity of an empty bin for identification purposes.
+
+    Return:
+        NumPy array of the same size as `bins_remain_cap`, containing the
+        priority score for each bin. The bin with the highest score is preferred.
+    """
+    # Calculate the remaining capacity for each bin if the item were hypothetically placed.
+    hypothetical_remaining = bins_remain_cap - item
+
+    # Initialize priority scores, setting non-fitting bins to -np.inf.
+    # This ensures that bins where the item does not fit are never selected.
+    priority_scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # A mask to identify bins where the item actually fits (i.e., hypothetical_remaining is non-negative).
+    # Using EPSILON for robustness against small negative floating-point results due to precision.
+    fits_mask = hypothetical_remaining >= -EPSILON
+
+    # Step 1: Apply the base Best-Fit priority to the bins where the item fits.
+    # A smaller hypothetical remaining capacity (tighter fit, less waste)
+    # results in a higher (less negative) priority score.
+    priority_scores[fits_mask] = -hypothetical_remaining[fits_mask]
+
+    # Step 2: Add a substantial bonus for perfect fits.
+    # This makes bins that can be perfectly filled the absolute top priority.
+    perfect_fit_mask = np.isclose(hypothetical_remaining, 0.0, atol=EPSILON) & fits_mask
+    priority_scores[perfect_fit_mask] += PERFECT_FIT_BONUS
+
+    # Step 3: Apply a small penalty for using completely empty bins.
+    # This encourages filling partially used bins first among non-perfect fits.
+    # Identify bins that are currently completely empty.
+    is_empty_bin = np.isclose(bins_remain_cap, BIN_SIZE, atol=EPSILON)
+
+    # Apply the penalty only to empty bins that fit the item, AND are NOT a perfect fit.
+    # This ensures the PERFECT_FIT_BONUS always makes a perfect fit superior, even in a new bin.
+    empty_bins_that_fit_and_not_perfect = is_empty_bin & fits_mask & (~perfect_fit_mask)
+    priority_scores[empty_bins_that_fit_and_not_perfect] += PENALTY_FOR_EMPTY_BIN
+
+    return priority_scores
+```

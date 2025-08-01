@@ -1,0 +1,83 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin, focusing on
+    efficient space utilization and strategic bin closing.
+
+    This version defines explicit objectives and combines them using weighted,
+    non-linear scoring with a focus on:
+    1. Minimizing remaining space post-placement (Best Fit) using an exponential decay.
+    2. Maximizing initial bin utilization to encourage closing bins.
+    3. Providing a distinct, high bonus for perfect fits.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot fit the item will have a priority score of 0.
+        For bins that can fit, a higher score indicates a more desirable placement.
+    """
+    # Tunable parameters for the heuristic
+    # WEIGHT_FIT: Weight for the best-fit objective. A higher value emphasizes snug fits.
+    # DECAY_RATE_FIT: Controls how quickly the best-fit score decreases as the remaining
+    #                 space after placement increases. A higher rate means a stronger
+    #                 preference for very tight fits.
+    # WEIGHT_FULLNESS: Weight for the bin fullness objective. A higher value emphasizes
+    #                  placing items into bins that are already highly utilized.
+    # PERFECT_FIT_BONUS: A substantial fixed bonus applied if an item fits perfectly
+    #                    into a bin (leaves 0 remaining capacity). This ensures such
+    #                    placements are highly prioritized.
+    # EPSILON: A small value to prevent division by zero or issues with floating-point
+    #          comparisons, especially for near-zero remaining capacities.
+    WEIGHT_FIT = 5.0
+    DECAY_RATE_FIT = 0.5  # Example: 0.5 means score drops by e^0.5 for each unit of remaining space
+    WEIGHT_FULLNESS = 1.0
+    PERFECT_FIT_BONUS = 1000.0
+    EPSILON = 1e-9
+
+    # Initialize priority scores. Bins that cannot fit will retain a score of 0.
+    priority_scores = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Calculate the remaining space in each bin *after* placing the current item.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Create a boolean mask for bins where the item can actually fit.
+    can_fit_mask = potential_remaining_space >= 0
+
+    # Apply calculations only to bins where the item can fit
+    if np.any(can_fit_mask):
+        fitting_potential_rem_space = potential_remaining_space[can_fit_mask]
+        fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+        # Objective 1: Best Fit Score (Non-linear Exponential Decay)
+        # Rewards bins where placing the item results in the smallest remaining capacity.
+        # The exponential function creates a strong preference for very tight fits,
+        # with scores decaying rapidly as the remaining space increases.
+        fit_score_component = np.exp(-DECAY_RATE_FIT * fitting_potential_rem_space)
+
+        # Objective 2: Bin Fullness Score (Non-linear Inverse Proportional)
+        # Rewards bins that are already more utilized (i.e., have less remaining capacity
+        # before the item is placed). This encourages consolidating items into existing
+        # bins to help 'close' them and reduce the total number of bins used.
+        fullness_score_component = 1.0 / (fitting_bins_remain_cap + EPSILON)
+
+        # Objective 3: Perfect Fit Bonus (Explicit Constant Bonus)
+        # Provides a significant, overriding bonus for bins where the item fits exactly,
+        # leaving virtually zero remaining space. This ensures perfect fits are chosen
+        # whenever possible.
+        perfect_fit_mask = (fitting_potential_rem_space < EPSILON) # Account for floating-point inaccuracies
+        perfect_fit_component = np.where(perfect_fit_mask, PERFECT_FIT_BONUS, 0.0)
+
+        # Combine the weighted scores from each objective.
+        # The perfect fit bonus is added on top of the other calculated scores.
+        priority_scores[can_fit_mask] = (
+            WEIGHT_FIT * fit_score_component +
+            WEIGHT_FULLNESS * fullness_score_component +
+            perfect_fit_component
+        )
+
+    return priority_scores
+```

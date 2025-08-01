@@ -1,0 +1,97 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add an item to each bin.
+
+    This heuristic implements a Best-Fit-like strategy, explicitly quantifying
+    choices into three distinct priority tiers, ensuring clear numerical separation
+    and adherence to the bin packing goals:
+
+    Tier 1: Item does not fit in the bin.
+    Tier 2: Item fits but not perfectly (applying Best Fit within this tier).
+    Tier 3: Item is a perfect fit for the bin.
+
+    The design rigorously addresses the "Prior reflection" by:
+    1.  **Quantifying choices distinctly:** Each tier is assigned a unique score
+        range. Scores for bins where the item fits are always positive, with
+        perfect fits having the highest scores, and non-perfect fits scored
+        relative to how tightly they fit.
+        - Tier 1 (No Fit): Lowest possible score (-np.inf).
+        - Tier 2 (Non-Perfect Fit): Scores are positive, ranging from ~1.0 up to
+          a defined `base_non_perfect_score_scale`. This range is distinct from
+          perfect fit scores.
+        - Tier 3 (Perfect Fit): A constant, highest positive score (e.g.,
+          `2 * base_non_perfect_score_scale`).
+    2.  **Prioritizing ideal outcomes (perfect fits):** Perfect fits are given
+        an exceptionally high score, guaranteeing their selection over any
+        non-perfect fit, thus promoting bin utilization and reducing fragmentation.
+    3.  **Applying secondary criteria (Best Fit) otherwise:** For bins where the
+        item fits but is not a perfect match, the heuristic prioritizes bins
+        that result in the smallest remaining capacity. This is achieved by
+        inverting the remaining capacity (subtracting it from a scale), such
+        that smaller remainders yield larger scores within Tier 2.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize priority scores for all bins to the lowest possible value (Tier 1).
+    # This ensures bins where the item does not fit will never be selected by argmax.
+    priority_scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Handle the case of no bins, returning an empty array.
+    if bins_remain_cap.size == 0:
+        return np.array([])
+
+    # Calculate the remaining capacity if the item were placed in each bin.
+    # A positive value means it fits, zero means perfect fit, negative means it doesn't fit.
+    hypothetical_remaining = bins_remain_cap - item
+
+    # Identify bins where the item actually fits (remaining capacity is non-negative).
+    fits_mask = hypothetical_remaining >= 0
+
+    # If no bins can fit the item, return the initialized scores (-np.inf everywhere).
+    if not np.any(fits_mask):
+        return priority_scores
+
+    # Determine a dynamic scaling factor based on the maximum current remaining
+    # capacity among bins where the item can fit. This ensures the positive
+    # score ranges are robustly defined relative to the problem's scale.
+    # Add a small offset (e.g., 1.0) to ensure the base scale is always positive
+    # and provides a clear separation from zero.
+    max_current_fitting_capacity = np.max(bins_remain_cap[fits_mask])
+    
+    # This serves as the upper bound for non-perfect fit scores (excluding perfect fits).
+    # Non-perfect fit scores will range from 1.0 up to this value (minus epsilon).
+    base_non_perfect_score_scale = max_current_fitting_capacity + 1.0
+
+    # --- Step 1: Assign scores for non-perfect fits (Tier 2) ---
+    # These are bins where the item fits, but leaves some positive capacity remaining.
+    non_perfect_fit_mask = (hypothetical_remaining > 0) & fits_mask
+
+    # For these bins, we apply the Best Fit strategy: prioritize bins that result
+    # in the smallest remaining capacity. We achieve this by subtracting the
+    # hypothetical remaining capacity from our `base_non_perfect_score_scale`.
+    # A smaller `hypothetical_remaining` leads to a larger score.
+    # These scores will be in the range [1.0, `base_non_perfect_score_scale` - epsilon).
+    priority_scores[non_perfect_fit_mask] = \
+        base_non_perfect_score_scale - hypothetical_remaining[non_perfect_fit_mask]
+
+    # --- Step 2: Assign scores for perfect fits (Tier 3) ---
+    # A perfect fit is when the item fills the bin exactly, leaving 0 capacity.
+    perfect_fit_mask = (hypothetical_remaining == 0) & fits_mask
+
+    # Assign a distinctly higher score for perfect fits. This score is
+    # chosen to be significantly greater than the maximum possible score
+    # for any non-perfect fit (Tier 2).
+    # Multiplying by 2 ensures a clear numerical separation.
+    perfect_fit_value = 2 * base_non_perfect_score_scale
+    
+    priority_scores[perfect_fit_mask] = perfect_fit_value
+
+    return priority_scores
+```

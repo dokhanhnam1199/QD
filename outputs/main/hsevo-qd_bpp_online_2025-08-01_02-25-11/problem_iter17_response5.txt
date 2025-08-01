@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_capacity: float = 1.0) -> np.ndarray:
+    """Combines Best Fit with exact fit bonus, used bin preference, and adaptive fragmentation penalty.
+
+    Prioritizes exact fits, then best fit, with a slight preference for existing bins.
+    Applies a small penalty for creating very small, non-zero remaining capacities.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # 1. Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+    if not np.any(can_fit_mask):
+        return priorities # No bins can fit the item, all remain -inf
+
+    fitting_bins_idx = np.where(can_fit_mask)[0]
+    fitting_bins_remain_cap = bins_remain_cap[fitting_bins_idx]
+
+    # 2. Calculate potential remaining capacity if item were placed
+    potential_remaining_cap = fitting_bins_remain_cap - item
+
+    # 3. Base priority: Best Fit (smaller potential_remaining_cap = higher priority)
+    base_priorities = -potential_remaining_cap
+
+    # Initialize priorities for fitting bins with the base Best Fit score
+    priorities[fitting_bins_idx] = base_priorities
+
+    # Define constants for bonuses/penalties - these can be tuned
+    # Values chosen assuming bin_capacity is around 1.0 and item sizes are relative.
+    EXACT_FIT_BONUS = 100.0  # Large positive to highly prioritize perfect fits
+    USED_BIN_BONUS = 1e-3    # Small positive for consolidating into existing bins
+    FRAGMENTATION_PENALTY = -1e-4 # Small negative for creating awkward, tiny non-zero gaps
+
+    # Tolerance for floating-point comparisons
+    EPSILON = np.finfo(float).eps * 10 
+
+    # 4. Exact Fit Bonus: Apply a large bonus for bins resulting in a perfect fit
+    exact_fit_mask = np.isclose(potential_remaining_cap, 0.0, atol=EPSILON)
+    priorities[fitting_bins_idx[exact_fit_mask]] += EXACT_FIT_BONUS
+
+    # 5. Consolidation Bonus: Add a small bonus for choosing an already used bin
+    # A bin is 'used' if its remaining capacity is less than the full capacity (i.e., not a fresh, empty bin).
+    is_used_bin_mask = ~np.isclose(fitting_bins_remain_cap, bin_capacity, atol=EPSILON)
+    priorities[fitting_bins_idx[is_used_bin_mask]] += USED_BIN_BONUS
+
+    # 6. Adaptive Fragmentation Penalty: Penalize very small, non-zero remainders.
+    # This aims to discourage leaving tiny, potentially unusable gaps, promoting "quality" of remaining space.
+    # Thresholds adapt to both the absolute bin capacity and the current item size.
+    min_useful_remainder_abs = 0.05 * bin_capacity # e.g., 5% of total bin capacity
+    min_useful_remainder_rel_to_item = 0.20 * item # e.g., 20% of the current item's size
+
+    # Identify non-zero remainders that are considered "small" based on either threshold
+    small_non_zero_remainder_mask = (potential_remaining_cap > EPSILON) & \
+                                    ((potential_remaining_cap < min_useful_remainder_abs) | \
+                                     (potential_remaining_cap < min_useful_remainder_rel_to_item))
+
+    priorities[fitting_bins_idx[small_non_zero_remainder_mask]] += FRAGMENTATION_PENALTY
+
+    return priorities
+```

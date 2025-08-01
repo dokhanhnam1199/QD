@@ -1,0 +1,84 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+    This implementation refines the strategic Best Fit approach by clearly
+    defining and applying a hierarchical prioritization based on the reflection:
+    "Strategically prioritize, avoid dead space, and achieve perfect fits using Best Fit principles."
+
+    The priority tiers are:
+    1.  **Perfect Fit (Highest Priority)**: Bins where the item fills the capacity exactly, leaving zero
+        remaining space. These are ideal as they fully utilize a bin and "close" it.
+    2.  **Standard Best Fit**: For bins where the item fits and leaves a "useful" positive remainder
+        (i.e., not a perfect fit and not a tiny, unusable fragment). Among these, bins that leave
+        a smaller positive remainder are preferred, following the classic Best Fit strategy.
+    3.  **Avoid Small Fragments (Lowest Priority for Fitting Bins)**: Bins that would be left with a
+        very small, non-zero remaining capacity (below a defined threshold). These are highly
+        discouraged as they represent "dead space" that is hard to utilize later, contributing to waste.
+    4.  **Cannot Fit (Absolute Lowest Priority)**: Bins where the item simply does not fit.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate a more desirable bin.
+    """
+    # Define thresholds for remaining capacity types.
+    # EPSILON_FOR_ZERO: A very small number to account for floating point inaccuracies
+    #                   when checking if a remaining capacity is effectively zero.
+    EPSILON_FOR_ZERO = 1e-9
+    # SMALL_REMAINDER_THRESHOLD: Defines what constitutes a "very small" or "dead" remaining space.
+    #                            This value is crucial and should be tuned based on the typical range
+    #                            of item sizes and the overall bin capacity to effectively identify
+    #                            "unusable" fragments. For normalized capacities (0 to 1), 0.05
+    #                            (5% of bin capacity) is a common starting point.
+    SMALL_REMAINDER_THRESHOLD = 0.05
+
+    # Calculate the potential remaining capacity if the item were hypothetically placed in each bin.
+    potential_remaining_cap = bins_remain_cap - item
+
+    # Initialize priority scores for all bins.
+    # Bins where the item does not fit will retain a very low priority (-np.inf).
+    priority_scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # STEP 1: Identify all bins where the item can fit.
+    # We allow for a tiny negative potential_remaining_cap due to floating point precision,
+    # treating it as effectively zero or positive.
+    fitting_bins_mask = potential_remaining_cap >= -EPSILON_FOR_ZERO
+
+    # Get the actual remaining capacities for only the fitting bins.
+    actual_fitting_caps = potential_remaining_cap[fitting_bins_mask]
+
+    # Create a temporary array to hold scores for just the fitting bins.
+    # This allows for a clear multi-tier logic application before assigning back.
+    temp_fitting_scores = np.zeros_like(actual_fitting_caps, dtype=float)
+
+    # STEP 2: Assign scores based on the defined priority hierarchy.
+
+    # Tier 1: Perfect Fit (remaining capacity is zero or very close to it).
+    perfect_fit_mask = np.isclose(actual_fitting_caps, 0.0, atol=EPSILON_FOR_ZERO)
+    temp_fitting_scores[perfect_fit_mask] = float('inf')  # Assign an extremely high score
+
+    # Tier 3 (Logically): Small, Non-Zero Remainder (considered "dead space").
+    # These are positive remainders that are greater than zero but below the defined threshold.
+    small_remainder_mask = (actual_fitting_caps > EPSILON_FOR_ZERO) & \
+                           (actual_fitting_caps < SMALL_REMAINDER_THRESHOLD)
+    temp_fitting_scores[small_remainder_mask] = -float('inf') # Assign an extremely low score
+
+    # Tier 2 (Logically): Standard Best Fit.
+    # These are all other fitting bins that are neither a perfect fit nor a small, dead-space fragment.
+    # This ensures that bins with useful larger remainders are still prioritized by best-fit.
+    standard_best_fit_mask = ~(perfect_fit_mask | small_remainder_mask)
+    # For these, apply the Best Fit principle: smaller positive remainder -> higher score.
+    # We negate the remainder so that smaller values (closer to zero) result in higher scores.
+    temp_fitting_scores[standard_best_fit_mask] = -actual_fitting_caps[standard_best_fit_mask]
+
+    # STEP 3: Assign the calculated scores from the temporary array back to the main
+    # priority_scores array for all bins that were identified as fitting.
+    priority_scores[fitting_bins_mask] = temp_fitting_scores
+
+    return priority_scores
+```

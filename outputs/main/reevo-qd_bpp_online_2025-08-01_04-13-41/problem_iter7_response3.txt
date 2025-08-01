@@ -1,0 +1,74 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This function extends the "Best Fit" heuristic by:
+    1. Significantly rewarding perfect fits (leaving exactly 0 capacity).
+    2. Strategically penalizing "awkward" small remaining capacities that are not zero.
+       These awkward gaps are those that are too small to be useful for many future items,
+       potentially leading to fragmented or wasted space in the long run.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        The bin with the highest score will be selected.
+    """
+    # Calculate the remaining capacity if the item were placed in each bin.
+    # A negative value means the item does not fit.
+    potential_remaining_cap = bins_remain_cap - item
+
+    # Initialize priorities to a very low value for all bins.
+    # Using -np.inf ensures that bins where the item does not fit will never
+    # be selected by argmax (unless all bins are -np.inf, implying no fit).
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item actually fits (remaining capacity >= 0).
+    fitting_bins_mask = potential_remaining_cap >= 0
+
+    # For fitting bins, set the base priority using the Best Fit heuristic.
+    # We want to minimize the remaining capacity, so we use its negative as the priority score.
+    # A smaller positive remaining capacity (less waste) results in a larger (less negative) priority score.
+    priorities[fitting_bins_mask] = -potential_remaining_cap[fitting_bins_mask]
+
+    # --- Strategic adjustments based on the reflection ---
+
+    # Define constants for strategic adjustments. These values might require tuning
+    # based on the specific characteristics (e.g., typical item sizes, bin capacity)
+    # of the bin packing problem instance.
+    EPSILON = 1e-9  # Tolerance for floating-point comparison to define 'perfect fit'
+    PERFECT_FIT_BONUS = 1000.0  # A large positive bonus to ensure perfect fits are always preferred
+    # Define what constitutes a "small" remaining capacity for an awkward gap.
+    # This value typically relates to the overall bin capacity or typical item sizes.
+    # For example, if bin capacities are normalized to 1.0, 0.05 means 5% of the bin capacity.
+    AWKWARD_GAP_THRESHOLD = 0.05 
+    AWKWARD_PENALTY_VALUE = 0.5   # A penalty to apply to "awkward" gaps, making them less desirable
+
+    # 1. Reward perfect fits: Assign a significant bonus to bins that result in exactly zero (or near-zero) remaining capacity.
+    perfect_fit_mask = fitting_bins_mask & (np.abs(potential_remaining_cap) < EPSILON)
+    if np.any(perfect_fit_mask): # Only apply if there's at least one perfect fit
+        priorities[perfect_fit_mask] = PERFECT_FIT_BONUS
+
+    # 2. Penalize awkward small non-zero gaps: Identify and penalize bins that, after placing the item,
+    #    would have a small, positive, non-zero remaining capacity that is deemed "awkward" (e.g., too small to be useful later).
+    #    This mask specifically targets gaps that are:
+    #    - Positive (item fits)
+    #    - Not a perfect fit (greater than EPSILON)
+    #    - Smaller than the defined AWKWARD_GAP_THRESHOLD
+    awkward_gap_mask = fitting_bins_mask & \
+                       (potential_remaining_cap > EPSILON) & \
+                       (potential_remaining_cap < AWKWARD_GAP_THRESHOLD)
+
+    if np.any(awkward_gap_mask): # Only apply penalty if such gaps exist
+        # Subtract the penalty value from the current Best-Fit priority score.
+        # This makes bins with awkward gaps less attractive than other Best-Fit options
+        # that leave larger, potentially more useful, remaining space, without making them
+        # as undesirable as bins where the item doesn't fit at all.
+        priorities[awkward_gap_mask] -= AWKWARD_PENALTY_VALUE
+
+    return priorities
+```

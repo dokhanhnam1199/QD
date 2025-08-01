@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_capacity: float = 1.0) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This implementation builds on the "Best Fit" strategy but introduces a slight
+    preference for existing, partially filled bins over entirely new (empty) bins.
+    The goal is to encourage filling up bins already in use, potentially delaying
+    the opening of new bins, which can lead to fewer total bins.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+        bin_capacity: The maximum capacity of a single bin. Default to 1.0,
+                      assuming item sizes are normalized relative to this capacity.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # 1. Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Only consider bins where the item fits
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # 2. Calculate remaining capacity if the item were placed in fitting bins
+    potential_remaining_cap = fitting_bins_remain_cap - item
+
+    # 3. Base priority: Best Fit strategy (minimize remaining capacity)
+    # A smaller potential_remaining_cap (closer to 0) means a tighter fit,
+    # which is preferred. By taking the negative, we convert minimization
+    # to maximization for `np.argmax`.
+    # A perfect fit (potential_remaining_cap == 0) will result in a priority of 0,
+    # which is the highest possible score from this component.
+    base_priorities = -potential_remaining_cap
+
+    # 4. Mutation: Add a small bonus for choosing an already used bin over a fresh one.
+    # This slightly biases towards consolidating items into existing bins.
+    # The bonus value (e.g., 1e-6) should be carefully chosen. It must be
+    # small enough not to override a significantly better Best Fit (i.e., a
+    # much smaller potential_remaining_cap difference), but large enough
+    # to break ties or influence decisions when Best Fit scores are very close.
+    # For floating-point comparisons, a tolerance (e.g., np.finfo(float).eps * 10)
+    # is often used, but for simplicity and common BPP scenarios where `bin_capacity`
+    # is exactly 1.0 for fresh bins, direct comparison or `x < capacity` is often sufficient.
+    used_bin_bonus = 1e-6  # A small constant bonus
+
+    # Identify bins that are not "fresh" (i.e., not entirely empty/unused).
+    # A bin is considered 'used' if its remaining capacity is strictly less than the full capacity.
+    # Using np.isclose for robustness against floating-point inaccuracies when comparing to bin_capacity.
+    is_used_bin_mask = ~np.isclose(fitting_bins_remain_cap, bin_capacity)
+
+    # Apply the bonus only to bins that can fit the item AND are already used.
+    # This applies the bonus to the elements within the 'can_fit_mask' subset.
+    priorities[can_fit_mask] = base_priorities
+    priorities[can_fit_mask][is_used_bin_mask] += used_bin_bonus
+
+    return priorities
+```

@@ -1,0 +1,94 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Calculates a priority score for each bin, enhancing the "Best Fit" strategy
+    with adaptive, non-linear elements to encourage better packing efficiency
+    and reduce problematic fragmentation.
+
+    This heuristic introduces:
+    1.  A significant bonus for bins that are filled perfectly (resulting in 0 remaining capacity).
+    2.  A minor penalty for creating very small, non-zero remaining capacities (fragments),
+        aiming to leave either a perfect fit or a more substantial, potentially more useful,
+        amount of space for future items.
+    3.  A general preference for bins that are already relatively full before the item is placed,
+        encouraging the "finishing off" of existing bins.
+
+    This approach combines the core "Best Fit" principle with a more nuanced
+    objective function, incorporating complex numerical transformations and
+    implicitly allowing for strategic, non-greedy choices in specific scenarios.
+
+    Args:
+        item: Size of the item to be added to a bin.
+        bins_remain_cap: A NumPy array containing the remaining capacity of each bin.
+                         Assumes a common (though not explicitly provided) initial
+                         bin capacity for contextualizing fragment thresholds and
+                         relative fullness (e.g., typically a bin capacity of 1.0).
+
+    Returns:
+        A NumPy array of the same size as `bins_remain_cap`, where each element
+        is the priority score for the corresponding bin. A higher score indicates
+        a more desirable bin.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity of fitting bins if the item were placed
+    potential_remaining_cap = bins_remain_cap[can_fit_mask] - item
+
+    # --- Heuristic Parameters (tuned for general BPP, can be adapted) ---
+    # Small constant to handle floating-point comparisons to zero
+    epsilon = 1e-9
+    # Substantial bonus for a perfect fit (remaining capacity is effectively zero)
+    PERFECT_FIT_BONUS = 1000.0
+    # Moderate penalty for creating very small, non-zero fragments.
+    # This value is chosen to be noticeable but not completely override
+    # Best Fit for very small remaining capacities.
+    SMALL_FRAGMENT_PENALTY = 0.5
+    # Threshold below which a non-zero remaining capacity is considered a "small fragment".
+    # This value is relative and assumes a typical bin capacity (e.g., 1.0 for normalized problems).
+    FRAGMENT_THRESHOLD = 0.1
+    # Weight for the "bin fullness" component. This term favors bins that are already
+    # relatively fuller, encouraging them to be completed.
+    BIN_FULLNESS_WEIGHT = 0.1
+
+
+    # --- Component 1: Core Best Fit Score ---
+    # This component makes smaller `potential_remaining_cap` values result in higher scores.
+    # (e.g., -0.1 is better than -0.5)
+    best_fit_scores = -potential_remaining_cap
+
+    # --- Component 2: Perfect Fit Enhancement ---
+    # Apply a large bonus if placing the item perfectly fills the bin.
+    perfect_fit_mask = potential_remaining_cap <= epsilon
+    perfect_fit_bonus = np.where(perfect_fit_mask, PERFECT_FIT_BONUS, 0.0)
+
+    # --- Component 3: Small Fragment Penalty ---
+    # Apply a penalty if placing the item leaves a very small, non-zero fragment.
+    # This discourages creating awkwardly small remaining spaces.
+    small_fragment_mask = (potential_remaining_cap > epsilon) & \
+                          (potential_remaining_cap < FRAGMENT_THRESHOLD)
+    fragment_penalties = np.where(small_fragment_mask, -SMALL_FRAGMENT_PENALTY, 0.0)
+
+    # --- Component 4: Current Bin Fullness Preference ---
+    # This term gives a slight preference to bins that are already more filled
+    # before the current item is placed. This encourages "finishing off" bins.
+    # Using reciprocal of remaining capacity before placing item (higher score for less remaining capacity initially).
+    # Add epsilon to prevent division by zero for completely full bins initially.
+    current_bin_fullness_scores = BIN_FULLNESS_WEIGHT / (bins_remain_cap[can_fit_mask] + epsilon)
+
+    # --- Combine all scores ---
+    # The combination is additive, with weights controlling the influence of each component.
+    # Perfect fit has the highest priority.
+    # Best fit (negative of remaining capacity) guides the primary choice.
+    # Small fragment penalty slightly modifies choices to avoid awkward fragments.
+    # Current bin fullness acts as a tie-breaker or minor preference.
+    combined_scores = best_fit_scores + perfect_fit_bonus + fragment_penalties + current_bin_fullness_scores
+
+    priorities[can_fit_mask] = combined_scores
+
+    return priorities
+```

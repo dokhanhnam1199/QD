@@ -1,0 +1,88 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add an item to each bin,
+    implementing a refined Best Fit heuristic that strongly prioritizes
+    perfect fits, significantly rewards near-perfect fits to reduce fragmentation,
+    and otherwise minimizes remaining capacity.
+
+    This strategy explicitly divides potential fits into three tiers based on
+    the remaining capacity after placing the item:
+    1.  **Perfect Fit (remaining == 0):** Highest priority.
+    2.  **Near-Perfect Fit (0 < remaining <= threshold):** High priority, with a
+        score that decreases as remaining capacity approaches the threshold. This
+        encourages using bins that will be almost full, making their small
+        remaining space less likely to be useful for future items (thus reducing
+        fragmentation).
+    3.  **General Fit (remaining > threshold):** Standard Best Fit principle,
+        where a smaller remaining capacity is preferred, but these fits are
+        prioritized lower than any perfect or near-perfect fit.
+
+    Bins that cannot accommodate the item receive the lowest possible priority.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate a more desirable bin.
+    """
+    # Initialize all priorities to a very low negative number (-infinity)
+    # for bins that cannot accommodate the item.
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+    eligible_bins_indices = np.where(can_fit_mask)[0]
+
+    # If no bins can fit the item, return the initialized scores
+    if not eligible_bins_indices.size > 0:
+        return scores
+
+    # Calculate remaining capacity after fit for eligible bins
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # --- Scoring Parameters (can be tuned) ---
+    # This threshold defines what constitutes a "near-perfect" fit.
+    # It assumes item and bin capacities are normalized (e.g., bin max capacity is 1.0).
+    # A remaining capacity <= 0.05 (e.g., 5% of a standard bin) is considered near-perfect.
+    near_perfect_threshold = 0.05
+
+    # Define score constants for clear prioritization tiers
+    PERFECT_FIT_SCORE = 1000.0  # Top score, ensures perfect fits are always chosen first.
+    NEAR_PERFECT_MAX_SCORE = 100.0 # Score for a near-perfect fit approaching 0 remaining.
+    NEAR_PERFECT_MIN_SCORE = 1.0   # Score for a near-perfect fit at the threshold.
+                                   # Ensures these scores are positive and distinct from general fits.
+    # --- End Scoring Parameters ---
+
+    # 1. Score for Perfect Fits (remaining capacity is exactly 0)
+    perfect_fit_mask = remaining_after_fit == 0
+    if np.any(perfect_fit_mask):
+        scores[eligible_bins_indices[perfect_fit_mask]] = PERFECT_FIT_SCORE
+
+    # 2. Score for Near-Perfect Fits (0 < remaining capacity <= near_perfect_threshold)
+    # This specifically excludes remaining == 0, which is handled by perfect_fit_mask.
+    near_perfect_mask = (remaining_after_fit > 0) & (remaining_after_fit <= near_perfect_threshold)
+    if np.any(near_perfect_mask):
+        near_perfect_remaining = remaining_after_fit[near_perfect_mask]
+
+        # Calculate score: a linear decay from NEAR_PERFECT_MAX_SCORE down to NEAR_PERFECT_MIN_SCORE
+        # as 'remaining' goes from just above 0 to near_perfect_threshold.
+        decay_factor = (near_perfect_threshold - near_perfect_remaining) / near_perfect_threshold
+        scores[eligible_bins_indices[near_perfect_mask]] = (
+            (NEAR_PERFECT_MAX_SCORE - NEAR_PERFECT_MIN_SCORE) * decay_factor
+            + NEAR_PERFECT_MIN_SCORE
+        )
+
+    # 3. Score for General Fits (remaining capacity > near_perfect_threshold)
+    # These bins are chosen using the Best Fit principle (minimize remaining capacity),
+    # but their scores are significantly lower than any near-perfect or perfect fit.
+    general_fit_mask = remaining_after_fit > near_perfect_threshold
+    if np.any(general_fit_mask):
+        general_fit_remaining = remaining_after_fit[general_fit_mask]
+        scores[eligible_bins_indices[general_fit_mask]] = -general_fit_remaining
+
+    return scores
+```

@@ -1,0 +1,82 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+    This heuristic extends a Best-Fit approach by incorporating adaptive
+    bonuses for perfect fits and penalties for leaving small, fragmented,
+    and likely unusable spaces within bins. This aims to foster better
+    "structural integrity" of the bins and enable beneficial "emergent properties"
+    like reduced overall bin usage by minimizing "junk" space.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize all priorities to a very low number. Bins that cannot fit
+    # the item will retain this value, ensuring they are not chosen if any
+    # valid option exists.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate the remaining capacity after placement.
+    remaining_capacity_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # Base score (Best-Fit component):
+    # We want to minimize the remaining capacity, so we negate it.
+    # A smaller positive remainder (tighter fit) results in a larger (less negative) base score.
+    # A perfect fit (remaining_capacity == 0) results in a base_score of 0.
+    base_scores = -remaining_capacity_after_fit
+
+    # Initialize adjustments to be added to the base scores.
+    adjustments = np.zeros_like(base_scores)
+
+    # --- Adaptive Thresholds and Bonuses/Penalties ---
+    # Using a small epsilon for robust floating point comparisons.
+    EPSILON = 1e-9
+
+    # Dynamic threshold for a "small" (fragmented) gap:
+    # A gap smaller than a certain percentage of the current item's size is
+    # considered undesirable as it may be too small for future items and effectively wasted.
+    # This makes the heuristic adaptive to the scale of items being packed.
+    FRAGMENTATION_THRESHOLD_FACTOR = 0.1  # e.g., 10% of the item's size
+    fragmentation_threshold = FRAGMENTATION_THRESHOLD_FACTOR * item
+
+    # Bonus for a perfect fit:
+    # A perfect fit completely fills a bin or a segment of it, which is highly efficient.
+    # A significant bonus, proportional to the item's size, makes this choice very attractive.
+    PERFECT_FIT_BONUS_FACTOR = 2.0  # e.g., 2 times the item's value
+    perfect_fit_bonus = PERFECT_FIT_BONUS_FACTOR * item
+
+    # Penalty for leaving a small, likely unusable gap (fragmentation):
+    # This heavily discourages choices that result in awkward, small remaining spaces.
+    # The penalty is negative and substantial, making these choices less appealing
+    # than even opening a new, empty bin (if new bins are represented by large capacities).
+    FRAGMENTATION_PENALTY_FACTOR = -3.0  # e.g., negative 3 times the item's value
+    fragmentation_penalty = FRAGMENTATION_PENALTY_FACTOR * item
+
+    # Apply adjustments based on `remaining_capacity_after_fit`:
+
+    # 1. Perfect Fit Bonus:
+    # If the remaining capacity is effectively zero, add a significant bonus.
+    perfect_fit_mask = remaining_capacity_after_fit <= EPSILON
+    adjustments[perfect_fit_mask] += perfect_fit_bonus
+
+    # 2. Fragmentation Penalty:
+    # If the remaining capacity is greater than zero but falls within the defined
+    # "small gap" range, apply a strong penalty. This discourages fragmentation.
+    # Ensure this doesn't overlap with the perfect fit condition.
+    small_gap_mask = (remaining_capacity_after_fit > EPSILON) & \
+                     (remaining_capacity_after_fit < fragmentation_threshold)
+    adjustments[small_gap_mask] += fragmentation_penalty
+
+    # Combine the base Best-Fit scores with the calculated adjustments.
+    priorities[can_fit_mask] = base_scores + adjustments
+
+    return priorities
+```

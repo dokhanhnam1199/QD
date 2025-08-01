@@ -1,0 +1,85 @@
+```python
+import numpy as np
+
+# For the purpose of this mutation, we will assume a default BIN_CAPACITY of 1.0.
+# This is a common practice in normalized Bin Packing Problem contexts where
+# item sizes and capacities are scaled between 0 and 1. If your problem
+# uses different absolute capacities (e.g., 100, 500), this constant
+# should ideally be passed as an argument or configured externally.
+BIN_CAPACITY_ASSUMED = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    using a strategy that strongly prioritizes tight fits and applies a significant
+    fixed bonus for placing items into already-used (non-empty) bins.
+
+    This approach refines the Best Fit principle by giving a distinct advantage
+    to existing bins. It encourages 'completing' or further filling current bins
+    before opening new ones. The 'already-used' preference is implemented as a
+    flat bonus, which provides a more impactful boost than a proportional fill
+    level, helping to balance between the tightest fit and continued bin utilization.
+
+    Args:
+        item: Size of item to be added to the bin. Assumed to be > 0.
+        bins_remain_cap: Array of remaining capacities for each bin.
+                         (Assumed to be relative to a BIN_CAPACITY of 1.0).
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot fit the item will have a priority score of -np.inf,
+        ensuring they are never selected. For bins that can fit, a higher score
+        indicates a more preferred choice.
+    """
+    # Initialize priority scores. Bins that cannot fit will be assigned -np.inf
+    # to guarantee they are not chosen by argmax.
+    priority_scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Calculate the remaining capacity of each bin if the item were placed in it.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Create a boolean mask to identify bins where the item can actually fit.
+    # An item fits if the potential remaining space is non-negative.
+    can_fit_mask = potential_remaining_space >= 0
+
+    # Apply calculations only to bins where the item can fit.
+    fitting_potential_remaining_space = potential_remaining_space[can_fit_mask]
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # A small positive value to prevent division by zero when an item perfectly fits.
+    # It ensures a very high but finite score for perfect fits.
+    epsilon = 1e-9
+
+    # --- Component 1: Best Fit (Tightness) ---
+    # This component provides the core 'tightest fit' preference. It assigns a higher
+    # score for bins where the item fits snugly (potential_remaining_space is small).
+    # The inverse relationship ensures that smaller remaining space leads to a higher score.
+    best_fit_component = 1.0 / (fitting_potential_remaining_space + epsilon)
+
+    # --- Component 2: Fixed Bonus for Already-Used Bins (Utilization Bias) ---
+    # This component aims to encourage continued use of existing bins.
+    # A fixed bonus is added if a bin is not empty before the current item's placement.
+    # The `ALREADY_USED_BIN_BONUS` is a tunable parameter; a higher value
+    # makes the 'already-used' preference stronger relative to tightness.
+    # A value of 5.0 is chosen to provide a significant boost, allowing a
+    # slightly looser fit in an existing bin to be preferred over a new bin
+    # with a very marginally tighter fit.
+    ALREADY_USED_BIN_BONUS = 5.0
+
+    # Identify bins that are currently not empty (i.e., their remaining capacity
+    # is less than the total BIN_CAPACITY_ASSUMED, assuming BIN_CAPACITY_ASSUMED is 1.0).
+    is_already_used_bin = (fitting_bins_remain_cap < BIN_CAPACITY_ASSUMED)
+
+    utilization_bonus = np.zeros_like(fitting_potential_remaining_space, dtype=float)
+    utilization_bonus[is_already_used_bin] = ALREADY_USED_BIN_BONUS
+
+    # --- Combine Components ---
+    # The total priority score is the sum of the Best Fit component and the
+    # utilization bonus. The Best Fit component typically dominates for very
+    # tight fits, ensuring the primary goal is met. The utilization bonus
+    # provides a substantial boost that acts as a strong tie-breaker or can
+    # make slightly looser fits in existing bins more attractive than opening
+    # new ones.
+    priority_scores[can_fit_mask] = best_fit_component + utilization_bonus
+
+    return priority_scores
+```

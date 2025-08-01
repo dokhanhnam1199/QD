@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+# For the purpose of this mutation, we will assume a default BIN_CAPACITY of 1.0.
+# This is a common practice in normalized Bin Packing Problem contexts where
+# item sizes and capacities are scaled between 0 and 1. If your problem
+# uses different absolute capacities (e.g., 100, 500), this constant
+# should ideally be passed as an argument or configured externally.
+BIN_CAPACITY_ASSUMED = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    using a strategy that combines Best Fit with a strong preference for filling
+    already-started bins, aiming for further improved overall bin utilization.
+
+    This strategy refines the combination of 'tightest fit' and 'current bin fill level'
+    by making the fill level *amplify* the tightness score. This means that a bin
+    that is already well-utilized will have its "best fit" score boosted, encouraging
+    the completion of existing bins, thereby promoting a more compact solution and
+    reducing the total number of bins used.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+                         (Assumed to be relative to a BIN_CAPACITY of 1.0 for
+                         calculating the current fill level.)
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot fit the item will have a priority score of 0.
+        For bins that can fit, a higher score indicates a 'tighter' fit,
+        significantly amplified by the bin's current (pre-placement) fill level.
+    """
+    # Calculate the remaining capacity if the item were to be placed in each bin.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Initialize priority scores. Default to 0, meaning no priority or cannot fit.
+    priority_scores = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit
+    # (remaining space must be non-negative).
+    can_fit_mask = potential_remaining_space >= 0
+
+    epsilon = 1e-9 # A small positive value to handle exact fits (0 remaining space)
+
+    # --- Component 1: Best Fit (Tightness) ---
+    # This component provides the core 'tightest fit' preference. It assigns a very high
+    # score for bins where the item fits snugly (potential_remaining_space is small),
+    # strongly prioritizing exact or near-exact fits.
+    best_fit_component = np.zeros_like(bins_remain_cap, dtype=float)
+    # Only calculate for bins where the item can fit
+    best_fit_component[can_fit_mask] = 1.0 / (potential_remaining_space[can_fit_mask] + epsilon)
+
+    # --- Component 2: Current Bin Fill Level (Utilization Bias) ---
+    # This component aims to 'optimize overall bin utilization' by quantifying
+    # how much of the bin's total capacity is currently occupied.
+    # For an empty bin (bins_remain_cap = BIN_CAPACITY_ASSUMED), this is 0.
+    # For a half-full bin, it's 0.5. For a nearly full bin, it's close to 1.0.
+    current_fill_component = np.zeros_like(bins_remain_cap, dtype=float)
+    # Only calculate for bins where the item can fit, though the fill level is independent of item size.
+    current_fill_component[can_fit_mask] = (BIN_CAPACITY_ASSUMED - bins_remain_cap[can_fit_mask]) / BIN_CAPACITY_ASSUMED
+
+    # --- Combine Components: Multiplicative Amplification ---
+    # The total priority score is calculated by multiplying the Best Fit component
+    # by a factor derived from the current fill level (1 + current_fill_component).
+    # This means bins that are already fuller will have their 'tightness' score
+    # proportionally amplified, giving them a stronger preference. This aggressively
+    # encourages the completion of already-started bins, while still heavily valuing
+    # tight fits. A bin that is half-full will have its best-fit score multiplied by 1.5,
+    # and a nearly full bin by almost 2.0. This makes the fill level a much more
+    # significant factor than in a simple additive combination.
+    priority_scores[can_fit_mask] = best_fit_component[can_fit_mask] * (1.0 + current_fill_component[can_fit_mask])
+
+    return priority_scores
+```

@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, alpha: float = 1.0) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    implementing a parameterized blend of Best-Fit and Worst-Fit heuristics.
+
+    The parameter 'alpha' controls the blend:
+    - alpha = 1.0: Pure Best-Fit (tighter fits are prioritized, i.e., minimizing remaining capacity).
+                   This is identical to the behavior of `priority_v1`.
+    - alpha = 0.0: Pure Worst-Fit (looser fits are prioritized among bins that can fit the item,
+                   i.e., maximizing remaining capacity).
+    - Values between 0.0 and 1.0 linearly blend these two strategies. This allows for
+      "contextual tuning" to find an optimal balance that prevents excessive fragmentation
+      (a potential downside of pure Best-Fit) while still aiming for efficient packing.
+
+    Bins that fit the item are prioritized based on a weighted sum:
+    priority_score = alpha * (Best-Fit_score) + (1 - alpha) * (Worst-Fit_score)
+    Where:
+    Best-Fit_score = -(remaining_capacity_after_fit)
+    Worst-Fit_score = (remaining_capacity_after_fit)
+
+    This simplifies to:
+    priority_score = (1 - 2 * alpha) * (remaining_capacity_after_fit)
+
+    Bins that cannot fit the item receive a very low priority (-np.inf), ensuring they are not chosen
+    unless no other bin can accommodate the item.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+        alpha: A float parameter between 0.0 and 1.0 (inclusive) that
+               controls the blend between Best-Fit (alpha=1.0) and Worst-Fit (alpha=0.0)
+               for available bins. Default to 1.0 for standard Best-Fit behavior (like priority_v1).
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize all priorities to a very low number, effectively deprioritizing
+    # bins that cannot accommodate the item.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bin can fit the item, return the initialized priorities array (all -inf).
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Calculate the remaining capacity *after* placing the item in the fitting bins.
+    remaining_capacity_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate the Best-Fit component score: smaller remainder yields higher (less negative) score.
+    score_best_fit = -remaining_capacity_after_fit
+
+    # Calculate the Worst-Fit component score: larger remainder yields higher (more positive) score.
+    score_worst_fit = remaining_capacity_after_fit
+
+    # Blend the scores based on the 'alpha' parameter.
+    # If alpha=1.0, it's pure Best-Fit. If alpha=0.0, it's pure Worst-Fit.
+    priorities[can_fit_mask] = alpha * score_best_fit + (1 - alpha) * score_worst_fit
+
+    return priorities
+```

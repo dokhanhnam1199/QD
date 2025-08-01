@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_capacity: float = 1.0) -> np.ndarray:
+    """Hybrid priority function balancing best fit, bin completion, and useful remaining space.
+
+    Combines best fit, exponential perfect fit bonus, Gaussian fragmentation penalty,
+    logarithmic large-space bonus, and a consolidation bonus for existing bins.
+    Aims for efficient packing by rewarding full bins and useful remaining space,
+    while penalizing awkward fragments.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    if bins_remain_cap.size == 0:
+        return priorities
+
+    # Heuristic Parameters (tuned based on analysis insights from top-performing heuristics)
+    # 1. Perfect Fit Bonus: High reward for tight fits, encouraging bin completion aggressively.
+    PERFECT_FIT_BONUS_AMPLITUDE = 5000.0
+    PERFECT_FIT_DECAY_RATE = 50.0
+
+    # 2. Fragmentation Penalty: Penalizes remainders that are too small to be useful
+    #    but not zero (the "Valley of Despair"). Modeled as a negative Gaussian.
+    FRAGMENTATION_PENALTY_AMPLITUDE = 100.0
+    FRAGMENTATION_TARGET_RATIO = 0.15  # Target remainder size (e.g., 15% of bin capacity) to penalize
+    FRAGMENTATION_GAUSSIAN_STD = bin_capacity * 0.05 # Standard deviation for the Gaussian curve
+
+    # 3. Quality of Large Remaining Space Bonus: Rewards leaving larger, more useful spaces.
+    LARGE_SPACE_BONUS_AMPLITUDE = 10.0
+
+    # 4. Consolidation Bonus: A slight preference for using existing, partially filled bins.
+    CONSOLIDATION_BONUS = 0.05
+
+    # 1. Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bin can fit the item, return the initial -inf priorities
+    if not np.any(can_fit_mask):
+        return priorities
+
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    potential_remaining_cap = fitting_bins_remain_cap - item
+
+    # Calculate initial priority based on Best Fit (minimizing remaining capacity)
+    # A smaller potential_remaining_cap means a tighter fit, which is preferred.
+    # By taking the negative, we convert minimization to maximization.
+    current_priorities = -potential_remaining_cap
+
+    # Apply Perfect Fit Bonus: Exponentially rewards remainders very close to zero.
+    perfect_fit_bonus = PERFECT_FIT_BONUS_AMPLITUDE * np.exp(-PERFECT_FIT_DECAY_RATE * potential_remaining_cap)
+    current_priorities += perfect_fit_bonus
+
+    # Apply Fragmentation Penalty: Discourages leaving "awkward" small remainders.
+    # Only apply if Gaussian STD is not zero to avoid division by zero.
+    if FRAGMENTATION_GAUSSIAN_STD > np.finfo(float).eps:
+        fragmentation_penalty = -FRAGMENTATION_PENALTY_AMPLITUDE * np.exp(
+            -((potential_remaining_cap - FRAGMENTATION_TARGET_RATIO * bin_capacity) ** 2) / (2 * FRAGMENTATION_GAUSSIAN_STD ** 2)
+        )
+        current_priorities += fragmentation_penalty
+
+    # Apply Quality of Large Remaining Space Bonus: Logarithmically rewards leaving significant space.
+    # np.log1p(x) computes log(1+x), which is stable for x near 0.
+    large_space_bonus = LARGE_SPACE_BONUS_AMPLITUDE * np.log1p(potential_remaining_cap / bin_capacity)
+    current_priorities += large_space_bonus
+
+    # Apply Consolidation Bonus: Prefers already used bins over "fresh" (empty) ones.
+    # A bin is considered 'used' if its remaining capacity is strictly less than the full capacity.
+    # Using np.isclose for robustness against floating-point inaccuracies.
+    is_used_bin_mask = ~np.isclose(fitting_bins_remain_cap, bin_capacity)
+    current_priorities[is_used_bin_mask] += CONSOLIDATION_BONUS
+
+    # Assign the calculated priorities back to the original array using the mask.
+    priorities[can_fit_mask] = current_priorities
+
+    return priorities
+```

@@ -1,0 +1,73 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    aggressively prioritizing tight fits to maximize bin utilization and minimize fragmentation.
+
+    This strategy introduces an overwhelming preference for perfect fits and significantly
+    amplifies the reward for very small remaining capacities using a much higher inverse power
+    than previous versions. This ensures that bins resulting in minimal wasted space are
+    strongly favored.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot fit the item will have a priority score of 0.
+        A very high constant score is assigned to perfect fits.
+        For other valid fits, a higher score indicates a 'tighter' fit, with a strong
+        non-linear emphasis on smaller remaining capacities (using an inverse fourth power).
+    """
+    # Initialize all priority scores to 0. Bins that cannot fit the item will remain 0.
+    priority_scores = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Calculate the potential remaining space if the item were placed in each bin.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Create a boolean mask for bins where the item can actually fit (remaining space must be non-negative).
+    can_fit_mask = potential_remaining_space >= 0
+
+    # Extract the potential remaining space only for bins where the item can fit.
+    fitting_potential_remaining_space = potential_remaining_space[can_fit_mask]
+
+    # --- Step 1: Handle Perfect Fits ---
+    # Define a small tolerance for floating-point comparisons to detect perfect fits (remaining space near zero).
+    tolerance = 1e-9
+    # Identify bins that result in a perfect fit (remaining space is effectively zero).
+    perfect_fit_mask_in_fitting = np.abs(fitting_potential_remaining_space) < tolerance
+
+    # Create a full mask for perfect fits corresponding to the original bins_remain_cap array.
+    original_perfect_fit_mask = np.zeros_like(bins_remain_cap, dtype=bool)
+    original_perfect_fit_mask[can_fit_mask] = perfect_fit_mask_in_fitting
+
+    # Assign an extremely high, constant priority score to perfect fits.
+    # This makes them overwhelmingly preferred over any other type of fit.
+    priority_scores[original_perfect_fit_mask] = 1e12 # A very large number
+
+    # --- Step 2: Handle Non-Perfect but Valid Fits ---
+    # Identify bins that fit the item but are not perfect fits.
+    non_perfect_fit_mask_in_fitting = ~perfect_fit_mask_in_fitting
+    
+    # Create a full mask for non-perfect fits corresponding to the original bins_remain_cap array.
+    original_non_perfect_fit_mask = np.zeros_like(bins_remain_cap, dtype=bool)
+    original_non_perfect_fit_mask[can_fit_mask] = non_perfect_fit_mask_in_fitting
+
+    # Apply a highly aggressive inverse power function to prioritize non-perfect tight fits.
+    # Using power of 4 ensures that the priority score drops off extremely rapidly as
+    # the remaining space increases, strongly favoring very small remaining spaces.
+    # A small epsilon is added to the denominator to prevent division by zero or
+    # extremely large numbers if a non-perfect fit's remaining space is infinitesimally small
+    # but not exactly zero (e.g., due to float precision).
+    epsilon_for_denominator = 1e-9
+
+    # Calculate scores for these non-perfect fits.
+    # The elements in 'fitting_potential_remaining_space[non_perfect_fit_mask_in_fitting]'
+    # are guaranteed to be positive (greater than 'tolerance').
+    scores_for_non_perfect_fits = 1.0 / (fitting_potential_remaining_space[non_perfect_fit_mask_in_fitting]**4 + epsilon_for_denominator)
+    priority_scores[original_non_perfect_fit_mask] = scores_for_non_perfect_fits
+
+    return priority_scores
+```

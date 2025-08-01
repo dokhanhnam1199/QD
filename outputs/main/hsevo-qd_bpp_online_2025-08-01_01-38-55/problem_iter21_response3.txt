@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    implementing a Best-Fit-like heuristic with an "Anti-Mid-Range" preference.
+
+    This heuristic extends the standard Best-Fit (BF) by subtly encouraging bin states
+    that are either very full or very empty after placing an item. This is done by
+    assigning an additional bonus to bins where the remaining capacity (after item placement)
+    is either very small (approaching 0) or very large (approaching the bin's maximum capacity).
+    Conversely, bins that would end up with a "mid-range" remaining capacity are implicitly
+    less favored by this bonus term.
+
+    The rationale is to prevent the accumulation of "awkwardly" filled bins (those that are
+    neither full nor sufficiently empty to easily accept large future items), thereby
+    promoting "cleaner" bin states and potentially reducing the total number of bins used
+    over time by more efficiently consolidating items. This aligns with the idea of
+    "rectifying accumulating sub-optimality" and favoring "simple, local rules that
+    collectively yield robust global behavior."
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize all priorities to a very low number. Bins that cannot fit the item
+    # will retain this very low priority, effectively deprioritizing them.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Determine the assumed maximum bin capacity. In typical normalized BPP,
+    # this is 1.0. If the problem implies variable bin capacities or a different
+    # max, this would need to be passed as an argument.
+    # For robustness, we could infer it if at least one bin is empty, otherwise default.
+    # Here, we assume a standard normalized bin capacity.
+    BIN_MAX_CAPACITY = 1.0
+
+    # Create a boolean mask for bins where the item can actually fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bins can fit the item, return the initialized priorities (-np.inf for all).
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # 1. Base Best-Fit (BF) score:
+    # This component prioritizes bins that result in a tighter fit (smaller remaining space).
+    # A smaller positive remainder results in a larger (less negative) priority score.
+    # A perfect fit (remaining_capacity_after_fit == 0) results in a score of 0.
+    remaining_capacity_after_fit = bins_remain_cap[can_fit_mask] - item
+    base_bf_scores = -remaining_capacity_after_fit
+
+    # 2. Adaptive "Anti-Mid-Range" Bonus:
+    # This term applies a bonus based on how far the `remaining_capacity_after_fit`
+    # deviates from the midpoint of the bin's full capacity (BIN_MAX_CAPACITY / 2).
+    # A larger absolute deviation from the midpoint means the bin is either very full
+    # (close to 0 remaining) or very empty (close to BIN_MAX_CAPACITY remaining).
+    # This bonus helps to push choices towards these "cleaner" states.
+    mid_point_capacity = BIN_MAX_CAPACITY / 2.0
+    
+    # The raw deviation. This is 0 at midpoint, max at 0 or BIN_MAX_CAPACITY.
+    deviation_from_midpoint = np.abs(remaining_capacity_after_fit - mid_point_capacity)
+    
+    # Scale the bonus to ensure it influences the decision without completely
+    # overriding the primary Best-Fit criterion. A factor of 0.1 is chosen to
+    # provide a subtle, rather than dominant, preference. This factor can be
+    # tuned, but aims to avoid being a "fixed scoring bias" that drowns out
+    # the core logic; it merely nudges.
+    anti_mid_range_bonus = 0.1 * deviation_from_midpoint
+
+    # Combine the base Best-Fit score with the adaptive bonus.
+    priorities[can_fit_mask] = base_bf_scores + anti_mid_range_bonus
+
+    return priorities
+```

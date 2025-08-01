@@ -1,0 +1,82 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    implementing a Best-Fit-like heuristic with a non-linear reward
+    strongly incentivizing tight fits, especially perfect fits.
+
+    This function employs an adaptive, multi-objective scoring approach
+    by using a non-linear reward function and providing granular incentives:
+    1.  **Non-Linear Reward:** A strong exponential decay function is used
+        to assign scores based on the remaining space after placing the item.
+        This provides a steep advantage to tighter fits.
+    2.  **Strong Incentive for Perfect Fits:** Bins that allow for a perfect
+        fit (zero remaining capacity) receive a very large, distinct bonus
+        score, ensuring they are always prioritized if available.
+    3.  **Granular Incentives:** The exponential function ensures that even
+        small differences in remaining capacity translate to meaningful
+        differences in priority scores, allowing for fine-grained selection
+        among non-perfect but still tight fits.
+    4.  **Contextual Exploitation:** While not explicitly adaptive to global
+        problem state (e.g., number of open bins), the function's sensitivity
+        to the *current* distribution of `bins_remain_cap` (the local context)
+        allows it to intelligently exploit available space by highly rewarding
+        the most efficient placements.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize all priorities to a very low number. This ensures that
+    # bins which cannot accommodate the item are effectively deprioritized.
+    # Using -np.inf makes them guaranteed to not be chosen if any valid bin exists.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity after placing the item for bins that can fit.
+    # A smaller remaining capacity indicates a tighter fit.
+    remaining_capacity_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # Parameter for the exponential decay (BETA).
+    # A higher BETA means a steeper drop-off in score for increasing remaining capacity,
+    # thus more aggressively favoring tighter fits.
+    # For typical bin capacities (e.g., standardized to 1.0), a value between 10.0 and 50.0
+    # often provides a good balance.
+    BETA = 10.0
+
+    # Define a large bonus score for perfect fits. This ensures that a perfect fit
+    # will always have a higher priority than any non-perfect fit, regardless of BETA.
+    PERFECT_FIT_BONUS = 1e6  # A million, significantly larger than exp scores (max 1.0)
+
+    # Calculate base scores for fitting bins using an exponential decay function.
+    # np.exp(-BETA * x):
+    # - If x (remaining_capacity_after_fit) is 0 (perfect fit), exp(0) = 1.0.
+    # - As x increases, the score rapidly decreases towards 0.
+    #   Example for BETA = 10.0:
+    #   - If remaining = 0.01, score ~ exp(-0.1) = 0.90
+    #   - If remaining = 0.1, score ~ exp(-1.0) = 0.37
+    #   - If remaining = 0.5, score ~ exp(-5.0) = 0.0067
+    base_scores = np.exp(-BETA * remaining_capacity_after_fit)
+
+    # Apply the calculated base scores to the appropriate bins.
+    priorities[can_fit_mask] = base_scores
+
+    # Identify bins that result in a perfect fit (zero remaining capacity).
+    is_perfect_fit_mask = (remaining_capacity_after_fit == 0.0)
+
+    # Add the significant bonus to the scores of perfect-fit bins.
+    # This ensures they are selected over any non-perfect fit.
+    # Note: We apply this bonus directly to the 'priorities' array,
+    # indexed by 'can_fit_mask' first, then 'is_perfect_fit_mask' for accuracy.
+    # The `can_fit_mask` extracts the relevant subset of priorities and
+    # `is_perfect_fit_mask` selects within that subset.
+    priorities[can_fit_mask][is_perfect_fit_mask] += PERFECT_FIT_BONUS
+
+    return priorities
+```

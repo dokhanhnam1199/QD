@@ -1,0 +1,74 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which to add item to each bin, extending Best Fit
+    with an adaptive "dead space avoidance" mechanism.
+
+    This heuristic builds upon the foundational Best Fit principle (minimizing
+    remaining capacity) but introduces a non-linear, dynamic penalty. It
+    strategically de-prioritizes bins that, upon accommodating the item, would
+    result in very small, non-zero remaining capacities—often referred to as
+    "dead space" due to their low utility for future items.
+
+    From a "Search Dynamics" perspective, this design aims to subtly guide
+    the packing process away from myopic, locally optimal choices that might
+    lead to long-term fragmentation of bin capacities. It "exploits patterns"
+    by recognizing that while a tight fit is generally desirable, a *perfect*
+    fit is vastly superior to a *nearly perfect* fit that leaves a difficult-to-use
+    remainder. This constitutes an "intelligent decision point" that refines the
+    search strategy beyond simple greedy selection.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Scores are calculated as a combination of negative remaining capacity
+        and an exponential penalty specifically designed for small, non-zero
+        remaining capacities. Bins where the item does not fit receive a score
+        of -infinity to ensure they are never chosen.
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Calculate the remaining capacity if the item were placed in each fitting bin.
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # Base Best Fit score: Minimize remaining_after_fit. Thus, we take its negative.
+    base_scores = -remaining_after_fit
+
+    # Adaptive Penalty Component for "Awkward Gaps":
+    # This penalty term is designed to make bins with very small, non-zero
+    # remaining capacities significantly less attractive. It applies a strong
+    # exponential penalty for remainders just above zero, which rapidly
+    # diminishes as the remaining capacity increases. This effectively
+    # creates a sharp preference for either a perfect fit (remaining_after_fit = 0)
+    # or a sufficiently large remaining capacity that can accommodate future items.
+    
+    # C: Magnitude of the penalty. A judiciously chosen small value ensures that
+    #    the fundamental Best Fit principle still holds for larger remaining capacities,
+    #    while providing a distinct disincentive for problematic small gaps.
+    # K: Decay rate. A higher K means the penalty drops off more steeply,
+    #    primarily affecting only the very smallest positive remaining capacities.
+    C = 0.05
+    K = 20.0 
+
+    # Identify bins that are not a perfect fit but where the item does fit.
+    # Using a small epsilon for floating-point comparison with zero.
+    not_perfect_fit_mask = (remaining_after_fit > 1e-9) 
+
+    # Initialize penalty term. Only apply where not a perfect fit.
+    penalty_term = np.zeros_like(remaining_after_fit)
+    
+    # Calculate the exponential penalty for relevant bins.
+    penalty_term[not_perfect_fit_mask] = C * np.exp(-K * remaining_after_fit[not_perfect_fit_mask])
+    
+    # The total score is the base Best Fit score minus the calculated penalty.
+    # A larger penalty results in a lower (more negative) score, making the bin less desirable.
+    scores[can_fit_mask] = base_scores - penalty_term
+
+    return scores
+```

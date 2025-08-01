@@ -1,0 +1,67 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines Best Fit with a dynamic consolidation bonus.
+    The bonus scales linearly with the bin's current fill level,
+    prioritizing fuller bins to enhance utilization and reduce total bin count.
+    """
+    # A positive constant scaler for the dynamic consolidation bonus.
+    # This value determines the maximum potential bonus for a fully used bin.
+    # It should be small enough not to consistently override the primary Best Fit principle,
+    # but large enough to effectively encourage consolidation when Best Fit scores are close.
+    DYNAMIC_BONUS_SCALER = 0.01
+
+    # Initialize priorities for all bins to negative infinity.
+    # This ensures that bins where the item cannot fit will not be chosen.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Handle the edge case where there are no bins to consider.
+    if len(bins_remain_cap) == 0:
+        return priorities
+
+    # Infer the maximum capacity of a new, empty bin from the input array.
+    # This assumes that if a new bin can be opened, its full capacity
+    # is represented as the maximum value in `bins_remain_cap`.
+    BIN_CAPACITY = np.max(bins_remain_cap)
+    
+    # If BIN_CAPACITY is zero or negative (e.g., all bins are full or invalid),
+    # no item (with positive size) can fit, or there's no valid reference
+    # for calculating fill ratios. Priorities will remain -inf.
+    if BIN_CAPACITY <= 0:
+        return priorities
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bins can fit the item, return the priorities array with -np.inf.
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Calculate the remaining capacity if the item were placed in each fitting bin.
+    # This is the core of the "Best Fit" strategy.
+    potential_remaining_cap = bins_remain_cap[can_fit_mask] - item
+
+    # Base score: The goal is to minimize the remaining capacity (maximize negative remaining capacity).
+    base_scores = -potential_remaining_cap
+
+    # Calculate the current filled amount of the bin before placing the item.
+    current_filled_amount = BIN_CAPACITY - bins_remain_cap[can_fit_mask]
+
+    # Clip current_filled_amount to ensure it's within valid bounds [0, BIN_CAPACITY].
+    # This guards against potential floating point errors or unusual input data.
+    current_filled_amount = np.clip(current_filled_amount, 0, BIN_CAPACITY)
+
+    # Calculate the fill ratio: how full the bin is currently (0 for empty, 1 for full).
+    fill_ratio = current_filled_amount / BIN_CAPACITY
+
+    # Apply a dynamic consolidation bonus: it's higher for bins that are already fuller.
+    # Empty bins (fill_ratio=0) will receive no bonus, naturally favoring Best Fit without bias.
+    consolidation_bonuses = DYNAMIC_BONUS_SCALER * fill_ratio
+
+    # The total priority for fitting bins is the sum of the base Best Fit score
+    # and the dynamic consolidation bonus.
+    priorities[can_fit_mask] = base_scores + consolidation_bonuses
+
+    return priorities
+```

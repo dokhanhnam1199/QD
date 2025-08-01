@@ -1,0 +1,68 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+    This heuristic refines the Best-Fit strategy by prioritizing perfect fits
+    and, for non-perfect fits, using a multi-criteria approach to encourage
+    strategic consolidation and avoid fragmentation.
+
+    The prioritization order is:
+    1. Highest priority: Bins where the item creates a perfect fit (remaining capacity = 0).
+    2. Second highest priority: Bins that result in the smallest remaining capacity
+       (tightest non-perfect fit). This is the core Best-Fit logic.
+    3. Tie-breaker: Among bins that result in the same remaining capacity (after placing the item),
+       prioritize the bin that had less remaining capacity BEFORE the item was placed.
+       This encourages filling up bins that are already partially full, promoting
+       consolidation and aiming to 'close' bins that are closer to being completely utilized.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Calculate the remaining capacity for each bin if the item were placed in it.
+    hypothetical_remaining = bins_remain_cap - item
+
+    # Initialize priority scores for all bins to a very low value (-infinity).
+    # This ensures that bins where the item does not fit will never be selected
+    # by argmax.
+    priority_scores = np.full_like(bins_remain_cap, -np.inf)
+
+    # Create a boolean mask for bins where the item actually fits (i.e.,
+    # hypothetical_remaining is non-negative).
+    fits_mask = hypothetical_remaining >= 0
+
+    # For bins where the item fits, assign a score based on combined criteria.
+    # To ensure the primary criterion (minimizing hypothetical_remaining)
+    # dominates the secondary criterion (minimizing original bins_remain_cap),
+    # we multiply the primary term by a large factor.
+    # This factor must be greater than any possible value of bins_remain_cap
+    # to guarantee that a better primary fit always outranks a worse primary fit,
+    # regardless of the secondary term.
+    # If bins_remain_cap is empty, use a sensible default for the scaling factor.
+    if bins_remain_cap.size > 0:
+        max_possible_capacity = np.max(bins_remain_cap) + 1
+    else:
+        # A large enough constant if no bins are present (edge case, but good for robustness)
+        max_possible_capacity = 1000 
+
+    # Primary term: Negative of hypothetical_remaining.
+    # Smaller hypothetical_remaining (e.g., 0 for perfect fit) gives a larger score (e.g., 0).
+    # Larger hypothetical_remaining gives a smaller (more negative) score.
+    primary_term = -hypothetical_remaining[fits_mask]
+
+    # Secondary term: Negative of the original remaining capacity.
+    # This serves as a tie-breaker. When primary_term values are equal (i.e., multiple bins
+    # yield the same hypothetical_remaining), a smaller original bins_remain_cap (meaning
+    # the bin was already more full) will result in a larger secondary_term (less negative)
+    # and thus a higher overall score.
+    secondary_term = -bins_remain_cap[fits_mask]
+
+    # Combine scores: Primary term is scaled to ensure its dominance.
+    priority_scores[fits_mask] = (max_possible_capacity * primary_term) + secondary_term
+
+    return priority_scores
+```

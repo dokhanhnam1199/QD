@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+# Assuming a standard bin capacity. In many normalized Bin Packing problems,
+# item sizes and bin capacities are relative, with the bin capacity often set to 1.0.
+# This constant is used for normalizing the item size to drive adaptive weighting.
+BIN_CAPACITY = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Adaptive heuristic for online Bin Packing, combining Best-Fit with context-aware
+    fullness preference, adjusting weights based on item size.
+
+    For larger items, emphasizes tight fit; for smaller items, emphasizes bin fullness.
+    Unfit bins are assigned a very low priority score.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        return priorities
+
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # --- Adaptive Weight Calculation based on item size ---
+    # Normalize item size for context, assuming BIN_CAPACITY provides the scale.
+    normalized_item = item / BIN_CAPACITY
+
+    # Base weights derived from observed effective heuristics (e.g., priority_v0 defaults)
+    w_tight_fit_base = 1.0
+    w_fullness_base = 0.1
+
+    # Define how much item size influences the weights. These are tunable hyperparameters.
+    # Higher boost_strength_tf for larger items means more emphasis on tight fit.
+    # Higher boost_strength_f for smaller items means more emphasis on fullness.
+    boost_strength_tf = 0.5 # Impact of item size on tight_fit weight
+    boost_strength_f = 0.5  # Impact of item size on fullness weight
+
+    # Calculate adaptive weights:
+    # w_tight_fit increases with item size, prioritizing tight fits for large items.
+    w_tight_fit = w_tight_fit_base + (boost_strength_tf * normalized_item)
+    # w_fullness increases as item size decreases, prioritizing fuller bins for small items.
+    w_fullness = w_fullness_base + (boost_strength_f * (1.0 - normalized_item))
+
+    # Component 1: Tight Fit (Best-Fit-like)
+    # Score is higher when (remaining_capacity - item) is smaller (i.e., less space left).
+    # This is achieved by maximizing (item - remaining_capacity).
+    score_tight_fit = item - fitting_bins_remain_cap
+
+    # Component 2: Bin Fullness
+    # Score is higher when the bin's current remaining_capacity is smaller (i.e., more full).
+    # This is achieved by maximizing -remaining_capacity.
+    score_fullness = -fitting_bins_remain_cap
+
+    # Combine the scores using the dynamically adjusted weights.
+    combined_score = (w_tight_fit * score_tight_fit) + (w_fullness * score_fullness)
+
+    # Apply the calculated scores to the fitting bins in the priorities array.
+    priorities[can_fit_mask] = combined_score
+
+    return priorities
+```

@@ -1,0 +1,96 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray,
+                peak_tight_fit_score: float = 100.0,
+                tight_fit_decay_rate: float = 30.0, # Higher value = steeper decay, favoring extremely tight fits
+                relative_fill_factor: float = 15.0,
+                large_rem_cap_penalty_factor: float = 20.0,
+                large_rem_cap_penalty_exponent: float = 2.5,
+                min_allowed_priority: float = 0.5,
+                non_fitting_priority: float = -10.0
+) -> np.ndarray:
+    """Returns priority for adding item to each bin, with an enhanced focus on
+    aggressive bin closure and discriminating strategic choices.
+
+    This function introduces a primary "tight fit" reward that decays exponentially
+    from a peak score as the remaining capacity increases. This strongly
+    prioritizes bins that result in very little remaining space.
+    It combines this with a relative fill bonus and a specific penalty for leaving
+    large amounts of remaining capacity, ensuring strategic and discriminating scores.
+
+    Args:
+        item: Size of item to be added to the bin. Must be greater than 0.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+        peak_tight_fit_score: The maximum priority score awarded when an item
+                              perfectly fills a bin (0 remaining capacity). This
+                              acts as the base for the tight fit reward.
+        tight_fit_decay_rate: Controls how sharply the "tight fit" reward
+                              decreases as remaining capacity increases from zero.
+                              Higher values make the heuristic more aggressive
+                              in seeking extremely tight fits.
+        relative_fill_factor: Multiplier for the bonus based on the item's
+                              proportion of the bin's current available capacity.
+                              This encourages better utilization of existing bin space.
+        large_rem_cap_penalty_factor: A multiplier for a penalty applied to bins
+                                      that result in relatively *large* remaining capacities.
+                                      This strongly discourages leaving significant wasted space.
+        large_rem_cap_penalty_exponent: An exponent for the large remaining capacity penalty,
+                                        making it disproportionately severe for larger wastes.
+                                        Typically > 1.
+        min_allowed_priority: The minimum priority score a bin can receive if
+                              the item fits.
+        non_fitting_priority: The priority score assigned to bins where the
+                              item does not fit.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.full_like(bins_remain_cap, fill_value=non_fitting_priority, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Only process if there are bins where the item can fit
+    if np.any(can_fit_mask):
+        fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+        remaining_after_placement = fitting_bins_remain_cap - item
+
+        # 1. Primary "Tight Fit" Exponential Reward (Intelligent Bin Closure)
+        # This term provides a very high score for extremely small remaining capacities,
+        # decaying exponentially as the remaining capacity increases. This is the core
+        # mechanism for aggressive bin closure, giving a strong preference to nearly full bins.
+        # At remaining_after_placement = 0, this term equals peak_tight_fit_score.
+        # As remaining_after_placement increases, the reward quickly diminishes.
+        tight_fit_reward = peak_tight_fit_score * np.exp(-tight_fit_decay_rate * remaining_after_placement)
+
+        # 2. Relative Fill Bonus (Strategic Utilization)
+        # This term rewards placing the item where it constitutes a larger fraction
+        # of the *current* available capacity in the bin. This is beneficial for
+        # "tidying up" bins or finding suitable homes for items that wouldn't
+        # result in an extremely tight fit but still make good use of available space.
+        # Division by zero is avoided because if item > 0, then fitting_bins_remain_cap must be > 0.
+        relative_fill_ratio = item / fitting_bins_remain_cap
+        relative_fill_bonus = relative_fill_factor * relative_fill_ratio
+
+        # 3. Penalty for Large Remaining Capacity (Discouraging Wasted Space)
+        # This term directly penalizes larger remaining capacities more harshly
+        # than smaller ones. It complements the tight_fit_reward by ensuring that
+        # even if a fit isn't perfectly tight, it doesn't leave an excessively large,
+        # potentially hard-to-use chunk of space behind. It helps make choices
+        # more discriminating.
+        large_rem_cap_penalty = large_rem_cap_penalty_factor * (remaining_after_placement ** large_rem_cap_penalty_exponent)
+
+        # Combine the components for the final priority score:
+        # The primary reward for tight fits, plus bonus for relative fill,
+        # minus a specific penalty for leaving large wasted space.
+        calculated_priorities = tight_fit_reward + relative_fill_bonus - large_rem_cap_penalty
+
+        # Ensure that the calculated priority does not fall below a minimum allowed value
+        calculated_priorities = np.maximum(calculated_priorities, min_allowed_priority)
+
+        # Assign the calculated priorities to the corresponding bins
+        priorities[can_fit_mask] = calculated_priorities
+
+    return priorities
+```

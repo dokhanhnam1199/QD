@@ -1,0 +1,80 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_capacity: float) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    implementing a mutated Best-Fit-like heuristic.
+    This version aims to reduce the creation of very small, potentially unusable
+    fragments while still generally preferring tighter fits. It achieves this
+    by introducing a penalty for remaining capacities that fall into a "fragment zone"
+    (i.e., too small to be generally useful, but not a perfect fit).
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+        bin_capacity: The total capacity of a single bin. This is crucial for
+                      contextualizing what constitutes a "small fragment" relative
+                      to the overall bin size.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize all priorities to a very low number. This ensures that
+    # bins which cannot accommodate the item are effectively deprioritized.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity after placing the item for fitting bins.
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    remaining_after_fit = fitting_bins_remain_cap - item
+
+    # --- Parameterized Mechanisms & Contextual Tuning ---
+    # These parameters are exposed for empirical tuning based on problem characteristics.
+    # Their values are initial suggestions, designed to be adaptable.
+
+    # FRAGMENT_THRESHOLD_RATIO: Defines what fraction of the bin capacity
+    # is considered a "small fragment". Remaining capacities smaller than this
+    # (but greater than zero) will incur a penalty.
+    # A value of 0.10 means 10% of the bin capacity.
+    FRAGMENT_THRESHOLD_RATIO = 0.10 
+    fragment_threshold = bin_capacity * FRAGMENT_THRESHOLD_RATIO
+
+    # PENALTY_FACTOR: Controls the severity of the penalty for creating a fragment.
+    # A factor > 1.0 ensures that creating a small fragment (0 < r < threshold)
+    # results in a lower priority score than leaving exactly `fragment_threshold` space.
+    # A higher factor pushes these scores down further, heavily discouraging fragments.
+    PENALTY_FACTOR = 2.0 
+
+    # 1. Base Best-Fit scoring:
+    # This component favors tighter fits. A smaller `remaining_after_fit` results
+    # in a higher (less negative) score. A perfect fit (`remaining_after_fit == 0`)
+    # gets a score of 0, serving as the highest possible base score.
+    base_fit_score = -remaining_after_fit
+
+    # 2. Fragment Penalty:
+    # This penalty aims to mitigate the "detrimental perfect sub-solution" problem.
+    # It penalizes placing an item in a way that leaves a very small, non-zero
+    # fragment, which might be unusable for future items.
+    # The penalty is applied if: 0 < remaining_after_fit < fragment_threshold.
+    # The penalty increases linearly as `remaining_after_fit` approaches 0 from `fragment_threshold`.
+    is_fragment_zone = (remaining_after_fit > 0) & (remaining_after_fit < fragment_threshold)
+    
+    # Calculate the magnitude of the penalty.
+    # When `remaining_after_fit` is very close to 0, the penalty is high
+    # (approaching `PENALTY_FACTOR * fragment_threshold`).
+    # When `remaining_after_fit` is close to `fragment_threshold`, the penalty is low (approaching 0).
+    fragment_penalty_term = PENALTY_FACTOR * (fragment_threshold - remaining_after_fit)
+    
+    # Apply the penalty only to bins in the fragment zone, otherwise, the penalty is 0.
+    penalty_scores = np.where(is_fragment_zone, fragment_penalty_term, 0.0)
+
+    # 3. Combine scores:
+    # The final priority for fitting bins is the base Best-Fit score
+    # minus the calculated fragment penalty. Subtracting the penalty term
+    # lowers the priority of bins creating undesirable small fragments.
+    priorities[can_fit_mask] = base_fit_score - penalty_scores
+
+    return priorities
+```

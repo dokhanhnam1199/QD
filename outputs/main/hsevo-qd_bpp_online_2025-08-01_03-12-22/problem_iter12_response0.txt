@@ -1,0 +1,117 @@
+```python
+import numpy as np
+
+# Assume BIN_CAPACITY is a global constant or an agreed-upon default for normalized BPP.
+# In a real-world system, this would typically be configured or passed in from an environment
+# representing the fixed size of all bins.
+BIN_CAPACITY = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns a context-sensitive, probabilistically-influenced priority score for each bin.
+
+    This heuristic moves beyond a simple 'best fit' by incorporating multiple factors
+    with adaptive weightings and a stochastic element, aiming for emergent packing strategies.
+    It considers not just the immediate fit, but also the current state distribution
+    of bins, encouraging a more dynamic and potentially globally optimal packing.
+
+    The core idea is to balance:
+    1.  **Tightness**: Minimizing remaining capacity in the chosen bin. (Primary driver)
+    2.  **Fullness**: Prioritizing bins that are already substantially full, to "close them off"
+        and potentially free up decision space for future items. (Secondary driver)
+    3.  **Probabilistic Perturbation**: Introducing a controlled random element to encourage exploration
+        of non-obvious choices, especially when selection ambiguity is high or when the overall
+        bin state suggests flexibility in packing.
+
+    The weights for tightness and fullness, along with the scale of the probabilistic noise,
+    are adaptively tuned based on the characteristics of the incoming item and
+    the current statistical distribution of remaining bin capacities. This promotes
+    emergent, non-deterministic behaviors.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Scores are calculated as a weighted sum of non-linear factors, with added noise.
+        Bins where the item does not fit receive a score of -infinity to ensure they are never chosen.
+        Perfect fits receive an infinite score for overriding priority.
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bin can fit the item, return scores initialized to -infinity
+    if not np.any(can_fit_mask):
+        return scores
+
+    # Filter to only consider bins where the item can fit
+    valid_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    remaining_after_fit = valid_bins_remain_cap - item
+
+    # --- Adaptive Parameter Tuning based on Contextual Insights ---
+    # Global state insights derived from the overall distribution of `bins_remain_cap`.
+    # These metrics influence how different components of the score are weighted.
+    total_bins_count = bins_remain_cap.size
+    avg_bin_utilization = 1.0 - (np.mean(bins_remain_cap) / BIN_CAPACITY) if total_bins_count > 0 else 0.0
+    std_bin_capacities = np.std(bins_remain_cap) if total_bins_count > 0 else 0.0
+
+    # Item's relative size to bin capacity. This is a critical context for online BPP.
+    item_relative_size = item / BIN_CAPACITY
+
+    # 1. Tightness Component (Non-linear, Exponential Decay):
+    # This component exponentially rewards smaller remaining capacities. A higher `alpha`
+    # means a stronger preference for very snug fits, heavily penalizing even slightly
+    # larger remainders. `alpha` is adaptively scaled: larger items or overall lower
+    # bin utilization might demand more precise fitting to avoid fragmentation.
+    alpha_tightness_scale = 50.0 + 150.0 * item_relative_size + 50.0 * avg_bin_utilization
+    tightness_component = np.exp(-alpha_tightness_scale * remaining_after_fit)
+
+    # 2. Fullness Component (Non-linear, Power Law):
+    # This component rewards bins that are already substantially full before the item is placed.
+    # The `beta` exponent emphasizes very full bins non-linearly. `beta` adapts:
+    # when bins are generally more empty, less emphasis is placed on "finishing them off",
+    # but for smaller items, it becomes more crucial to prevent many fragmented bins.
+    current_fullness_ratio = (BIN_CAPACITY - valid_bins_remain_cap) / BIN_CAPACITY
+    beta_fullness_exponent = 2.0 + 3.0 * avg_bin_utilization + 1.0 * (1 - item_relative_size)
+    fullness_component = current_fullness_ratio**beta_fullness_exponent
+
+    # --- Adaptive Weighting of Primary Score Components ---
+    # The weights for the tightness and fullness components are dynamically adjusted based
+    # on the current item's relative size. For large items, tightness is paramount.
+    # For smaller items, there's more flexibility, so more weight is given to
+    # efficiently filling existing bins (fullness).
+    w_tightness = 0.6 + 0.4 * item_relative_size  # Prioritize tightness more for larger items
+    w_fullness = 0.4 - 0.4 * item_relative_size   # Prioritize fullness less for larger items
+
+    # Base combined score for the valid (fitting) bins
+    valid_scores_base = (w_tightness * tightness_component + w_fullness * fullness_component)
+
+    # --- Probabilistic Element (Adaptive Noise) ---
+    # A controlled noise component is added to introduce stochasticity, encouraging exploration.
+    # The amplitude of this noise adapts:
+    # - Smaller items (offering more placement flexibility) receive more potential noise.
+    # - A higher standard deviation in bin capacities (indicating diverse bin states)
+    #   might also encourage more noise to explore non-obvious choices.
+    # - A small constant ensures some minimum level of exploration.
+    noise_scale = 0.05 + 0.1 * (1 - item_relative_size) + 0.2 * std_bin_capacities
+
+    # Generate random noise for the valid bins, centered around zero
+    probabilistic_perturbation = noise_scale * (np.random.rand(len(valid_scores_base)) - 0.5)
+
+    # Final scores for valid bins are the base scores perturbed by noise
+    final_valid_scores = valid_scores_base + probabilistic_perturbation
+
+    # Assign the calculated scores back to the original scores array using the mask
+    scores[can_fit_mask] = final_valid_scores
+
+    # --- Non-monotonic, Context-Sensitive Override for Perfect Fit ---
+    # This is a critical emergent rule: If an item fits perfectly into a bin (leaving zero remainder),
+    # it represents an extremely efficient and desirable use of space. This specific context
+    # triggers a non-linear override, setting the priority to positive infinity.
+    # This ensures that such a bin is chosen with the highest possible priority,
+    # irrespective of other factors or minor noise, fostering a "greedy perfect fit" behavior.
+    perfect_fit_mask = remaining_after_fit <= 1e-9 # Use a small epsilon for floating-point comparison
+    scores[can_fit_mask][perfect_fit_mask] = np.inf # Assign highest possible priority
+
+    return scores
+```

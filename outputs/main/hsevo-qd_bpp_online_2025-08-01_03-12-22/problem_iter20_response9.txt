@@ -1,0 +1,48 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins using a combination of exponential reward for small remaining capacity
+    (Best Fit) and a bonus for high proportional fill, aiming for compact packing.
+    """
+    # Tunable parameters to control heuristic behavior
+    exp_rem_cap_bonus_factor: float = 100.0  # Weight for the exponential bonus for small remaining capacity
+    exp_sharpness: float = 15.0            # Controls the decay rate of the exponential bonus (higher = sharper drop)
+    relative_fill_bonus_factor: float = 25.0 # Weight for the bonus based on item's proportion of bin's current capacity
+    non_fitting_priority: float = -1e9      # Very low score for bins where the item cannot fit
+
+    # Initialize all bin priorities to a very low value, indicating they cannot fit or are undesirable
+    priorities = np.full_like(bins_remain_cap, fill_value=non_fitting_priority, dtype=float)
+
+    # Create a mask for bins where the current item can actually be placed
+    can_fit_mask = bins_remain_cap >= item
+
+    # Only proceed if there is at least one bin where the item can fit
+    if np.any(can_fit_mask):
+        # Extract remaining capacities for only the bins that can fit the item
+        fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+        # Calculate the remaining capacity in these bins *after* placing the item
+        remaining_after_placement = fitting_bins_remain_cap - item
+
+        # 1. Exponential Bonus for Small Remaining Capacity (Strong Best Fit/Perfect Fit Incentive)
+        # This component heavily rewards bins that become nearly full or perfectly full.
+        # The exponential term ensures a steep increase in priority as remaining_after_placement approaches zero.
+        rem_cap_exponential_bonus = exp_rem_cap_bonus_factor * np.exp(-exp_sharpness * remaining_after_placement)
+
+        # 2. Relative Fill Bonus
+        # This rewards bins where the item occupies a larger proportion of the bin's *current* available space.
+        # It encourages efficient use of bins, especially partially filled ones.
+        # Avoids division by zero as 'item' is positive and 'fitting_bins_remain_cap' is at least 'item'.
+        relative_fill_ratio = item / fitting_bins_remain_cap
+        relative_fill_bonus = relative_fill_bonus_factor * relative_fill_ratio
+
+        # Combine the two main heuristic components
+        # The total priority is the sum, balancing absolute tightness with proportional utilization.
+        calculated_priorities = rem_cap_exponential_bonus + relative_fill_bonus
+
+        # Assign the calculated priorities back to the original priorities array for the fitting bins
+        priorities[can_fit_mask] = calculated_priorities
+
+    return priorities
+```

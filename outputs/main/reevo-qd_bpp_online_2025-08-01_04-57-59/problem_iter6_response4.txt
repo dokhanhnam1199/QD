@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+# For the purpose of this mutation, we will assume a default BIN_CAPACITY of 1.0.
+# This is a common practice in normalized Bin Packing Problem contexts where
+# item sizes and capacities are scaled between 0 and 1. If your problem
+# uses different absolute capacities (e.g., 100, 500), this constant
+# should ideally be passed as an argument or configured externally.
+BIN_CAPACITY_ASSUMED = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add an item to each bin.
+
+    This strategy focuses on two primary criteria, combining them into a single score:
+    1.  **Maximize Bin Utilization (Best Fit Principle)**: Prioritize placing the item
+        into a bin such that the bin's capacity is as fully utilized as possible
+        *after* the item is placed. This aims to minimize wasted space within the chosen bin.
+    2.  **Prefer Existing Bins**: Give a slight bonus to bins that are already
+        partially filled (i.e., not empty). This encourages consolidating items
+        into fewer bins, reducing the overall number of bins used.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+                         (Assumed to be relative to a BIN_CAPACITY of 1.0 for
+                         calculating fill levels.)
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot fit the item will have a priority score of 0.
+        For bins that can fit, a higher score indicates a more desirable placement.
+    """
+    # Calculate the remaining capacity if the item were to be placed in each bin.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Initialize priority scores. Default to 0, meaning no priority or cannot fit.
+    priority_scores = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit
+    # (remaining space must be non-negative).
+    can_fit_mask = potential_remaining_space >= 0
+
+    # If no bin can fit the item, return all zeros.
+    if not np.any(can_fit_mask):
+        return priority_scores
+
+    # --- Component 1: Maximize Bin Utilization (Best Fit) ---
+    # This component calculates the proportion of the bin's total capacity
+    # that would be occupied *after* placing the current item.
+    # Maximizing this value corresponds to choosing the bin that becomes most full,
+    # which is a strong Best Fit heuristic.
+    fill_after_placement = np.zeros_like(bins_remain_cap, dtype=float)
+    fill_after_placement[can_fit_mask] = (BIN_CAPACITY_ASSUMED - potential_remaining_space[can_fit_mask]) / BIN_CAPACITY_ASSUMED
+
+    # --- Component 2: Preference for Already-Used Bins ---
+    # This component gives a small, consistent bonus to bins that are already
+    # partially filled. This encourages filling up existing bins before starting new ones,
+    # which is crucial for minimizing the total number of bins.
+    # The bonus value should be small enough not to override a significantly
+    # better fit from Component 1, but large enough to break ties meaningfully.
+    PREFERENCE_FOR_USED_BIN_BONUS = 0.001  # A small constant, e.g., 0.1% of max score
+
+    # Determine which bins are currently not empty (i.e., already in use)
+    # and also can fit the item.
+    is_used_bin_mask = (bins_remain_cap < BIN_CAPACITY_ASSUMED) & can_fit_mask
+
+    # --- Combine Components ---
+    # The primary score is based on the final utilization of the bin.
+    # A small bonus is added if the bin was already in use, effectively
+    # breaking ties or slightly nudging towards existing bins when fill levels are similar.
+    priority_scores[can_fit_mask] = fill_after_placement[can_fit_mask]
+    priority_scores[is_used_bin_mask] += PREFERENCE_FOR_USED_BIN_BONUS
+
+    return priority_scores
+```

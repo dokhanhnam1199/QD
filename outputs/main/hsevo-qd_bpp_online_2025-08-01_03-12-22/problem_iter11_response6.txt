@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, BIN_CAPACITY: float = 1.0) -> np.ndarray:
+    """
+    Prioritizes bins by "proportional fill" + perfect fit bonus + fragment penalty.
+    Aggressively fills bins relative to current emptiness, rewards full bin closure,
+    and penalizes small, unusable remaining space.
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate remaining capacity after hypothetical placement for fitting bins
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # Base score: Proportional Fill.
+    # This prioritizes bins where the item consumes the highest ratio of the bin's
+    # *remaining* capacity. This promotes aggressively filling bins that are
+    # already partially full. A small epsilon is added to avoid division by zero
+    # for extreme edge cases where bins_remain_cap might be 0, though `can_fit_mask`
+    # should largely prevent this for positive items.
+    epsilon_for_division = 1e-12 
+    base_score = item / (bins_remain_cap[can_fit_mask] + epsilon_for_division)
+
+    # Define a small epsilon for robust floating point comparisons to handle near-zero values.
+    epsilon_float_compare = 1e-9
+
+    # Strategic Bonus: Strongly reward perfect fits.
+    # A perfect fit leaves exactly 0 remaining capacity.
+    perfect_fit_mask = np.isclose(remaining_after_fit, 0.0, atol=epsilon_float_compare)
+    # A substantial bonus (e.g., 2.0) ensures perfect fits are unequivocally the highest priority.
+    base_score[perfect_fit_mask] += 2.0
+
+    # Strategic Penalty: Slightly penalize very small, non-zero remaining capacities.
+    # These "fragments" are often too small to be useful for subsequent items.
+    # The threshold for what constitutes a "small fragment" can be tuned (e.g., 5% of bin capacity).
+    fragment_threshold = 0.05 * BIN_CAPACITY
+    
+    # Identify bins that result in a small, non-zero remainder.
+    fragment_mask = (remaining_after_fit > epsilon_float_compare) & (remaining_after_fit < fragment_threshold)
+    
+    # Subtract a penalty (e.g., 0.5) to make these bins less attractive than those
+    # leaving more useful space or achieving a perfect fit.
+    base_score[fragment_mask] -= 0.5
+
+    # Assign the calculated scores to the bins where the item can fit.
+    scores[can_fit_mask] = base_score
+
+    return scores
+```

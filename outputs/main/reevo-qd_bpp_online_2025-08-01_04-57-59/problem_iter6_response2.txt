@@ -1,0 +1,69 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This strategy refines the Best Fit approach by assigning explicit, high
+    positive priorities to perfect and near-perfect fits, and a negative
+    priority (based on remaining capacity) to other valid fits. This clearly
+    distinguishes the most desirable outcomes and encourages efficient bin closure
+    and minimizes overall fragmentation.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate a more desirable bin.
+    """
+    # Initialize all priorities to a very low negative number (effectively -infinity)
+    # for bins that cannot accommodate the item.
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate remaining capacity after fit for eligible bins
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # Define parameters for priority scoring
+    # This threshold assumes item sizes and bin capacities are normalized, e.g., to 1.0.
+    # A remaining capacity <= 0.05 (e.g., 5% of a standard bin) is considered a near-perfect fit.
+    near_perfect_threshold = 0.05
+    # The maximum score assigned for a perfect fit (remaining_after_fit == 0).
+    # This value is chosen to be high enough to clearly distinguish perfect/near-perfect fits.
+    perfect_fit_score = 1000.0
+
+    # Create masks for different fit types within the 'can_fit_mask' subset
+    perfect_fit_mask = remaining_after_fit == 0
+    near_perfect_fit_mask = (remaining_after_fit > 0) & (remaining_after_fit <= near_perfect_threshold)
+    regular_fit_mask = remaining_after_fit > near_perfect_threshold
+
+    # --- Apply Scores based on Fit Type ---
+
+    # 1. Perfect Fits: Assign the highest possible priority score.
+    scores[can_fit_mask][perfect_fit_mask] = perfect_fit_score
+
+    # 2. Near-Perfect Fits: Assign a high positive priority that decays quadratically
+    #    from 'perfect_fit_score' down to 0 as remaining capacity approaches 'near_perfect_threshold'.
+    #    This strongly rewards very small remaining capacities, promoting dense packing.
+    current_near_perfect_rem = remaining_after_fit[near_perfect_fit_mask]
+    if current_near_perfect_rem.size > 0:
+        # Calculate a normalized ratio (0 at threshold, 1 at perfect fit)
+        # and apply a quadratic factor to emphasize smaller remainders.
+        normalized_rem_ratio = current_near_perfect_rem / near_perfect_threshold
+        # Score decreases quadratically from perfect_fit_score (when ratio is 0) to 0 (when ratio is 1)
+        near_perfect_scores = perfect_fit_score * (1 - normalized_rem_ratio**2)
+        scores[can_fit_mask][near_perfect_fit_mask] = near_perfect_scores
+
+    # 3. Regular Best Fit: Assign a negative priority directly proportional to
+    #    the negative of the remaining capacity. This minimizes remaining capacity
+    #    for bins that are not perfect or near-perfect fits.
+    current_regular_rem = remaining_after_fit[regular_fit_mask]
+    if current_regular_rem.size > 0:
+        scores[can_fit_mask][regular_fit_mask] = -current_regular_rem
+
+    return scores
+```

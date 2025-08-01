@@ -1,0 +1,51 @@
+```python
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    base_fit_priority: float = 50.0,
+    rem_cap_penalty_factor: float = 3.5,
+    rem_cap_penalty_exponent: float = 1.7,
+    relative_fill_bonus_factor: float = 8.0,
+    perfect_fit_bonus: float = 150.0,  # Significant bonus for perfect closure
+    perfect_fit_tolerance: float = 1e-9,  # Tolerance for float comparison of perfect fit
+    min_allowed_priority: float = 0.5,
+    non_fitting_priority: float = -10.0
+) -> np.ndarray:
+    """Refined Best Fit prioritizing tight fits and high utilization with a
+    significant bonus for perfect bin closure, aiming to minimize total bins.
+    """
+    priorities = np.full_like(bins_remain_cap, fill_value=non_fitting_priority, dtype=float)
+    can_fit_mask = bins_remain_cap >= item
+
+    if np.any(can_fit_mask):
+        fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+        remaining_after_placement = fitting_bins_remain_cap - item
+
+        # 1. Non-linear Penalty for Remaining Capacity (Enhanced Best Fit)
+        # Heavily penalizes bins that leave a lot of unused space.
+        rem_cap_penalty = rem_cap_penalty_factor * (remaining_after_placement ** rem_cap_penalty_exponent)
+
+        # 2. Relative Fill Bonus
+        # Rewards placing the item where it occupies a larger proportion of the bin's current capacity.
+        # Avoids division by zero as fitting_bins_remain_cap >= item > 0.
+        relative_fill_ratio = item / fitting_bins_remain_cap
+        relative_fill_bonus = relative_fill_bonus_factor * relative_fill_ratio
+
+        # Initialize calculated priorities with base + relative fill bonus - remaining capacity penalty
+        calculated_priorities = base_fit_priority - rem_cap_penalty + relative_fill_bonus
+
+        # 3. Explicit Perfect Fit Bonus (Inspired by 'tightest fit' and bin closure)
+        # Apply a substantial bonus for bins where the item perfectly fills the remaining space.
+        # Use a small tolerance for floating-point precision.
+        perfect_fit_mask_local = np.abs(remaining_after_placement) < perfect_fit_tolerance
+        calculated_priorities[perfect_fit_mask_local] += perfect_fit_bonus
+
+        # Ensure priorities do not fall below a minimum allowed value for fitting bins
+        calculated_priorities = np.maximum(calculated_priorities, min_allowed_priority)
+
+        priorities[can_fit_mask] = calculated_priorities
+
+    return priorities
+```

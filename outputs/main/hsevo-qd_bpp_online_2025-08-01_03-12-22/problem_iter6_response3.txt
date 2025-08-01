@@ -1,0 +1,93 @@
+```python
+import numpy as np
+
+# Assume a standard bin capacity. In many normalized Bin Packing Problem setups,
+# item sizes and bin capacities are scaled such that the bin capacity is 1.0.
+# If your problem uses a different absolute capacity (e.g., 100.0),
+# this constant should be adjusted, and the item sizes and bins_remain_cap
+# should also be consistent with that scaling.
+BIN_MAX_CAPACITY = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add an item to each bin.
+
+    This heuristic is a mutation of the 'Best Fit' strategy, designed to
+    strategically manage remaining bin capacities and reduce the creation
+    of "dead space" that is too small to be useful. It introduces a "Gap Utility"
+    consideration by penalizing the creation of extremely small, non-zero
+    remaining capacities (gaps). The goal is to encourage leaving either
+    a perfect zero gap or a sufficiently large (useful) gap that can accommodate
+    subsequent items, rather than many fragmented, hard-to-fill tiny spaces.
+
+    The core principles guiding this mutation are:
+    1.  **Perfect Fit Optimization**: A perfect fit (0 remaining capacity)
+        is always given the highest priority, as it represents optimal space utilization.
+    2.  **Strategic Gap Management**: Non-zero remaining capacities are evaluated.
+        Those that fall below a `SMALL_GAP_THRESHOLD` (indicating a potentially
+        "unusable" dead space) are significantly penalized. This encourages the
+        algorithm to seek alternative bins that might leave a larger, more
+        versatile gap, or to find a more precise fit. This directly addresses
+        the 'Strategic Selection' and 'Structural Exploitation' hints by
+        aiming to improve future packing efficiency.
+    3.  **Best Fit Baseline**: For all other cases (perfect fits, or remaining
+        capacities larger than the small gap threshold), the heuristic reverts to
+        the Best Fit principle, preferring bins that leave less remaining capacity.
+
+    This approach aims to exploit the problem structure where leaving many
+    very small, unusable gaps can lead to inefficient overall packing by
+    forcing the creation of new bins for items that could have fit into
+    a larger, strategically preserved gap, thereby improving the 'Performance Metrics'
+    (fewer bins used).
+
+    Args:
+        item: Size of item to be added to the bin (assumed to be <= BIN_MAX_CAPACITY).
+        bins_remain_cap: Array of current remaining capacities for each bin.
+                         Values are assumed to be in the same scale as item and BIN_MAX_CAPACITY.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score for each bin.
+        Scores are calculated such that higher values indicate higher priority.
+        Bins where the item does not fit receive a score of -np.inf to ensure
+        they are never selected.
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Determine which bins have sufficient remaining capacity for the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity if the item were to be placed.
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # 1. Base Score: Apply the Best Fit principle.
+    # We want to minimize remaining_after_fit. So, we use its negative value.
+    # A perfect fit (0 remaining) gets a score of 0.0, which is the highest possible.
+    base_scores = -remaining_after_fit
+
+    # 2. Define parameters for Gap Utility penalty.
+    # This threshold represents what we consider a "very small" or potentially
+    # "unusable" remaining capacity. It's a critical parameter for tuning
+    # based on the expected item size distribution.
+    # Example: 10% of bin capacity.
+    SMALL_GAP_THRESHOLD = 0.1 * BIN_MAX_CAPACITY
+
+    # This penalty value is applied to scores of bins that result in small, non-zero gaps.
+    # The magnitude of the penalty should be significant enough to make these options
+    # less desirable than leaving a larger, potentially more useful gap. It must also
+    # be carefully chosen so as not to force opening a new bin unnecessarily if other
+    # options are even worse.
+    # Example: A penalty that is half of the bin capacity's unit value.
+    PENALTY_VALUE = 0.5 * BIN_MAX_CAPACITY
+
+    # 3. Apply Penalty for Small, Non-Zero Gaps.
+    # Identify bins where the remaining capacity is greater than zero but below the threshold.
+    small_gap_mask = (remaining_after_fit > 0) & (remaining_after_fit < SMALL_GAP_THRESHOLD)
+
+    # Apply the penalty to the base scores for these specific bins.
+    # This shifts their priority lower, making them less attractive.
+    base_scores[small_gap_mask] -= PENALTY_VALUE
+
+    # Assign the calculated scores back to the original scores array for fitting bins.
+    scores[can_fit_mask] = base_scores
+
+    return scores
+```

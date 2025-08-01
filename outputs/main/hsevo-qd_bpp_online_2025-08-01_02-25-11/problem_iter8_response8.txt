@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with a substantial consolidation bonus.
+    Prioritizes tighter fits, adding a bonus to existing bins to encourage
+    consolidation and reduce new bin openings. Bin capacity is inferred dynamically.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # 1. Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Get remaining capacities for only the bins that can fit the item
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    if fitting_bins_remain_cap.size == 0:
+        return priorities # No bin can fit the item, return all -inf priorities
+
+    # 2. Calculate potential remaining capacity if item were placed in fitting bins
+    potential_remaining_cap = fitting_bins_remain_cap - item
+
+    # 3. Base priority: Best Fit strategy (minimize remaining capacity)
+    # A smaller potential_remaining_cap (closer to 0) means a tighter fit,
+    # which is preferred. By taking the negative, we convert minimization to maximization.
+    base_priorities_for_fitting_bins = -potential_remaining_cap
+
+    # 4. Consolidation Bonus: Add a substantial bonus for choosing an already used bin.
+    # This encourages filling existing bins before opening new ones, potentially saving bins.
+    # A value of 0.01 is empirically found to be more effective than a very small one.
+    CONSOLIDATION_BONUS = 0.01
+
+    # Identify bins that are 'used' (i.e., not entirely empty/fresh).
+    # To do this without an explicit bin_capacity argument, we infer the
+    # full bin capacity from the maximum remaining capacity currently observed in the array.
+    # This assumes that if there are "new" bins, they will have the maximum capacity.
+    inferred_bin_capacity = np.max(bins_remain_cap) if bins_remain_cap.size > 0 else 0.0
+
+    # Identify bins that are not at their (inferred) full capacity.
+    # This means they have already been "used" or are not completely fresh.
+    # Apply this check to fitting_bins_remain_cap, which is a subset.
+    # Use np.isclose for robustness against floating-point inaccuracies when comparing capacities.
+    is_used_bin_mask = ~np.isclose(fitting_bins_remain_cap, inferred_bin_capacity)
+
+    # Apply the bonus only to bins that can fit the item AND are considered 'used'.
+    base_priorities_for_fitting_bins[is_used_bin_mask] += CONSOLIDATION_BONUS
+
+    # Assign the calculated priorities back to the main priorities array for the fitting bins
+    priorities[can_fit_mask] = base_priorities_for_fitting_bins
+
+    return priorities
+```

@@ -1,0 +1,149 @@
+```python
+import numpy as np
+
+# Assuming BIN_CAPACITY is a known constant for the Bin Packing Problem.
+# For many BPP variants, item sizes are normalized, e.g., to [0, 1],
+# and BIN_CAPACITY would be 1.0. If your problem uses different scales,
+# adjust BIN_CAPACITY accordingly or pass it as an argument.
+BIN_CAPACITY = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes bins using a sophisticated, adaptive, and non-linear heuristic
+    for the Online Bin Packing Problem. It combines an advanced best-fit
+    approach with strong incentives for bin completion, nuanced penalties for
+    fragmentation, and strategic bonuses for maintaining highly flexible or
+    completely emptied bin states.
+
+    The core philosophy:
+    1.  **Hyper-Aggressive Bin Completion:** Prioritize bins that can be
+        perfectly or almost perfectly filled, ensuring bins are closed efficiently.
+    2.  **Adaptive Fragmentation Penalty:** Apply a strong penalty for leaving
+        "awkward" medium-sized remnants that are difficult to utilize, adapting
+        to typical fragment sizes relative to bin capacity.
+    3.  **Strategic Bin State Management:**
+        a.  Reward leaving extremely small, negligible fragments to fully "clean" bins.
+        b.  Reward leaving genuinely large, flexible spaces for future large items.
+
+    Args:
+        item (float): The size of the current item to be packed.
+        bins_remain_cap (np.ndarray): A NumPy array containing the remaining
+                                      capacity of each bin.
+
+    Returns:
+        np.ndarray: An array of priority scores for each bin. The bin with the
+                    highest (most positive) score is preferred. Bins that
+                    cannot fit the item have a score of -inf.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    EXACT_FIT_THRESHOLD = 1e-9  # Tolerance for floating point comparisons to zero
+
+    # Mask for bins where the item can fit (capacity >= item size)
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bin can fit the item, return priorities initialized to -inf
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Extract capacities for only the fitting bins
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    potential_remaining_cap = fitting_bins_remain_cap - item
+
+    # --- Core Priority Calculation: Normalized Best Fit Baseline ---
+    # A foundational best-fit component, normalized by BIN_CAPACITY to ensure
+    # consistent scaling regardless of the absolute capacity value.
+    # Smaller remaining capacity results in a higher (less negative) base score.
+    calculated_priorities = -potential_remaining_cap / BIN_CAPACITY
+
+    # --- Component 1: Hyper-Aggressive Bin Completion & Perfect Fit Bonus ---
+    # This is the strongest incentive. A perfect fit is always prioritized highest.
+    # Near-perfect fits receive a very large, rapidly decaying exponential bonus
+    # to encourage closing bins.
+    COMPLETION_BONUS_MAGNITUDE = 15000.0  # Extremely high magnitude for completion
+    COMPLETION_BONUS_DECAY_RATE = 200.0   # Very steep decay, making small differences critical
+
+    # Adaptive threshold for "near completion": considers both item size and bin capacity
+    near_completion_threshold = min(0.05 * item, 0.02 * BIN_CAPACITY) # E.g., 5% of item or 2% of bin
+    near_completion_mask = (potential_remaining_cap > EXACT_FIT_THRESHOLD) & \
+                           (potential_remaining_cap < near_completion_threshold)
+
+    if np.any(near_completion_mask):
+        # Bonus: A * exp(-B * remainder). Smaller remainder -> much higher bonus.
+        bonus = COMPLETION_BONUS_MAGNITUDE * np.exp(-COMPLETION_BONUS_DECAY_RATE * potential_remaining_cap[near_completion_mask])
+        calculated_priorities[near_completion_mask] += bonus
+
+    # For perfect fits (zero remainder), assign highest possible priority (infinity).
+    # This ensures exact fits are always chosen first, overriding any other logic.
+    perfect_fit_mask = np.isclose(potential_remaining_cap, 0.0, atol=EXACT_FIT_THRESHOLD)
+    if np.any(perfect_fit_mask):
+        calculated_priorities[perfect_fit_mask] = np.inf
+
+
+    # --- Component 2: Adaptive Fragmentation Penalty ("Valley of Despair") ---
+    # Applies a strong, non-linear penalty for leaving "awkward" small-to-medium
+    # remnants that are typically difficult to fill. The penalty peaks around
+    # problematic sizes, defined relative to the total bin capacity.
+    FRAGMENT_PENALTY_AMPLITUDE = 800.0  # Strength of the penalty
+    # Define the range of problematic fragments relative to BIN_CAPACITY
+    # Example: Penalize remainders between 10% and 60% of bin capacity,
+    # with the peak penalty at 35%.
+    FRAGMENT_LOWER_BOUND_RATIO = 0.1
+    FRAGMENT_UPPER_BOUND_RATIO = 0.6
+    FRAGMENT_PENALTY_CENTER_RATIO = 0.35
+
+    # Only apply penalty if the item is not tiny and remaining capacity is positive
+    if item > EXACT_FIT_THRESHOLD:
+        penalty_mask = (potential_remaining_cap > EXACT_FIT_THRESHOLD) & \
+                       (potential_remaining_cap >= FRAGMENT_LOWER_BOUND_RATIO * BIN_CAPACITY) & \
+                       (potential_remaining_cap <= FRAGMENT_UPPER_BOUND_RATIO * BIN_CAPACITY)
+
+        if np.any(penalty_mask):
+            target_fragment_abs = FRAGMENT_PENALTY_CENTER_RATIO * BIN_CAPACITY
+            # Gaussian spread, adaptive to the defined penalty range
+            spread = (FRAGMENT_UPPER_BOUND_RATIO - FRAGMENT_LOWER_BOUND_RATIO) * BIN_CAPACITY / 4.0
+            spread = max(spread, EXACT_FIT_THRESHOLD) # Ensure spread is not zero
+
+            diff_sq = (potential_remaining_cap[penalty_mask] - target_fragment_abs)**2
+            penalty = -FRAGMENT_PENALTY_AMPLITUDE * np.exp(-diff_sq / (2 * spread**2))
+            calculated_priorities[penalty_mask] += penalty
+
+
+    # --- Component 3: Strategic Remaining Space Incentives ---
+
+    # A) "Smallest Possible Fragment" Bonus (for non-zero, very tiny remainders):
+    # This bonus specifically targets bins that, after placing the item, are left with
+    # an extremely small, truly negligible amount of space. This encourages "bin cleaning"
+    # even if it's not a perfect fit, by making the remnant as small as possible.
+    SMALLEST_FRAGMENT_BONUS_MAGNITUDE = 2000.0
+    SMALLEST_FRAGMENT_THRESHOLD_RATIO = 0.01 # E.g., < 1% of BIN_CAPACITY
+
+    # Mask for very small positive remainders, specifically *excluding* those already
+    # covered by the hyper-aggressive near-completion bonus.
+    small_frag_bonus_mask = (potential_remaining_cap > (near_completion_threshold + EXACT_FIT_THRESHOLD)) & \
+                            (potential_remaining_cap < SMALLEST_FRAGMENT_THRESHOLD_RATIO * BIN_CAPACITY)
+
+    if np.any(small_frag_bonus_mask):
+        # Inverse linear bonus: closer to zero, higher the bonus.
+        # This provides a strong incentive to truly minimize tiny leftover space.
+        bonus = SMALLEST_FRAGMENT_BONUS_MAGNITUDE * (1 - (potential_remaining_cap[small_frag_bonus_mask] / (SMALLEST_FRAGMENT_THRESHOLD_RATIO * BIN_CAPACITY)))
+        calculated_priorities[small_frag_bonus_mask] += bonus
+
+    # B) "Largest Flexible Space" Bonus (Logarithmic):
+    # Incentivizes leaving a bin with a very large remaining capacity (e.g., > 70% of bin capacity).
+    # This helps maintain "open" and flexible bins for accommodating future large items,
+    # with diminishing returns as space increases.
+    LARGE_SPACE_BONUS_FACTOR = 100.0  # Magnitude of this bonus
+    MIN_LARGE_SPACE_RATIO = 0.7       # Remaining capacity must be at least 70% of bin capacity
+
+    large_space_mask = potential_remaining_cap >= MIN_LARGE_SPACE_RATIO * BIN_CAPACITY
+
+    if np.any(large_space_mask):
+        # Logarithmic bonus, normalized by BIN_CAPACITY for consistent scaling.
+        bonus = LARGE_SPACE_BONUS_FACTOR * np.log1p(potential_remaining_cap[large_space_mask] / BIN_CAPACITY)
+        calculated_priorities[large_space_mask] += bonus
+
+    # Assign the calculated priorities to the fitting bins in the main array
+    priorities[can_fit_mask] = calculated_priorities
+
+    return priorities
+```

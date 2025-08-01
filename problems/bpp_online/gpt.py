@@ -1,38 +1,50 @@
 import numpy as np
-import random
-import math
-import scipy
-import torch
-def priority_v2(
-    item: float,
-    bins_remain_cap: np.ndarray,
-    exact_fit_atol: float = 5.550494942929915e-07,
-    tightness_epsilon: float = 9.335195461559172e-07,
-    utilization_epsilon: float = 8.899578910890616e-07,
-    alignment_bonus_weight: float = 0.32541695897792977,
-    alignment_epsilon: float = 6.746653765434427e-07) -> np.ndarray:
-    """Hybrid heuristic: Prioritizes exact fits, combines geometric mean of 
-    tightness/utilization from v0 with v1's residual alignment bonus (simplified)."""
-    remaining_space = bins_remain_cap - item
-    exact_fit = np.isclose(remaining_space, 0, atol=exact_fit_atol)
-    valid = remaining_space >= 0
-    
-    # Core geometric mean calculation from v0
-    tightness = 1 / (np.abs(remaining_space) + tightness_epsilon)
-    utilization = 1 / (bins_remain_cap + utilization_epsilon)
-    combined_score = np.sqrt(tightness * utilization)
-    
-    # Simplified residual alignment from v1: Encourage space matching item size
-    alignment_bonus = alignment_bonus_weight * np.exp(-np.abs(remaining_space - item)/(item + alignment_epsilon))
-    
-    priorities = np.where(
-        exact_fit,
-        np.inf,  # Absolute priority for perfect fits
-        np.where(
-            valid,
-            combined_score + alignment_bonus,  # Balanced core + alignment bonus
-            -np.inf  # Exclude invalid bins
-        )
-    )
-    
-    return priorities
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+    This heuristic refines the Best-Fit strategy by explicitly rewarding perfect matches
+    with a distinct high score, while other valid fits are prioritized based on
+    tightness (smallest remaining capacity). Invalid fits are penalized.
+    This approach aims to consolidate items in existing bins and minimize new bin openings
+    by aggressively favoring the most efficient use of current bin space,
+    especially perfect fits which close a bin efficiently.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Calculate the remaining capacity for each bin if the item were placed in it.
+    # A negative value indicates the item does not fit.
+    hypothetical_remaining = bins_remain_cap - item
+
+    # Initialize priority scores for all bins to a very low value (-infinity).
+    # This ensures that bins where the item does not fit will never be selected
+    # by argmax.
+    priority_scores = np.full_like(bins_remain_cap, -np.inf)
+
+    # Create a boolean mask for bins where the item actually fits (i.e.,
+    # hypothetical_remaining is non-negative).
+    fits_mask = hypothetical_remaining >= 0
+
+    # Identify perfect fits: where remaining capacity would be exactly 0.
+    # These are highly desirable as they efficiently "close" a bin.
+    perfect_fits_mask = (hypothetical_remaining == 0) & fits_mask
+
+    # Identify other valid fits: where item fits but remaining capacity is > 0.
+    other_fits_mask = (hypothetical_remaining > 0) & fits_mask
+
+    # Assign a distinct, high positive score for perfect fits.
+    # This significantly elevates their priority, ensuring they are chosen
+    # over any non-perfect valid fit, fulfilling the "rewarding perfect matches"
+    # aspect of the reflection.
+    priority_scores[perfect_fits_mask] = 1.0
+
+    # For other valid fits, assign a score based on the negation of remaining capacity.
+    # This implements the Best-Fit strategy: smaller remaining capacities (tighter fits)
+    # result in higher scores (closer to 0, but still less than 1.0).
+    priority_scores[other_fits_mask] = -hypothetical_remaining[other_fits_mask]
+
+    return priority_scores

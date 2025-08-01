@@ -1,0 +1,71 @@
+```python
+import numpy as np
+
+# Assume a standard bin size for the Bin Packing Problem.
+# In many contexts, items and bin capacities are normalized, so 1.0 is a common default.
+# If specific problem constraints dictate a different size (e.g., integer capacities),
+# this constant should be adjusted accordingly or passed as an argument.
+BIN_SIZE = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add an item to each bin.
+
+    This heuristic refines the Best-Fit strategy by introducing a subtle bias
+    towards using partially-filled bins over completely empty (newly-opened) bins.
+    The primary goal remains to achieve a tight fit (minimize waste), but if
+    multiple bins offer similar levels of tightness, this strategy nudges the
+    selection towards bins that are already in use. This can help consolidate
+    items and potentially reduce the total number of bins utilized.
+
+    Bins where the item does not fit are assigned the lowest possible priority (-inf).
+
+    Args:
+        item: Size of the item to be added to a bin.
+        bins_remain_cap: NumPy array of remaining capacities for each bin.
+                         Assumes `BIN_SIZE` (defaulting to 1.0) is the full
+                         capacity of an empty bin for identification purposes.
+
+    Return:
+        NumPy array of the same size as `bins_remain_cap`, containing the
+        priority score for each bin. The bin with the highest score is preferred.
+    """
+    # Calculate the remaining capacity for each bin if the item were hypothetically placed.
+    hypothetical_remaining = bins_remain_cap - item
+
+    # Step 1: Calculate the base priority based on a Best-Fit strategy.
+    # A smaller hypothetical remaining capacity (tighter fit, less waste)
+    # results in a higher (less negative) priority score.
+    base_priority_scores = -hypothetical_remaining
+
+    # Step 2: Initialize priority scores, setting non-fitting bins to -np.inf.
+    # This ensures that bins where the item does not fit are never selected.
+    priority_scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # A mask to identify bins where the item actually fits (i.e., hypothetical_remaining is non-negative).
+    fits_mask = hypothetical_remaining >= 0
+
+    # Apply the base Best-Fit priority to the bins where the item fits.
+    priority_scores[fits_mask] = base_priority_scores[fits_mask]
+
+    # Step 3: Refinement - Introduce a penalty for using completely empty bins.
+    # This encourages filling partially used bins first, provided the fit quality
+    # is comparable, aiming to defer the opening of new bins.
+
+    # Identify bins that are currently completely empty. Use a small epsilon for robust
+    # floating-point comparison, as capacities can be floats.
+    EPSILON = 1e-9
+    is_empty_bin = np.isclose(bins_remain_cap, BIN_SIZE, atol=EPSILON)
+
+    # Define a small penalty value. This value should be small enough that it
+    # doesn't override a significantly better Best-Fit in an empty bin,
+    # but large enough to break ties or influence very close choices.
+    PENALTY_FOR_EMPTY_BIN = -0.001  # A small negative value
+
+    # Apply the penalty only to empty bins that the item can fit into.
+    # This slightly reduces their priority, making them less attractive than
+    # a partially-filled bin with a very similar resulting remaining capacity.
+    empty_bins_that_fit_mask = is_empty_bin & fits_mask
+    priority_scores[empty_bins_that_fit_mask] += PENALTY_FOR_EMPTY_BIN
+
+    return priority_scores
+```

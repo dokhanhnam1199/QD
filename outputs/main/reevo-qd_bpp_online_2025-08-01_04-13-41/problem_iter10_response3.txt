@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This function implements a robust and enhanced "Best Fit" heuristic for online
+    bin packing, ensuring feasibility, strongly prioritizing tight fits, and
+    providing a distinct strong reward for perfect packing.
+
+    The priority score for each bin is determined as follows:
+    1.  **Feasibility Constraint**: Bins where the item size exceeds the remaining
+        capacity are assigned an extremely low priority (-np.inf). This effectively
+        removes them from consideration for placement.
+
+    2.  **Base Score (Tight Fit Emphasis)**: For bins where the item fits, a base
+        priority score is calculated. This score is inversely proportional to the
+        remaining capacity after placing the item, raised to an exponent.
+        Specifically, `1.0 / ((1.0 + remaining_capacity_after_placement)**TIGHTNESS_EXPONENT)`.
+        -   A `TIGHTNESS_EXPONENT` greater than 1.0 (e.g., 2.0) makes the preference
+            for tighter fits more pronounced: bins that leave significantly more
+            space are penalized more heavily compared to `v1`, while very tight
+            (but non-perfect) fits retain relatively higher scores.
+        -   As `remaining_capacity_after_placement` approaches zero (from above),
+            this score approaches `1.0`.
+
+    3.  **Perfect Fit Bonus**: Bins that result in a perfectly zero remaining
+        capacity (i.e., the item exactly fills the bin) are assigned a unique,
+        highest possible priority score (`PERFECT_FIT_BONUS_PRIORITY`). This value
+        is set to be strictly greater than any score achievable by a non-perfect fit
+        (which maxes out at `1.0`), ensuring perfect fits are always the top choice.
+        `np.isclose` is used for robust floating-point comparison.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        The bin with the highest score will be selected.
+    """
+    # Initialize priorities to a very low value (-np.inf) to mark infeasible bins.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Calculate the hypothetical remaining capacity if the item were placed in each bin.
+    hypothetical_remaining = bins_remain_cap - item
+
+    # Create a boolean mask for bins where the item can actually fit (remaining capacity >= 0).
+    can_fit_mask = hypothetical_remaining >= 0
+
+    # Define a hyperparameter to control the emphasis on tightness for non-perfect fits.
+    # TIGHTNESS_EXPONENT > 1.0 amplifies the penalty for larger remaining capacities,
+    # making the heuristic more aggressively favor tighter fits. A value of 1.0
+    # would revert to the behavior of priority_v1's inverse proportion.
+    TIGHTNESS_EXPONENT = 2.0 
+
+    # Apply the Best Fit scoring logic only to bins where the item can fit.
+    # The score is inversely proportional to (1 + remaining capacity) raised to an exponent.
+    # Adding 1.0 in the denominator prevents division by zero if hypothetical_remaining is 0.
+    priorities[can_fit_mask] = 1.0 / ((1.0 + hypothetical_remaining[can_fit_mask])**TIGHTNESS_EXPONENT)
+
+    # Define a distinct, higher priority for perfect fits. This value must be
+    # strictly greater than the maximum achievable score for any non-perfect fit,
+    # which is 1.0 (approached when remaining_capacity is very slightly above 0).
+    PERFECT_FIT_BONUS_PRIORITY = 2.0
+
+    # Identify bins that result in a perfect fit using a tolerance for float comparison.
+    perfect_fit_mask = np.isclose(hypothetical_remaining, 0.0)
+
+    # Override the priority for perfect fits with the distinct highest score.
+    # This ensures that any bin resulting in a perfect fit will always be chosen.
+    priorities[perfect_fit_mask] = PERFECT_FIT_BONUS_PRIORITY
+
+    return priorities
+```

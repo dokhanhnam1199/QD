@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines Best Fit with consolidation and a strong bonus for perfect fits.
+
+    Prioritizes tightest fits, incentivizes using existing bins, and gives a
+    significant boost to bins that perfectly fit the item, aiming to maximize
+    bin utilization and minimize the total number of bins.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    if bins_remain_cap.size == 0:
+        return priorities
+
+    # Infer BIN_CAPACITY from the maximum remaining capacity among current bins.
+    # This provides an adaptive baseline for checking "used" bins and "perfect fit".
+    # Assumes at least one full bin is present or its max capacity represents the standard.
+    inferred_bin_capacity = np.max(bins_remain_cap)
+    if inferred_bin_capacity <= 0: # Avoid issues if all bins are empty or invalid
+        return priorities
+
+    # 1. Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    if fitting_bins_remain_cap.size == 0:
+        return priorities # No bin can fit the item, all priorities remain -inf
+
+    # 2. Calculate potential remaining capacity if item were placed in fitting bins
+    potential_remaining_cap = fitting_bins_remain_cap - item
+
+    # 3. Base priority: Best Fit strategy (minimize remaining capacity)
+    # A smaller potential_remaining_cap (closer to 0) means a tighter fit.
+    # We maximize this by taking its negative. A perfect fit (0 remaining) gets a 0 score here.
+    base_priorities_for_fitting_bins = -potential_remaining_cap
+
+    # 4. Consolidation Bonus (from priority_v0): Add a small bonus for choosing an already used bin.
+    # This encourages filling existing bins before opening new ones, saving new bin openings.
+    # Using `inferred_bin_capacity` makes this check robust.
+    used_bin_bonus = 1e-6 # Small enough not to override significant Best Fit differences
+    is_used_bin_mask = ~np.isclose(fitting_bins_remain_cap, inferred_bin_capacity)
+    base_priorities_for_fitting_bins[is_used_bin_mask] += used_bin_bonus
+
+    # 5. Perfect Fit Bonus (new element, inspired by priority_v1's "ideal" states, but focused):
+    # Give a significant, but controlled, bonus if the item perfectly fills the bin.
+    # This strongly incentivizes optimal space utilization, directly contributing to
+    # minimizing bin count by perfectly sealing a bin.
+    perfect_fit_epsilon = 1e-9 # Tolerance for floating-point comparisons for "perfect"
+    perfect_fit_bonus = 1.0    # Magnitude is chosen to be greater than typical
+                               # differences in base priorities (-potential_remaining_cap)
+                               # to make a perfect fit highly attractive.
+
+    is_perfect_fit_mask = np.isclose(potential_remaining_cap, 0.0, atol=perfect_fit_epsilon)
+    base_priorities_for_fitting_bins[is_perfect_fit_mask] += perfect_fit_bonus
+
+    # Assign the calculated priorities back to the main priorities array for the fitting bins
+    priorities[can_fit_mask] = base_priorities_for_fitting_bins
+
+    return priorities
+```

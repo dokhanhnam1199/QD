@@ -1,0 +1,144 @@
+```python
+import numpy as np
+
+# Assume BIN_CAPACITY is a constant for the problem.
+# In typical normalized Bin Packing Problems, bin capacity is 1.0.
+# If bins can have different initial capacities, this constant would need
+# to be a parameter or derived for each bin, making the problem more complex.
+BIN_CAPACITY = 1.0 
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins using a sophisticated hybrid approach, building upon v1
+    with enhanced adaptivity, multi-zone penalties, and strategic space management.
+
+    Key improvements over v1:
+    - More aggressive and adaptive near-exact fit bonus.
+    - Multi-zone fragmentation penalty:
+        - A primary Gaussian 'valley of despair' (mid-range fragments).
+        - A sharp 'dust' penalty for tiny, unusable remainders.
+    - Strategic 'quality of space' bonus: uses a sigmoid to incentivize
+      maintaining versatile large capacities for future large items,
+      with a smoother and more controlled effect.
+    - Parameters are more dynamically linked to the 'item' size or BIN_CAPACITY,
+      making the heuristic more adaptive.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Mask for bins where the item can fit (capacity >= item size)
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bin can fit the item, return priorities initialized to -inf
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Extract capacities for only the fitting bins
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # Calculate potential remaining capacity if the item were placed
+    potential_remaining_cap = fitting_bins_remain_cap - item
+
+    # --- Core Priority Calculation (Best Fit component) ---
+    # We negate the potential remaining capacity so that a smaller remainder
+    # results in a higher (less negative) priority score. This is the base for Best-Fit.
+    calculated_priorities = -potential_remaining_cap
+
+    # --- Hybrid/Non-linear/Adaptive Components ---
+
+    # Tolerance for floating point comparisons to zero
+    EXACT_FIT_THRESHOLD = 1e-9
+
+    # 1. Enhanced Completion Bonus:
+    #    a. Perfect Fit: Assigns the highest possible priority (infinity).
+    #       Ensures perfect fits are always chosen first.
+    perfect_fit_mask = np.isclose(potential_remaining_cap, 0.0, atol=EXACT_FIT_THRESHOLD)
+    if np.any(perfect_fit_mask):
+        calculated_priorities[perfect_fit_mask] = np.inf
+
+    #    b. Aggressive Near-Exact Fit (Exponential Decay):
+    #       Provides a very strong, non-linear incentive for bins that can be
+    #       almost perfectly filled, with the bonus decaying rapidly as remainder grows.
+    #       Magnitude and decay are increased and made adaptive to item size.
+    NEAR_EXACT_FIT_BONUS_MAGNITUDE = 10000.0  # Increased maximum bonus
+    # Decay factor scales inversely with item size and direct with BIN_CAPACITY for higher sensitivity
+    NEAR_EXACT_FIT_BONUS_DECAY = 150.0 / (item + EXACT_FIT_THRESHOLD) * BIN_CAPACITY 
+
+    # Apply this bonus for very small non-zero remainders. Threshold is adaptive.
+    near_exact_mask = (potential_remaining_cap > EXACT_FIT_THRESHOLD) & \
+                      (potential_remaining_cap < max(0.05 * item, 0.01 * BIN_CAPACITY))
+
+    if np.any(near_exact_mask):
+        # Bonus: A * exp(-B * remainder)
+        bonus = NEAR_EXACT_FIT_BONUS_MAGNITUDE * np.exp(-NEAR_EXACT_FIT_BONUS_DECAY * potential_remaining_cap[near_exact_mask])
+        calculated_priorities[near_exact_mask] += bonus
+
+    # 2. Multi-Zone Adaptive Fragmentation Penalty:
+    #    Applies strong, non-linear penalties for leaving "awkward" remnants.
+    #    Distinguishes between mid-range frustrating fragments and tiny, unusable "dust".
+    if item > EXACT_FIT_THRESHOLD: 
+        # a. Primary Gaussian Penalty ("Valley of Despair"):
+        #    Penalizes mid-range fragments that are too small to be generally useful
+        #    but too large to be considered "full". Amplitude made stronger for larger items.
+        GAUSSIAN_PENALTY_AMPLITUDE = 300.0 * (1.0 + item / BIN_CAPACITY) # Stronger penalty for larger items
+        GAUSSIAN_PENALTY_CENTER_RATIO = 0.35 # The undesirable remainder size is 35% of the item's size
+        GAUSSIAN_PENALTY_SPREAD = 0.1 * item # Adaptive spread based on item size
+
+        # Define the range where this Gaussian penalty is most relevant
+        penalty_zone_mask_gaussian = (potential_remaining_cap > max(0.05 * item, 0.02 * BIN_CAPACITY)) & \
+                                     (potential_remaining_cap < 0.7 * BIN_CAPACITY) # Avoid applying to extremely small or very large remainders
+
+        if np.any(penalty_zone_mask_gaussian):
+            target_fragment_remainder = GAUSSIAN_PENALTY_CENTER_RATIO * item
+            diff_sq = (potential_remaining_cap[penalty_zone_mask_gaussian] - target_fragment_remainder)**2
+            # Apply a negative Gaussian penalty: -A * exp(-(x - mu)^2 / (2 * sigma^2))
+            penalty = -GAUSSIAN_PENALTY_AMPLITUDE * np.exp(-diff_sq / (2 * (GAUSSIAN_PENALTY_SPREAD + EXACT_FIT_THRESHOLD)**2))
+            calculated_priorities[penalty_zone_mask_gaussian] += penalty
+
+        # b. "Dust" / Micro-Fragment Penalty:
+        #    A very sharp penalty for creating tiny, non-zero remainders that are too small
+        #    to be useful for any reasonable future item ("crumbs" or "dust").
+        DUST_PENALTY_MAGNITUDE = 800.0 # High magnitude for sharp penalty
+        # The maximum remainder size to be considered "dust". Adaptive, but with a small absolute max.
+        dust_threshold = min(0.05 * item, 0.03 * BIN_CAPACITY) 
+        
+        dust_mask = (potential_remaining_cap > EXACT_FIT_THRESHOLD) & \
+                    (potential_remaining_cap <= dust_threshold)
+
+        if np.any(dust_mask):
+            # Penalize inverse of remainder to be very high for tiny remainders.
+            # Add small epsilon to avoid division by zero.
+            penalty = -DUST_PENALTY_MAGNITUDE / (potential_remaining_cap[dust_mask] + EXACT_FIT_THRESHOLD)
+            calculated_priorities[dust_mask] += penalty
+
+    # 3. Strategic 'Quality of Space' Bonus (Sigmoid-modulated):
+    #    Incentivizes leaving a bin with a significantly large and versatile remaining capacity.
+    #    Uses a sigmoid function to provide a smooth, increasing bonus for larger useful spaces,
+    #    encouraging the maintenance of flexible bins for future larger items.
+    STRATEGIC_SPACE_BONUS_MAGNITUDE = 80.0 # Max bonus for leaving large useful space
+    # The threshold at which the bonus starts becoming significant (as ratio of BIN_CAPACITY)
+    STRATEGIC_SPACE_BONUS_THRESHOLD_RATIO = 0.5 
+    # Steepness of the sigmoid curve. Higher means sharper transition.
+    STRATEGIC_SPACE_BONUS_STEEPNESS = 12.0 
+
+    # Criteria for "useful" space: at least a certain percentage of bin capacity,
+    # or larger than the current item itself if item is small.
+    useful_space_criteria = max(STRATEGIC_SPACE_BONUS_THRESHOLD_RATIO * BIN_CAPACITY, item * 1.0)
+    
+    strategic_space_mask = potential_remaining_cap >= useful_space_criteria
+
+    if np.any(strategic_space_mask):
+        # Normalize potential remaining capacity and threshold by BIN_CAPACITY for sigmoid input
+        x_scaled = potential_remaining_cap[strategic_space_mask] / BIN_CAPACITY
+        x0_scaled = useful_space_criteria / BIN_CAPACITY
+
+        # Apply logistic sigmoid function: 1 / (1 + exp(-k * (x - x0)))
+        sigmoid_output = 1 / (1 + np.exp(-STRATEGIC_SPACE_BONUS_STEEPNESS * (x_scaled - x0_scaled)))
+        
+        # Scale the bonus by the sigmoid output
+        bonus = STRATEGIC_SPACE_BONUS_MAGNITUDE * sigmoid_output
+        calculated_priorities[strategic_space_mask] += bonus
+
+    # Assign the calculated priorities back to the fitting bins in the main array
+    priorities[can_fit_mask] = calculated_priorities
+
+    return priorities
+```

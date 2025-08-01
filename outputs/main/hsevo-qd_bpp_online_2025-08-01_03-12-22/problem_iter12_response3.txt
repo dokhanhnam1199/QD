@@ -1,0 +1,153 @@
+```python
+import numpy as np
+
+# Assuming a standard bin capacity of 1.0 for the Bin Packing Problem.
+# This constant is fundamental to the utilization calculations within the heuristic.
+BIN_MAX_CAP = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns a non-monotonic, context-sensitive priority score for each bin.
+
+    This heuristic is designed to exhibit 'emergent complexity' by dynamically
+    adjusting its scoring criteria based on the global state of the bins and
+    the characteristics of the incoming item. It transcends simple 'best fit'
+    by integrating:
+    1. A highly non-linear reward/penalty for the resulting remaining capacity,
+       aggressively rewarding near-perfect fits while heavily penalizing
+       'awkward' fragmentation (e.g., very small, unusable remainders).
+    2. A 'consolidation pressure' component that intensifies as the overall
+       system utilization increases, strongly incentivizing the closure of bins
+       to minimize the number of open containers.
+    3. A subtle, context-aware 'probabilistic nudge' designed to foster exploratory
+       behavior or break fine-grained ties in the score landscape, adapting its
+       magnitude based on the diversity of current bin states.
+
+    The synergistic combination of these multi-factor, non-linear, and adaptively
+    weighted terms creates a complex and dynamic decision-making surface. Its
+    behavior is intended to be non-intuitive and to emerge over repeated
+    interactions within the online packing process, embodying principles of
+    'high-dimensional tuning' and 'adaptive scoring'.
+
+    Args:
+        item: Size of item to be added to the bin (must be > 0 and <= BIN_MAX_CAP).
+        bins_remain_cap: NumPy array of current remaining capacities for each bin.
+                         Values are between 0 and BIN_MAX_CAP.
+
+    Return:
+        NumPy array of the same size as bins_remain_cap, with the priority score
+        for each bin. Bins where the item does not fit receive a score of
+        -infinity to ensure they are never selected. The bin with the highest
+        (least negative) score is preferred.
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bins can accommodate the item, return all -inf scores.
+    if not np.any(can_fit_mask):
+        return scores
+
+    # --- 1. Calculate future state for bins where the item can fit ---
+    # `future_remain_cap`: The remaining capacity of a bin after the item is placed.
+    future_remain_cap = bins_remain_cap[can_fit_mask] - item
+    # `future_utilization`: The utilization percentage of a bin after the item is placed.
+    future_utilization = (BIN_MAX_CAP - future_remain_cap) / BIN_MAX_CAP
+
+    # --- 2. Non-linear Fit Potential (F_fit) ---
+    # This component provides a base score, heavily rewarding near-perfect fits
+    # (future_remain_cap close to 0) and applying a significant penalty for
+    # creating small, "awkward" fragments that are hard to use efficiently later.
+
+    # Parameters for the non-linear fit potential components:
+    ALPHA_PERFECT_FIT = 500.0  # Controls the sharpness and height of the perfect-fit reward peak.
+    BETA_FRAGMENT_PENALTY = 20.0  # Maximum magnitude of the penalty for bad fragments.
+    GAMMA_FRAGMENT_CENTER = 0.15  # The 'center' of the remaining capacity range considered problematic.
+    DELTA_FRAGMENT_SPREAD = 0.05  # The spread/width of the problematic remaining capacity zone.
+
+    # Reward for a perfect or near-perfect fit: A sharp Gaussian peak at 0 remaining capacity.
+    perfect_fit_reward = np.exp(-ALPHA_PERFECT_FIT * future_remain_cap**2)
+
+    # Penalty for creating small, "dead zone" fragments: A negative Gaussian peak centered
+    # around `GAMMA_FRAGMENT_CENTER`. This punishes remainders that are too small to be
+    # useful for most future items, but not small enough to be near-perfect fits.
+    fragment_penalty = -BETA_FRAGMENT_PENALTY * np.exp(-(future_remain_cap - GAMMA_FRAGMENT_CENTER)**2 / (2 * DELTA_FRAGMENT_SPREAD**2))
+
+    # The base fit score combines these two non-linear terms.
+    base_fit_score = perfect_fit_reward + fragment_penalty
+
+    # --- 3. Contextual Adaptation (C_context): System Utilization Pressure ---
+    # This factor dynamically modulates other scoring components based on the
+    # overall 'fullness' or 'pressure' within the packing system.
+    # It considers only 'active' bins (those with positive remaining capacity, i.e., not yet empty).
+    active_bins = bins_remain_cap[bins_remain_cap > 0]
+    
+    if active_bins.size > 0:
+        system_avg_utilization = (BIN_MAX_CAP - np.mean(active_bins)) / BIN_MAX_CAP
+    else:
+        # If no active bins, system is effectively empty or all bins are full.
+        # Treat as empty to avoid division by zero or erroneous averages.
+        system_avg_utilization = 0.0 
+
+    # Parameters for the consolidation pressure sigmoid:
+    PRESSURE_CENTER = 0.7  # The system utilization level where consolidation pressure starts ramping up.
+    PRESSURE_STEEPNESS = 15.0 # Controls how sharply the pressure increases around the center.
+
+    # A sigmoid function ensures that the 'consolidation pressure' ramps up smoothly
+    # and significantly as the overall system utilization approaches full capacity.
+    consolidation_pressure_factor = 1.0 / (1.0 + np.exp(-PRESSURE_STEEPNESS * (system_avg_utilization - PRESSURE_CENTER)))
+
+    # --- 4. Consolidation / Closure Incentive (I_closure) ---
+    # This component provides an additional bonus for bins that become highly
+    # utilized (effectively closed) after placing the item. This incentive is
+    # critically scaled by the `consolidation_pressure_factor`.
+
+    # Parameters for the closure bonus:
+    CLOSURE_THRESHOLD = 0.98  # Utilization percentage required to start receiving the closure bonus.
+    CLOSURE_BOOST_MAGNITUDE = 15.0 # The maximum value of the closure bonus.
+    CLOSURE_BOOST_SHARPNESS = 100.0 # Controls how steeply the bonus applies once the threshold is met.
+
+    # A steep sigmoid rewards bins that achieve very high utilization post-placement.
+    closure_bonus = CLOSURE_BOOST_MAGNITUDE * (1.0 / (1.0 + np.exp(-CLOSURE_BOOST_SHARPNESS * (future_utilization - CLOSURE_THRESHOLD))))
+    
+    # The final closure bonus is scaled by the system's consolidation pressure.
+    # This means closing bins is more highly incentivized when the system is generally full.
+    scaled_closure_bonus = closure_bonus * consolidation_pressure_factor
+
+    # --- 5. Probabilistic Nudge (P_nudge) ---
+    # This component introduces a small, adaptive random element to the scores.
+    # Its magnitude changes based on the diversity (standard deviation) of the
+    # remaining capacities of active bins. This encourages exploration or breaks
+    # fine ties when bins are very similar, and reduces noise when clear choices exist.
+
+    # Parameters for the probabilistic nudge:
+    NOISE_BASE_MAGNITUDE = 0.01  # Base scale of the random noise.
+    NOISE_ADAPT_FACTOR = 0.1    # Factor determining how much noise adapts to standard deviation.
+
+    # Calculate standard deviation of active bins' remaining capacity.
+    if active_bins.size > 1:
+        std_rem_cap = np.std(active_bins)
+        # Adapt noise scale: If std_rem_cap is very low (bins are very uniform),
+        # noise_scale_adapter becomes larger, increasing the noise magnitude
+        # to encourage diversification. Clamp to avoid excessive noise or division by zero.
+        noise_scale_adapter = min(10.0, max(0.1, 1.0 / (std_rem_cap + 1e-6))) 
+    else:
+        # If only one or no active bins, use a default noise adaptation factor.
+        noise_scale_adapter = 1.0 
+
+    # Generate random noise scaled by the adaptive factor.
+    probabilistic_component = (NOISE_BASE_MAGNITUDE * noise_scale_adapter) * np.random.randn(future_remain_cap.shape[0])
+
+    # --- Combine all components into the final priority score ---
+    # The total score for fitting bins is the sum of these complex, non-linear,
+    # and adaptively weighted terms, which aims to create an 'emergent' packing strategy.
+    
+    combined_scores_for_fit = (
+        base_fit_score +            # Fundamental reward for fit quality and penalty for fragmentation.
+        scaled_closure_bonus +      # Adaptive bonus for closing bins based on system pressure.
+        probabilistic_component     # Stochastic element for adaptive exploration/tie-breaking.
+    )
+    
+    # Assign the calculated scores to the bins that can fit the item.
+    scores[can_fit_mask] = combined_scores_for_fit
+
+    return scores
+```

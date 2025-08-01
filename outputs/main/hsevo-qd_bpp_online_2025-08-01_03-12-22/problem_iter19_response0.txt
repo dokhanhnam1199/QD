@@ -1,0 +1,85 @@
+import numpy as np
+
+def priority_v2(item: float,
+                bins_remain_cap: np.ndarray,
+                BIN_CAPACITY: float = 1.0,
+                util_power: float = 5.060634446657418,
+                bonus_scaling_factor: float = 6.732532307238451,
+                clip_min_util: float = 0.8573146310146135) -> np.ndarray:
+    """
+    Returns priority with which to add an item to each bin, evolving beyond simple
+    'Best Fit' by incorporating a strategic incentive for achieving high bin utilization.
+
+    This heuristic implements an 'Adaptive Strategy' by dynamically weighting
+    the decision based on the resulting fullness of a bin. It refines the
+    'Search Dynamics' by guiding the placement towards configurations that
+    efficiently consolidate items, thus leading to potentially fewer bins.
+    The function 'exploits patterns' by recognizing and significantly rewarding
+    scenarios where placing an item results in a very highly utilized bin,
+    thereby aiming to 'close' bins effectively. While direct 'Parameter Learning'
+    is outside this function's scope, the strategic parameters (e.g., util_power,
+    bonus_scaling_factor) are designed to be tunable to adapt to different
+    problem characteristics or distributions, allowing for emergent, superior performance.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+        BIN_CAPACITY: The total capacity of a single bin. This is a crucial
+                      parameter for calculating utilization and is assumed to be uniform.
+        util_power: Determines how aggressively the bonus increases with utilization.
+                    A higher power heavily penalizes lower utilization and significantly
+                    rewards extremely high utilization.
+        bonus_scaling_factor: Controls the overall magnitude of the bonus relative
+                              to the base score. This can be tuned to balance the
+                              'tight fit' vs. 'full bin' objectives.
+        clip_min_util: Sets a threshold below which the utilization bonus starts to apply.
+                       This prevents giving a bonus for bins that are still mostly empty
+                       after placement, focusing the incentive on bins genuinely moving
+                       towards completion.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Scores are a composite of the 'Best Fit' principle (minimizing remaining
+        capacity) and a non-linear bonus for bins that become highly utilized.
+        Bins where the item does not fit receive a score of -infinity.
+    """
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the base Best Fit score for fitting bins.
+    # This is the negative of the remaining capacity after placing the item.
+    # A perfect fit (0 remaining) yields a base score of 0, which is the highest.
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+    best_fit_scores = -remaining_after_fit
+
+    # Calculate the new utilization of the bin if the item were placed there.
+    # Utilization is the filled portion of the bin relative to its total capacity.
+    new_utilization = (BIN_CAPACITY - remaining_after_fit) / BIN_CAPACITY
+
+    # --- Strategic Utilization Bonus ---
+    # This component drives the 'adaptive strategy' and 'pattern exploitation'.
+    # We apply a non-linear bonus to highly utilized bins.
+    # The higher the new_utilization, the disproportionately larger the bonus becomes.
+    # This strongly incentivizes configurations that make bins very full,
+    # thereby contributing to overall bin reduction.
+
+    # Calculate an 'effective utilization' for bonus calculation.
+    # This ensures that only the portion of utilization above clip_min_util contributes,
+    # and no bonus is applied if utilization is below the threshold.
+    effective_utilization = np.maximum(0.0, new_utilization - clip_min_util)
+
+    # The bonus is scaled by the item size to reflect that larger items
+    # contributing to a full bin have a more significant impact.
+    # The exponential application of `util_power` makes this bonus highly
+    # sensitive to the final utilization, prioritizing near-full bins.
+    utilization_bonus = (effective_utilization**util_power) * item * bonus_scaling_factor
+
+    # Combine the Best Fit score with the strategic utilization bonus.
+    # The final score guides the 'search dynamics' towards a more globally
+    # optimal packing arrangement by balancing local tightness with overall
+    # bin consolidation.
+    scores[can_fit_mask] = best_fit_scores + utilization_bonus
+
+    return scores

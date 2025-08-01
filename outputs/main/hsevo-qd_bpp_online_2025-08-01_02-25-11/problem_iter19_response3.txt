@@ -1,0 +1,70 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, ideal_remainder_ratio: float = 0.502890116168469) -> np.ndarray:
+    """Returns priority with which to add an item to each bin.
+
+    This implementation aims for a "Target Remainder Fit" strategy. It seeks to
+    assign an item to a bin such that the bin's remaining capacity after placement
+    is close to a predefined 'ideal' target value. This approach is more adaptive
+    and holistic than a simple Best Fit, as it manages the distribution of
+    remaining bin capacities, potentially leaving more "useful" space for
+    future items and promoting a more diverse set of bin states.
+
+    The 'ideal_remainder_ratio' parameter determines the target remaining capacity
+    as a fraction of the total bin capacity. A value of 0.0 would revert to a
+    pure Best Fit (minimizing remaining capacity). A value closer to 1.0 would
+    lean towards Worst Fit (maximizing remaining capacity). A moderate value
+    (e.g., 0.25) attempts to maintain a balanced bin state.
+
+    Assumptions:
+    1. The problem implies a fixed `BIN_CAPACITY` for all bins. Since it's not
+       an explicit argument, we infer it from `bins_remain_cap`. In online BPP,
+       new bins are typically added at full capacity. Therefore, `np.max(bins_remain_cap)`
+       is used as a reasonable proxy for `BIN_CAPACITY`, assuming at least one
+       bin is either empty (full capacity) or has the largest possible remaining capacity.
+       For extreme edge cases (e.g., all bins are almost full and no new empty bin has been opened yet),
+       this inference might be inaccurate, but it's a common practical approach.
+    2. `item` and `bins_remain_cap` values are in consistent units.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+        ideal_remainder_ratio: A ratio (0.0 to 1.0) indicating the ideal remaining
+                               capacity as a fraction of the total bin capacity.
+                               0.0 for Best Fit, 1.0 for Worst Fit, 0.25 for balanced.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Handle case where no bins are available or bins_remain_cap is empty
+    if bins_remain_cap.size == 0:
+        return priorities
+
+    # Infer BIN_CAPACITY from the maximum remaining capacity among current bins.
+    # This assumes that at least one "fresh" bin (with full capacity) is or was available,
+    # or that the maximum value represents the standard bin capacity.
+    BIN_CAPACITY = np.max(bins_remain_cap)
+    if BIN_CAPACITY == 0: # Avoid division by zero if all bins are exactly 0 capacity
+        return priorities # No item can fit anywhere
+
+    # Define the ideal remaining capacity ratio after placing an item.
+    # This is a key heuristic parameter for tuning:
+    # 0.0 for Best Fit, ~0.2-0.3 for a more balanced "middle-fit".
+    TARGET_REMAINDER = BIN_CAPACITY * ideal_remainder_ratio
+
+    # Find bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity if the item were placed in fitting bins
+    potential_remaining_cap = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate priority based on the absolute difference from the TARGET_REMAINDER.
+    # We want to minimize this absolute difference, so we take its negative.
+    # This means bins whose `potential_remaining_cap` is closest to `TARGET_REMAINDER`
+    # will receive the highest priority.
+    priorities[can_fit_mask] = -np.abs(potential_remaining_cap - TARGET_REMAINDER)
+
+    return priorities

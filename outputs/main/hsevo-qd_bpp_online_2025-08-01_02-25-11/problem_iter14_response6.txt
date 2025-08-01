@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+# Assume BIN_CAPACITY is a known constant, as it's typically fixed in Bin Packing Problems.
+# In a real application, this might be passed as an argument or part of a problem context.
+BIN_CAPACITY = 1.0 # Standard assumption for normalized bin capacities (e.g., items and bins scaled between 0 and 1)
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines Best Fit with an adaptive, non-linear consolidation bonus.
+    Prioritizes tight fits while increasingly favoring very full bins to consolidate items.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # 1. Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        # If no bin can fit the item, all priorities remain -inf,
+        # signaling that a new bin is needed or no placement is possible.
+        return priorities
+
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # 2. Base priority: Best Fit (minimize remaining capacity)
+    # A smaller potential_remaining_cap (closer to 0) means a tighter fit, which is preferred.
+    # By taking the negative, we convert this minimization problem into a maximization problem.
+    potential_remaining_cap = fitting_bins_remain_cap - item
+    base_priorities_fitting = -potential_remaining_cap
+
+    # 3. Non-linear Consolidation Bonus: Encourage filling already used bins,
+    # with a non-linear emphasis on bins that are already very full.
+    # This promotes consolidation into bins that are close to full, leveraging the "adaptive" advice.
+    current_fullness_fitting = (BIN_CAPACITY - fitting_bins_remain_cap) / BIN_CAPACITY
+
+    # Apply a non-linear transformation (e.g., squaring the fullness).
+    # This makes the bonus disproportionately larger for bins that are already very full (e.g., 80-90% full)
+    # compared to those that are less full (e.g., 20-30% full). This encourages "emergent" consolidation.
+    non_linear_fullness_bonus = current_fullness_fitting ** 2 
+
+    # A small, controlled weight ensures this bonus doesn't excessively override significantly better Best Fits.
+    # This prevents the heuristic from making sub-optimal choices purely for consolidation.
+    consolidation_bonus_weight = 1e-4 
+
+    consolidation_bonus_fitting = non_linear_fullness_bonus * consolidation_bonus_weight
+
+    # 4. Combine base Best Fit priority with the non-linear consolidation bonus
+    combined_priorities_fitting = base_priorities_fitting + consolidation_bonus_fitting
+
+    # 5. Assign calculated priorities back to the main priorities array
+    priorities[can_fit_mask] = combined_priorities_fitting
+
+    return priorities
+```

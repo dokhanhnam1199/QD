@@ -1,0 +1,78 @@
+```python
+import numpy as np
+
+# BIN_CAPACITY is assumed to be a known constant for the problem.
+# For BPP, bins have a fixed size. Item sizes are floats, so we assume
+# BIN_CAPACITY can be represented as a float, often normalized to 1.0.
+# In a real application, this would typically be passed as an argument
+# or derived from the problem setup (e.g., if max item size implies it).
+BIN_CAPACITY = 1.0 
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add an item to each bin,
+    implementing an adaptive heuristic that prioritizes 'clean' bin states.
+
+    This heuristic aims to:
+    1. Heavily reward perfect fits, which fully utilize a bin.
+    2. Penalize 'medium' remaining capacities, which often lead to fragmented
+       space that is hard to fill with subsequent items.
+    3. Moderately reward very small (non-zero) or very large remaining capacities,
+       as these are considered 'cleaner' states (either nearly full or largely open).
+    4. Maintain a subtle Best-Fit preference for tie-breaking.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize all priorities to a very low number. This ensures that
+    # bins which cannot accommodate the item are effectively deprioritized.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate remaining capacity after placing the item in potential bins.
+    remaining_capacity_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate the 'middle point' of remaining capacity. This is the amount of
+    # space that represents a 'fragmented' or 'half-full' state after placement.
+    middle_point_rem_cap = BIN_CAPACITY / 2.0
+
+    # Component 1: Score based on distance from the 'middle point'.
+    # We want to reward remaining capacities that are either very small (near 0)
+    # or very large (near BIN_CAPACITY), and penalize those in the middle.
+    # The term (x - middle_point)^2 will be largest at the extremes (0 and BIN_CAPACITY)
+    # and smallest at the middle point. Maximizing this pushes towards 'clean' states.
+    score_extremes = (remaining_capacity_after_fit - middle_point_rem_cap)**2
+
+    # Component 2: Strong bonus for a perfect fit.
+    # A perfect fit (remaining capacity = 0) is ideal as it fully utilizes a bin.
+    # This bonus is designed to be significantly higher than any other score.
+    perfect_fit_bonus = np.where(
+        remaining_capacity_after_fit == 0, 
+        BIN_CAPACITY**2 * 100.0, # Scale by BIN_CAPACITY^2 to make it robust across scales, amplify by 100.
+        0.0
+    )
+
+    # Component 3: Subtle Best-Fit tie-breaker.
+    # Among bins that have similar `score_extremes` (e.g., both are very small or very large),
+    # this component slightly prefers the one that results in a tighter fit (smaller
+    # remaining capacity). This helps in denser packing without dominating the main strategy.
+    # A small negative weight (e.g., -0.1) means smaller `remaining_capacity_after_fit`
+    # leads to a higher (less negative) score.
+    score_best_fit_tiebreaker = -remaining_capacity_after_fit * 0.1
+
+    # Combine the scores. The perfect_fit_bonus ensures perfect fits are chosen first.
+    # For non-perfect fits, `score_extremes` drives the primary decision to avoid
+    # medium fragmentation, and `score_best_fit_tiebreaker` provides a slight
+    # preference for tighter fits overall.
+    scores_for_fit_bins = score_extremes + perfect_fit_bonus + score_best_fit_tiebreaker
+
+    # Apply the calculated scores to the bins that can fit the item.
+    priorities[can_fit_mask] = scores_for_fit_bins
+
+    return priorities
+```

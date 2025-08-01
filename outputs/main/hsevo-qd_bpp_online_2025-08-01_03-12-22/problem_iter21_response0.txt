@@ -1,0 +1,102 @@
+```python
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    base_priority_offset: float = 60.0,
+    tight_fit_reward_factor: float = 250.0,
+    tight_fit_decay_rate: float = 12.0,
+    item_ratio_bonus_factor: float = 15.0,
+    remaining_penalty_factor: float = 6.0,
+    remaining_penalty_exponent: float = 2.2,
+    min_valid_priority: float = 1.0,
+    non_fitting_priority: float = -50.0
+) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This function implements an enhanced "Best Fit Decreasing-like" strategy,
+    aggressively favoring extremely tight fits and penalizing inefficient
+    remaining space. It introduces a high exponential reward for near-perfect
+    fits to encourage bin closure and a robust penalty for significant leftover space.
+
+    Args:
+        item: Size of item to be added to the bin. Must be greater than 0.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+        base_priority_offset: A foundational score for any bin where the item can fit.
+                              Sets a baseline priority before dynamic adjustments.
+        tight_fit_reward_factor: A substantial multiplier for the exponential bonus
+                                 given to bins that result in very little remaining
+                                 capacity after item placement. Designed to strongly
+                                 prioritize "bin closure." This term contributes
+                                 significantly when remaining_after_placement is near zero.
+        tight_fit_decay_rate: Controls how rapidly the 'tight_fit_reward' diminishes
+                              as the remaining capacity increases. A higher value
+                              means the reward drops off more steeply for
+                              even slightly larger remaining capacities,
+                              making only truly tight fits highly attractive.
+        item_ratio_bonus_factor: A multiplier for a bonus that rewards placing an item
+                                 into a bin where it occupies a significant proportion
+                                 of the bin's *current* available capacity. This encourages
+                                 efficient use of the present available space.
+        remaining_penalty_factor: A multiplier for a non-linear penalty applied based
+                                  on the remaining capacity after item placement.
+                                  Higher values penalize larger remaining capacities more.
+        remaining_penalty_exponent: An exponent (typically > 1, often > 2) applied
+                                    to the remaining capacity when calculating the penalty.
+                                    A higher value makes the penalty for larger remaining
+                                    capacities disproportionately more severe,
+                                    strongly disincentivizing loose fits.
+        min_valid_priority: The minimum priority score a bin can receive if the item fits.
+                            Acts as a floor, preventing valid placements from becoming too low.
+        non_fitting_priority: The priority score assigned to bins where the item does not fit.
+                              Typically a very low or negative value to ensure non-selection.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize all priorities with the score for non-fitting bins
+    priorities = np.full_like(bins_remain_cap, fill_value=non_fitting_priority, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    if np.any(can_fit_mask):
+        fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+        remaining_after_placement = fitting_bins_remain_cap - item
+
+        # Calculate individual priority components
+        # 1. Base offset: A starting point for all fitting bins.
+        calculated_priorities = np.full_like(remaining_after_placement, fill_value=base_priority_offset, dtype=float)
+
+        # 2. Exponential Reward for Tight Fits (Bin Closure Incentive)
+        # This term provides a very high bonus when remaining_after_placement is near zero,
+        # and rapidly decreases as remaining_after_placement increases.
+        # It heavily favors bins that are almost full or perfectly full after insertion,
+        # aligning with the objective of "bin closure" and efficient packing.
+        tight_fit_reward = tight_fit_reward_factor * np.exp(-remaining_after_placement * tight_fit_decay_rate)
+        calculated_priorities += tight_fit_reward
+
+        # 3. Bonus for Item's Proportion of Current Available Capacity
+        # This rewards efficiently using the currently available space in a bin.
+        # Adding a tiny epsilon (1e-9) to the denominator prevents division by zero,
+        # though `fitting_bins_remain_cap` should always be >= `item` (which is > 0).
+        item_fill_ratio = item / (fitting_bins_remain_cap + 1e-9)
+        calculated_priorities += item_ratio_bonus_factor * item_fill_ratio
+
+        # 4. Non-linear Penalty for Larger Remaining Capacity
+        # This term aggressively penalizes bins that have a significant amount of
+        # leftover space after the item is placed, disincentivizing loose fits.
+        # The higher exponent ensures the penalty grows disproportionately with larger remainders.
+        remaining_penalty = remaining_penalty_factor * (remaining_after_placement ** remaining_penalty_exponent)
+        calculated_priorities -= remaining_penalty
+
+        # Ensure that the calculated priority does not fall below a minimum allowed value
+        # This prevents valid placement options from receiving an overly negative or negligible score.
+        calculated_priorities = np.maximum(calculated_priorities, min_valid_priority)
+
+        # Assign the calculated priorities to the corresponding bins
+        priorities[can_fit_mask] = calculated_priorities
+
+    return priorities
+```

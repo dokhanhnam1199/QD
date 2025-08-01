@@ -1,0 +1,80 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    implementing a Best Fit heuristic with distinct priority tiers:
+    1. Perfect fit (remaining capacity = 0)
+    2. Near-perfect fit (small positive remaining capacity, below a threshold)
+    3. Standard best fit (larger remaining capacity)
+
+    This strategy aims to strongly minimize the remaining capacity after placing an item,
+    with a hierarchical preference for perfect fits, then near-perfect fits,
+    and finally regular best fits. This structure aims to reduce overall
+    fragmentation by encouraging tighter packing and filling bins completely
+    or almost completely before using less suitable bins.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate a more desirable bin.
+    """
+    # Initialize all priorities to a very low negative number (effectively -infinity)
+    # for bins that cannot accommodate the item.
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bins can fit the item, return the initialized scores.
+    if not np.any(can_fit_mask):
+        return scores
+
+    # Calculate remaining capacity after fit for eligible bins
+    eligible_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    remaining_after_fit = eligible_bins_remain_cap - item
+
+    # Define thresholds and constants for the tiered scoring.
+    # These thresholds assume items and bin capacities are normalized, e.g., to 1.0.
+    near_perfect_threshold = 0.05
+
+    # Define the score tiers to ensure distinct ranges:
+    # MAX_PERFECT_SCORE > any near-perfect score > any 'other' score (which are negative).
+    MAX_PERFECT_SCORE = 1.0  # Highest score for a perfect fit
+
+    # This base value ensures near-perfect scores are positive and
+    # distinctly separated from 'other fits'. For example, if threshold=0.05:
+    # - The highest 'other fit' score would be slightly more negative than -0.05.
+    # - We want near-perfect scores to be clearly positive, e.g., starting from 0.1.
+    # - So, near_perfect_score_range_min = 0.1 + (0.05 - 0.05) = 0.1
+    # - near_perfect_score_range_max = 0.1 + (0.05 - 0.0) = 0.15
+    NEAR_PERFECT_SCORE_BASE = 0.1 # Base score for the lowest end of the near-perfect tier
+
+    # Initialize scores for eligible bins; these will be placed back into the main 'scores' array.
+    eligible_scores = np.zeros_like(remaining_after_fit)
+
+    # --- Tier 1: Perfect Fits (remaining_after_fit == 0) ---
+    perfect_fit_mask = (remaining_after_fit == 0)
+    eligible_scores[perfect_fit_mask] = MAX_PERFECT_SCORE
+
+    # --- Tier 2: Near-Perfect Fits (0 < remaining_after_fit <= near_perfect_threshold) ---
+    # The score smoothly decreases as remaining_after_fit increases within this range.
+    # It will range from (NEAR_PERFECT_SCORE_BASE + near_perfect_threshold) down to NEAR_PERFECT_SCORE_BASE.
+    near_perfect_fit_mask = (remaining_after_fit > 0) & (remaining_after_fit <= near_perfect_threshold)
+    eligible_scores[near_perfect_fit_mask] = \
+        NEAR_PERFECT_SCORE_BASE + (near_perfect_threshold - remaining_after_fit[near_perfect_fit_mask])
+
+    # --- Tier 3: Other Fits (remaining_after_fit > near_perfect_threshold) ---
+    # Standard Best Fit principle: negative of remaining capacity.
+    # These scores will be negative, thus lower than the perfect/near-perfect tiers.
+    other_fit_mask = (remaining_after_fit > near_perfect_threshold)
+    eligible_scores[other_fit_mask] = -remaining_after_fit[other_fit_mask]
+
+    # Assign the calculated eligible scores back to the main scores array
+    scores[can_fit_mask] = eligible_scores
+
+    return scores
+```
