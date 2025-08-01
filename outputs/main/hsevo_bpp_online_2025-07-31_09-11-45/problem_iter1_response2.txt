@@ -1,0 +1,158 @@
+<think>
+Okay, I need to design a priority function for the online bin packing problem. Let's think about what strategies are effective here.
+
+First, the goal is to minimize the number of bins used. So, we want to pack each incoming item into a bin in a way that optimizes space usage. Common heuristics include Best Fit, which places the item in the bin with the least remaining space that can still accommodate it. But maybe we can improve upon that.
+
+Wait, Newton might approach this with some principles from physics. Like, considering the "force" of the item fitting into the bin, or maybe energy minimization. Hmm, how to translate that into a priority score.
+
+Alternatively, think about the efficiency of each bin. If a bin has a remaining capacity exactly equal to the item, that's perfect—highest priority. Then, bins that can fit the item but have less remaining space after should be prioritized. But also, maybe consider the ratio of the item size to the bin's remaining capacity. Or the square of the remaining space after placing the item, to favor tighter fits.
+
+Wait, the Best Fit heuristic uses the remaining space after placing the item. So for each bin, if the bin's remaining capacity is >= item size, compute (remaining - item) and choose the smallest such value. But how to turn that into a priority score. Maybe the priority is the negative of (remaining - item), so higher values (less wasted space) get higher priority.
+
+But maybe we can add some other factors. For example, bins that are almost full might be better to leave for larger items. Or, consider the "fragmentation" of the remaining space. But in online BPP, we don't know future items, so we can't plan ahead.
+
+Another idea: prioritize bins where the item fills the bin as much as possible. So, the priority could be the item size divided by the remaining capacity after placing the item. Wait, but if the remaining capacity after is zero, that's perfect. So for a bin that can exactly fit the item, the priority would be item / 0, which is undefined. Hmm, maybe not. Alternatively, the priority could be (item + remaining_capacity - item) = remaining_capacity. Wait, that's not right.
+
+Wait, let's think again. For each bin, if the bin's remaining capacity is >= item, then after placing the item, the remaining capacity is (remaining_cap - item). The smaller this value, the better. So the priority for such bins should be higher when (remaining_cap - item) is smaller. So the priority could be 1/(remaining_cap - item + epsilon) to avoid division by zero. But how to handle bins that can't fit the item? Their priority should be very low or negative.
+
+But the function needs to return a priority score for each bin. Bins that can't fit the item (remaining_cap < item) should have a priority of -infinity or a very low value so they are not selected. For bins that can fit, the priority is based on how tightly the item fits.
+
+So, in code, for each bin in bins_remain_cap:
+
+if bin_remain >= item:
+
+   priority = 1/(bin_remain - item + 1e-9)  # inverse of the wasted space, higher is better
+
+else:
+
+   priority = -np.inf
+
+But maybe there's a better way. Another approach is to compute the score as (bin_remain - item) for valid bins. Then, the bin with the smallest (bin_remain - item) is the best fit. But since we need a priority where higher is better, we can take the negative of (bin_remain - item). So for valid bins, priority = -(bin_remain - item) = item - bin_remain. Wait, but that would be a negative number if bin_remain is larger than item. Wait, no: if bin_remain >= item, then (bin_remain - item) is non-negative, so -(bin_remain - item) is <=0. But we want higher priority for smaller (bin_remain - item). So the maximum of -(bin_remain - item) would correspond to the smallest (bin_remain - item). So that's equivalent to Best Fit.
+
+But how to represent this as a priority score. For example, for a bin that exactly fits the item, (bin_remain - item) is zero, so the priority is 0. For a bin with more space, the priority is negative. But when comparing, the highest priority would be the one with the largest value, which is the one with the smallest (bin_remain - item). So this would work.
+
+But in code, we can compute the priority as (bin_remain >= item) * (bin_remain - item). Then, for bins that can't fit, their score is zero. But then, we need to select the bin with the smallest (bin_remain - item) among those that can fit. Wait, but if we take the negative, then higher values are better. Alternatively, for valid bins, compute (1 / (bin_remain - item + 1e-9)), which would make the best fit have the highest priority.
+
+Alternatively, use the square of the remaining space after placing the item. For example, (bin_remain - item) squared. Then, the smaller this value, the better. So the priority could be - (bin_remain - item) ** 2. But again, higher values are better, so the bin with the smallest (bin_remain - item) would have the highest (least negative) priority.
+
+But perhaps combining multiple factors. For example, considering both the remaining space after placing the item and the current utilization of the bin. Or, the ratio of the item to the bin's remaining capacity.
+
+Wait, another heuristic is the "First Fit" which places the item in the first bin that can fit. But that's not as efficient as Best Fit.
+
+Alternatively, the "Worst Fit" heuristic places the item in the bin with the largest remaining capacity that can fit the item, which tends to keep bins more open for future items. But in practice, Best Fit usually performs better.
+
+So, the priority function should assign higher scores to bins where placing the item would result in the least wasted space. So, for each bin, if the bin can fit the item, the priority is (bin_remain - item). The smaller this value, the better. So, the priority score could be 1/(bin_remain - item + 1e-9), which would be higher for smaller (bin_remain - item). But for bins that can't fit, the priority is zero or a very low value.
+
+But in code, how to handle that. Let's see:
+
+In the function, first, compute a mask where bins_remain_cap >= item. Then, for those bins, compute the priority as 1/(bins_remain_cap - item + 1e-9). For others, set the priority to -infinity. Then, the bin with the highest priority (i.e., the one with the smallest (bin_remain - item)) will be selected.
+
+But maybe we can add another term to the priority. For example, also consider the current remaining capacity of the bin. Bins that are already more filled might be better to fill up. So, for example, the priority could be (current remaining capacity) + (1/(remaining after placing item)). Hmm, not sure.
+
+Alternatively, Newton might think in terms of energy. The potential energy of the item in the bin could be related to the remaining space. The lower the remaining space after placement, the lower the potential energy, so higher priority. But how to model that.
+
+Alternatively, use a combination of the item's fit and the bin's current utilization. For example, the priority could be (item size) / (remaining capacity of the bin). But if the bin's remaining capacity is exactly equal to the item, this ratio is 1. If the bin has more space, the ratio is less than 1. So higher ratios (closer to 1) are better. So the priority would be (item / bin_remain) if bin_remain >= item, else 0. But this is the "Best Fit with ratio" approach.
+
+Wait, let's think: For a bin with remaining capacity R, if R >= item, then the ratio is item/R. The higher this ratio, the better, because it means the item takes up a larger portion of the remaining space. So, for example, if R is 5 and item is 3, ratio is 0.6. If R is 4, ratio is 0.75. So the bin with R=4 would have higher priority. So this is another way to prioritize bins where the item fills a larger portion of the remaining space.
+
+This is known as the "Best Fit Decreasing" heuristic when used in offline scenarios. But in online, it's just Best Fit with a ratio.
+
+So combining these ideas, perhaps the priority function can be:
+
+For each bin:
+
+if bin_remain >= item:
+
+   priority = (item / bin_remain) - (remaining_after / bin_size)
+
+Wait, not sure. Alternatively, the priority could be (item / bin_remain) + (1 - (remaining_after / bin_size)), where remaining_after is bin_remain - item. But bin_size is fixed (assuming all bins are same size, which they are in BPP). Wait, but the bin's original capacity is fixed, say, 1. So if the bin's remaining capacity is R, then the used space is 1 - R. After placing the item, the used space becomes 1 - (R - item) = 1 - R + item. The utilization is (1 - R + item) / 1 = 1 - R + item. So higher utilization is better. So the priority could be (1 - R + item) for bins that can fit. But 1 - R is the current used space. So adding the item's size gives the new used space. So the priority is the new used space. So higher is better. So for bins that can fit, the priority is (1 - R + item) = (1 - (R - item)). So the bin with the highest (1 - (R - item)) is the one with the smallest (R - item), which is the same as Best Fit. So this is equivalent to Best Fit.
+
+So perhaps the priority function can be designed as follows:
+
+For each bin, if it can fit the item, the priority is (current_used + item) = (1 - R + item) = 1 - (R - item). Since R is the remaining capacity, R = bin_remain_cap. So 1 - (R - item) = 1 - R + item. But since the bin's total capacity is fixed (say, 1), then R is the remaining capacity. So 1 - R is the used space. So after adding the item, the used space becomes (1 - R) + item. So the priority is (1 - R + item) for bins that can fit. But this is the same as (item - (R - 1 + 1))? Not sure. Wait, maybe the total capacity is 1. So R is the remaining capacity. So the used space is 1 - R. Adding the item gives a new used space of (1 - R) + item. But the bin's capacity is 1, so the new used space can't exceed 1. So (1 - R) + item <= 1 → item <= R. Which is the condition for the bin to be able to fit the item.
+
+So the priority for a bin that can fit the item is (1 - R + item) = (1 + item - R). Since R is the remaining capacity, and item <= R, this is 1 + (item - R). But item - R is negative or zero. Wait, no: if R is the remaining capacity, and the item is placed, then R_new = R - item. So the new used space is 1 - R_new = 1 - (R - item) = 1 - R + item. So the priority is the new used space. So higher is better. So the bin that can fit the item and has the highest new used space (i.e., the smallest remaining space after placement) is the best fit.
+
+So the priority function for each bin is:
+
+if bin_remain >= item:
+
+   priority = (1 - (bin_remain - item)) → which is 1 - bin_remain + item.
+
+But 1 is a constant, so this is equivalent to (item - bin_remain) + 1. But since bin_remain >= item, (item - bin_remain) is <=0, so the priority is 1 + (item - bin_remain) = 1 - (bin_remain - item). So higher values are better. The maximum possible is when bin_remain = item, so priority is 1. For example, if bin_remain is 0.5 and item is 0.3, then priority is 1 - (0.5 - 0.3) = 0.8. If bin_remain is 0.3, priority is 1. So this correctly prioritizes bins that exactly fit the item.
+
+But in code, how to compute this. Let's see:
+
+For each bin in bins_remain_cap:
+
+mask = bins_remain_cap >= item
+
+priority = np.where(mask, (1 - (bins_remain_cap - item)), -np.inf)
+
+But wait, the 1 here is the total bin capacity. Wait, the problem statement says the bins are fixed-sized. So the total capacity of each bin is a fixed value, say, 1. But the bins_remain_cap is the remaining capacity. So the initial capacity is 1, and as items are added, the remaining capacity decreases.
+
+So the new used space after adding the item is (1 - (R - item)) = 1 - R + item. So the priority is (1 - R + item) for bins that can fit. But since 1 is a constant, this is equivalent to (item - R) + 1. But since R >= item, (item - R) is <=0, so the priority ranges from 1 (when R=item) down to (1 - (R - item)) where R is larger.
+
+But this approach would give higher priority to bins where R is as small as possible (i.e., the bin is almost full). Wait, no. For example, if a bin has R=0.2, and the item is 0.1, then the priority is 1 - (0.2 - 0.1) = 0.9. Another bin with R=0.3 and item=0.2 would have priority 1 - (0.3-0.2) = 0.9. So same priority. But the Best Fit would choose the bin with R=0.2, since after placing 0.1, R becomes 0.1, which is better than the other bin's R=0.1 (0.3-0.2=0.1). Wait, no: in the first case, R=0.2, item=0.1: R - item = 0.1. In the second case, R=0.3, item=0.2: R - item=0.1. So both have the same (R - item), so same priority. So the priority function here would not distinguish between them, but Best Fit would treat them equally. So this approach is equivalent to Best Fit.
+
+But perhaps there's a better way. Let's think of another approach inspired by physics. For example, the gravitational attraction between the item and the bin's remaining space. The idea is that the item is more "attracted" to bins where the fit is tighter. So the priority could be inversely proportional to the square of the remaining space after placement (like Newton's law of gravity, where force is inversely proportional to the square of the distance). So for each bin that can fit the item, the priority is 1/( (R - item)^2 + epsilon ), where epsilon is a small value to prevent division by zero. This way, bins with smaller (R - item) get much higher priority.
+
+So in code:
+
+epsilon = 1e-9
+
+mask = bins_remain_cap >= item
+
+priority = np.where(mask, 1 / ( (bins_remain_cap - item) + epsilon ), -np.inf)
+
+This would make the priority higher for bins where (R - item) is smaller. This is similar to the inverse approach but with squaring. Squaring would amplify the differences between bins with small (R - item) values. For example, if two bins have (R - item) of 0.1 and 0.2, their priorities would be 100 and 25, respectively, leading the first to be chosen. Without squaring, the priorities would be 10 and 5. So squaring makes the selection more sensitive to tighter fits.
+
+Another idea: combine the fit with the current utilization. For example, the priority could be (current_used + item) * (1 / (R - item + epsilon)). Current_used is (1 - R). So (1 - R + item) * (1/(R - item + epsilon)). But since R >= item, (R - item) is non-negative. So (1 - R + item) is (1 - (R - item)). So this becomes (1 - (R - item)) * (1/(R - item + epsilon)). For example, if R - item is 0, this becomes 1 * (1/epsilon) which is very large. If R - item is 0.1, then (0.9) * (1/0.1) = 9. So this would prioritize bins that have a tight fit and also have higher utilization. But I'm not sure if this is better than the previous approaches.
+
+Alternatively, the priority could be the product of the item's size and the inverse of the remaining space after placement. So item / (R - item + epsilon). This way, larger items would have higher priority in bins where they fit tightly. For example, a large item that fits exactly would have a very high priority, while a small item in a tight space would also have a high priority. But this might favor larger items to be placed in tighter bins, which could be beneficial.
+
+But perhaps the simplest and most effective approach is to use the inverse of the remaining space after placement, squared, to prioritize tighter fits. Let's implement that.
+
+So, the code would be:
+
+def priority_v2(item, bins_remain_cap):
+    # Calculate remaining capacity after placing the item
+    remaining_after = bins_remain_cap - item
+    # Check which bins can accommodate the item
+    can_fit = remaining_after >= 0
+    # For bins that can fit, compute priority as inverse square of remaining_after (plus epsilon to avoid division by zero)
+    epsilon = 1e-9
+    priorities = np.where(can_fit, 1 / (remaining_after + epsilon)**2, -np.inf)
+    return priorities
+
+This way, bins that can fit the item have priorities inversely proportional to the square of the remaining space after placement. Bins that can't fit have -infinity priority. The bin with the highest priority (smallest remaining_after) will be selected.
+
+Testing this: if a bin has remaining_after = 0 (exact fit), priority is 1/(0 + epsilon)^2 ≈ 1e18. If another bin has remaining_after = 0.1, priority is 100. So the exact fit is chosen first. For two bins with remaining_after 0.1 and 0.2, the first has higher priority (100 vs 25). This should work similarly to Best Fit but with a stronger preference for tighter fits.
+
+Another possible variation is to use the negative of remaining_after, but since we need higher scores for better fits, the inverse squared approach seems better.
+
+Thus, the code for priority_v2 would be as above.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritize bins using gravitational-inspired tight packing and energy minimization.
+    
+    1. Bins that can't fit item get -inf priority
+    2. For viable bins, score increases with tighter fit (inverse square law)
+    3. Additional boost for bins where item fills >50% remaining capacity
+    """
+    remaining_after = bins_remain_cap - item
+    can_fit = remaining_after >= 0
+    
+    # Base gravitational attraction (inverse square of remaining space)
+    gravitational = 1 / (remaining_after + 1e-9)**2
+    
+    # Potential energy bonus for significant space utilization
+    utilization_bonus = np.where(remaining_after <= bins_remain_cap/2, 1.618, 0)  # Golden ratio boost
+    
+    priorities = np.where(can_fit, gravitational + utilization_bonus, -np.inf)
+    return priorities
+```

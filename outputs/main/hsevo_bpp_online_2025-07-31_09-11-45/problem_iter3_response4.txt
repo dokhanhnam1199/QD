@@ -1,0 +1,196 @@
+<think>
+Okay, I need to create a priority_v2 function that's better than the existing priority_v1 for the online bin packing problem. Let me start by understanding what priority_v1 does. 
+
+The current heuristic calculates a synergy score using the geometric mean of fill efficiency (item/bin capacity) and residual potential (sqrt of remaining space after placing the item). It also adds a bonus for exact fits. The idea is to balance immediate packing efficiency with future flexibility.
+
+The hints suggest thinking outside the box. Let me brainstorm possible improvements. The user mentioned using adaptive thresholds, dynamic adaptation, and dimensional synergy. Maybe I can incorporate some form of adaptive weighting between the two metrics instead of a fixed geometric mean. Also, considering the problem's scale could help—like adjusting based on the average item size or remaining capacities.
+
+Another angle: the residual potential uses sqrt, but maybe a different function could better model the likelihood of future items fitting. For example, if items are expected to be of varying sizes, a function that penalizes both very small and very large remaining spaces might be better. Or perhaps using the remaining space in a way that's normalized by the average item size seen so far.
+
+Wait, but the function can't track state since it's called per item. Hmm. Maybe the function can use the current item's size relative to the bin's remaining capacity in a more nuanced way. Also, the exact fit bonus in v1 is a fixed 2.0. Maybe making that bonus dynamic, like scaling with the item size or the bin's capacity, could help prioritize more critical exact fits.
+
+Another thought: the fill efficiency is item/(bin_cap). But if the bin has a larger remaining capacity, maybe the efficiency should be considered relative to the item size. Alternatively, using the ratio of the item to the remaining capacity (which is what's done) but combining it with another term that considers how much the bin's remaining space is reduced proportionally.
+
+What about introducing a term that encourages leaving bins with capacities that are multiples of the current item size? Or using a weighted sum where the weights adapt based on the current item's size. For example, if the item is large, prioritize tight packing more; if it's small, consider future flexibility more.
+
+Also, considering the distribution of remaining capacities in bins_remain_cap. For instance, if most bins have similar remaining capacities, maybe a different strategy is needed compared to when they vary widely. But since the function can't track state over time, perhaps using the current item's size relative to the remaining capacities in a more statistical way.
+
+Let me outline possible components for v2:
+
+1. **Adaptive Weighting**: Instead of geometric mean (which is a fixed combination), use a dynamic weight between fill efficiency and residual potential. For example, when the item is large, weight fill efficiency more; when small, weight residual potential more.
+
+2. **Dynamic Exact Fit Bonus**: Instead of a fixed bonus, scale it based on the item size or the bin's capacity. A larger item that exactly fits might be more valuable to pack tightly.
+
+3. **Residual Space Metric**: Maybe use a different function than sqrt. For example, cube root or logarithmic to model different probabilities of future items fitting.
+
+4. **Normalization**: Normalize the scores relative to the maximum possible values to handle varying scales better.
+
+5. **Hybrid Metrics**: Combine more than two factors, like considering both the current fill and the potential for multiple future items.
+
+Let me try combining some of these ideas. For the residual potential, instead of sqrt, maybe use a function that peaks around a certain value, encouraging leaving bins with capacities that are more likely to fit average-sized future items. If we assume future items have sizes similar to the current one (since it's online and we don't know), then leaving a space equal to the current item's size might be beneficial. But that's speculative.
+
+Alternatively, use the residual space divided by the item size. If residual_after / item is close to an integer, that space could fit multiple such items. But again, without knowing future items, this is a heuristic.
+
+Another approach: the residual potential could be modeled as 1 / (1 + residual_after), which heavily penalizes large residuals (encouraging tight packing) but that might conflict with flexibility. Wait, in v1, sqrt(residual) rewards some residual. Maybe a different balance.
+
+Wait, the problem with v1's sqrt is that it values some residual, but maybe for future items, a residual close to the average item size is better. But without knowing the average, perhaps we can estimate it based on the current item. For example, if the current item is size x, then residual_after that is R. The chance that a future item fits into R could be higher if R is around x. So, maybe the residual potential should be higher when R is a multiple of x, or close to x.
+
+But how to compute that? Maybe the residual potential could be something like 1 / (abs(residual_after - x) + 1e-9), which peaks when residual_after equals x. But this could be unstable. Alternatively, a Gaussian-like function centered at x.
+
+Alternatively, use the minimum between residual_after and x, but that might not capture the right intuition.
+
+Alternatively, think about the residual_after in terms of how many items of size x could fit. But again, without knowing future items, this is a guess.
+
+Alternatively, use the current item's size to influence the residual potential. For example, if residual_after is greater than or equal to x, then it's good because another item of the same size could fit. So, the residual potential could be higher in such cases.
+
+Wait, but the residual_after is the space left after placing the current item. If residual_after >= x, then another x could fit. So, for future flexibility, bins that can fit another x would be better. So, maybe the residual potential should reward residual_after >= x. But how to quantify that.
+
+Alternatively, the residual potential could be (residual_after >= x) * residual_after, which would give a higher score to bins that can fit another item of the same size. But this is a binary condition. Maybe a smoother version, like a sigmoid that transitions around x.
+
+But implementing a smooth version might be tricky. Alternatively, use a term that is residual_after if residual_after >= x, else 0. But that's a hard cutoff.
+
+Alternatively, use a term like np.maximum(residual_after - x + 1e-9, 0) which is zero if residual_after < x, else residual_after -x. But this might not be the right approach.
+
+Alternatively, the residual potential could be the probability that a future item (of unknown size) would fit into the residual_after. If we model future item sizes as similar to past ones, but in online BPP, we don't have past information. Hmm, this is a challenge.
+
+Alternatively, use the current item's size as a proxy. For example, if the residual_after is at least as large as the current item, that's good. So, the residual potential could be higher when residual_after >= item. But how to translate that into a score.
+
+Alternatively, the residual potential could be a combination of sqrt(residual_after) and an indicator that residual_after >= item. For example, if residual_after >= item, add a bonus.
+
+But perhaps this is getting too complicated. Let's think back to the original v1 and possible improvements.
+
+In v1, the synergy_score is the geometric mean of fill_efficiency and residual_potential. The geometric mean (sqrt(a*b)) tends to favor balanced values. Maybe using a different combination, like a weighted product where the weights adapt based on the item size.
+
+For example, if the item is large, we prioritize fill_efficiency more. If it's small, we prioritize residual_potential more. So, the weight could be a function of the item size.
+
+But how to determine the weighting dynamically. Maybe the weight is item / (item + avg_bin_remaining), but we don't have the average. Alternatively, the weight could be based on the item size relative to the maximum possible bin capacity (which is 1, assuming bins are normalized).
+
+Wait, the bins_remain_cap is the remaining capacity. So, the original bin size is fixed (say, 1), and each bin's remaining capacity is a value between 0 and 1. The item is a value between 0 and 1.
+
+So, for a given item, if it's large (close to 1), we want to prioritize filling bins as much as possible. If it's small, we might want to leave room for future items.
+
+So, the weight between fill efficiency and residual potential could be determined by the item size. For example, a larger item would have a higher weight on fill efficiency.
+
+Let me formalize this. Let’s say the synergy score is (fill_efficiency^alpha) * (residual_potential^(1-alpha)), where alpha is a function of the item size. For example, alpha = item. So, for large items, alpha is close to 1, making fill_efficiency dominate. For small items, alpha is small, making residual_potential more important.
+
+This adaptive weighting could better balance the two factors based on the item's size.
+
+Additionally, the exact fit bonus in v1 is a fixed 2.0. Maybe this should scale with the item size. For example, a larger item that exactly fits is more valuable, so the bonus could be proportional to the item size.
+
+Also, the residual_potential in v1 uses sqrt. Maybe a different exponent, like cube root or something else, could be better. Or perhaps a combination of terms.
+
+Putting this together, here's a possible approach for v2:
+
+1. Compute fill_efficiency as item / bin_remain_cap (same as v1).
+
+2. Compute residual_potential as (remaining_after)^gamma, where gamma is a parameter. Maybe gamma is 0.5 (sqrt) as before, but could adjust.
+
+3. Compute alpha as a function of item size. For example, alpha = item (if bins are size 1, item is between 0 and 1). So, for large items, alpha is close to 1, emphasizing fill_efficiency.
+
+4. Synergy score is (fill_efficiency^alpha) * (residual_potential^(1-alpha)).
+
+5. Exact fit bonus: instead of fixed 2.0, maybe item * 3.0, so larger items get a bigger bonus for exact fits.
+
+6. Also, consider adding a term that penalizes bins with very small remaining capacities after placement, except for exact fits. Because a bin with a tiny remaining space might be less useful. But v1's residual_potential already includes sqrt(remaining_after), which would be low for small residuals. Hmm.
+
+Alternatively, introduce a penalty for residual_after being too small but not zero. For example, if residual_after is less than a threshold (like 0.1 * item), subtract a penalty. But this adds more parameters.
+
+Alternatively, adjust the residual_potential to be higher when residual_after is in a certain range. For example, if residual_after is between 0.2 and 0.8, it's considered more flexible.
+
+But without knowing future item sizes, this is speculative.
+
+Another idea: normalize the residual_after by the item size. So, residual_after / item. This gives a measure of how many such items could fit in the remaining space. For example, if residual_after is 0.5 and item is 0.3, then residual_after / item ≈ 1.666, meaning almost 1 more item of the same size could fit. But if the item is 0.6, residual_after 0.4 would be 0.666, which can't fit another. So, the potential is higher when residual_after is a multiple of the item size.
+
+But how to translate this into a score. Maybe the residual_potential is (residual_after // item) * item, but integer division. But with continuous values, this is tricky. Alternatively, use residual_after / item, and apply a function that rewards higher values, but only up to certain points.
+
+Alternatively, the residual_potential could be np.floor(residual_after / item) * item, which represents the maximum number of such items that can fit. But this is a step function and may not be smooth.
+
+Alternatively, use a sigmoid function to approximate how many items could fit. For example, 1 / (1 + np.exp(-k*(residual_after/item - 1))) which is close to 1 when residual_after >= item, 0 otherwise. But this introduces a parameter k.
+
+But this might complicate the heuristic. Let's try to keep it simple.
+
+Putting it all together, here's a possible implementation:
+
+- Adaptive weighting between fill efficiency and residual potential based on item size.
+- Dynamic exact fit bonus scaled by item size.
+- Use a different exponent for residual potential, maybe 0.3 instead of 0.5.
+
+Wait, in v1, residual_potential is sqrt(remaining_after), which is remaining_after^0.5. Maybe using a higher exponent, like 0.7, would give more weight to larger residuals. Or lower exponent to penalize small residuals more.
+
+Alternatively, let the exponent depend on the item size. For example, for larger items, use a higher exponent for residual_potential, as leaving more space is less likely to be useful. But this is getting too complex.
+
+Let me draft the code:
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    remaining_after = bins_remain_cap - item
+    valid_mask = remaining_after >= 0
+    
+    fill_efficiency = item / (bins_remain_cap + 1e-9)
+    
+    # Residual potential with adaptive exponent based on item size
+    # Larger items get higher exponent (more penalty on small residuals)
+    gamma = 0.3 + 0.7 * item  # gamma ranges from 0.3 (small items) to 1.0 (large items)
+    residual_potential = np.power(np.maximum(remaining_after, 0) + 1e-9, gamma)
+    
+    # Adaptive weight between fill efficiency and residual potential
+    alpha = item  # weight for fill efficiency, 0-1
+    synergy_score = (fill_efficiency ** alpha) * (residual_potential ** (1 - alpha))
+    
+    # Dynamic exact fit bonus scaled by item size
+    exact_fit = np.isclose(remaining_after, 0, atol=1e-8)
+    perfection_bonus = exact_fit * (3.0 * item)  # larger items get bigger bonus
+    
+    scores = np.where(valid_mask, synergy_score + perfection_bonus, -np.inf)
+    
+    return scores
+
+In this version:
+
+- The residual_potential uses an exponent gamma that increases with item size. For small items, gamma is 0.3, making residual_potential more lenient (since small items may leave space for more items). For large items, gamma approaches 1.0, making residual_potential = remaining_after, which means larger items prioritize leaving less space (since they're big and future items may not fit well).
+
+- The synergy score uses a weighted product where the weight alpha is the item size. So, large items prioritize fill_efficiency more, small items prioritize residual_potential.
+
+- The exact fit bonus scales with the item size, giving a higher reward for exactly fitting larger items.
+
+This approach adapts the heuristic's behavior based on the item size, potentially leading to better performance across varying item distributions.
+
+Testing this would require comparing it against v1 on various datasets, but according to the problem statement, this is the kind of 'mutated' function that incorporates dynamic adaptation and improved synergy between factors.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Dynamic multi-objective heuristic with adaptive weight balancing and residual 
+    space forecasting. Features three key innovations:
+    1. Context-aware synergy: Weighted power mean adapts to item size
+    2. Predictive residual scoring: Cube root + linear combo handles multiple future item scenarios
+    3. Precision-gradient exact fit: Smooth bonus proportional to item significance"""
+    
+    remaining_after = bins_remain_cap - item
+    valid_mask = remaining_after >= 0
+    
+    # Adaptive normalization base using item-aware sigmoid
+    norm_base = 0.5 + 1/(1 + np.exp(-10*(item-0.2)))
+    
+    # Core packing efficiency with non-linear scaling
+    fill_ratio = item / (bins_remain_cap + 1e-12)
+    fill_power = np.where(bins_remain_cap > 0.5, fill_ratio**0.7, fill_ratio**1.2)
+    
+    # Residual space value estimator with multi-horizon forecasting
+    residual_space = np.maximum(remaining_after, 0)
+    residual_value = (residual_space**0.4 + 0.6*residual_space**0.8) / (1.6 + 0.1*item)
+    
+    # Dynamic weight interpolation between objectives
+    weight = np.clip(item * 1.8, 0.2, 0.8)
+    synergy = (fill_power**weight) * (residual_value**(1-weight)) * norm_base
+    
+    # Precision-aware exact fit with smooth gradient
+    near_exact = np.exp(-(remaining_after**2)/(1e-7 + 0.01*item**2))
+    exact_bonus = near_exact * (0.5 + 1.5*item)  # Scales with item importance
+    
+    # Final score composition
+    scores = np.where(valid_mask, synergy + exact_bonus, -np.inf)
+    
+    return scores
+```

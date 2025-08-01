@@ -1,0 +1,110 @@
+```python
+import numpy as np
+
+# Assume a normalized bin capacity. In a real application, this could be
+# an argument to the function or configured based on problem specifics.
+# Using 1.0 is common when item sizes are normalized relative to bin capacity.
+BIN_CAPACITY = 1.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which to add an item to each bin, implementing a multi-objective
+    heuristic that combines Best Fit principles with strategic considerations for
+    fragmentation, bin consolidation, and adaptive behavior based on item size.
+
+    This heuristic aims to:
+    1. Strongly prioritize exact fits (remaining capacity = 0).
+    2. Beyond exact fits, prefer bins that will have less remaining capacity (Best Fit).
+    3. Adaptively adjust priority based on the item size and the resulting bin state:
+       - Discourage creating very small, "fragmented" remaining spaces, especially for small items.
+       - Encourage efficient use of bins by giving a slight preference to more empty bins
+         when placing small items (a "Worst Fit" tendency for small items) to keep
+         nearly-full bins available for larger items to complete them.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score for each bin.
+        A higher score indicates a higher priority for placing the item in that bin.
+        Scores are designed such that a perfect fit receives the highest possible score,
+        while bins that cannot fit the item receive -inf.
+    """
+    # 1. Calculate the potential remaining space in each bin if the item were placed.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Initialize all priorities to negative infinity. This ensures that
+    # any bin that cannot fit the item will never be chosen.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit (remaining space >= 0).
+    can_fit_mask = potential_remaining_space >= 0
+    
+    # Extract relevant values for bins where the item can fit
+    valid_remaining_space = potential_remaining_space[can_fit_mask]
+    
+    # 2. Base Priority: Best Fit Component
+    # This core component prioritizes bins that will have the least remaining space.
+    # A smaller positive remaining space (closer to a perfect fit) leads to a higher
+    # (less negative, closer to 0) base score. A perfect fit (0 remaining space)
+    # gets a base score of 0.
+    priorities[can_fit_mask] = -valid_remaining_space
+
+    # --- Strategic & Adaptive Adjustments ---
+    # These constants can be tuned based on problem characteristics or desired behavior.
+    PERFECT_FIT_BONUS = 1000.0  # Large bonus to guarantee exact fits are highest priority
+    NEAR_PERFECT_FIT_BONUS = 10.0 # Bonus for very tight fits (e.g., 0.001 remaining)
+    
+    # Define a "fragmentation zone" for remaining capacities that are small but not trivial.
+    # Placing an item that results in remaining space within this zone might be undesirable
+    # for small items, as it leaves an awkward, hard-to-use gap.
+    FRAGMENTATION_ZONE_LOW = 0.01 * BIN_CAPACITY  # E.g., 1% of bin capacity
+    FRAGMENTATION_ZONE_HIGH = 0.10 * BIN_CAPACITY # E.g., 10% of bin capacity
+    FRAGMENTATION_PENALTY_MAGNITUDE = 5.0 # How much to penalize fragmentation
+
+    # Define what constitutes a "small item". Behavior changes for such items.
+    SMALL_ITEM_THRESHOLD = 0.20 * BIN_CAPACITY # E.g., items smaller than 20% of bin capacity
+
+    # Apply Perfect Fit Bonus: If the item perfectly fills a bin, it's the absolute best.
+    perfect_fit_mask = (valid_remaining_space == 0)
+    priorities[can_fit_mask][perfect_fit_mask] += PERFECT_FIT_BONUS
+
+    # Apply Near Perfect Fit Bonus: Reward bins that are almost perfectly filled.
+    # This differentiates a 0.001 remaining space from a 0.05 remaining space,
+    # making the tighter one preferred even if neither is exactly zero.
+    near_perfect_fit_mask = (valid_remaining_space > 0) & (valid_remaining_space < FRAGMENTATION_ZONE_LOW)
+    priorities[can_fit_mask][near_perfect_fit_mask] += NEAR_PERFECT_FIT_BONUS
+
+    # Fragmentation Avoidance Penalty (Adaptive):
+    # This penalty applies if placing the item would result in a remaining space
+    # that falls within the defined fragmentation zone.
+    # The penalty is primarily applied when the item itself is small, as placing
+    # a small item and leaving a medium-sized, awkward gap might be inefficient.
+    # For large items, a small remaining space usually just means the bin is well-filled,
+    # which is desirable, so we don't penalize.
+    fragmentation_zone_mask = (valid_remaining_space >= FRAGMENTATION_ZONE_LOW) & \
+                              (valid_remaining_space < FRAGMENTATION_ZONE_HIGH)
+    
+    if item < SMALL_ITEM_THRESHOLD:
+        # Calculate a penalty that increases as the remaining space gets deeper into the
+        # fragmentation zone (from low to high threshold).
+        # This makes leaving a 0.02 gap slightly better than a 0.08 gap.
+        penalty_scale = (valid_remaining_space[fragmentation_zone_mask] - FRAGMENTATION_ZONE_LOW) / \
+                        (FRAGMENTATION_ZONE_HIGH - FRAGMENTATION_ZONE_LOW + 1e-9) # Add epsilon to prevent div by zero
+        priorities[can_fit_mask][fragmentation_zone_mask] -= FRAGMENTATION_PENALTY_MAGNITUDE * penalty_scale
+
+    # Strategic Placement for Small Items ("Worst Fit" tendency):
+    # For very small items, sometimes it's better to place them in a bin that is
+    # currently more empty, to keep other partially-filled bins available for
+    # larger items to complete them. This helps consolidate small items into
+    # fewer bins and prevents creation of many partially-filled bins.
+    if item < SMALL_ITEM_THRESHOLD:
+        # Give a bonus proportional to the current remaining capacity of the bin.
+        # A bin with more space gets a higher bonus, pulling small items towards
+        # more empty bins. The magnitude of this bonus can be tuned.
+        emptiness_preference_bonus = 0.5 * (bins_remain_cap[can_fit_mask] / BIN_CAPACITY)
+        priorities[can_fit_mask] += emptiness_preference_bonus
+
+    return priorities
+```

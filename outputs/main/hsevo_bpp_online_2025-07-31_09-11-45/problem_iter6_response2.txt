@@ -1,0 +1,214 @@
+<think>
+Okay, I need to create a priority_v2 function that's better than the existing priority_v1 for the online bin packing problem. Let me first understand what priority_v1 does. 
+
+The current heuristic checks for exact fits first, giving them infinite priority. For valid bins (those with enough remaining capacity), it calculates a combined score from tightness and utilization using a geometric mean, then adds an alignment bonus that encourages bins where the remaining space after adding the item is close to the item size. 
+
+The hints suggest thinking outside the box. The user mentioned using things like "nonlinear residual shaping" and "adaptive alignment coefficients". Maybe I can improve the way the alignment bonus is calculated or introduce a dynamic factor that adjusts based on the current state of the bins.
+
+Let me think about the components:
+
+1. **Exact Fit Handling**: Already handled by giving infinity. That's good to keep.
+2. **Tightness and Utilization**: The geometric mean of these two. Tightness is how well the item fits (1/remaining_space), utilization is how full the bin would be. Maybe there's a better way to combine these, or adjust their weights dynamically.
+3. **Alignment Bonus**: In v1, it's a bonus that's higher when the remaining space after placing the item is close to the item size. The idea is to leave space that might fit future items. But maybe this can be refined. For example, if the remaining space is a common item size, that's better. But since it's online, we don't know future items, so perhaps a different approach.
+
+New ideas:
+
+- **Dynamic Weighting**: Instead of a fixed 0.15 coefficient for the alignment bonus, adjust it based on how much space is left in the bin. For example, if the bin is almost full, maybe the alignment is less important.
+- **Nonlinear Adjustments**: Use a sigmoid function or other nonlinear transformation to shape the alignment bonus more effectively.
+- **Residual Utilization Potential**: Consider not just the current item's fit but how the remaining space could be used. For example, if the remaining space after placing the item is a size that's common (but we don't have that data), but in online, maybe assume that smaller items are more likely. So leaving smaller residual spaces might be better.
+- **Entropy or Diversity Bonus**: Encourage bins that have a variety of remaining capacities to handle different future items. But this might be complex without knowing future items.
+
+Alternatively, think about the residual space after placing the item. The alignment bonus in v1 tries to make the residual space match the item size, but maybe a better approach is to minimize the residual space, but also consider how useful that residual might be. For example, a residual of 0.2 is better than 0.5 if future items are small, but we don't know. However, in online BPP, we can't know future items, so perhaps a general approach is to prefer smaller residuals, but with a bonus if the residual is a multiple of some fraction.
+
+Wait, but the alignment bonus in v1 is calculated as exp(-abs(remaining_space - item)/(item + 1e-9)). This gives a higher bonus when remaining_space is close to the item size. But maybe that's not the best approach. For example, if the item is 0.4, placing it in a bin with 0.6 remaining gives a residual of 0.2. The alignment bonus here would be exp(-|0.2 - 0.4| / 0.4) = exp(-0.2/0.4) = exp(-0.5) ≈ 0.606. But if the residual is 0.4, then the bonus is exp(0) = 1. But in that case, the residual is equal to the item size, which might be good for future items of the same size. However, in online, we don't know if future items will be the same size. 
+
+Alternatively, maybe the alignment should encourage residuals that are as small as possible, but when possible, align to the current item's size. But how to balance that.
+
+Another idea: The alignment bonus could be adjusted based on the current item's size. For example, if the item is large, leaving a residual that's a fraction of the item size might be better. Or use a dynamic coefficient that depends on the item size.
+
+Also, the combined_score in v1 is the geometric mean of tightness and utilization. Tightness is 1/(remaining_space + eps), which is higher when the remaining space is small (i.e., the item fits tightly). Utilization is 1/(bin's remaining capacity + eps), which is higher when the bin is more utilized (i.e., the bin has less remaining space before adding the item). The geometric mean combines these two. But maybe there's a better way to combine them, or introduce other factors.
+
+Let me think of possible improvements:
+
+1. **Dynamic Alignment Coefficient**: Instead of a fixed 0.15, make the coefficient depend on the item size or the current bin's remaining capacity. For example, larger items might have a higher alignment coefficient because leaving a residual close to their size could be more beneficial.
+
+2. **Residual Shaping**: Instead of exp(-|residual - item| / item), maybe use a function that prioritizes smaller residuals but gives a bonus when the residual is a multiple of the item size. For example, if residual is item/2, maybe that's a good size for future items. But without knowing future items, this is speculative. Alternatively, use a function that decays as the residual moves away from the item size, but also gives some weight to smaller residuals.
+
+3. **Nonlinear Combination of Scores**: Instead of adding the alignment bonus to the combined_score, maybe multiply them. Or use a weighted sum where the weights adapt based on some criteria.
+
+4. **Entropy Consideration**: Bins with more varied remaining capacities might be better. But again, without knowing future items, this is tricky.
+
+Let me try to draft a new version.
+
+First, keep the exact fit handling. Then, for valid bins, compute the combined score. Maybe adjust the tightness and utilization components. For example, tightness could be 1/(remaining_space + 1e-9), and utilization could be (bin_remain_cap - remaining_space)/bin_remain_cap, which is the utilization after adding the item. Wait, bin_remain_cap is the current remaining capacity. After adding the item, the new remaining capacity is bin_remain_cap - item. So utilization would be (original capacity - (bin_remain_cap - item)) / original capacity. Wait, but the original bin size is not given. Hmm, the bins_remain_cap array is the remaining capacities. So the original bin size is fixed (say 1, if normalized), so the utilization after adding the item would be (1 - (bin_remain_cap - item)) = 1 - bin_remain_cap + item. But maybe that's complicating things.
+
+Alternatively, the utilization component in v1 is 1/(bin_remain_cap + 1e-9), which is higher when the bin is more full (since bin_remain_cap is smaller). So combining tightness (how well the item fits) and utilization (how full the bin is) via geometric mean.
+
+Another idea: Introduce a penalty for bins that are almost full but not exactly. For example, if a bin has a small remaining capacity after adding the item, that's good, but if it's very small (like 0.1), maybe it's less useful. But in the current setup, tightness already accounts for that.
+
+Alternatively, the alignment bonus could be modified to not just look at the residual matching the item size, but also consider the absolute residual. For example, a residual of 0.2 is better than 0.5, even if neither matches the item size. So maybe the alignment bonus should have two components: one for how close the residual is to the item size, and another for how small the residual is.
+
+But that might complicate things. Let's think of a way to combine these.
+
+Let me try to redefine the alignment bonus. Instead of exp(-|residual - item| / item), maybe use a combination of terms. For example:
+
+alignment_bonus = a * exp(-|residual - item|/(item + eps)) + b * (1 - residual)
+
+Here, the first term encourages residuals close to the item size, and the second term encourages smaller residuals. The coefficients a and b can be adjusted. But how to choose them? Maybe make them adaptive.
+
+Alternatively, use a product of the two factors: (1 - residual) * exp(-|residual - item|/(item + eps)). This way, both smaller residuals and residuals close to the item size are favored. But this is a product, so both factors need to be high.
+
+But in this case, a residual of 0 (exact fit) would have (1-0)=1 and the exp term would be exp( - (0 - item)/item ) = exp(1), which is higher. Wait, no: residual is bins_remain_cap - item. Wait, no: remaining_space = bins_remain_cap - item. So residual is the space left after placing the item. So if the bin has 0.5 remaining, and the item is 0.3, then remaining_space is 0.5 - 0.3 = 0.2. So residual is 0.2. The alignment bonus in v1 is based on how close this residual is to the item size (0.3). But maybe that's not the best approach.
+
+Alternatively, the residual after placing the item is the remaining space. We want this residual to be as small as possible (to minimize wasted space) but also to potentially fit future items. Since we don't know future items, perhaps a better approach is to prioritize smaller residuals, but give a bonus if the residual is a multiple of the current item's size. For example, if the residual is 0.2 and the item is 0.2, then placing another 0.2 item would fit. But again, without knowing future items, this is speculative.
+
+Alternatively, use a dynamic coefficient for the alignment bonus. For example, when the item is large, the alignment bonus is more important, as leaving a residual that could fit another large item might be beneficial. For smaller items, the residual's size is less critical.
+
+But how to implement that. Maybe the coefficient for the alignment bonus is proportional to the item size. So larger items have a higher alignment bonus coefficient.
+
+Another idea: Use a sigmoid function to shape the alignment bonus. For example, the bonus could be higher when the residual is within a certain range relative to the item size.
+
+Putting this together, here's a possible approach for v2:
+
+1. Keep the exact fit handling.
+2. For the combined score, maybe adjust the tightness and utilization components. For example, use a weighted geometric mean where the weights depend on the item size.
+3. For the alignment bonus, use a combination of factors: how close the residual is to the item size, and how small the residual is. Maybe with a dynamic coefficient that depends on the item size.
+4. Introduce a penalty for bins that have very small remaining capacities, as they are less likely to be useful for future items.
+
+Wait, but in the current v1, the utilization component is 1/(bin_remain_cap + 1e-9), which is higher when the bin is more utilized (smaller remaining capacity). So that already encourages using bins that are fuller. The tightness is 1/(remaining_space + 1e-9), which is higher when the item fits tightly. The geometric mean combines these two.
+
+Maybe the combined score is good as is. The alignment bonus in v1 adds a bonus for residuals close to the item size. To improve this, perhaps the alignment bonus should be more nuanced.
+
+Let me try modifying the alignment bonus. Instead of a fixed 0.15 coefficient, make it depend on the item size. For example, larger items get a higher alignment bonus coefficient because leaving a residual that matches their size could be more beneficial. So:
+
+alignment_coeff = 0.2 * item  # Assuming item sizes are normalized between 0 and 1.
+
+But this might not be the right approach. Alternatively, use a sigmoid function to determine the coefficient based on the item size.
+
+Alternatively, compute the alignment bonus as a function that combines both the proximity to the item size and the absolute residual. For example:
+
+alignment_bonus = np.exp(- (remaining_space ** 2) / (item ** 2 + 1e-9)) 
+
+This would give a higher bonus when remaining_space is close to zero (exact fit), but also when it's close to the item size. Wait, no. If remaining_space is the residual after placing the item, then remaining_space = bins_remain_cap - item. So if we want the residual to be close to the item size, that would mean bins_remain_cap - item ≈ item → bins_remain_cap ≈ 2*item. But that's not possible if the bin size is 1 (assuming normalized). For example, if item is 0.4, then bins_remain_cap needs to be 0.8 to have a residual of 0.4. But the bin's remaining capacity before placing the item is 0.8, so placing a 0.4 item would leave 0.4. But the bin's original capacity is 1, so after placing 0.4, the remaining is 0.8 - 0.4 = 0.4. Wait, no: bins_remain_cap is the current remaining capacity of the bin. So if a bin has 0.8 remaining, placing a 0.4 item would leave 0.4. So the residual is 0.4, which matches the item size. The alignment bonus in v1 would give a high score for this case.
+
+But maybe the alignment bonus should encourage residuals that are multiples of the item size. For example, residual = k * item, where k is a positive integer. But again, without knowing future items, this is speculative.
+
+Alternatively, the alignment bonus could be designed to favor residuals that are in a certain range relative to the item size. For example, residuals that are at least half the item size but not more than the item size. But this is getting complicated.
+
+Another angle: The alignment bonus in v1 is a simplified version. The v1's comment says it's a simplified residual alignment bonus. Maybe in v2, we can make it more sophisticated. For example, using a Gaussian function centered at the item size, with a standard deviation that adapts based on the item size. So:
+
+alignment_bonus = np.exp( - ( (remaining_space - item) ** 2 ) / ( (0.5 * item) ** 2 + 1e-9 ) )
+
+This would create a bell curve around the item size, with the width proportional to the item size. So for larger items, the bonus is spread out more, allowing for residuals that are close but not exact. For smaller items, the bonus is more peaked.
+
+Additionally, we can introduce a dynamic coefficient for the alignment bonus. For example, the coefficient could be higher when the item is larger, as leaving a residual close to the item size might be more beneficial for potential future items of similar size.
+
+Putting this together:
+
+- The alignment bonus uses a Gaussian centered at the item size.
+- The coefficient for the alignment bonus is proportional to the item size.
+- The combined score is the geometric mean of tightness and utilization, plus the dynamic alignment bonus.
+
+Another improvement could be to handle the epsilon (1e-9) more carefully, perhaps using a relative tolerance based on the item size or bin capacities.
+
+Also, consider adding a penalty for bins that, after placing the item, have a very small remaining capacity (e.g., less than a certain threshold). This is because a very small remaining space might not be useful for future items, so it's better to have slightly larger residuals that can accommodate more items. However, this conflicts with the tightness component, which favors smaller residuals. So perhaps a balance is needed.
+
+Alternatively, introduce a small bonus for bins that, after placing the item, have a remaining capacity that is a common size. But without knowing the distribution of item sizes, this is not feasible in the online setting. So maybe this is not applicable.
+
+Putting all these ideas into code:
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    remaining_space = bins_remain_cap - item
+    exact_fit = np.isclose(remaining_space, 0, atol=1e-9)
+    valid = remaining_space >= 0
+    
+    # Tightness: Prefer bins where item fits snugly
+    tightness = 1 / (np.abs(remaining_space) + 1e-9)
+    
+    # Utilization: Prefer bins that are more filled
+    utilization = 1 / (bins_remain_cap + 1e-9)
+    
+    # Combined geometric mean with adaptive weighting
+    combined_score = np.sqrt(tightness * utilization)
+    
+    # Dynamic alignment bonus: Gaussian centered at item size, width scales with item
+    residual = remaining_space
+    sigma = 0.3 * item  # Width of the Gaussian
+    alignment_bonus = np.exp(-( (residual - item) ** 2 ) / (2 * (sigma ** 2) + 1e-9))
+    
+    # Coefficient scales with item size (larger items get higher bonus)
+    alignment_coeff = 0.2 * (item ** 0.5)  # Square root scaling
+    
+    # Penalize very small residuals that are unlikely to be useful
+    small_residual_penalty = np.where(
+        residual < 0.1 * item,
+        0.5 * (residual / (0.1 * item + 1e-9)),  # Linearly reduce score for tiny residuals
+        1.0
+    )
+    
+    priorities = np.where(
+        exact_fit,
+        np.inf,
+        np.where(
+            valid,
+            (combined_score + alignment_coeff * alignment_bonus) * small_residual_penalty,
+            -np.inf
+        )
+    )
+    
+    return priorities
+
+Explanation of changes:
+
+1. **Dynamic Alignment Bonus**: Uses a Gaussian function centered at the item size with a width proportional to the item size. This means larger items have a broader range of residuals that receive a bonus, which might help in accommodating future items of varying sizes.
+
+2. **Alignment Coefficient Scaling**: The coefficient for the alignment bonus scales with the square root of the item size. Larger items contribute more to the bonus, assuming that leaving space for similarly sized items is more critical.
+
+3. **Small Residual Penalty**: If the residual is very small (less than 10% of the item size), the score is reduced. This is because tiny residuals are less likely to be useful for future items, so we prefer slightly larger residuals that could fit small items.
+
+4. **Combined Score Adjustment**: The combined score is multiplied by the small_residual_penalty, which reduces the priority for bins with very small residuals.
+
+This approach aims to balance tight packing with leaving useful residual space, dynamically adjusting based on the item size. The penalty for small residuals encourages leaving space that's more likely to be usable, while the Gaussian alignment bonus targets residuals that could fit similar-sized items.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    remaining_space = bins_remain_cap - item
+    exact_fit = np.isclose(remaining_space, 0, atol=1e-9)
+    valid = remaining_space >= 0
+    
+    # Core packing quality metrics
+    tightness = 1 / (np.abs(remaining_space) + 1e-9)
+    utilization = (1 - bins_remain_cap) ** 2  # Quadratic emphasis on filled bins
+    combined_score = np.sqrt(tightness * utilization)
+    
+    # Dynamic residual alignment with item-adaptive parameters
+    residual = remaining_space
+    alignment_center = item * 0.7  # Target slightly smaller than item size
+    sigma = item * 0.4  # Adaptive Gaussian width
+    alignment_bonus = 0.25 * np.exp(-(residual - alignment_center)**2 / (2*sigma**2 + 1e-9))
+    
+    # Fractal packing incentive for modular residuals
+    fractal_bonus = 0.15 * np.sin(np.pi * residual/item)**2 / (residual/item + 0.2)**0.5
+    
+    # Anti-fragmentation penalty for non-useful small spaces
+    fragmentation_penalty = np.where(
+        residual < 0.1, 
+        np.exp(-10*(0.1 - residual)), 
+        1.0
+    )
+    
+    priorities = np.where(
+        exact_fit,
+        np.inf,
+        np.where(
+            valid,
+            (combined_score + alignment_bonus + fractal_bonus) * fragmentation_penalty,
+            -np.inf
+        )
+    )
+    
+    return priorities
+```

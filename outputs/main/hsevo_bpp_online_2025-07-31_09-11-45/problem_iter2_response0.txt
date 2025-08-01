@@ -1,0 +1,183 @@
+<think>
+Okay, I need to create an improved priority function for the online bin packing problem by combining elements from the provided v0 and v1 versions, while incorporating the analysis and experience mentioned. Let me start by understanding the strengths and weaknesses of each version.
+
+The v0 (celestial harmony) approach focuses on balancing tight fits and future flexibility. It uses the golden ratio to weight the reciprocal of remaining space (encouraging tight packing) and a future fit score that rewards leaving space in the 0.3-0.7 range. It also gives a big bonus for exact fits. The analysis mentions that this version's golden ratio weighting is mathematically informed and effective.
+
+The v1 (black hole) approach uses inverse remaining space (curvature) and a density-based radiation penalty. However, the analysis points out that the radiation penalty in v1 introduces instability, especially with mid-range bins. The Hawking radiation penalty in v1 penalizes bins with low density (density < 0.2), which might be too harsh and disrupt the ordering.
+
+From the analysis, the best heuristics combine tight packing with flexibility, use smooth gradients, handle exact fits properly, and avoid over-penalizing mid-range bins. The worst ones use multiplicative terms that create artificial cliffs or unstable penalties.
+
+So, to combine the strengths of v0 and v1 while avoiding their weaknesses:
+
+1. Keep the exact fit bonus from v0 (perfection_bonus) since it's effective.
+2. Use the reciprocal of remaining space (like both versions) but perhaps with a different weighting.
+3. Incorporate a future flexibility component, similar to v0's future_fit, but maybe adjust the range or calculation.
+4. Avoid the harsh penalties in v1's radiation component. Instead of penalizing low-density bins, maybe encourage leaving space that's useful for future items.
+
+Wait, the analysis mentioned that v0's future_fit rewards leaving space between 0.3-0.7. That's a good way to promote flexibility. The v1's radiation penalty for low density might be counterproductive. So maybe instead of penalizing, we can have a bonus for bins that leave space in a desirable range.
+
+Another point from the analysis: the best heuristics use geometric mean for balanced trade-offs. The v0 uses a weighted sum (0.618 and 0.382), which is a linear combination. Maybe using a multiplicative approach (but not in a way that creates cliffs) could be better. However, the analysis warns against multiplicative terms that over-penalize. So perhaps a balanced combination.
+
+Also, the analysis mentions that handling floating-point tolerance properly (like using np.isclose) is important. The v0 uses remaining_after == 0, which might not be reliable due to floating-point precision. So maybe replace that with a check using np.isclose.
+
+Putting this together:
+
+- For exact fits, use a bonus but with a tolerance check.
+- The main score should combine tight fit (reciprocal of remaining space) and future flexibility (rewarding remaining space in a certain range).
+- Use adaptive thresholds or dynamic ranges if possible, but given the function's parameters, maybe adjust the future fit range based on the item size. For example, if the current item is large, future items might be smaller, so leaving a certain amount of space could be beneficial.
+
+Wait, the function can't know future items, but the heuristic should anticipate possible future needs. The v0's approach of rewarding remaining space in 0.3-0.7 is static. Maybe adjust this range based on the current item's size. For example, if the item is small, future items might be larger, so leaving more space could be better. But how to model that?
+
+Alternatively, use the item size to influence the desirable remaining space. For instance, after placing the item, the remaining space should be as close as possible to the average expected item size. But without knowing the distribution, this is tricky. Maybe assume that future items are around the same size as the current one, or use the current item's size to adjust the target.
+
+Alternatively, use a dynamic range for future_fit. For example, if the item is large, the remaining space is small, so the future fit could be less important. But this is speculative.
+
+Alternatively, stick with the v0's approach but adjust the future_fit range. For example, instead of 0.3-0.7, maybe a range that's a fraction of the current item's size. But that might not be robust.
+
+Alternatively, use a sigmoid function to smoothly reward remaining space in a certain range, which could be more flexible than clipping.
+
+Wait, the v0's future_fit is calculated as np.clip(remaining_after, 0.3, 0.7) - 0.3. This gives a higher score to remaining spaces between 0.3 and 0.7, with maximum at 0.7. But maybe a smoother transition would be better, using a function that peaks at a certain value.
+
+Alternatively, use a Gaussian-like curve centered around an ideal remaining space. For example, the future_fit could be the value of a bell curve centered at 0.5 with some standard deviation, so that remaining spaces near 0.5 get higher scores.
+
+But how to implement that? Maybe compute the future_fit as a function that peaks at a certain value. For example, future_fit = np.exp(-(remaining_after - target)**2 / (2 * sigma**2)), where target is the ideal remaining space (like 0.5) and sigma controls the spread.
+
+This would create a smooth gradient that rewards remaining spaces near the target. The target could be adjusted based on the item size. For example, if the item is large, maybe the target is lower, assuming future items are smaller. But without knowing the distribution, this is heuristic.
+
+Alternatively, set the target to 0.5 regardless of item size. That's a middle ground, encouraging bins that leave half a bin's capacity free, which might be a good balance for future items of varying sizes.
+
+Another idea from the analysis: the best heuristics use harmonic efficiency (1/remaining) with residual potential (like sqrt). The v0 uses 1/remaining_after, weighted by 0.618. Maybe combine this with another term, like the square root of the remaining capacity after placing the item, to encourage leaving space that's useful.
+
+Wait, the residual potential in the analysis refers to sqrt(capacity), but in this context, after placing the item, the remaining capacity is bins_remain_cap - item. So maybe the residual potential is the remaining capacity after placement, which could be used in a different way.
+
+Alternatively, the residual potential could be the remaining capacity's square root, which would give more weight to certain ranges. For example, sqrt(remaining_after) would give higher scores to larger remaining spaces, but that might conflict with the tight fit. Hmm, not sure.
+
+Alternatively, the analysis mentions that the best heuristics use a geometric mean between tight fit and residual potential. The v0 uses a weighted sum, but a geometric mean would multiply the terms. However, the analysis warns against multiplicative terms that can create over-penalization. So perhaps a balanced approach.
+
+Wait, the analysis says that the worst heuristics use multiplicative terms (like tightness × utilization × decay) that over-penalize mid-range bins. So maybe avoid multiplicative combinations unless the factors are truly independent and complementary.
+
+So, perhaps the improved function should combine the reciprocal of remaining space (for tight fit) with a future flexibility term (like a Gaussian around 0.5 remaining space), using a weighted sum with dynamic weights based on the item size or other factors.
+
+But how to implement dynamic weights? The function can't retain state between calls, so the weights must be determined based on the current item and bins.
+
+Alternatively, use fixed weights but chosen based on the analysis's advice. The v0 uses 0.618 and 0.382, which are the golden ratio. The analysis mentions that this is mathematically informed. So perhaps keep that ratio but adjust the components.
+
+Another point from the analysis: handle floating-point tolerance properly. In v0, the exact fit check uses remaining_after == 0, which might not be reliable. So replace that with np.isclose(remaining_after, 0, atol=1e-9) or similar.
+
+Also, ensure that the function avoids bins that can't fit the item by setting their score to -inf.
+
+Putting all this together, here's a possible approach:
+
+1. Calculate remaining_after = bins_remain_cap - item.
+
+2. Exact fit bonus: use np.isclose to check if remaining_after is near zero, apply a large bonus.
+
+3. Tight fit score: 1 / (remaining_after + epsilon) to prioritize bins where the item fits tightly.
+
+4. Future flexibility score: a Gaussian centered at 0.5 remaining space, encouraging leaving space that's likely useful for future items.
+
+5. Combine tight fit and future flexibility with golden ratio weights, add the exact fit bonus.
+
+6. Set scores to -inf for bins that can't fit the item.
+
+This combines elements from v0 (exact fit bonus, tight fit, future flexibility) with a smoother future flexibility term (Gaussian instead of clipped linear). The Gaussian encourages remaining space around 0.5, which is a balance between too little and too much, potentially offering better flexibility.
+
+Implementing this:
+
+- The Gaussian can be implemented as np.exp(- (remaining_after - 0.5)**2 / (2 * (0.2)**2)), where 0.2 is the standard deviation, making the peak around 0.5 and tapering off on either side.
+
+- The tight fit term is 1/(remaining_after + 1e-9) to avoid division by zero.
+
+- The exact fit bonus is applied where remaining_after is close to zero.
+
+- Combine the terms with weights 0.618 and 0.382, add the bonus.
+
+Now, code:
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Balances tight fit with Gaussian future flexibility, exact match bonus, using dynamic thresholds."""
+    remaining = bins_remain_cap - item
+    valid = remaining >= -1e-9  # Consider floating point tolerance
+    exact_fit = np.isclose(remaining, 0, atol=1e-9)
+    perfection_bonus = exact_fit * 10.0  # Large bonus for exact fits
+    
+    # Tight fit component (harmonic efficiency)
+    tight_fit = 1 / (remaining + 1e-9)
+    
+    # Future flexibility (Gaussian centered at 0.5 remaining)
+    future_flex = np.exp(-(remaining - 0.5)**2 / (0.2**2))
+    
+    # Combine with golden ratio weights
+    combined = 0.618 * tight_fit + 0.382 * future_flex + perfection_bonus
+    
+    # Invalidate bins that can't fit
+    combined = np.where(valid, combined, -np.inf)
+    return combined
+
+Wait, but the analysis mentioned that the best heuristics use geometric mean. However, the example here uses a weighted sum. The analysis said that the best combines via geometric mean, which is the square root of the product. But the analysis also warned against multiplicative terms that can over-penalize. So perhaps a weighted sum is safer.
+
+Alternatively, use a product but with exponents to balance. For example, (tight_fit^a) * (future_flex^b), but this could introduce issues if either term is zero or negative. Since tight_fit is always positive (remaining is positive after validity check), and future_flex is positive (exp is always positive), this could work. But the analysis says that multiplicative terms can be problematic. So maybe stick with the weighted sum.
+
+Another consideration: the future_flex in the code above peaks at 0.5 remaining. But maybe the ideal remaining space depends on the item size. For example, if the item is large, the remaining space is small, so future items would need to be small. But without knowing future items, it's hard to adjust. The current approach uses a fixed 0.5, which is a heuristic.
+
+Alternatively, set the center of the Gaussian based on the item size. For example, if the item is 0.6, then remaining space after placing it would be bins_remain_cap - 0.6. The ideal remaining space for future items might be smaller. But this is speculative.
+
+Alternatively, the center could be item_size / 2, but that might not make sense. For example, if the item is 0.2, then remaining space of 0.8. Maybe the ideal remaining is 0.4, but this is unclear.
+
+Given the uncertainty, sticking with a fixed 0.5 center is a reasonable default, as it aims for a balance.
+
+Testing this function:
+
+For a bin with remaining capacity exactly equal to the item, it gets a perfection_bonus of 10, which should make it the highest priority.
+
+For bins that can almost fit the item but leave a small remaining, the tight_fit term will be high, but the future_flex might be low if the remaining is far from 0.5.
+
+For bins that leave remaining space around 0.5, the future_flex term is maximized, which could help in future placements.
+
+This combines the exact fit bonus from v0, the tight fit (reciprocal) from both versions, and a smoother future flexibility term instead of the clipped linear one in v0. The Gaussian should provide a smooth gradient, avoiding sudden cliffs in the priority scores.
+
+Another point from the analysis: the worst heuristics use multiplicative terms. The v1's curvature * radiation is multiplicative, which can cause issues. The v2 uses additive terms, which is safer.
+
+Thus, this approach should address the weaknesses of the previous versions while combining their strengths.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Hybrid heuristic: Gaussian future flexibility with exact-fit priority,
+    using adaptive tightness scaling and numerical stability."""
+    
+    remaining = bins_remain_cap - item
+    valid_mask = remaining >= -1e-9  # Account for floating point errors
+    
+    # Exact match detection with tolerance
+    exact_fit = np.isclose(remaining, 0, atol=1e-8, rtol=0)
+    perfection_boost = exact_fit * 15.0  # Higher boost than v0
+    
+    # Dynamic flexibility target based on item size
+    flex_center = 0.5 * (1 - item)  # Larger items -> lower ideal remaining space
+    flex_width = 0.15 + item*0.2  # Adaptive bandwidth
+    
+    # Gaussian future flexibility score
+    future_flex = np.exp(-(remaining - flex_center)**2 / (2*(flex_width**2)))
+    
+    # Logarithmic tightness score prevents extreme values
+    tightness = np.log(1 + 1/(remaining + 1e-9))  # Smoother than raw reciprocal
+    
+    # Balanced combination with golden ratio weights
+    scores = (0.618 * tightness + 
+              0.382 * future_flex * (1 + item) +  # Item-size modulated flexibility
+              perfection_boost)
+    
+    # Apply validity mask and return
+    return np.where(valid_mask, scores, -np.inf)
+```
+
+**Key Heuristic Design:**
+1. **Adaptive Flexibility Targeting:** Gaussian peak adjusts based on item size - larger items suggest smaller ideal remaining space  
+2. **Stable Tightness Metric:** Logarithmic transform of reciprocal space prevents score explosions while maintaining ordering  
+3. **Size-Modulated Flexibility:** Future potential weighting increases with current item size  
+4. **Robust Exact Matching:** Higher boost (15 vs 10) with tighter floating-point tolerance  
+
+Combines v0's balance philosophy with v1's non-linear components, while adding adaptive elements and numerical stability from analysis insights.

@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins using Best Fit with bonuses for perfect fits and near-full bins.
+
+    This heuristic combines the effectiveness of Best Fit with specific incentives for
+    bin consolidation, avoiding complex adaptive factors.
+    """
+    BIN_CAPACITY = 1.0  # Assumed normalized bin capacity, adjust if problem implies otherwise
+
+    # Robustness check: If the item size is non-positive, it's invalid.
+    # No bin should be chosen, so return negative infinity for all.
+    if item <= 0:
+        return np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Initialize all priorities to negative infinity. This ensures that bins
+    # where the item cannot fit are never selected.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify all bins capable of containing the incoming item.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate base priority for fitting bins using a Best Fit approach.
+    # The goal is to maximize `-(remaining_capacity_after_placement)`.
+    # This means smaller remaining space (better fit) yields a higher score (closer to 0 or positive).
+    # A perfect fit (0 remaining) gets a base score of 0.
+    remaining_after_placement = bins_remain_cap[can_fit_mask] - item
+    priorities[can_fit_mask] = -remaining_after_placement
+
+    # --- Apply Bonuses to Enhance Bin Consolidation ---
+
+    # 1. Perfect Fit Bonus: Substantially prioritize bins where the item
+    #    perfectly fills the remaining capacity. This is a strong, but finite, bonus.
+    PERFECT_FIT_BONUS = 100.0  # Tunable constant
+    perfect_fit_mask = (remaining_after_placement == 0)
+    if np.any(perfect_fit_mask):
+        priorities[can_fit_mask][perfect_fit_mask] += PERFECT_FIT_BONUS
+
+    # 2. Bin Near-Completion Bonus (pre-placement): Encourage using bins that are
+    #    already significantly full *before* the item is placed. This helps
+    #    consolidate items into existing bins and potentially close them off.
+    #    The bonus is proportional to the bin's current fullness (0 to 1).
+    FULLNESS_BONUS_FACTOR = 0.5  # Tunable constant, controls strength of this incentive
+    if BIN_CAPACITY > 0: # Ensure valid division
+        current_fullness = (BIN_CAPACITY - bins_remain_cap[can_fit_mask]) / BIN_CAPACITY
+        priorities[can_fit_mask] += FULLNESS_BONUS_FACTOR * current_fullness
+
+    return priorities
+```

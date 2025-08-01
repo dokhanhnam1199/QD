@@ -1,0 +1,78 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin, implementing a refined Best Fit.
+
+    This heuristic extends Best Fit by incorporating "predictive state" and "global utility"
+    considerations, moving beyond a purely immediate greedy fit. It aims to:
+
+    1.  **Strongly prioritize perfect fits**: Bins that will be exactly full after placing the item
+        are given the highest possible priority. This helps to "close" bins efficiently,
+        contributing directly to minimizing the total number of bins used.
+    2.  **Standard Best Fit for 'useful' remaining capacities**: Among other valid fits,
+        it generally follows the Best Fit principle, preferring bins that result in smaller
+        remaining capacity.
+    3.  **Penalize "small, unusable gaps"**: It introduces a penalty for bins that would be
+        left with a very small amount of remaining capacity (e.g., less than 5% of bin size)
+        that is positive but too small to be generally useful for future items. This anticipates
+        future bin configurations, preventing the accumulation of many bins with tiny,
+        ineffective leftover spaces. By encouraging either a perfect fit or a more
+        substantive, useful amount of remaining space, it promotes better long-term bin utilization.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+                         Assumes bin capacities are normalized (e.g., bin size = 1.0)
+                         for the 'small_gap_threshold' to be meaningful.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority for placing the item in that bin.
+        Bins that cannot fit the item receive the lowest possible priority (-inf).
+    """
+    # Calculate the remaining space in each bin if the item were placed.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Initialize all priorities to negative infinity. This ensures that
+    # any bin that cannot fit the item will never be chosen.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can fit (remaining space non-negative).
+    # Using a small epsilon for robust floating-point comparison with zero.
+    can_fit_mask = potential_remaining_space >= -1e-9
+
+    # Apply base Best Fit logic for eligible bins:
+    # A smaller positive remaining space yields a higher priority.
+    # A perfect fit (0 remaining space) will result in a priority of 0 at this stage.
+    priorities[can_fit_mask] = -potential_remaining_space[can_fit_mask]
+
+    # --- Refinements for Predictive State and Global Utility ---
+
+    # Hyperparameters for tuning:
+    # This threshold defines what constitutes a "small, potentially unusable" gap.
+    # E.g., 0.2 means any remaining capacity between (0, 0.2] is considered a small gap.
+    # This value typically relates to the expected smallest item size or average item size.
+    small_gap_threshold = 0.2
+
+    # A large bonus for perfect fits to make them highly desirable.
+    perfect_fit_bonus = 100.0
+
+    # A penalty for leaving small, "unusable" gaps. This value should be
+    # significant enough to make a small gap less desirable than a more
+    # substantial, usable gap (e.g., -0.5) that is further from the Best Fit ideal.
+    small_gap_penalty = 5.0
+
+    # Apply perfect fit bonus: If remaining space is exactly 0 (or very close).
+    perfect_fit_mask = np.isclose(potential_remaining_space, 0, atol=1e-9) & can_fit_mask
+    priorities[perfect_fit_mask] += perfect_fit_bonus
+
+    # Apply small gap penalty: If remaining space is positive but below the threshold.
+    # This logic explicitly targets gaps that are > 0 and <= small_gap_threshold.
+    small_gap_mask = (potential_remaining_space > 1e-9) & \
+                     (potential_remaining_space <= small_gap_threshold) & \
+                     can_fit_mask
+    priorities[small_gap_mask] -= small_gap_penalty
+
+    return priorities
+```

@@ -1,0 +1,66 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Best Fit with overwhelming exact fit preference and a subtle consolidation bonus.
+    Prioritizes filling bins completely, then minimizing waste, then consolidating.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.full(num_bins, -np.inf, dtype=float)
+
+    # Assume a standard bin capacity for calculating fullness.
+    BIN_CAPACITY = 1.0 
+    
+    # Overwhelming bonus for exact fits, making them top priority regardless of other factors.
+    # This value is significantly high to ensure dominance as per "Analyze & experience".
+    EXACT_FIT_BONUS = 1e6 
+    
+    # Small additive factor for the consolidation bonus, ensuring it subtly promotes
+    # using existing, partially-filled bins without overriding Best Fit or Exact Fit.
+    CONSOLIDATION_STRENGTH = 0.001 
+
+    # Epsilon for robust floating-point comparisons, to handle near-zero or near-full conditions.
+    EPSILON = np.finfo(float).eps * 100 
+
+    # Calculate potential remaining space in each bin after hypothetically placing the item.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Identify bins where the item can fit (remaining space must be non-negative or very close to zero).
+    can_fit_mask = potential_remaining_space >= -EPSILON
+
+    # Adjust potential remaining space to be exactly non-negative for consistent scoring.
+    # This handles tiny negative values due to floating-point precision errors.
+    potential_remaining_space_for_scoring = np.where(potential_remaining_space < 0, 0, potential_remaining_space)
+
+    # 1. Base Score (Best Fit): Prioritize bins that will have the least remaining space.
+    # A smaller remaining space results in a higher (less negative) score.
+    priorities[can_fit_mask] = -potential_remaining_space_for_scoring[can_fit_mask]
+
+    # 2. Apply Overwhelming Exact Fit Bonus: Add a large bonus to bins that become perfectly full.
+    # This bonus ensures that exact fits are chosen above all other considerations.
+    exact_fit_mask = can_fit_mask & (potential_remaining_space_for_scoring < EPSILON)
+    priorities[exact_fit_mask] += EXACT_FIT_BONUS
+
+    # 3. Apply Subtle Consolidation Bonus:
+    # Promote usage of existing, partially-filled bins by giving a small bonus
+    # proportional to their current fullness. This applies only to:
+    # - Bins that can fit the item.
+    # - Bins that are NOT exact fits (exact fits are handled by the dominant bonus).
+    # - Bins that are NOT completely empty (encouraging filling existing bins rather than new ones).
+    
+    # Identify bins that are completely empty.
+    is_empty_bin_mask = np.isclose(bins_remain_cap, BIN_CAPACITY, atol=EPSILON)
+    
+    # Create a mask for bins eligible for this consolidation bonus.
+    eligible_for_consolidation_bonus_mask = can_fit_mask & ~exact_fit_mask & ~is_empty_bin_mask
+
+    if np.any(eligible_for_consolidation_bonus_mask):
+        # Calculate the current fullness for eligible bins (0 for empty, 1 for full).
+        current_fullness_eligible = (BIN_CAPACITY - bins_remain_cap[eligible_for_consolidation_bonus_mask]) / BIN_CAPACITY
+        
+        # Add a subtle bonus proportional to current fullness, encouraging consolidation.
+        priorities[eligible_for_consolidation_bonus_mask] += CONSOLIDATION_STRENGTH * current_fullness_eligible
+
+    return priorities
+```

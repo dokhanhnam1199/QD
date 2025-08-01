@@ -1,0 +1,154 @@
+<think>
+Okay, I need to create an improved priority_v2 function by combining elements from the better code (priority_v0) and the worse code (priority_v1), based on the analysis provided. Let me start by understanding the key strengths of each version.
+
+From the analysis, the better code (v0) uses dynamic multi-objective heuristics with adaptive weight balancing and residual space forecasting. It has three innovations: context-aware synergy, predictive residual scoring, and precision-gradient exact fit. The worse code (v1) balances tight packing with future flexibility using exponential decay for near-exact fits and square root residual capacity, but introduces unnecessary complexity like dynamic penalties that might not be well-calibrated.
+
+The analysis mentions that top heuristics balance simplicity with precision-tuned components. So, I should take the best parts of v0 and v1 while avoiding overengineering.
+
+Looking at v0's code: It calculates fill_ratio with non-linear scaling, residual_value with a combination of terms, and uses a dynamic weight between fill_power and residual_value. It also adds an exact_bonus using a smooth gradient. The valid_mask ensures only bins that can fit the item are considered.
+
+v1's code uses tightness as an exponential decay of remaining_after, preservation as sqrt(remaining_after), and applies a dynamic penalty for larger items. However, the penalty might be introducing noise if not properly calibrated.
+
+The analysis says that effective heuristics use geometric means of fill efficiency and residual potential with calibrated constants. So combining v0's dynamic weight balancing and residual forecasting with v1's tightness and preservation components, but in a simpler way.
+
+Wait, but v0's residual_value is a combination of residual_space^0.4 and 0.8, divided by a term. Maybe instead of that, use a simpler residual calculation like sqrt or cube root as in v0's predictive residual. Also, v1's tightness is exponential decay, which could be similar to v0's near_exact term.
+
+The key is to merge the best parts. Let's outline components to include:
+
+1. Adaptive weight balancing between fill efficiency and residual space (from v0).
+2. Use a combination of tightness (like exponential decay) and preservation (sqrt) but in a multiplicative way (v1's base score).
+3. Smooth exact fit bonus (from v0's near_exact term).
+4. Avoid overcomplicating with penalties unless necessary.
+
+Wait, the analysis says that the best heuristics use a focused geometric mean. So perhaps combine fill efficiency and residual potential with a dynamic weight based on item size, as in v0. Also, include the exact fit bonus.
+
+But v1's tightness is exp(-6 * remaining_after), which strongly prefers small residuals. Maybe replace v0's fill_power with this tightness measure. Alternatively, use both fill_ratio and tightness.
+
+Alternatively, take v0's fill_power (non-linear scaling of fill_ratio) and combine it with v1's preservation (sqrt of residual). But v0's residual_value is a more complex term. Maybe simplify that.
+
+Wait, the analysis mentions that the best heuristics use a "calibrated geometric mean of fill efficiency and residual potential". So perhaps the core score is a product of fill efficiency (like item/bin_cap) and residual potential (like residual^0.5), with weights adapting based on item size.
+
+Let me try to structure the code:
+
+1. Calculate remaining_after and valid_mask as in both versions.
+2. Compute fill_ratio (item / bin_cap) but apply a non-linear scaling, maybe a power as in v0.
+3. Compute residual_space and apply a root function (like sqrt or cube root) for preservation.
+4. Use a dynamic weight between fill_ratio and residual, based on item size.
+5. Add an exact fit bonus using a smooth exponential term.
+
+From v0, take the fill_power (fill_ratio^0.7 or 1.2 based on bin size) and residual_value (combination of residual_space terms). From v1, take the tightness (exp) and preservation (sqrt), but maybe integrate them differently.
+
+Wait, in v0, the synergy is (fill_power^weight) * (residual_value^(1-weight)). The weight is clipped based on item size. This dynamic balance between fill efficiency and residual is key.
+
+In v1, the base score is tightness (exp) * preservation (sqrt). But the analysis says that multiplicative combination is better than additive. So perhaps in v2, the core score is a product of fill efficiency (like fill_ratio^power) and residual preservation (sqrt or similar), with weights adapting.
+
+Alternatively, use a geometric mean with adaptive exponents. Let's outline steps:
+
+- remaining_after = bins_remain_cap - item
+- valid_mask = remaining_after >=0
+- fill_ratio = item / (bins_remain_cap + 1e-12)
+- fill_power = fill_ratio ** alpha (alpha depends on bin size or item)
+- residual = remaining_after
+- residual_value = residual ** beta (beta could be 0.5)
+- dynamic weight between fill_power and residual_value based on item size
+- exact_fit_bonus = exp(-(remaining_after^2)/epsilon)
+
+Combine these into a score.
+
+From the analysis, the better code uses cube root + linear combo for residual. Maybe use a simpler residual term, like residual^0.5 (sqrt) as in v1's preservation.
+
+The dynamic weight in v0 is weight = clip(item * 1.8, 0.2, 0.8). So larger items weight fill_power more. Let's keep that.
+
+So, the synergy would be (fill_power^weight) * (residual_value^(1-weight)).
+
+Additionally, add the exact_fit_bonus scaled by item importance.
+
+Now, let's code this:
+
+1. Compute remaining_after and valid_mask.
+2. fill_ratio = item / (bins_remain_cap + 1e-12)
+3. For fill_power, use different exponents based on bin size (like v0's where bins_remain_cap >0.5: 0.7 else 1.2)
+4. residual_value = remaining_after ** 0.5 (sqrt preservation from v1)
+5. weight = np.clip(item * 1.8, 0.2, 0.8)
+6. synergy = (fill_power ** weight) * (residual_value ** (1 - weight))
+7. exact_bonus = np.exp(- (remaining_after ** 2) / (0.01 * item **2 + 1e-7)) * (0.5 + 1.5 * item)
+8. scores = synergy + exact_bonus, masked with valid_mask.
+
+Wait, but in v0, residual_value is a combination of residual_space^0.4 and 0.8 terms. Maybe simplify to a single term. Alternatively, use a combination like (residual_space^0.4 + residual_space^0.8)/something. But the analysis says that calibrated constants are better. Maybe use a simpler residual_value, like residual^0.5 (from v1's preservation) or another exponent.
+
+Alternatively, use v1's preservation (sqrt) but combine with another term. Hmm.
+
+Alternatively, take the residual_value from v0 but simplify. For example, residual_value = (residual_space ** 0.5) / (1 + 0.1*item). The division by (1 + 0.1*item) makes the residual value less important for larger items, which aligns with dynamic weight.
+
+But perhaps to keep it simple, use residual_space^0.5 (sqrt) as in v1's preservation, and combine with fill_power.
+
+Wait, the analysis says that the best heuristics use a "focused geometric mean of fill efficiency and residual potential with calibrated constants". So the core is a geometric mean (product with exponents summing to 1) of fill and residual terms, with exponents adjusted based on item size.
+
+So, the code would look like:
+
+fill_efficiency = (item / bin_cap) ** a
+residual_potential = (remaining_after) ** b
+score = fill_efficiency * residual_potential
+
+But with a and b depending on item size. For example, a = weight, b = 1 - weight.
+
+In v0, fill_power is fill_ratio^0.7 or 1.2 based on bin size. Maybe that's too complex. Alternatively, have a dynamic exponent based on item size.
+
+Alternatively, use the dynamic weight from v0 to balance between fill and residual.
+
+Putting it all together:
+
+def priority_v2(...):
+    remaining_after = bins_remain_cap - item
+    valid_mask = remaining_after >=0
+    fill_ratio = item / (bins_remain_cap + 1e-12)
+    # fill_power with non-linear scaling
+    fill_power = np.where(bins_remain_cap > 0.5, fill_ratio**0.7, fill_ratio**1.2)
+    # residual_value as sqrt (from v1's preservation)
+    residual_value = np.sqrt(np.maximum(remaining_after, 0) + 1e-9)
+    # dynamic weight based on item size
+    weight = np.clip(item * 1.8, 0.2, 0.8)
+    # synergy as geometric mean
+    synergy = (fill_power ** weight) * (residual_value ** (1 - weight))
+    # exact fit bonus from v0
+    near_exact = np.exp(-(remaining_after**2)/(1e-7 + 0.01*item**2))
+    exact_bonus = near_exact * (0.5 + 1.5*item)
+    # combine
+    scores = np.where(valid_mask, synergy + exact_bonus, -np.inf)
+    return scores
+
+This combines v0's fill_power (non-linear scaling based on bin size), v1's sqrt residual (preservation), dynamic weight from v0, and exact_bonus from v0. The synergy is a geometric mean of fill and residual, with weights adapting to item size. The exact_bonus adds a smooth gradient for near-exact fits, scaled by item importance.
+
+This should balance simplicity with effective components, avoiding overengineering as per the analysis. The docstring should mention the key ideas: adaptive geometric mean of fill efficiency and residual space, smooth exact-fit bonus, and dynamic weight balancing.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Hybrid heuristic combining dynamic objective balancing with precision-aware
+    residual optimization. Key features:
+    1. Adaptive geometric mean of fill efficiency/residual potential
+    2. Context-sensitive exact fit detection
+    3. Item-size modulated weight interpolation"""
+    
+    remaining_after = bins_remain_cap - item
+    valid_mask = remaining_after >= 0
+    
+    # Dynamic fill efficiency with bin-size aware scaling
+    fill_ratio = item / (bins_remain_cap + 1e-12)
+    fill_power = np.where(bins_remain_cap > 0.5, fill_ratio**0.75, fill_ratio**1.1)
+    
+    # Residual potential combines preservation and forecasting
+    residual_space = np.maximum(remaining_after, 0)
+    residual_value = (residual_space**0.5 + 0.4*residual_space**0.7) / (1.2 + 0.15*item)
+    
+    # Item-adaptive weight balancing (emphasize fill for large items)
+    weight = np.clip(item * 1.6, 0.25, 0.75)
+    synergy = (fill_power**weight) * (residual_value**(1-weight))
+    
+    # Precision bonus with item-proportional scaling
+    exact_boost = np.exp(-(remaining_after**2)/(1e-7 + 0.02*item**2)) * (0.6 + 1.4*item)
+    
+    return np.where(valid_mask, synergy + exact_boost, -np.inf)
+```

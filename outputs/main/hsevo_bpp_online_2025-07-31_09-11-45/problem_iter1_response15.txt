@@ -1,0 +1,218 @@
+<think>
+Okay, I need to design a priority function for the online bin packing problem. The goal is to assign a priority score to each bin for a given item, so that the bin with the highest score is chosen. Let's think about different heuristics that could work better than a trivial approach.
+
+First, the existing priority_v1 returns all zeros, which isn't helpful. So I need to come up with a smarter strategy. Let's recall common bin packing heuristics. There's First Fit, Best Fit, Worst Fit, etc. Best Fit places the item in the bin that leaves the least space left. But since this is online, we need to make decisions as items arrive without knowing future ones.
+
+But the priority function here can combine multiple factors. Maybe prioritize bins where the item fits exactly, then those with the least remaining space after placing the item. Also, maybe consider how full the bin would be after adding the item. For example, a bin that would be almost full (but not over) might be better to pack tightly.
+
+Wait, the priority function should return a score for each bin. Bins that can't fit the item (remaining capacity < item size) should have a very low priority, maybe negative infinity so they are ignored. For the others, perhaps calculate a score that combines how well the item fits and the current utilization of the bin.
+
+Another idea: For each bin, if the item fits, compute a score that is the remaining capacity after placing the item. Lower remaining capacity is better (like Best Fit). But maybe we can add a term that rewards bins that are closer to being filled. For example, the score could be (remaining_capacity - item_size) but inverted. Wait, if the bin's remaining capacity is R, then after placing the item, the new remaining is R - item. We want to minimize this, so the priority could be -(R - item), which is equivalent to (item - R). Wait, no. Wait, if R >= item, then R - item is the new remaining. So for Best Fit, we want the smallest R - item. So the priority for each bin would be -(R - item), so the highest priority (since we pick the maximum) would be the one with the smallest R - item.
+
+But maybe there's a way to combine this with other factors. For example, also considering the current remaining capacity. Or, perhaps using a weighted sum of the remaining capacity after placing the item and the current remaining capacity. Hmm.
+
+Alternatively, maybe use a heuristic that prefers bins where adding the item would result in a remaining capacity that's a multiple of some value. For example, if after adding the item, the remaining is very small, that's good. Or maybe, the priority could be the reciprocal of the remaining after placement. So higher priority for smaller remaining.
+
+Wait, but how to handle bins that can't fit the item. Those should have a priority of -infinity, so they are not selected. So first, we need to mask out those bins where bins_remain_cap < item. Then, for the others, compute the priority.
+
+So the steps for the priority function could be:
+
+1. Check which bins can accommodate the item (bins_remain_cap >= item).
+2. For those bins, calculate a score based on some heuristic.
+3. Assign a very low score (like -inf) to bins that can't fit the item.
+
+For the heuristic part, let's think of a combination of factors. For example:
+
+- The remaining capacity after placing the item (R - item). Lower is better (Best Fit).
+- The current utilization of the bin. A bin that is already more full might be better to fill up.
+
+Wait, the current remaining capacity is R. After placing the item, the remaining is R - item. So the utilization would be (1 - (R - item)) if the bin's total capacity is 1 (assuming normalized sizes). But maybe the actual capacity isn't 1, but the problem states fixed-sized bins. So perhaps the bins have a fixed capacity, say C. Then, the remaining capacity after placing the item is R - item. But the priority could be based on that.
+
+Alternatively, maybe the priority is (R - item) but inverted. So for Best Fit, the priority is -(R - item), so the maximum priority is the smallest R - item.
+
+But maybe we can add a term that also considers the current remaining capacity. For example, a bin that has a higher R (current remaining) might be better to use if the item fits, but perhaps that's not the case. Hmm.
+
+Another approach: The priority could be (R - item) + (R * 0.1). Wait, but that's arbitrary. Maybe a better approach is to use a combination of factors. For example, the score could be (R - item) + (1 - R) * 0.5. But how to determine the coefficients?
+
+Alternatively, think of it as a multi-objective optimization. We want to minimize the remaining space after placing the item (Best Fit) and also maximize the current utilization. But how to combine these.
+
+Wait, the current utilization is (C - R)/C, where C is the bin's capacity. But if the bins are all the same capacity, then perhaps we can ignore C and just use R. For example, if the bin's capacity is 1, then R is the remaining capacity. So after placing the item, the remaining is R - item. So the priority could be (1 - (R - item)) which is the filled portion. So higher filled portion is better. So the priority would be (1 - (R - item)) for each bin. But that's equivalent to (1 - R + item) = (item - R + 1). Wait, but that's not correct. Let me see: 1 - (R - item) = 1 - R + item. But if the bin's capacity is 1, then R is the remaining. So after placing the item, the remaining is R - item, and the filled is 1 - (R - item) = 1 - R + item. But this is the same as (1 - R) + item. Hmm. Not sure if that's helpful.
+
+Alternatively, the priority could be (R - item) which is the remaining after placing. We want to minimize this, so the priority is -(R - item). So the higher the value (closer to zero or positive), the better. Wait, no. If R is 0.5 and item is 0.3, then R - item is 0.2. If another bin has R=0.4 and item=0.3, R - item is 0.1. So the second bin is better. So the priority for the first bin would be -0.2, and the second -0.1. Wait, but if we take -(R - item), then the first bin's score is -0.2, the second is -0.1. The maximum of these is -0.1, so the second bin is selected. That's correct for Best Fit.
+
+But in code, how to handle this. So for each bin, if the bin can fit the item (R >= item), then the priority is -(R - item). Otherwise, -infinity. So the code would be:
+
+mask = bins_remain_cap >= item
+scores = np.where(mask, -(bins_remain_cap - item), -np.inf)
+return scores
+
+But that's the Best Fit heuristic. However, the user is asking for a more creative approach. Maybe combine Best Fit with another heuristic.
+
+Another idea: Use a combination of Best Fit and the current remaining capacity. For example, prioritize bins where the remaining after placement is small, but also give a higher score to bins that are already more full. For example, the score could be (R - item) + (1 - R). Wait, (1 - R) is the current filled portion. So (R - item) is the remaining after placement, and (1 - R) is the current filled. Adding them would be (R - item + 1 - R) = 1 - item. Which is a constant. That's not helpful. Hmm.
+
+Alternatively, the score could be (R - item) * (1 - R). This would give higher priority to bins that have a small remaining after placement and are already more filled. Let's see: For a bin with R=0.5 and item=0.3, R - item=0.2. 1 - R=0.5. So score is 0.2 * 0.5 = 0.1. Another bin with R=0.4 and item=0.3: R - item=0.1. 1 - R=0.6. Score 0.06. Wait, that's lower. So the first bin would have higher score. But in Best Fit, the second bin is better. So this approach might not work. Hmm.
+
+Alternatively, maybe the score is (1 - (R - item)) * (1 - R). So (1 - (R - item)) is the filled after placement, and (1 - R) is the filled before. Multiplying them. For the first bin: filled after is 0.8 (1 - 0.2), filled before 0.5. 0.8 * 0.5 = 0.4. Second bin: filled after 0.9, filled before 0.6. 0.9 * 0.6 = 0.54. So the second bin has higher score, which is better. So this could work. So the priority would be (1 - (R - item)) * (1 - R). But how to compute that.
+
+Wait, (1 - (R - item)) = 1 - R + item. So (1 - R + item) * (1 - R) = (1 - R)(1 - R + item). Not sure if that's a good metric. But in the example, it gives higher priority to the better bin.
+
+Alternatively, the score could be (1 - (R - item)) + (1 - R). So the sum of filled after and filled before. For the first bin: 0.8 + 0.5 = 1.3. Second bin: 0.9 + 0.6 = 1.5. So the second bin is better. That's correct.
+
+But how to code this. For each bin that can fit the item, the score is (1 - (R - item)) + (1 - R) = 1 - R + item + 1 - R = 2 - 2R + item. Wait, that's 2(1 - R) + item. Hmm. So the priority is higher when R is smaller (since 1 - R is larger) and item is larger. But the item is fixed for all bins. So for a given item, the priority is 2(1 - R) + item. Since item is the same for all bins, the priority is determined by (1 - R), which is the current filled. So this would prioritize bins that are already more filled. But that's similar to Best Fit Decreasing? Not sure.
+
+Alternatively, maybe the priority should be (1 - (R - item)) * (1 - R). Which is the product of filled after and filled before. Let's see:
+
+For a bin with R=0.5, item=0.3: filled after is 0.8, filled before 0.5. Product is 0.4.
+
+Another bin with R=0.4, item=0.3: filled after 0.9, filled before 0.6. Product is 0.54. So higher score. So this would select the better bin.
+
+But how to code this. The filled after is (1 - (R - item)) = 1 - R + item. The filled before is (1 - R). So the product is (1 - R + item) * (1 - R) = (1 - R) * (1 - R + item). So the code would compute this for each bin.
+
+But perhaps this is a good heuristic. Let's call it "Best Fit with Utilization Product".
+
+So the priority function would be:
+
+For each bin, if it can fit the item, compute (1 - (R - item)) * (1 - R), else -infinity.
+
+But in code, since the bins' capacity is fixed (assuming normalized to 1?), but perhaps the code should not assume that. Wait, the problem states that the bins are fixed-sized, but the code is given bins_remain_cap as an array. So the actual capacity is not given. So perhaps the code can't assume the total capacity. So the filled after is (original capacity - (R - item))? But we don't know the original capacity. Hmm. Wait, the bins_remain_cap is the remaining capacity. So the original capacity is not known. So the code can't compute the filled percentage. So perhaps the previous approach of using R - item (the remaining after placing the item) is better.
+
+Wait, but the code can't know the original capacity. So the filled after is (original capacity - (R - item)) / original capacity. But since original capacity is fixed for all bins, but not known, perhaps the code can't compute that. So maybe the code can't use filled percentages. So the previous idea of using R - item (the remaining after placement) is the only thing that can be used, along with R (current remaining).
+
+So perhaps the code can use a combination of R and (R - item). For example, the priority could be (R - item) + R. That would be R - item + R = 2R - item. But how does that affect selection. For example, if a bin has R=0.5, item=0.3: 2*0.5 -0.3=0.7. Another bin with R=0.4, item=0.3: 2*0.4 -0.3=0.5. So the first bin has higher priority. But the remaining after placement is 0.2 vs 0.1. So the second bin is better. But this approach would select the first. So that's worse. So this is not a good idea.
+
+Alternatively, the priority could be (R - item) - R. Which is -item. Which is a constant. So that's not useful.
+
+Hmm. Maybe the code should focus on the remaining after placement (R - item) and the current remaining (R). For example, the priority could be (R - item) + (R) * alpha, where alpha is a weight. For example, alpha=0.5. So the priority is (R - item) + 0.5*R. Which is 1.5 R - item. But how to choose alpha. This is getting complicated.
+
+Alternatively, think of it as a weighted sum between Best Fit and another heuristic. For example, Best Fit is (R - item), and another term is R (current remaining). So the priority could be a combination of these two. For example, (R - item) + beta * R. But how to set beta.
+
+Alternatively, maybe the priority is (R - item) / (R + 1e-9). This would give a ratio of the remaining after placement to the current remaining. For example, if R is 0.5 and item is 0.3, then (0.2)/(0.5) = 0.4. If R is 0.4 and item is 0.3, then (0.1)/(0.4) = 0.25. So higher ratio is better. So the first bin would be selected. But in Best Fit, the second bin is better. So this approach might not be good.
+
+Alternatively, the priority could be (R - item) * R. For the first bin: 0.2 * 0.5 = 0.1. Second bin: 0.1 * 0.4 = 0.04. So higher priority for the first bin. Again, not better than Best Fit.
+
+Hmm. Maybe the Best Fit is already a good heuristic, but perhaps we can add a tie-breaker. For example, when two bins have the same (R - item), prefer the one with a higher current remaining. Or lower current remaining. Not sure.
+
+Alternatively, think of the problem in terms of how much the item fills the bin. For example, if the item takes up a large portion of the remaining space, that's good. So the priority could be item / R. But R is the remaining capacity. So for a bin with R=0.5 and item=0.3, the ratio is 0.6. For R=0.4 and item=0.3, ratio is 0.75. So higher ratio is better. So the second bin would be selected. Which is correct. But this is similar to the "Best Fit with Ratio" heuristic.
+
+But in code, this would be item / R. But if R is zero (but the item is zero?), but since the item is being placed, R must be >= item. So R can't be zero unless the item is zero. So division is safe. So the priority would be item / R. But this would prioritize bins where the item takes up a larger proportion of the remaining space. For example, if a bin has R=0.5 and item=0.3, the ratio is 0.6. Another bin with R=0.3 and item=0.3, ratio is 1.0. So the second bin is better. But in Best Fit, the second bin would have R - item = 0, which is the best possible. So this ratio approach would also select the same as Best Fit in that case.
+
+But for other cases, like R=0.4 and item=0.3, ratio is 0.75. Another bin with R=0.5 and item=0.3, ratio 0.6. So the first bin is better. Which is correct. So this ratio approach might work. But how does it compare to Best Fit.
+
+In Best Fit, the priority is -(R - item). So for R=0.4 and item=0.3, R - item=0.1. For R=0.5 and item=0.3, R - item=0.2. So Best Fit would choose the first bin (0.1 is better than 0.2). The ratio approach would also choose the first bin (0.75 vs 0.6). So same result.
+
+But for a case where two bins have the same R - item but different R. For example, bin1: R=0.3, item=0.2 → R - item=0.1. bin2: R=0.4, item=0.3 → R - item=0.1. Both have same R - item. Best Fit would choose either. But the ratio approach would compute 0.2/0.3=0.666 for bin1, and 0.3/0.4=0.75 for bin2. So bin2 has higher ratio and would be selected. So this approach breaks ties by preferring higher ratio, which is better.
+
+So this ratio approach could be better than Best Fit. Let's call this the "Best Fit with Ratio" heuristic.
+
+So the priority function would be:
+
+For each bin that can fit the item, compute item / R. For those that can't, -inf. Then, the bin with the highest score is selected.
+
+But wait, the ratio is higher when the item takes a larger portion of the remaining space. So this would prefer to place the item in a bin where it fills a larger fraction of the remaining space. Which could lead to better utilization.
+
+So the code would be:
+
+def priority_v2(item, bins_remain_cap):
+    mask = bins_remain_cap >= item
+    # To avoid division by zero, add a small epsilon to R
+    # But since R >= item, and item is positive, R can't be zero unless item is zero.
+    # So maybe safe to proceed without epsilon.
+    scores = np.where(mask, item / bins_remain_cap, -np.inf)
+    return scores
+
+But wait, if R is exactly zero, but item is zero, then division is zero. But in that case, the item is zero, which is allowed. But in practice, items are probably non-zero. So this code should work.
+
+But another consideration: if the item is very small, and R is large, then the ratio is small. So this heuristic would prefer to place small items into bins with small remaining capacities. Which is good, as it leaves larger bins available for larger items.
+
+This seems like a valid heuristic. So this could be the priority_v2.
+
+Alternatively, another approach is to combine Best Fit with this ratio. For example, the priority could be (R - item) + (item / R). But I'm not sure. Let's see. For a bin with R=0.5 and item=0.3: R - item=0.2, item/R=0.6 → total 0.8. Another bin with R=0.4 and item=0.3: R - item=0.1, item/R=0.75 → total 0.85. So the second bin is better. So the sum would select the same as Best Fit. But this is more complex.
+
+Alternatively, the priority could be a weighted sum of (R - item) and (item / R). But without knowing the optimal weights, it's hard to choose.
+
+But perhaps the ratio approach is a better heuristic than Best Fit. So implementing that as priority_v2.
+
+So the code would be:
+
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    mask = bins_remain_cap >= item
+    with np.errstate(divide='ignore', invalid='ignore'):
+        # Calculate item / remaining capacity, set to -inf where mask is False
+        scores = np.where(mask, item / bins_remain_cap, -np.inf)
+    return scores
+
+But need to handle division by zero. If a bin has R=0, but item is 0, then 0/0 is undefined. But in that case, the item is zero, and the bin can accept it. So in code, we can add a small epsilon to the denominator to avoid division by zero. Or use numpy's error handling.
+
+Alternatively, use np.divide with where and out parameters.
+
+But perhaps the code can proceed as:
+
+scores = np.full_like(bins_remain_cap, -np.inf)
+valid = bins_remain_cap >= item
+valid_bins = bins_remain_cap[valid]
+scores[valid] = item / valid_bins
+return scores
+
+But this uses more lines. Alternatively, use np.where and handle division.
+
+But in practice, when R is zero and item is zero, the division is 0/0, which is NaN. So we need to handle that. But in the case where item is zero, any bin with R >=0 can accept it. But the priority for those bins would be 0 / R. For R=0, 0/0 is NaN, but the item is zero, so placing it in a bin with R=0 (which is already full) is not possible. Wait, no. If the bin's remaining capacity is zero, then it can't fit any item, even zero. Because the remaining capacity is zero. So if the item is zero, but the bin's remaining capacity is zero, then it can't fit. So in that case, the mask would be bins_remain_cap >= item. If item is zero, then bins_remain_cap >=0. So any bin with R >=0 (which is all bins) can accept it. But if a bin has R=0, then after placing the item (size 0), the remaining capacity is 0. So it's allowed. But in that case, the division is 0/0, which is NaN. So to avoid that, perhaps add a small epsilon to the denominator.
+
+So modifying the code:
+
+scores = np.where(mask, item / (bins_remain_cap + 1e-9), -np.inf)
+
+But adding 1e-9 to the denominator. This way, even if R is zero and item is zero, the denominator is 1e-9, so 0 / 1e-9 is 0. So the score is zero, which is acceptable.
+
+But in cases where R is very small, adding 1e-9 might not significantly affect the ratio. For example, R=0.1, item=0.1: 0.1 / (0.1 + 1e-9) ≈ 1.0. Which is correct.
+
+So the code would be:
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    mask = bins_remain_cap >= item
+    # Avoid division by zero by adding a small epsilon
+    scores = np.where(mask, item / (bins_remain_cap + 1e-9), -np.inf)
+    return scores
+
+This way, even when R is zero and item is zero, the score is 0 / (0 + 1e-9) = 0. So the priority is zero. Which is acceptable.
+
+Another consideration: if the item is zero, then all bins can accept it. The priority would be zero for all bins. So the first bin (with highest index or first occurrence) would be selected. But since all scores are zero, the code would pick the first bin with the highest score (all zeros), which is the first valid bin. But in practice, the code would select the first bin that can fit the item. But since all bins can fit a zero-sized item, the code would select the first bin. Which is equivalent to First Fit. But for zero-sized items, any placement is acceptable.
+
+But the main case is when item is positive. So this code should handle that.
+
+Another test case: item=0.5, bins_remain_cap = [0.6, 0.5, 0.4]. The valid bins are the first two. For the first bin, score is 0.5 / 0.6 ≈ 0.833. For the second bin, 0.5 / 0.5 = 1.0. So the second bin is selected. Which is correct, as placing the item in the second bin fills it completely (remaining 0.0), which is better.
+
+Another test case: item=0.3, bins_remain_cap = [0.4, 0.5]. The scores are 0.3/0.4=0.75 and 0.3/0.5=0.6. So the first bin is selected, which leaves 0.1 remaining. Which is better than leaving 0.2 in the second bin. So this is better than Best Fit, which would select the first bin (R - item=0.1) over the second (R - item=0.2). So same result.
+
+But in another case: item=0.3, bins_remain_cap = [0.3, 0.4]. The first bin has score 0.3/0.3=1.0, the second 0.3/0.4=0.75. So the first bin is selected, which fills it completely. Which is correct.
+
+So this heuristic seems to work well. It prioritizes bins where the item takes up a larger proportion of the remaining space, leading to tighter packing.
+
+Thus, the code for priority_v2 is as written above.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritize bins where the item fills maximum remaining capacity proportion.
+       Favors bins where item/remaining_ratio is highest to tightly pack items."""
+    # Calculate remaining capacity after potential placement
+    remaining_after = bins_remain_cap - item
+    
+    # Create mask for valid bins that can accommodate the item
+    valid_mask = remaining_after >= 0
+    
+    # Calculate item-to-remaining ratio with epsilon to avoid division by zero
+    with np.errstate(divide='ignore', invalid='ignore'):
+        fill_ratio = item / (bins_remain_cap + 1e-9)
+    
+    # Boost score for bins that would be perfectly filled
+    perfection_bonus = (remaining_after == 0) * 2.0
+    
+    # Combine metrics and invalidate impossible bins
+    scores = np.where(valid_mask, fill_ratio + perfection_bonus, -np.inf)
+    
+    return scores
+```

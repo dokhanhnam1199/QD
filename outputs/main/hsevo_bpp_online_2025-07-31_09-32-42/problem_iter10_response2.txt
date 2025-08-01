@@ -1,0 +1,64 @@
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    bin_capacity: float,
+    stability_epsilon_factor: float = 5.9624246928524014e-09).eps,
+    perfect_fit_tolerance_factor: float = 2.8653270171413916e-07,
+    consolidation_factor: float = 45.74860474722835) -> np.ndarray:
+    """Prioritizes bins using a robust Best Fit approach with inverse waste and a strategic consolidation bonus.
+
+    This heuristic combines inverse waste minimization, ensures perfect fits are highest priority,
+    and adds a strategic bonus to already fuller bins to promote consolidation.
+    """
+    # Initialize all priorities to negative infinity. Bins that cannot fit the item will retain this low priority.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # 1. Identify bins where the item can be placed without exceeding capacity.
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Calculate the potential remaining capacity (waste) after placing the item,
+    # but only for those bins that can accommodate it.
+    potential_remain_after_fit_valid = bins_remain_cap[can_fit_mask] - item
+
+    # Define constants for numerical stability and perfect fit identification.
+    # Scaling by bin_capacity makes these parameters adaptive to the problem's scale.
+    STABILITY_EPSILON = stability_epsilon_factor * bin_capacity 
+    PERFECT_FIT_TOLERANCE = perfect_fit_tolerance_factor * bin_capacity 
+
+    # Ensure epsilon and tolerance are not effectively zero, especially for very small bin_capacity values.
+    # We use the original factors as a floor, to ensure these values are never smaller than the base numerical precision.
+    STABILITY_EPSILON = max(STABILITY_EPSILON, stability_epsilon_factor)
+    PERFECT_FIT_TOLERANCE = max(PERFECT_FIT_TOLERANCE, perfect_fit_tolerance_factor) 
+
+    # 2. Separate valid bins into perfect fits and non-perfect fits, using tolerance for robustness.
+    perfect_fit_sub_mask = np.abs(potential_remain_after_fit_valid) < PERFECT_FIT_TOLERANCE
+    non_perfect_fit_sub_mask = potential_remain_after_fit_valid >= PERFECT_FIT_TOLERANCE
+
+    # Create full masks to directly index the `priorities` array based on original bin indices.
+    perfect_fit_full_mask = np.zeros_like(bins_remain_cap, dtype=bool)
+    perfect_fit_full_mask[can_fit_mask] = perfect_fit_sub_mask
+
+    non_perfect_fit_full_mask = np.zeros_like(bins_remain_cap, dtype=bool)
+    non_perfect_fit_full_mask[can_fit_mask] = non_perfect_fit_sub_mask
+
+    # Apply priority scores:
+    # A. Perfect fits receive the highest possible priority (np.inf) to ensure unequivocal selection.
+    priorities[perfect_fit_full_mask] = np.inf
+
+    # B. For non-perfect fits, the base score is calculated as the inverse of the remaining waste.
+    # This non-linear function disproportionately favors tighter fits over looser ones.
+    base_inverse_waste_scores = 1.0 / (potential_remain_after_fit_valid[non_perfect_fit_sub_mask] + STABILITY_EPSILON)
+    
+    # C. Add a consolidation bonus to bins that are already more filled.
+    # This additive term encourages placing items into bins that are close to being full,
+    # thereby helping to minimize the total number of bins used (consolidation).
+    
+    current_fullness_for_non_perfect_fits = (bin_capacity - bins_remain_cap[non_perfect_fit_full_mask]) / bin_capacity
+    consolidation_bonus = consolidation_factor * current_fullness_for_non_perfect_fits
+
+    # Combine the inverse waste score with the consolidation bonus for non-perfect fits.
+    priorities[non_perfect_fit_full_mask] = base_inverse_waste_scores + consolidation_bonus
+
+    return priorities

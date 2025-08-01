@@ -1,0 +1,68 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority for placing an item into each bin, implementing a
+    Best Fit with Strong Perfect Fit Preference and Inverse Waste Scoring.
+
+    This heuristic prioritizes bins with smallest remaining capacity,
+    strongly favoring perfect fits. For others, it uses inverse waste
+    scoring, penalizing larger gaps non-linearly. Combines robust
+    tight-fit with bin closure incentive.
+    """
+    # Assuming bin capacity is normalized to 1.0. This simplifies thresholds.
+    # If actual capacities vary, a `bin_capacity` parameter would be needed.
+    BIN_CAPACITY = 1.0
+
+    # A small tolerance for floating-point comparisons to consider a fit "perfect"
+    PERFECT_FIT_TOLERANCE = 1e-6
+
+    # Smallest positive float for numerical stability, primarily to prevent division by zero.
+    EPSILON = np.finfo(float).eps
+
+    # A very high score assigned to perfect or near-perfect fits.
+    # This makes them unequivocally the most desirable choice, encouraging bin closure.
+    MAX_PRIORITY_SCORE = 1e12  # A large constant to ensure dominance of perfect fits
+
+    # Calculate the potential remaining space in each bin if the item were placed.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Initialize all priorities to negative infinity. Bins that cannot fit the item
+    # will retain this value, ensuring they are never chosen.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit.
+    # We allow a tiny negative remaining space due to floating-point precision.
+    can_fit_mask = potential_remaining_space >= -PERFECT_FIT_TOLERANCE
+
+    # Extract the potential remaining spaces only for bins where the item can fit.
+    fitting_potential_rem_space = potential_remaining_space[can_fit_mask]
+
+    # Initialize priorities for fitting bins.
+    fitting_priorities = np.zeros_like(fitting_potential_rem_space)
+
+    # Identify perfect or near-perfect fits based on the defined tolerance.
+    perfect_fit_mask = np.abs(fitting_potential_rem_space) <= PERFECT_FIT_TOLERANCE
+
+    # Assign the maximal priority score for perfect fits. This strongly encourages closing bins.
+    fitting_priorities[perfect_fit_mask] = MAX_PRIORITY_SCORE
+
+    # For bins that are not a perfect fit, apply an inverse waste scoring.
+    # This creates a strong non-linear preference for smaller remaining spaces (less waste).
+    # The smaller the remaining space, the higher the 1/waste score.
+    non_perfect_fit_mask = ~perfect_fit_mask
+    
+    # Calculate waste for inverse scoring. Since perfect_fit_mask handles near-zero,
+    # fitting_potential_rem_space[non_perfect_fit_mask] will be positive.
+    waste_for_inverse = fitting_potential_rem_space[non_perfect_fit_mask]
+
+    # Apply the inverse waste function. Adding EPSILON prevents division by zero for
+    # extremely small non-zero remaining capacities.
+    fitting_priorities[non_perfect_fit_mask] = 1 / (waste_for_inverse + EPSILON)
+
+    # Update the main priorities array with the scores for fitting bins.
+    priorities[can_fit_mask] = fitting_priorities
+
+    return priorities
+```

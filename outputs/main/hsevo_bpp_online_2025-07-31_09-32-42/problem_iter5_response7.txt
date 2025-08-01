@@ -1,0 +1,58 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_capacity: float = 1.0) -> np.ndarray:
+    """Prioritizes bins using an adaptive Best Fit approach, emphasizing tight fits for
+    global utility and robustly handling edge cases for predictive packing.
+
+    This heuristic combines the effectiveness of inverse waste minimization with
+    adaptive numerical stability, aiming for bin configurations that enhance
+    future packing opportunities. It assigns the highest priority to perfect fits
+    and uses a non-linear inverse function for others, subtly scaled by bin
+    capacity to be problem-aware.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+        bin_capacity: The total capacity of a single bin. Default is 1.0.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize all priorities to negative infinity. This ensures bins that cannot fit
+    # the item are never chosen, providing a clear baseline for infeasible options.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can be placed without exceeding capacity.
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Calculate the potential remaining capacity (waste) after placing the item
+    # for only those bins that can accommodate it.
+    potential_remain_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # Separate valid bins into two categories: perfect fits and non-perfect fits (some waste).
+    perfect_fit_mask = (potential_remain_after_fit == 0)
+    non_perfect_fit_mask = (potential_remain_after_fit > 0)
+
+    # 1. Prioritize perfect fits with a very high, distinct finite score.
+    # Scaling by `bin_capacity` makes this score adaptive to the problem's scale,
+    # ensuring perfect fits are overwhelmingly dominant regardless of the bin size.
+    PERFECT_FIT_SCORE = 1e6 * bin_capacity # A large multiplier ensures dominance.
+    priorities[can_fit_mask][perfect_fit_mask] = PERFECT_FIT_SCORE
+
+    # 2. For non-perfect fits, prioritize inversely to the remaining waste.
+    # A smaller waste results in a higher priority. The `STABILITY_EPSILON` is
+    # dynamically scaled by `bin_capacity` to maintain numerical stability and
+    # problem-awareness across different bin scales (e.g., a tiny absolute waste
+    # in a large bin might be effectively 'zero'). This avoids explicit "dead space"
+    # penalties, letting the inverse relationship naturally de-prioritize larger wastes.
+    STABILITY_EPSILON = np.finfo(float).eps * bin_capacity 
+    
+    # Ensure epsilon is not zero, especially for very small bin_capacity values if they could occur.
+    if STABILITY_EPSILON == 0.0:
+        STABILITY_EPSILON = np.finfo(float).eps 
+
+    priorities[can_fit_mask][non_perfect_fit_mask] = 1.0 / (potential_remain_after_fit[non_perfect_fit_mask] + STABILITY_EPSILON)
+
+    return priorities
+```

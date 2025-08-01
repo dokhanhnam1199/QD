@@ -1,0 +1,162 @@
+<think>
+Okay, I need to create a priority_v2 function that combines elements from the better code (priority_v0) and the worse code (priority_v1), while considering the analysis provided. Let me start by understanding what each version does and what the analysis says about them.
+
+The better code (v0) uses a combination of tightness factor (1/remaining²) and utilization factor (1/bin's original capacity). The analysis mentions that the best heuristics combine harmonic efficiency with residual potential via geometric mean. So v0's approach of multiplying tightness and utilization factors is effective because it balances tight packing with the bin's original underutilization.
+
+The worse code (v1) combines tightness (1/remaining), utilization (1 - bin's remaining), and an exponential decay bonus for near-exact fits. The analysis says that multiplicative terms over-penalize mid-range bins and the exponential bonus lacks theoretical grounding. However, the analysis also mentions that handling near-exact fits properly (like using np.isclose) is good, as seen in version 13.
+
+From the analysis, the key points to incorporate are:
+1. Use smooth gradients without over-penalizing mid-range bins.
+2. Combine tightness and utilization factors in a balanced way, possibly geometric mean.
+3. Handle near-exact fits properly, maybe with a tolerance check instead of exponential decay.
+4. Avoid multiplicative terms that create artificial cliffs or over-penalize.
+
+So, for priority_v2, I should take the tightness and utilization factors from v0 but maybe adjust how they're combined. Also, instead of the exponential decay in v1, use a check for near-exact fits with a tolerance (like np.isclose) to give a boost to those bins. 
+
+Wait, the analysis says that version 13 (exact fit + reciprocal) handles floating-point tolerance properly with np.isclose. So adding a term that checks if the remaining_after is very close to zero (exact fit) and boosts those bins could be beneficial. 
+
+In v0, the combined score is tightness_factor * utilization_factor. Maybe instead of multiplying, use a weighted sum or another combination that doesn't over-penalize. But the analysis says that the best heuristics use geometric mean, which is a multiplicative approach but balanced. Hmm, the analysis mentions that the best combines via geometric mean. Wait, the analysis says: "the best heuristic combines harmonic efficiency (1/remaining) with residual potential (√capacity) via geometric mean". So maybe instead of multiplying tightness and utilization, take the geometric mean of two factors. 
+
+Wait, in v0, tightness is 1/remaining² and utilization is 1/capacity. The product is 1/(remaining² * capacity). But the analysis suggests using a geometric mean, which would be the square root of the product, perhaps. Alternatively, maybe use different factors. 
+
+Alternatively, maybe the tightness factor should be 1/remaining (harmonic) and the utilization factor sqrt(capacity) (residual potential), then take the geometric mean. But how does that translate into the code?
+
+Wait, the analysis says that the best combines harmonic efficiency (1/remaining) with residual potential (sqrt(capacity)). So harmonic efficiency is like the tightness factor, and residual potential is about how much the bin was already filled. So maybe the utilization factor should be based on the original capacity minus remaining capacity, which is the used space. But in the problem, bins_remain_cap is the remaining capacity. So the used space is (original_bin_capacity - remaining_cap). But we don't have the original bin capacity; bins_remain_cap is the current remaining capacity. Wait, no—wait, in online BPP, each bin starts with a fixed capacity (say 1.0), and as items are added, the remaining capacity decreases. So the original capacity is fixed (e.g., 1.0 for all bins), and bins_remain_cap is the current remaining. So the used space is original_capacity - bins_remain_cap. But if the original capacity is the same for all bins, then utilization_factor could be (original_capacity - bins_remain_cap) / original_capacity, which is the fraction used. But in the code provided, the original capacity isn't passed; only the remaining capacity is available. Wait, in the parameters, the function receives bins_remain_cap, which is the array of remaining capacities. So the original capacity for each bin is not directly known. Wait, that's a problem. Because if a bin has a remaining capacity of 0.3, the original capacity could have been, say, 1.0, so the used space is 0.7. But if the original capacity varies (though in standard BPP, bins are of fixed size), but in the problem statement, it's fixed-sized bins. So the original capacity is the same for all bins. Let's assume that the original capacity is 1.0 (normalized), so the remaining capacity is bins_remain_cap, and the used space is 1.0 - bins_remain_cap. But the function doesn't have access to the original capacity, only the remaining. So perhaps the code assumes that the original capacity is 1.0, and bins_remain_cap is the remaining. So the utilization factor in v0 is 1/(bins_remain_cap + epsilon), which would be higher for bins that have less remaining (i.e., more utilized). Wait, no: 1/(bins_remain_cap + epsilon) would be higher when bins_remain_cap is smaller. For example, if a bin has 0.2 remaining, 1/0.2 is 5. If it has 0.5 remaining, 1/0.5 is 2. So this factor favors bins that have less remaining capacity (more utilized). So the utilization_factor in v0 is encouraging placing items in bins that were already more utilized. 
+
+But according to the analysis, the best heuristic combines harmonic efficiency (1/remaining) with residual potential (sqrt(capacity)). Wait, maybe residual potential refers to the original capacity's potential. But if the original capacity is fixed, then residual potential might refer to the remaining capacity. Hmm, perhaps the analysis is suggesting that the residual potential is the square root of the original capacity minus the used space, but I'm not sure. 
+
+Alternatively, the residual potential could be the remaining capacity after placing the item. Wait, the analysis says the best combines harmonic efficiency (1/remaining) with residual potential (sqrt(capacity)) via geometric mean. So maybe the residual potential is the square root of the bin's original capacity. But if the original capacity is fixed, that term would be the same for all bins and thus not affect the priority. So perhaps the residual potential is the remaining capacity after placing the item. Wait, but in that case, the residual potential would be remaining_after = bins_remain_cap - item. But the analysis mentions sqrt(capacity), which might be sqrt(remaining_after) or sqrt(original capacity). 
+
+This is a bit unclear. Let's look back at the analysis. The analysis says: "the best heuristic combines harmonic efficiency (1/remaining) with residual potential (√capacity) via geometric mean". So harmonic efficiency is 1/remaining_after, and residual potential is sqrt(capacity), where capacity is perhaps the original capacity. But if original capacity is fixed, then sqrt(capacity) is a constant and doesn't affect the priority. So maybe residual potential refers to the remaining capacity after placing the item. Or perhaps the residual potential is the current remaining capacity of the bin before placing the item. 
+
+Alternatively, maybe the residual potential is the remaining capacity after placing the item. For example, after placing the item, the remaining capacity is bins_remain_cap - item. The residual potential could be the square root of that remaining capacity. But combining 1/remaining_after (harmonic) with sqrt(remaining_after) (residual) via geometric mean would be sqrt( (1/remaining_after) * sqrt(remaining_after) ) ) = sqrt( 1 / sqrt(remaining_after) ) ) = remaining_after^(-1/4). That doesn't seem right. 
+
+Alternatively, maybe the residual potential is the original capacity of the bin. If the original capacity is fixed (say 1.0), then sqrt(1.0) is 1, so it's a constant. That doesn't help. 
+
+Hmm, perhaps the analysis is referring to the residual potential as the remaining capacity of the bin before placing the item. So, for a bin that has a remaining capacity of R before placing the item, the residual potential is sqrt(R). Then combining with harmonic efficiency (1/(R - item)) via geometric mean. Wait, but R - item is the remaining after placing. 
+
+Alternatively, maybe the residual potential is the current remaining capacity (before placing the item), and the harmonic efficiency is the reciprocal of the remaining after placing. So the geometric mean would be sqrt( (1/(R - item)) * R ). That would be sqrt( R / (R - item) ). 
+
+But I'm not sure. Let's think of the example given in the analysis: the best heuristic (quantum-inspired) uses geometric mean of 1/remaining and sqrt(capacity). So perhaps the two factors are 1/remaining_after and sqrt(bins_remain_cap), and their geometric mean is sqrt( (1/remaining_after) * sqrt(bins_remain_cap) ) ). Or maybe it's the product of 1/remaining_after and sqrt(bins_remain_cap), then take the square root. 
+
+Alternatively, the factors are 1/remaining_after and sqrt(bins_remain_cap), and their product is (1/remaining_after) * sqrt(bins_remain_cap). 
+
+But how does this fit into the code? Let's look at the better code (v0). It uses tightness_factor = 1/(remaining_after²) and utilization_factor = 1/(bins_remain_cap). The combined score is their product. The analysis says that the best uses a geometric mean of harmonic (1/remaining) and sqrt(capacity). So perhaps the better code's approach is similar but with squared terms. 
+
+The analysis also mentions that the worse code (v1) uses multiplicative terms that over-penalize mid-range bins. So combining multiple factors multiplicatively can be bad. 
+
+So, to design priority_v2, I should take the best elements from v0 and v1, avoiding their pitfalls. 
+
+From v0: combining tightness (1/remaining²) and utilization (1/bin's original remaining) multiplicatively. But according to the analysis, the best uses a geometric mean of 1/remaining and sqrt(capacity). So maybe adjust the factors to be 1/remaining_after (harmonic) and sqrt(bins_remain_cap) (residual potential), then combine via geometric mean (i.e., square root of their product). 
+
+Wait, but bins_remain_cap is the remaining capacity before placing the item. So the residual potential is sqrt(bins_remain_cap), and the harmonic efficiency is 1/(remaining_after). The product would be (1/(remaining_after)) * sqrt(bins_remain_cap). Then the geometric mean is sqrt( (1/remaining_after) * sqrt(bins_remain_cap) ) ), but that's the same as ( (1/remaining_after) * sqrt(bins_remain_cap) )^(1/2) = (1/remaining_after)^(1/2) * (bins_remain_cap)^(1/4). Not sure if that's better. 
+
+Alternatively, maybe the factors are 1/remaining_after and bins_remain_cap, combined via geometric mean. So sqrt( (1/remaining_after) * bins_remain_cap ). That would favor bins where remaining_after is small (tight fit) and bins_remain_cap is large (the bin had more space before placing, so using it now is better). Wait, but if bins_remain_cap is large, that means the bin was underutilized before. So combining 1/remaining_after (which is large when remaining_after is small) with bins_remain_cap (which is large when the bin was underutilized) would multiply to get a higher score for bins that are both a tight fit and were underutilized. But the product would be (1/remaining_after) * bins_remain_cap. The geometric mean is the square root of that. 
+
+But in the analysis, the best heuristic combines harmonic efficiency (1/remaining) with residual potential (sqrt(capacity)) via geometric mean. So perhaps the residual potential is sqrt(bins_remain_cap), and the harmonic is 1/remaining_after. Then the product is (1/remaining_after) * sqrt(bins_remain_cap), and the geometric mean is sqrt( (1/remaining_after) * sqrt(bins_remain_cap) ) ). 
+
+Alternatively, maybe the residual potential is the remaining capacity after placing the item. So sqrt(remaining_after). Then combining with 1/remaining_after would give (1/remaining_after) * sqrt(remaining_after) = 1/sqrt(remaining_after). But that's the same as remaining_after^(-0.5), which is similar to the tightness factor in v0 but with a square root instead of square. 
+
+This is getting a bit complicated. Let's think of the key elements from the analysis:
+
+- The best heuristics use a balanced combination (geometric mean) of tight fit and residual potential (which relates to the bin's original state).
+- Avoid multiplicative terms that over-penalize mid-range bins.
+- Handle near-exact fits properly with tolerance checks.
+
+So, taking from v0: the idea of combining tightness and utilization (original bin's state) multiplicatively, but perhaps adjust the factors to be more balanced.
+
+From the analysis, the worse code (v1) uses an exponential decay bonus for near-exact fits, which isn't good. But the better approach (as in version 13) uses np.isclose to check for exact fits and gives them a boost.
+
+So, for priority_v2, perhaps:
+
+1. Calculate tightness factor as 1 / remaining_after (harmonic efficiency).
+2. Calculate residual potential as sqrt(bins_remain_cap) (residual potential from original state).
+3. Combine them via geometric mean (square root of their product) to balance both factors.
+4. Add a bonus for exact fits using np.isclose to check if remaining_after is near zero, giving those bins a higher score.
+
+Additionally, ensure that the combination doesn't create artificial cliffs and handles floating-point precision.
+
+Let's draft this:
+
+First, compute remaining_after = bins_remain_cap - item.
+
+Check feasibility: remaining_after >=0.
+
+For feasible bins:
+
+tightness = 1 / (remaining_after + epsilon)
+residual = np.sqrt(bins_remain_cap + epsilon)  # to avoid sqrt(0)
+combined = np.sqrt(tightness * residual)  # geometric mean
+
+Then, check for exact fits (remaining_after close to 0) and boost those bins.
+
+exact_fit_bonus = np.isclose(remaining_after, 0, atol=1e-9) * 1e6  # large bonus for exact fits
+
+scores = combined + exact_fit_bonus
+
+For infeasible bins, set to -inf.
+
+This way, the score combines harmonic tightness and residual potential via geometric mean, and exact fits get a priority boost.
+
+But wait, the analysis says that version 13's handling of exact fits with np.isclose is better than using an exponential decay. So adding a bonus for exact fits would help.
+
+But how to integrate this into the code.
+
+Putting it all together:
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins using geometric mean of harmonic tightness (1/remaining) and residual potential (√original capacity), with exact fit bonus."""
+    remaining_after = bins_remain_cap - item
+    feasible = remaining_after >= 0
+    epsilon = 1e-9
+    
+    # Harmonic tightness factor (1/remaining after placement)
+    tightness = 1 / (remaining_after + epsilon)
+    
+    # Residual potential from original bin state (sqrt(original remaining))
+    residual = np.sqrt(bins_remain_cap + epsilon)
+    
+    # Geometric mean combines factors
+    combined = np.sqrt(tightness * residual)
+    
+    # Boost exact fits to maximum priority
+    exact_fit = np.isclose(remaining_after, 0, atol=1e-9, rtol=0)
+    combined += exact_fit * 1e20  # Dominant priority for perfect fits
+    
+    return np.where(feasible, combined, -np.inf)
+
+Wait, but the exact fit bonus should only apply if the bin is feasible. So multiplying by feasible mask? But in the code, feasible is already handled by the where clause. However, the exact_fit is only possible when feasible, since remaining_after >=0. So adding the bonus to the combined score, and then applying the feasible mask, would work.
+
+But in the code above, the exact_fit is added to the combined score, and then the feasible mask is applied. So for feasible bins, the combined score includes the exact fit bonus, and for infeasible, it's -inf.
+
+This way, bins that can exactly fit the item get a huge boost, ensuring they are chosen first. The geometric mean balances the tightness and residual potential factors.
+
+The docstring should explain the key idea: combining harmonic tightness and residual potential via geometric mean, plus exact fit bonus.
+
+Testing this approach: the geometric mean ensures that both factors are considered, and the exact fit bonus handles cases where the item fits perfectly, which is optimal.
+
+This combines elements from the better code (using factors related to tightness and utilization) and the analysis's mention of handling exact fits properly. It avoids the multiplicative penalties of the worse code by using a geometric mean and adds a controlled bonus for exact fits.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines geometric mean of harmonic tightness (1/remaining) and residual 
+    potential (√original capacity) with exact-fit nuclear binding bonus."""
+    
+    remaining_after = bins_remain_cap - item
+    feasible = remaining_after >= 0
+    epsilon = 1e-9
+    
+    # Core balance: Geometric mean between tight packing and residual flexibility
+    harmonic_tightness = 1 / (remaining_after + epsilon)
+    residual_potential = np.sqrt(bins_remain_cap + epsilon)  # √(original capacity - used)
+    balanced_score = np.sqrt(harmonic_tightness * residual_potential)
+    
+    # Nuclear binding bonus: Extreme priority for exact fits (0 remaining)
+    exact_fit = np.isclose(remaining_after, 0, atol=1e-9, rtol=0)
+    nuclear_bonus = exact_fit * 1e20  # Physically inspired dominance
+    
+    return np.where(feasible, balanced_score + nuclear_bonus, -np.inf)
+```

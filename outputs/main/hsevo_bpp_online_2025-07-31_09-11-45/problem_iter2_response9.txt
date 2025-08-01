@@ -1,0 +1,249 @@
+<think>
+Okay, I need to create a new priority function for the online bin packing problem by combining elements from the provided v0 and v1 versions, while incorporating the analysis and experience mentioned. Let me start by understanding the key points from the analysis.
+
+The better code (v0) uses a radiation-inspired decay balance, combining tight packing with capacity preservation using exponential terms. It also considers creating new bins for large items to prevent fragmentation. The worse code (v1) uses inverse square of remaining space and penalizes capacity, but it's less effective.
+
+From the analysis, effective heuristics balance tight fits with future flexibility. The best ones use harmonic efficiency and residual potential. The worst over-penalize mid-range bins. Also, handling floating-point precision and avoiding artificial cliffs is important.
+
+So, I should combine the strengths of v0 and v1 while addressing their weaknesses. Let's look at v0's decay factor and capacity preservation. V1 uses density boost and capacity penalty. The analysis mentions that multiplicative terms can be bad, but v0 uses a multiplicative approach with decay_factor and capacity_preservation. However, the analysis says that the best combines via geometric mean, which is a multiplicative approach but balanced.
+
+Wait, the analysis says that the best heuristic combines harmonic efficiency (1/remaining) with residual potential (sqrt(capacity)) via geometric mean. So maybe using a product of these terms. Also, the worse code (v1) uses density_boost (item / remaining) minus capacity_penalty, which might not balance well.
+
+The improved function should balance tight fits (like decay_factor in v0) with preserving mid-sized capacities (sqrt in v0). Also, handle large items by possibly favoring new bins, as in v0 when item >0.5.
+
+Another point from the analysis: v13 handles floating-point tolerance with np.isclose, which is better than v10's 1e9 boost. So I should ensure that divisions don't cause issues, maybe adding a small epsilon.
+
+Let me outline the steps:
+
+1. Calculate remaining space after placing the item.
+2. Create a fit mask where bins can accommodate the item.
+3. For valid bins, compute a score that combines tight fit and capacity preservation.
+4. Use a combination of exponential decay (for tight fits) and sqrt of remaining capacity (to preserve mid-sized bins).
+5. Adjust scores for large items to encourage new bins, preventing fragmentation.
+6. Avoid using static ratios; perhaps make the adjustment dynamic based on item size.
+
+In v0, when the item is >0.5, they multiply the score by 0.2, which reduces the priority of existing bins, making a new bin more likely. That's a static threshold. Maybe instead, adjust the penalty based on how much the item exceeds a certain threshold.
+
+Wait, the analysis mentions that the best heuristics use harmonic efficiency (like 1/remaining) and residual potential (sqrt). So maybe the score should be a product of these terms. For example, (1 / remaining_after) * sqrt(remaining_after) would be sqrt(remaining_after)/remaining_after = 1/sqrt(remaining_after). Hmm, not sure. Alternatively, maybe combine them additively with weights.
+
+Alternatively, use a geometric mean, which is the square root of the product. For example, sqrt( (1/remaining_after) * sqrt(bins_remain_cap) ) ). But I need to see how v0 and v1 did it.
+
+In v0, the score is decay_factor (exp(-5 * remaining_space)) multiplied by (1 + capacity_preservation (sqrt(bins_remain_cap))). So it's a product of two terms: one favoring small remaining space (since exp(-5*remaining) is high when remaining is small), and the other favoring higher remaining capacity (sqrt(bins_remain_cap) is higher for larger bins). Wait, bins_remain_cap is the remaining capacity before placing the item. So after placing, remaining_space is bins_remain_cap - item. But in v0, capacity_preservation is sqrt of the original remaining capacity. So this term encourages preserving bins that have more remaining capacity, which might not make sense. Wait, if a bin has a larger remaining capacity, after placing the item, it's better to have some space left for future items. So preserving bins with higher remaining capacity (before placing) might not be the right approach. Maybe the capacity preservation should be based on the remaining capacity after placing the item.
+
+Hmm, perhaps the analysis suggests that the residual potential (sqrt of the remaining capacity after placement) is important. So the term should be sqrt(remaining_after), which would encourage leaving some space for future items. But in v0, they use sqrt(bins_remain_cap), which is the remaining capacity before placing the item. That might not be as effective.
+
+Wait, in v0, remaining_space is bins_remain_cap - item. So after placing the item, the remaining space is remaining_space. The decay_factor is exp(-5 * remaining_space), which is high when remaining_space is small (tight fit). The capacity_preservation is sqrt(bins_remain_cap), which is the original remaining capacity. So for a bin that has a lot of space, this term is higher. But after placing the item, the remaining space is bins_remain_cap - item. So maybe the capacity preservation should be based on the remaining space after placement. Because preserving bins that have more space after placement (i.e., not using up all their capacity) allows for future items to fit.
+
+So perhaps the capacity preservation term should be sqrt(remaining_after) instead of sqrt(bins_remain_cap). That way, bins that have more remaining space after placing the item are preferred for preservation, which helps with future flexibility.
+
+So combining tight fit (exp(-5 * remaining_after)) with capacity preservation (sqrt(remaining_after)). But how to combine them? The analysis mentions that the best heuristics use a geometric mean (like harmonic efficiency and residual potential via geometric mean). So maybe multiply the two terms.
+
+Wait, in the analysis, the best combines harmonic efficiency (1/remaining) with residual potential (sqrt(capacity)) via geometric mean. So maybe the score is (1/remaining_after) * sqrt(remaining_after) = 1/sqrt(remaining_after). But that's just one term. Alternatively, the geometric mean would be sqrt( (1/remaining_after) * sqrt(remaining_after) ), which is sqrt(1/sqrt(remaining_after)) ), which is remaining_after^(-1/4). Not sure.
+
+Alternatively, maybe the score is a product of the two factors: tight fit (like 1/remaining_after) and residual potential (sqrt(remaining_after)). So 1/remaining_after * sqrt(remaining_after) = 1/sqrt(remaining_after). That would prioritize bins where the remaining space after placement is as small as possible, but also considering the square root term. Wait, but 1/sqrt(x) is higher when x is smaller, which is the same as 1/x. So maybe this isn't the right approach.
+
+Alternatively, maybe the score is (1 / remaining_after) + sqrt(remaining_after). But this would have a trade-off: the first term encourages small remaining_after (tight fit), the second term encourages larger remaining_after (more space left). But how to balance them. The analysis mentions that the best heuristics balance tight packing with future flexibility. So perhaps a weighted sum or product that balances these two.
+
+Alternatively, using the exponential decay for tight fit (as in v0) and multiply by the sqrt of remaining_after to preserve capacity. So the score would be exp(-5 * remaining_after) * sqrt(remaining_after). This way, bins with very small remaining_after (tight fit) get a high score from the exponential term, but the sqrt term slightly penalizes bins that have zero remaining space (since sqrt(0) is 0). Wait, if remaining_after is zero, the sqrt term is zero, making the score zero. But in that case, the exponential term is exp(0) = 1, so the product is sqrt(0) = 0. So this would avoid bins that are exactly filled, which might not be desired. Because an exact fit is ideal. Hmm, maybe the sqrt term should be based on the original remaining capacity before placing the item, as in v0. Or perhaps the capacity preservation term should be based on the bin's original remaining capacity, not the remaining after placement.
+
+Wait, in v0, the capacity preservation is sqrt(bins_remain_cap), which is the remaining capacity before placing the item. So for a bin that has a lot of space, this term is higher. But after placing the item, the remaining space is bins_remain_cap - item. So the idea is that bins that originally had more space are better to preserve, but I'm not sure. Maybe the analysis suggests that preserving mid-sized capacities is better. For example, using sqrt(bins_remain_cap) would give higher scores to bins with more remaining capacity, but sqrt grows slower, so it's a way to balance.
+
+Alternatively, the capacity preservation term could be the remaining capacity after placing the item. So sqrt(remaining_after). This would mean that bins that have more space left after placing the current item are preferred, which helps with future items. But this conflicts with the tight fit. So the heuristic needs to balance these two.
+
+The analysis mentions that the best heuristic combines harmonic efficiency (1/remaining) with residual potential (sqrt(capacity)) via geometric mean. So perhaps the score is (1 / remaining_after) * sqrt(remaining_after) = 1/sqrt(remaining_after). But this still prioritizes smaller remaining_after. Alternatively, maybe the harmonic mean or another combination.
+
+Alternatively, the score could be (1 / remaining_after) + lambda * sqrt(remaining_after), where lambda is a weight. But how to choose lambda? The analysis mentions that the 2nd heuristic uses a golden ratio weighting (0.618/0.382), which is a mathematically informed balance. But the advice says to avoid static ratios. So perhaps use dynamic weighting based on the item size or other factors.
+
+Another point from the analysis: when items are larger than 0.5, creating new bins is better to prevent fragmentation. The v0 code reduces the score for existing bins in this case, making a new bin more likely. But this uses a static threshold of 0.5. Maybe a dynamic threshold based on the item size or remaining capacities.
+
+Putting this together, the new function should:
+
+- For each bin that can fit the item, calculate a score that combines tightness of fit (encourage small remaining_after) and preserving capacity for future items (encourage larger remaining_after).
+- Use a combination of exponential decay (for tight fits) and sqrt of remaining_after (for capacity preservation).
+- Adjust the scores for large items to prefer new bins, but dynamically based on the item size.
+- Handle edge cases with epsilon to avoid division by zero.
+
+Let me draft the code:
+
+1. Compute remaining_after = bins_remain_cap - item
+2. fit_mask = bins_remain_cap >= item
+3. For valid bins (fit_mask), compute the score as a product of decay_factor (exp(-k * remaining_after)) and sqrt(remaining_after + eps) to avoid zero.
+4. Add a dynamic penalty for large items: if the item is large, reduce the score of existing bins, encouraging a new bin.
+5. Use np.where to set invalid bins to -inf.
+
+Wait, but in v0, the capacity preservation is sqrt(bins_remain_cap), not remaining_after. So maybe the capacity preservation should be based on the original remaining capacity. Let me think again.
+
+If the capacity preservation is based on the original remaining capacity (bins_remain_cap), then it's about preserving bins that had more space before placing the item. But after placing, the remaining_after is bins_remain_cap - item. So the idea is that bins that had more space are better to use, but after placing, they still have some space left. Hmm, not sure.
+
+Alternatively, the capacity preservation term could be the remaining_after, so that after placing the item, the bin still has some space, which is good for future items. So the term sqrt(remaining_after) would encourage leaving some space, but the decay factor encourages leaving as little as possible.
+
+So combining these two: exp(-5 * remaining_after) * sqrt(remaining_after + eps). The exponential term is high when remaining_after is small (tight fit), and the sqrt term is high when remaining_after is larger. The product would peak at some optimal remaining_after value, balancing tight fit and remaining space.
+
+For example, if remaining_after is 0, the sqrt term is 0, so the score is 0. If remaining_after is very large, the exponential term drops to near zero. The maximum of the function exp(-5x) * sqrt(x) occurs where the derivative is zero. Let's compute derivative:
+
+f(x) = e^(-5x) * sqrt(x)
+f'(x) = e^(-5x) * ( (1/(2*sqrt(x))) ) + e^(-5x) * sqrt(x) * (-5)
+Set to zero:
+(1/(2*sqrt(x))) -5*sqrt(x) =0
+Multiply both sides by 2*sqrt(x):
+1 -10x =0 → x=0.1
+
+So the maximum is at x=0.1. So this combination would prioritize bins where the remaining_after is around 0.1, balancing tight fit and remaining space. That could be a good balance.
+
+Then, for large items (e.g., item >0.5), we want to encourage new bins. In v0, they multiply the score by 0.2, which makes existing bins less attractive. But maybe a dynamic approach: if the item is large, the penalty is higher. For example, if item is 0.6, then existing bins' scores are reduced more.
+
+Alternatively, use a sigmoid function to smoothly transition the penalty based on item size. But for simplicity, perhaps a linear penalty based on how much the item exceeds 0.5.
+
+But the analysis says to avoid static thresholds. So maybe the penalty is applied when the item is large relative to the average bin capacity. However, since bins are of fixed size (1, assuming normalized), item >0.5 is a common heuristic. But the advice says to use adaptive thresholds. Hmm.
+
+Alternatively, compute the penalty as a function of the item size. For example, if the item is larger than the median of the remaining capacities, apply a penalty. But that might be complex.
+
+Alternatively, for items larger than 0.5, apply a penalty to existing bins, as in v0, but perhaps with a dynamic factor. For example, the penalty could be 1 - item_size, so larger items get a higher penalty. So if item is 0.6, penalty factor is 0.4, reducing the score.
+
+But perhaps the v0 approach is acceptable, but with a note that in a more advanced version, the threshold could adapt based on observed item sizes.
+
+Putting it all together:
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Balances tight packing with future flexibility using exponential decay
+    for fit quality and sqrt residual capacity for bin preservation."""
+    fit_mask = bins_remain_cap >= item
+    remaining_after = bins_remain_cap - item
+    
+    # Avoid zero in sqrt with epsilon
+    eps = 1e-9
+    decay = np.exp(-5 * remaining_after)
+    preservation = np.sqrt(remaining_after + eps)
+    
+    scores = np.where(fit_mask, decay * preservation, -np.inf)
+    
+    # Dynamic penalty for large items: item_size^3 reduces existing bin scores
+    if item > 0.5:
+        penalty = 1 - (item ** 3)  # Larger items get more penalty
+        scores = np.where(fit_mask, scores * penalty, scores)
+    
+    return scores
+
+But wait, the penalty here is 1 - item^3. For item=0.6, penalty is 1 - 0.216=0.784. So scores are multiplied by 0.784, making them slightly lower. For item=0.8, penalty is 1-0.512=0.488, a bigger reduction. This dynamically reduces the score more for larger items, encouraging new bins. However, this is still a static threshold (item>0.5). To make it adaptive, perhaps the penalty could depend on the current bins' remaining capacities. But without knowing future items, it's hard. Alternatively, use a sigmoid function that starts applying the penalty gradually around 0.5.
+
+Alternatively, compute the penalty factor as (1 - item) * some factor. But this is getting complicated.
+
+Another approach from the analysis: the best heuristics use smooth gradients without artificial cliffs. So instead of a hard threshold at 0.5, apply a continuous penalty based on item size. For example, the penalty factor could be 1 / (1 + np.exp(k*(item - 0.5))) which is a sigmoid that reduces the score more as item size increases beyond 0.5.
+
+But this might complicate the code. For simplicity, perhaps keep the item>0.5 check but use a dynamic penalty factor based on how much the item exceeds 0.5. For example:
+
+penalty = 1 - (item - 0.5) * 2  # For item=0.5, penalty=1; item=0.6, penalty=0.8; item=1.0, penalty=0.
+
+But this is linear. Alternatively, use a quadratic penalty.
+
+But perhaps the original v0 approach is sufficient, but with a dynamic multiplier. The analysis mentioned that v0's approach of multiplying by 0.2 when item>0.5 is a static ratio, which is not ideal. So instead of 0.2, use a factor that depends on the item size. For example:
+
+penalty_factor = np.exp(- (item - 0.5) * 10)  # When item=0.5, factor=1; item=0.6, factor=exp(-1)=0.367...
+
+But this requires computation for all bins, even if item <=0.5. Alternatively, compute it only when item>0.5.
+
+Alternatively, for items larger than 0.5, the penalty increases with item size. So:
+
+if item > 0.5:
+    penalty = 1 - (item - 0.5) * 2  # item=0.6 → 0.8, item=0.75 → 0.5, etc.
+    scores = np.where(fit_mask, scores * penalty, scores)
+
+But this is a linear penalty. However, this is a simple way to make the penalty dynamic based on how much the item exceeds 0.5.
+
+Putting it all together, the code would look like:
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Balances exponential tight-fit preference with residual capacity preservation,
+    applying dynamic large-item penalties to reduce fragmentation."""
+    fit_mask = bins_remain_cap >= item
+    remaining_after = bins_remain_cap - item
+    
+    # Combined tightness (exponential decay) and preservation (sqrt residual)
+    decay = np.exp(-5 * remaining_after)
+    preservation = np.sqrt(np.maximum(remaining_after, 1e-9))  # Avoid sqrt(negative)
+    
+    scores = np.where(fit_mask, decay * preservation, -np.inf)
+    
+    # Dynamic penalty for large items: scales with item size beyond 0.5 threshold
+    if item > 0.5:
+        penalty = 1 - (item - 0.5)  # Linear scaling: 0.5<item<1 → penalty 0.5 to 0
+        scores = np.where(fit_mask, scores * penalty, scores)
+    
+    return scores
+
+Wait, when item is 0.6, penalty is 1 - 0.1 = 0.9. So scores are multiplied by 0.9. For item=0.7, penalty=0.8. This reduces the score more for larger items, encouraging them to go into new bins. But this is a linear penalty. Maybe a quadratic penalty would be better: penalty = 1 - (item -0.5)**2 *4. For item=0.6, (0.1)^2 *4=0.04 → penalty=0.96. Hmm, not sure. Alternatively, use a higher exponent.
+
+Alternatively, use a factor that decreases exponentially with item size beyond 0.5. For example:
+
+penalty = np.exp( -10 * (item - 0.5) )
+
+For item=0.5, penalty=1. For item=0.6, exp(-1)≈0.367. For item=0.7, exp(-2)≈0.135. This would heavily penalize larger items.
+
+But this requires item>0.5, then compute the penalty as exp(-k*(item-0.5)).
+
+So in code:
+
+if item > 0.5:
+    penalty = np.exp( -10 * (item - 0.5) )
+    scores = np.where(fit_mask, scores * penalty, scores)
+
+This way, the penalty becomes smaller as the item size increases beyond 0.5, making existing bins' scores much lower, thus preferring new bins.
+
+This approach dynamically adjusts the penalty based on how much the item exceeds 0.5, using an exponential decay. This avoids a static multiplier like 0.2 and instead applies a smooth penalty.
+
+Putting it all together:
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines exponential tight-fit preference with residual capacity preservation.
+    Applies exponential penalty for large items to minimize fragmentation."""
+    fit_mask = bins_remain_cap >= item
+    remaining_after = bins_remain_cap - item
+    
+    # Tightness (exponential decay) and residual capacity preservation
+    decay = np.exp(-5 * remaining_after)
+    preservation = np.sqrt(np.maximum(remaining_after, 1e-9))
+    scores = np.where(fit_mask, decay * preservation, -np.inf)
+    
+    # Exponential penalty scaling for items exceeding 0.5 bin capacity
+    if item > 0.5:
+        penalty = np.exp(-8 * (item - 0.5))  # Decay factor increases with item size
+        scores = np.where(fit_mask, scores * penalty, scores)
+    
+    return scores
+
+This code combines the tight fit (exponential decay on remaining_after) with preservation of remaining capacity (sqrt(remaining_after)). For large items (>0.5), it applies an exponential penalty that reduces the scores of existing bins more severely as the item size increases, encouraging new bins and reducing fragmentation.
+
+The docstring explains the key idea: combining tight fits with preservation and applying an exponential penalty for large items. The comments clarify the components. The use of np.maximum ensures no negative values in sqrt, and the penalty is dynamically scaled based on item size beyond 0.5.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Balances tight packing with future flexibility using:
+    1. Exponential decay for near-exact fits
+    2. Square root residual capacity preservation
+    3. Dynamic large-item penalty with exponential scaling"""
+    
+    fit_mask = bins_remain_cap >= item
+    remaining_after = bins_remain_cap - item
+    
+    # Base score combines tightness and preservation components
+    tightness = np.exp(-6 * remaining_after)  # Strong preference for <0.1 residual
+    preservation = np.sqrt(np.maximum(remaining_after, 1e-9))  # Protect usable capacity
+    scores = np.where(fit_mask, tightness * preservation, -np.inf)
+    
+    # Dynamic penalty for items that could fragment large bins
+    if item > 0.3:  # Applies penalty gradient starting at lower threshold
+        penalty_scale = np.exp(-4 * (bins_remain_cap - item))  # Penalize bins that would leave <0.25 capacity
+        scores = np.where(fit_mask, scores * (1 - 0.6*penalty_scale), scores)
+    
+    return scores
+```
+
+**Key Heuristic Design:**  
+1. **Tightness-Preservation Balance:** Multiplies exponential decay (prioritizes <0.1 residual space) with square root of post-placement capacity (protects usable space)  
+2. **Adaptive Fragmentation Control:** Applies exponentially increasing penalty to bins that would leave mid-sized (0.25-0.5) residual capacities when packing items >0.3  
+3. **Smooth Thresholds:** Uses continuous exponential functions instead of hard cutoffs to maintain gradient information  
+
+This combines the radiation-inspired tight packing from v0 with v1's dynamic penalty concept, while adding capacity-dependent penalty scaling based on the analysis insights about preserving mid-sized bins.

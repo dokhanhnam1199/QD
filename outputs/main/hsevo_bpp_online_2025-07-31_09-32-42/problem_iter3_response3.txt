@@ -1,0 +1,94 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, BIN_CAPACITY: float = 1.0) -> np.ndarray:
+    """
+    Returns priority for placing an item into bins, implementing a more sophisticated strategy
+    than a simple Best Fit. This heuristic aims to:
+
+    1. Strongly prioritize perfect fits, as they optimally utilize bin space.
+    2. Explicitly penalize situations where placing an item leaves a very small,
+       "fragment" space in the bin. Such fragments are often hard to fill later,
+       leading to wasted capacity.
+    3. Slightly reward leaving a sufficiently large remaining space, as this preserves
+       flexibility for larger future items, which is beneficial in online scenarios.
+    4. Among other valid fits, it still leans towards minimizing remaining capacity,
+       but with the adjustments from points 1-3.
+
+    This approach reflects 'Adaptive Search' by adjusting priorities based on the
+    quality of the resulting bin state, 'Problem-aware Robustness' by explicitly
+    mitigating fragmentation, and 'Informed Exploration' by using knowledge about
+    useful versus problematic remaining capacities.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+        BIN_CAPACITY: The original maximum capacity of a single bin. Default to 1.0,
+                      assuming item and capacities are normalized (e.g., between 0 and 1).
+                      If your problem uses absolute capacities (e.g., 100, 200),
+                      this value should match that maximum capacity.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority for placing the item in that bin.
+        Bins that cannot accommodate the item receive the lowest possible priority (-inf).
+    """
+    # Calculate the remaining space in each bin if the item were placed.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Initialize all priorities to negative infinity. This ensures that
+    # any bin that cannot fit the item will never be chosen.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit (remaining space >= 0).
+    can_fit_mask = potential_remaining_space >= 0
+
+    # Define tunable thresholds and associated bonuses/penalties.
+    # These are percentages of the BIN_CAPACITY, reflecting problem-specific knowledge.
+    # A small tolerance for floating point comparisons to identify perfect fits.
+    PERFECT_FIT_TOLERANCE = 1e-9 * BIN_CAPACITY 
+    
+    # Threshold for a "fragment" - if remaining space is below this, it's penalized.
+    # E.g., remaining space less than 15% of bin capacity is considered a fragment.
+    FRAGMENT_THRESHOLD = 0.15 * BIN_CAPACITY 
+    
+    # Threshold for a "large" remaining space - if remaining space is above this, it's rewarded.
+    # E.g., remaining space more than 40% of bin capacity is considered large/flexible.
+    LARGE_SPACE_THRESHOLD = 0.40 * BIN_CAPACITY 
+
+    # Heuristic scores/penalties (relative to the base Best Fit score).
+    # These values can be tuned to emphasize different aspects of the strategy.
+    PERFECT_FIT_BONUS = 100.0  # Strong bonus to make perfect fits highly desirable.
+    FRAGMENT_PENALTY = -5.0    # Significant penalty to discourage creating small, unusable gaps.
+    LARGE_SPACE_BONUS = 0.5    # Small bonus to slightly prefer bins that leave large, flexible spaces.
+
+    # 1. Start with the base Best Fit priority for fitting bins: -potential_remaining_space.
+    # This ensures that among similar categories, smaller remaining space is preferred.
+    fitting_bins_potential_rem = potential_remaining_space[can_fit_mask]
+    base_priorities = -fitting_bins_potential_rem
+
+    # Create a copy to apply adjustments
+    adjusted_priorities = np.copy(base_priorities)
+
+    # 2. Apply Perfect Fit Bonus
+    # Identify bins that result in a near-perfect fit.
+    perfect_fit_mask = np.abs(fitting_bins_potential_rem) < PERFECT_FIT_TOLERANCE
+    adjusted_priorities[perfect_fit_mask] += PERFECT_FIT_BONUS
+
+    # 3. Apply Fragment Penalty
+    # Identify bins that leave a small, non-zero fragment.
+    # Exclude perfect fits from this penalty.
+    fragment_mask = (fitting_bins_potential_rem > PERFECT_FIT_TOLERANCE) & \
+                    (fitting_bins_potential_rem < FRAGMENT_THRESHOLD)
+    adjusted_priorities[fragment_mask] += FRAGMENT_PENALTY
+
+    # 4. Apply Large Space Bonus
+    # Identify bins that leave a large, potentially useful space.
+    large_space_mask = fitting_bins_potential_rem >= LARGE_SPACE_THRESHOLD
+    adjusted_priorities[large_space_mask] += LARGE_SPACE_BONUS
+    
+    # Assign the calculated adjusted priorities to the main priorities array
+    priorities[can_fit_mask] = adjusted_priorities
+
+    return priorities
+```

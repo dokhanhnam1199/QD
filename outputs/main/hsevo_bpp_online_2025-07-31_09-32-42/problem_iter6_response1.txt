@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority for placing an item in a bin, implementing a Best Fit
+    variation with an explicit penalty for creating very small, potentially
+    unusable gaps. This heuristic aims to anticipate future bin configurations
+    and improve global utility by reducing wasted small spaces.
+
+    This heuristic attempts to improve upon a simple Best Fit by:
+    1.  Prioritizing bins that result in a nearly full bin (standard Best Fit).
+    2.  Applying a significant penalty to bins that, after placing the item,
+        would be left with a very small remaining capacity (a "small gap").
+        Such small gaps are often too small to fit subsequent items,
+        leading to wasted space or the premature opening of new bins.
+        This moves beyond immediate greedy fits by considering the quality of
+        the residual bin state.
+    3.  Ensuring that perfect fits (where remaining capacity becomes exactly 0)
+        are always given the highest possible priority, as they represent
+        optimal utilization of a bin and do not create a "small gap" penalty.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score for each bin.
+        A higher score indicates a higher priority for placing the item in that bin.
+        Bins that cannot accommodate the item receive the lowest possible priority (-np.inf).
+    """
+    # Define what constitutes a "small, potentially unusable gap".
+    # This is a heuristic value, typically a small fraction of the bin's total capacity.
+    # Assuming bin capacity is normalized (e.g., 1.0), 0.05 implies gaps smaller than 5%
+    # of the bin's capacity are considered problematic. This anticipates future item placement.
+    SMALL_GAP_THRESHOLD = 0.05
+
+    # Define the penalty for creating a small gap.
+    # This value is crucial: it should be large enough to make a "small gap fit"
+    # less desirable than a "suboptimal but non-small-gap fit".
+    # For example, if a Best Fit leaves 0.01 (base priority -0.01) and a slightly
+    # worse fit leaves 0.1 (base priority -0.1), the penalty should push -0.01
+    # to be worse than -0.1 (e.g., -0.01 - 0.1 = -0.11, which is lower than -0.1).
+    SMALL_GAP_PENALTY = 0.1
+
+    # Calculate the remaining space in each bin if the item were placed.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Initialize all priorities to negative infinity. Bins that cannot fit the item
+    # will retain this lowest priority and will not be chosen.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can actually fit (remaining space is non-negative).
+    can_fit_mask = potential_remaining_space >= 0
+
+    # For bins where the item can fit, calculate a base priority.
+    # This follows the Best Fit logic: a smaller positive remaining space
+    # (closer to a perfect fit) results in a higher (less negative) priority.
+    base_priorities = -potential_remaining_space[can_fit_mask]
+
+    # Identify bins among the "can fit" ones that would result in a "small gap".
+    # A small gap is one where the remaining space is positive but falls below the threshold.
+    # Perfect fits (potential_remaining_space == 0) are explicitly excluded from this penalty
+    # by the `> 0` condition, ensuring they retain their highest possible priority (0.0).
+    small_gap_mask = (potential_remaining_space[can_fit_mask] > 0) & \
+                     (potential_remaining_space[can_fit_mask] < SMALL_GAP_THRESHOLD)
+
+    # Apply the defined penalty to the base priorities for bins that create small gaps.
+    # This negative adjustment makes these bins less attractive.
+    base_priorities[small_gap_mask] -= SMALL_GAP_PENALTY
+
+    # Assign the calculated priorities to the main priorities array for the bins that can fit.
+    priorities[can_fit_mask] = base_priorities
+
+    return priorities
+```

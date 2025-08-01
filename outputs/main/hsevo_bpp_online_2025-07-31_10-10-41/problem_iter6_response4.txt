@@ -1,0 +1,88 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_capacity: float = 1.0) -> np.ndarray:
+    """
+    Returns priority for each bin using an enhanced Best Fit strategy with an adaptive bias.
+
+    This heuristic extends the Best Fit (BF) strategy by incorporating two main adaptive biases:
+    1.  **Consolidation Bias (Near-Perfect Fit Bonus):** Strongly prioritizes bins where the item fits
+        almost perfectly, encouraging the "finishing off" of bins to consolidate items into fewer containers.
+    2.  **Anti-Fragmentation Bias (Small Item/Sliver Penalty):** For relatively small items, it subtly
+        penalizes placing them in bins if doing so would leave a very small, potentially unusable
+        "sliver" of remaining capacity. This aims to prevent the creation of many fragmented bins.
+
+    This approach combines the efficiency of BF with strategic considerations for the long-term
+    state of the bins, promoting better overall bin utilization and reducing wasted space.
+
+    Args:
+        item: Size of item to be added to the bin. Assumed to be a non-negative float.
+        bins_remain_cap: Array of remaining capacities for each bin. Assumed to be non-negative floats.
+        bin_capacity: The maximum capacity of a single bin. Default to 1.0, suitable for normalized problems.
+                      This parameter is crucial for defining relative thresholds.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins where the item does not fit are assigned -np.inf.
+    """
+    if not isinstance(bins_remain_cap, np.ndarray):
+        bins_remain_cap = np.array(bins_remain_cap, dtype=float)
+
+    # Calculate the remaining capacity after hypothetically placing the item in each bin
+    remaining_after_placement = bins_remain_cap - item
+
+    # Initialize priority scores based on Best Fit (minimize remaining space).
+    # A smaller positive 'remaining_after_placement' leads to a higher (less negative) score.
+    # A perfect fit (0 remaining) gets a score of 0.
+    priorities = -remaining_after_placement
+
+    # --- Adaptive Bias Parameters (Tunable) ---
+    # These parameters define what "perfect fit", "small item", and "fragmenting sliver" mean
+    # relative to the bin_capacity. Adjusting these values can fine-tune the heuristic's behavior.
+
+    # Tolerance for considering a fit "near-perfect" (e.g., remaining capacity is within 1% of bin_capacity)
+    perfect_fit_tolerance = 0.01 * bin_capacity
+
+    # Item is considered "small" if its size is less than this ratio of bin_capacity
+    small_item_threshold_ratio = 0.25
+
+    # A remaining space smaller than this ratio * bin_capacity is considered a "fragmenting sliver"
+    # that we might want to avoid creating with small items.
+    fragmentation_sliver_ratio = 0.05
+
+    # Bonuses and Penalties (scaled relative to bin_capacity for consistency)
+    # These values determine the strength of the adaptive biases.
+    # They should be significant enough to influence decisions for close BF scores
+    # but not so large as to consistently override a clearly better BF.
+    PERFECT_FIT_BONUS = 0.5 * bin_capacity  # Strong bonus for finishing a bin
+    FRAGMENTATION_PENALTY = 0.2 * bin_capacity # Penalty for creating small unusable spaces
+
+    # --- Apply Adaptive Biases ---
+
+    # 1. Consolidation Bias: Boost for Near-Perfect Fits
+    # If placing the item leaves very little capacity (including exactly zero), give a significant bonus.
+    # This encourages finishing off bins.
+    is_near_perfect_fit = (remaining_after_placement >= 0) & \
+                          (remaining_after_placement <= perfect_fit_tolerance)
+    priorities[is_near_perfect_fit] += PERFECT_FIT_BONUS
+
+    # 2. Anti-Fragmentation Bias: Penalty for Small Items creating Slivers
+    # This applies if:
+    #   a) The item itself is relatively small.
+    #   b) Placing the item would leave a small, non-zero "fragment" in the bin
+    #      (i.e., remaining space is positive but below 'fragmentation_sliver_ratio').
+    # This discourages creating many bins with tiny, difficult-to-use residual capacities.
+    is_small_item = item < small_item_threshold_ratio * bin_capacity
+    is_fragmenting_sliver = (remaining_after_placement > perfect_fit_tolerance) & \
+                            (remaining_after_placement < fragmentation_sliver_ratio * bin_capacity)
+
+    # Apply the penalty only when both conditions are met.
+    priorities[is_small_item & is_fragmenting_sliver] -= FRAGMENTATION_PENALTY
+
+    # --- Final Filter: Infeasible Bins ---
+    # Set priority to negative infinity for bins where the item does not fit (remaining capacity would be negative).
+    # This ensures these bins are never selected by the max priority mechanism.
+    priorities[remaining_after_placement < 0] = -np.inf
+
+    return priorities
+```

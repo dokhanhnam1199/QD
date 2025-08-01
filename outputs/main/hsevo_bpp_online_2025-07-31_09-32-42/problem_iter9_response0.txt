@@ -1,0 +1,92 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns a priority score for each bin, implementing a Best Fit variant with
+    strategic fragmentation avoidance.
+
+    This heuristic aims to:
+    1. Strongly prioritize bins that can perfectly fit the item (leaving 0 remaining capacity).
+    2. For non-perfect fits, generally follow a Best Fit approach (preferring smaller remaining capacity).
+    3. Strategically penalize bins that would be left with a very small, potentially unusable,
+       positive remaining capacity (fragmentation avoidance).
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score for each bin.
+        A higher score indicates a higher priority for placing the item in that bin.
+        Bins that cannot accommodate the item receive the lowest possible priority (-np.inf).
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Assume a standard bin capacity for scaling purposes.
+    # In many BPP contexts, item sizes and bin capacities are normalized to 1.0.
+    # If bins can have truly different max capacities, this constant should be adapted
+    # (e.g., passed as an argument or inferred from the problem context).
+    BIN_CAPACITY = 1.0 
+    
+    # Epsilon for robust float comparisons (to distinguish true zero from very small positive floats)
+    EPSILON = 1e-9
+
+    # Mask for bins where the item can actually fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the potential remaining space if the item were placed in fit-able bins
+    potential_remaining_space = bins_remain_cap[can_fit_mask] - item
+
+    # Initialize a temporary array for valid priorities to avoid modifying 'priorities' directly
+    # until all calculations for valid bins are done.
+    priorities_valid = np.zeros_like(potential_remaining_space, dtype=float)
+
+    # --- Scoring Logic ---
+
+    # 1. Highest Priority: Perfect Fit (remaining space is 0)
+    perfect_fit_mask_in_valid = (np.abs(potential_remaining_space) < EPSILON)
+    priorities_valid[perfect_fit_mask_in_valid] = 1000.0  # Assign a very high, distinct score
+
+    # 2. Non-Perfect Fits: Apply a combination of Best Fit and Strategic Fragmentation Avoidance
+    non_perfect_fit_mask_in_valid = ~perfect_fit_mask_in_valid
+    
+    # Get the remaining spaces for non-perfect fits
+    r_non_perfect = potential_remaining_space[non_perfect_fit_mask_in_valid]
+
+    # Base score for non-perfect fits: Best Fit component.
+    # A smaller 'r' (closer to 0) results in a higher score.
+    # Scale this to be in a more manageable range (e.g., 0 to 100)
+    # 0 remaining space (conceptually) gets 100, full bin (conceptually) gets 0.
+    best_fit_component = (BIN_CAPACITY - r_non_perfect) / BIN_CAPACITY * 100.0
+
+    # Strategic component: Fragmentation Penalty
+    # Penalize leaving very small, positive remaining spaces. These are often "dead space"
+    # that is hard to utilize for future items, leading to more bins being opened.
+    # The penalty is adaptive, considering the current item's size.
+    
+    # Define thresholds for "fragmented" space:
+    # - Relative to the item size: If remaining space is less than a fraction of the item size.
+    # - Absolute: If remaining space is below a fixed small value (e.g., 10% of bin capacity).
+    FRAGMENT_THRESHOLD_RELATIVE_TO_ITEM = 0.5  # e.g., < 50% of current item size
+    FRAGMENT_THRESHOLD_ABSOLUTE = 0.1 * BIN_CAPACITY # e.g., < 10% of total bin capacity
+
+    # Identify fragmented remaining spaces
+    is_fragmented_space = (r_non_perfect > EPSILON) & \
+                          (r_non_perfect < np.minimum(item * FRAGMENT_THRESHOLD_RELATIVE_TO_ITEM, FRAGMENT_THRESHOLD_ABSOLUTE))
+
+    # Apply a penalty for fragmented spaces. The penalty's magnitude can be tuned.
+    # Penalizing based on item size makes the penalty more significant for larger items
+    # that create small, useless gaps.
+    fragmentation_penalty = np.where(is_fragmented_space, item * 50.0, 0.0) # Larger items incur higher penalty
+
+    # Combine best fit component with strategic penalty
+    strategic_priorities_non_perfect = best_fit_component - fragmentation_penalty
+    
+    # Assign the calculated scores back to the 'priorities_valid' array for non-perfect fits
+    priorities_valid[non_perfect_fit_mask_in_valid] = strategic_priorities_non_perfect
+
+    # Place the calculated valid priorities back into the main 'priorities' array
+    priorities[can_fit_mask] = priorities_valid
+
+    return priorities
+```

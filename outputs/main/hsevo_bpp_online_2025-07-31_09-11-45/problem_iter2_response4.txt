@@ -1,0 +1,176 @@
+<think>
+Okay, I need to create a priority function for the online bin packing problem by combining elements from the provided v0 and v1 versions, while incorporating the analysis and experience mentioned. Let me start by understanding the strengths and weaknesses of each version.
+
+Looking at the better code (v0), it prioritizes exact fits with infinity, then uses a weighted combination of inverse gap size (1/remaining) and utilization. The weights are 0.7 and 0.3. This approach ensures that bins that exactly fit the item get top priority, and for others, it balances between minimizing the remaining space and how full the bin is. The use of valid_mask ensures only feasible bins are considered.
+
+The worse code (v1) uses an exponential boost for perfect fits and a fill boost for bins that reach 95% utilization. It combines utilization squared, space efficiency (1/gap), fill_boost, and perfect_fit_boost multiplicatively. However, the analysis mentions that multiplicative terms can over-penalize mid-range bins, leading to instability. Also, the hard-coded 0.95 threshold might not be adaptive.
+
+From the analysis, effective heuristics combine harmonic efficiency (like 1/remaining) with residual potential (like sqrt of capacity) via geometric mean. They handle exact fits properly with np.isclose for floating points. Also, using smooth gradients and avoiding over-penalizing mid-range bins is important.
+
+So, to combine the best elements:
+
+1. Prioritize exact fits first, using np.isclose to handle floating-point precision, as in the analysis point about v13 vs v10.
+2. For non-exact fits, use a combination of inverse gap (from v0) and utilization (like v0's (bins_remain_cap - remaining_after)/bins_remain_cap, which is item/bin_cap). But maybe use a geometric mean instead of weighted sum for better balance, as per the analysis mentioning geometric mean creates balanced tradeoffs.
+3. Avoid multiplicative terms that can create cliffs or over-penalize. Instead, use additive or combined methods with smooth transitions.
+4. Incorporate dynamic elements, like adaptive thresholds instead of fixed 0.95 as in v1. But how? Maybe using the item size to influence the weights. For example, larger items might prioritize tighter fits more.
+
+Wait, the analysis also mentions that the best heuristics use harmonic efficiency and residual potential via geometric mean. So perhaps for non-exact fits, compute both the inverse gap and the square root of the remaining capacity (as a measure of residual potential) and combine them.
+
+Wait, the residual potential might refer to the remaining capacity after placing the item. So, if the remaining capacity is small, that's good because the bin is tightly packed. But also, having some remaining capacity allows for future items. Hmm, this is a trade-off.
+
+Alternatively, the residual potential could be the remaining capacity after placing the item. So, for a bin, after placing the item, the remaining capacity is R = bin_remain_cap - item. We want R to be as small as possible (so inverse gap 1/R is high), but also, the current utilization (item / bin_cap) is high. Wait, but in the v0 code, utilization_priority is (bin_remain_cap - R)/bin_remain_cap, which simplifies to (item)/bin_remain_cap. Wait, no: bin_remain_cap is the current remaining capacity of the bin. So, original capacity is fixed (say C), and bin_remain_cap is what's left. When we place the item, the used space is (C - bin_remain_cap) + item. Wait, maybe the utilization_priority in v0 is (C - (bin_remain_cap - item)) / C? Not sure. Maybe the code in v0 has a mistake here.
+
+Wait, in v0's utilization_priority: (bins_remain_cap - remaining_after) / bins_remain_cap. remaining_after is bins_remain_cap - item. So (bins_remain_cap - (bins_remain_cap - item)) / bins_remain_cap = item / bins_remain_cap. But bins_remain_cap is the remaining capacity before placing the item. Wait, that doesn't make sense. Because the bin's remaining capacity is bins_remain_cap, and after placing the item, it's remaining_after. So the utilization would be (original capacity - remaining_after) / original capacity. But original capacity isn't passed in. Hmm, this is a problem. Because bins_remain_cap is the current remaining capacity of each bin. So the original capacity of each bin is not known here. So the code in v0's utilization_priority is actually item / bins_remain_cap, which is incorrect because bins_remain_cap is the remaining capacity before adding the item, not the original capacity. So that's a mistake. Because if a bin has a remaining capacity of 0.5, and the item is 0.3, then after placing, remaining is 0.2. The utilization would be (original capacity - 0.2)/original capacity. But original capacity isn't known here. So the code in v0 is incorrect in calculating utilization_priority. That's a problem.
+
+So, perhaps the correct way to calculate utilization is (original capacity - remaining_after) / original capacity. But since original capacity isn't passed, this can't be done. Therefore, the code in v0 is flawed. So maybe the analysis is correct in pointing out that v13 (exact fit with proper tolerance) is better. So, perhaps the priority function should not rely on utilization in that way, since original capacity isn't known.
+
+Therefore, the key is to focus on the remaining capacity after placing the item (R = bin_remain_cap - item). The smaller R is, the better. So inverse gap (1/R) is a good measure. Also, the analysis mentions combining with residual potential, which could be sqrt(R) or another function. Wait, but how to combine them. The analysis says the best heuristics use a geometric mean of harmonic efficiency (1/R) and residual potential (sqrt(R)), but that seems conflicting. Wait, harmonic efficiency is 1/R, residual potential could be something like sqrt(bin_remain_cap) (original remaining capacity before placing the item). Wait, maybe the residual potential is the remaining capacity of the bin before placing the item. For example, a bin with more remaining capacity might be better for future items. But when placing the current item, we want to minimize the remaining after placing. So there's a balance between current efficiency and future flexibility.
+
+Alternatively, the residual potential could be the remaining capacity after placing the item. So R = bin_remain_cap - item. We want R to be as small as possible (so 1/R is large), but also, R should be as large as possible to allow future items. Wait, that's conflicting. So this is the classic bin packing dilemma: pack tightly now vs leave room for future items.
+
+The analysis mentions that combining harmonic efficiency (1/R) with residual potential (sqrt of capacity) via geometric mean. Wait, maybe residual potential here refers to the original remaining capacity of the bin (before placing the item), which is bin_remain_cap. So sqrt(bin_remain_cap) would represent some measure of the bin's potential to hold future items. But when placing the current item, we want to choose a bin that after placing, leaves minimal space (R) but also had higher potential before placing. Hmm, not sure.
+
+Alternatively, the residual potential could be the remaining capacity after placing the item, R. So combining 1/R (harmonic) with sqrt(R) (residual potential) via geometric mean. But that would be sqrt( (1/R) * sqrt(R) ) = (R^(-1) * R^0.5)^0.5 = R^(-0.25). That seems counterintuitive. Maybe the combination is additive.
+
+Alternatively, the analysis might mean that the best heuristics use a combination of 1/R and another term, such as the square root of the bin's original remaining capacity (bin_remain_cap). For example, a bin that originally has more space (higher bin_remain_cap) might be better to use for larger items, but once you place the current item, you want R to be small.
+
+This is getting a bit confusing. Let's look back at the analysis points:
+
+- The best heuristic combines harmonic efficiency (1/remaining) with residual potential (√capacity) via geometric mean. 
+
+So harmonic efficiency is 1/R, where R is the remaining after placing the item. Residual potential is sqrt of the bin's original remaining capacity (bin_remain_cap). So the geometric mean would be sqrt( (1/R) * sqrt(bin_remain_cap) ). Or maybe the residual potential is sqrt(R), but that's unclear.
+
+Alternatively, residual potential could be the bin's current remaining capacity (before placing the item) raised to some power. For example, sqrt(bin_remain_cap) represents the potential of the bin to accommodate future items. So combining 1/R (current efficiency) with sqrt(bin_remain_cap) (future potential) via geometric mean.
+
+But how does that work? Let's say bin A has a remaining capacity of 0.5, and the item is 0.3. Then R = 0.5 - 0.3 = 0.2. So 1/R is 5. The residual potential is sqrt(0.5) ≈ 0.707. The geometric mean would be sqrt(5 * 0.707) ≈ sqrt(3.535) ≈ 1.88.
+
+Another bin B has remaining capacity 0.4, item is 0.3. R = 0.1. 1/R is 10. Residual potential sqrt(0.4) ≈ 0.632. Geometric mean sqrt(10 * 0.632) ≈ sqrt(6.32) ≈ 2.51. So bin B would have higher priority, which makes sense because it leaves less space after placing the item, even though its original remaining capacity was lower.
+
+But this is just a hypothesis. The key is to combine these two factors.
+
+So, for the improved priority function:
+
+1. First, check for exact fits using np.isclose to handle floating points, as in v13. Assign np.inf to those bins.
+
+2. For non-exact fits, calculate two scores: harmonic efficiency (1/R) and residual potential (sqrt(bin_remain_cap)).
+
+3. Combine them using a geometric mean (sqrt(he * rp)) to balance both factors.
+
+4. Additionally, to avoid over-penalizing mid-range bins, ensure the scores are smoothly scaled.
+
+Wait, but how to handle the residual potential. The residual potential here is the bin's remaining capacity before placing the item. So a bin with higher remaining capacity has more potential, but after placing the item, we want R to be small. So the idea is to prefer bins where placing the item leaves little space (high harmonic efficiency) and which had higher potential before (so we're utilizing larger remaining capacities first, which might be better for future packing).
+
+Alternatively, maybe the residual potential is the remaining capacity after placing the item. But that's R, and we already have 1/R as harmonic efficiency. Combining 1/R with another function of R might not make sense.
+
+Alternatively, the residual potential could be the remaining capacity after placing the item, raised to a power. For example, R^0.5. Then combining 1/R and R^0.5 via geometric mean would give ( (1/R) * R^0.5 )^0.5 = ( R^(-0.5) )^0.5 = R^(-0.25). That's just 1/R^0.25, which still prioritizes smaller R. But this might not add any new information.
+
+Hmm, perhaps the analysis refers to combining the inverse gap (1/R) with the square root of the bin's original remaining capacity (sqrt(bin_remain_cap)). The idea is that bins with larger original remaining capacity (before placing the item) are more "capacious" and thus using them for this item (which leaves R space) might be better in the long run. But this is speculative.
+
+Alternatively, the residual potential could be the remaining capacity after placing the item, and the heuristic combines 1/R with R in a way that balances current efficiency and future flexibility. For example, 1/R * R^alpha, where alpha is a parameter. But this reduces to R^(alpha -1). If alpha is 0.5, then it's R^(-0.5), which is similar to 1/sqrt(R). But this is just a different weighting.
+
+Alternatively, the analysis mentions that the best heuristics use a combination of harmonic efficiency and residual potential via geometric mean. So perhaps the priority is calculated as (1/R) * sqrt(bin_remain_cap), or some combination like that.
+
+Wait, let's think of an example. Suppose two bins:
+
+Bin 1: remaining capacity 0.6, item size 0.4. R = 0.2. So 1/R = 5. Bin_remain_cap is 0.6, sqrt(0.6) ≈ 0.775. So product is 5 * 0.775 ≈ 3.875.
+
+Bin 2: remaining capacity 0.5, item size 0.4. R = 0.1. 1/R = 10. sqrt(0.5) ≈ 0.707. Product is 10 * 0.707 ≈ 7.07. So Bin 2 has higher priority, which is correct because it leaves less space.
+
+Another example: Bin 3 has remaining capacity 0.3, item size 0.25. R=0.05. 1/R=20. sqrt(0.3)≈0.547. Product=20*0.547≈10.94.
+
+But if another bin has remaining capacity 0.8, item size 0.75. R=0.05. sqrt(0.8)=0.894. Product=20*0.894≈17.88. So this bin would have higher priority than Bin 3. But both leave the same R, but the original remaining capacity was higher. So this heuristic prefers using larger remaining capacity bins for items that fit tightly, which might be better for future items since larger bins are used for items that fit snugly, leaving smaller fragments.
+
+This seems plausible. So the priority for non-exact fits is (1/R) * sqrt(bin_remain_cap). But how to implement this.
+
+Wait, bin_remain_cap is the remaining capacity before placing the item. So for each bin, R = bin_remain_cap - item. So the priority would be (1/(R + eps)) * sqrt(bin_remain_cap). Adding a small epsilon to avoid division by zero.
+
+But in the code, we need to compute this for all bins where R >=0.
+
+So putting it all together:
+
+- For each bin, check if it can fit the item (R >=0).
+- For exact fits (R ==0, using np.isclose for floating point), assign highest priority.
+- For others, compute (1/(R + eps)) * sqrt(bin_remain_cap) as the score.
+- Where eps is a small value to prevent division by zero.
+
+This combines harmonic efficiency (1/R) with the square root of the bin's original remaining capacity (residual potential). The product of these terms gives a balance between tight packing and utilizing bins with higher remaining capacity, which might be better for future items.
+
+Additionally, to handle floating point precision, exact fits are checked with np.isclose.
+
+Now, comparing this approach to the v0 and v1 functions:
+
+v0 used a weighted sum of inverse gap and utilization (which was incorrectly calculated). The new approach uses a product of inverse gap and sqrt(original remaining capacity), which might better balance the two factors.
+
+v1 used multiplicative terms which could over-penalize, but the new approach's product is between two terms that are both positively correlated with good packing (higher is better). So bins that have a smaller R (better current fit) and higher original remaining capacity (more potential) get higher scores.
+
+Another consideration: using the product might create very large values when R is very small. But since we're selecting the maximum priority, this is acceptable.
+
+Now, implementing this in code:
+
+First, compute remaining_after = bins_remain_cap - item.
+
+valid_mask = remaining_after >=0
+
+exact_fit_mask = np.isclose(remaining_after, 0, atol=1e-9)
+
+For exact fits, assign np.inf.
+
+For others, compute score = (1/(remaining_after + 1e-9)) * np.sqrt(bins_remain_cap)
+
+But wait, bins_remain_cap is the original remaining capacity before placing the item. So yes, that's correct.
+
+So the code would be:
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    # Key idea: Balance exact fits with harmonic efficiency and residual potential
+    remaining_after = bins_remain_cap - item
+    valid_mask = remaining_after >= 0
+    exact_fit = np.isclose(remaining_after, 0, atol=1e-9)
+    
+    # Handle exact fits with highest priority
+    priority = np.where(exact_fit, np.inf, -np.inf)
+    
+    # For valid non-exact fits, compute harmonic-residual product
+    harmonic = 1 / (remaining_after + 1e-9)
+    residual_potential = np.sqrt(bins_remain_cap)
+    combined = harmonic * residual_potential
+    
+    # Update priority for valid bins
+    priority = np.where(valid_mask & ~exact_fit, combined, priority)
+    return priority
+
+Wait, but in the code above, the initial priority is set to -inf for non-exact fits, but then for valid_mask & ~exact_fit, it's set to combined. But valid_mask ensures remaining_after >=0, so those bins are valid. So this should work.
+
+Testing this function:
+
+For a bin with exact fit, it gets inf. For others, the score is (1/(R + 1e-9)) * sqrt(bin_remain_cap). 
+
+This combines the inverse gap (harmonic) with the sqrt of the original remaining capacity (residual potential). 
+
+This approach addresses the analysis points by using exact fit checks with tolerance, combining harmonic and residual terms via product (geometric mean would be sqrt(a*b), but product is a*b, which is similar in effect when selecting max), and avoids multiplicative over-penalization by using terms that are both beneficial when high.
+
+The docstring should explain the key idea: "Balances exact fits with harmonic efficiency (1/gap) and residual potential (sqrt(original capacity)) using multiplicative scoring."
+
+This should be concise and under 50 words.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines exact fit detection (with float tolerance) with harmonic efficiency
+    and residual potential scoring using geometric mean for balanced packing.
+    """
+    remaining_after = bins_remain_cap - item
+    valid_mask = remaining_after >= 0
+    exact_fit = np.isclose(remaining_after, 0, atol=1e-9)
+    
+    # Base score combines harmonic efficiency (1/gap) and residual potential (sqrt(original capacity))
+    harmonic = 1 / (remaining_after + 1e-9)  # +epsilon prevents div0
+    residual = np.sqrt(bins_remain_cap)  # Reward using larger available bins
+    combined = harmonic * residual  # Geometric mean via multiplication
+    
+    # Boost exact fits to maximum priority
+    return np.where(exact_fit, np.inf, np.where(valid_mask, combined, -np.inf))
+```

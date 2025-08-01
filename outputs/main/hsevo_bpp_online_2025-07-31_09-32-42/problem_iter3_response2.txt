@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority for online Bin Packing, implementing a "Best Fit with Fragmentation Avoidance" heuristic.
+
+    This heuristic builds upon the Best Fit principle (minimizing remaining capacity) but introduces
+    a "problem-aware" adjustment to enhance robustness against fragmentation. It aims to:
+    1. Highly prioritize perfect fits (remaining capacity = 0).
+    2. Among non-perfect fits, generally follow Best Fit (prioritize bins that result in less remaining capacity).
+    3. Introduce a significant penalty for bins that, after placing the item, would be left with
+       a very small, non-zero amount of remaining capacity. Such small, "awkward" gaps are often
+       unusable for subsequent items, leading to wasted space and an increased number of bins.
+       By penalizing these, the heuristic encourages selecting bins that leave more usable space,
+       or finding a perfect fit, thereby reducing fragmentation.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin. It's assumed that the underlying
+                         maximum capacity of each bin is uniform and can be normalized (e.g., to 1.0).
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority for placing the item in that bin.
+        Scores are designed such that a perfect fit (remaining capacity = 0) gets the
+        highest possible score. Bins that cannot fit the item receive the lowest possible priority (-inf).
+    """
+    # Define parameters for the fragmentation avoidance mechanism.
+    # These values are chosen assuming bin capacities are normalized, e.g., to 1.0.
+    # If bins have varying or different absolute capacities, these parameters
+    # might need to be adjusted or made dynamic based on the actual bin capacity.
+    BIN_CAPACITY_ASSUMED = 1.0
+    
+    # EPSILON: Represents the maximum remaining capacity that is considered "awkwardly small"
+    #          and thus undesirable. For a bin of capacity 1.0, 0.1 means remaining
+    #          capacities from (0, 0.1] are penalized.
+    EPSILON = 0.1 * BIN_CAPACITY_ASSUMED 
+    
+    # PENALTY_BASE: The magnitude of the penalty applied to bins falling into the "awkwardly small"
+    #               remaining capacity range. This value should be large enough to make a bin
+    #               with an "awkward" small gap less attractive than a bin with a larger,
+    #               potentially more usable remaining capacity.
+    PENALTY_BASE = 0.5 * BIN_CAPACITY_ASSUMED
+
+    # Calculate the remaining space in each bin if the item were placed.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Initialize all priorities to negative infinity. This ensures that
+    # any bin that cannot fit the item will never be chosen.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit (remaining space >= 0).
+    can_fit_mask = potential_remaining_space >= 0
+
+    # Step 1: Base priority using Best Fit principle.
+    # For bins where the item can fit, assign a priority based on the negative
+    # of the potential remaining space. A perfect fit (0 remaining space)
+    # results in a priority of 0 (the highest possible base score).
+    priorities[can_fit_mask] = -potential_remaining_space[can_fit_mask]
+
+    # Step 2: Apply fragmentation avoidance penalty.
+    # Identify bins that would result in a "small, awkward" remaining capacity.
+    # This means the remaining space is greater than 0 but less than or equal to EPSILON.
+    # We also ensure these are bins where the item can actually fit.
+    small_awkward_gap_mask = (potential_remaining_space > 0) & \
+                             (potential_remaining_space <= EPSILON) & \
+                             can_fit_mask
+
+    # Subtract the PENALTY_BASE from the priorities of bins identified in the
+    # small_awkward_gap_mask. This makes them less desirable than bins that
+    # leave larger (and potentially more useful) remaining capacities,
+    # without altering their relative order among themselves if multiple small gaps exist.
+    priorities[small_awkward_gap_mask] -= PENALTY_BASE
+
+    return priorities
+```

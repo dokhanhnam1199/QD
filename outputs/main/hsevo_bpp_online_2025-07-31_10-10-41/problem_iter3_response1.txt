@@ -1,0 +1,60 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority for each bin using a "Normalized Proportional Fit" strategy.
+
+    This heuristic is a mutation of the Best Fit strategy, designed to be more
+    interpretable and numerically robust in its scoring. It prioritizes bins based
+    on the proportion of their current available capacity that the item would fill.
+
+    1.  **Perfect Fits:** Bins where the item fits perfectly (`bins_remain_cap == item`)
+        are given the highest possible priority (a score of `1.0`). This ensures
+        they are unequivocally chosen when available.
+    2.  **Proportional Fit (Non-Perfect):** For bins where the item fits but not
+        perfectly, the priority is calculated as `item / bins_remain_cap`. This ratio
+        represents how much of the bin's current available space the item will occupy.
+        A higher ratio indicates a tighter fit (closer to filling the remaining space).
+        This naturally prioritizes bins that leave less remaining capacity,
+        aligning with the core principle of Best Fit. A small epsilon is added to
+        the denominator to ensure numerical stability and to ensure these scores
+        are always strictly less than 1.0.
+    3.  **No Fit:** Bins where the item does not fit (`bins_remain_cap < item`)
+        are assigned the lowest possible priority (`-np.inf`), ensuring they are
+        never selected.
+
+    This approach provides scores that are always positive (for valid fits) and
+    reside within a clear range (e.g., (0, 1.0] for non-infinite scores), making
+    them more interpretable as a "fit quality" percentage.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Mask for bins where the item actually fits
+    fits_mask = (bins_remain_cap >= item)
+
+    # Separate masks for perfect fits and non-perfect fits
+    perfect_fit_mask = (bins_remain_cap == item)
+    non_perfect_fits_mask = fits_mask & (~perfect_fit_mask)
+
+    # Assign highest explicit priority to perfect fits
+    priorities[perfect_fit_mask] = 1.0  # Score of 1.0 for perfect fit
+
+    # For bins where the item fits but not perfectly, calculate the proportional fit score.
+    # This score will be between 0 and (1.0 - epsilon)
+    if np.any(non_perfect_fits_mask):
+        # Add a tiny machine epsilon to the denominator to prevent division by zero
+        # in theoretical edge cases (though bins_remain_cap[non_perfect_fits_mask]
+        # should always be > item, and thus > 0 if item > 0)
+        # and to ensure the score for non-perfect fits is strictly less than 1.0.
+        epsilon = np.finfo(float).eps
+        priorities[non_perfect_fits_mask] = item / (bins_remain_cap[non_perfect_fits_mask] + epsilon)
+
+    return priorities
+```

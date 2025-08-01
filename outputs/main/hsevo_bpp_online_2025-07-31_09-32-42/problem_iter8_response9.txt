@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines inverse waste (Best Fit) with explicit perfect fit prioritization
+    and a severe penalty for creating small, potentially unusable gaps, enhancing
+    global bin utilization and reducing fragmentation.
+    """
+    PERFECT_FIT_TOLERANCE = 1e-9  # Tolerance for floating point perfect fit check
+    PERFECT_FIT_SCORE = 1e12    # Very high score for perfect fits
+    STABILITY_EPSILON = np.finfo(float).eps # Small epsilon for numerical stability in inverse division
+
+    SMALL_GAP_THRESHOLD = 0.05  # Threshold for what constitutes a "small gap"
+    # A large negative penalty to significantly de-prioritize bins leaving small, bad gaps.
+    # This must be large enough to make the penalized inverse score worse than any desirable non-small-gap score.
+    SMALL_GAP_SEVERE_PENALTY = 1000.0 
+
+    # Initialize all priorities to negative infinity. Bins that cannot fit the item
+    # will retain this lowest priority.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can actually fit.
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Calculate the remaining space in these bins if the item were placed.
+    potential_remaining_space = bins_remain_cap[can_fit_mask] - item
+
+    # Initialize priorities for currently valid bins.
+    current_bin_priorities = np.zeros_like(potential_remaining_space)
+
+    # 1. Assign Perfect Fit Score: If remaining space is zero (within tolerance), it's a perfect fit.
+    # These should always be the highest priority.
+    perfect_fit_mask = potential_remaining_space <= PERFECT_FIT_TOLERANCE
+    current_bin_priorities[perfect_fit_mask] = PERFECT_FIT_SCORE
+
+    # 2. Assign Inverse Waste Score for Non-Perfect Fits: For bins where the item fits
+    # but some space remains, prioritize inversely to the remaining waste. Smaller waste
+    # yields higher priority. Add epsilon for numerical stability.
+    non_perfect_fit_mask = potential_remaining_space > PERFECT_FIT_TOLERANCE
+    current_bin_priorities[non_perfect_fit_mask] = \
+        1.0 / (potential_remaining_space[non_perfect_fit_mask] + STABILITY_EPSILON)
+
+    # 3. Apply Small Gap Penalty: Identify non-perfect fits that result in a "small gap".
+    # These are highly undesirable as they fragment bin capacity. Apply a severe penalty
+    # to make them less attractive than larger, more usable remaining spaces, or even opening a new bin.
+    small_gap_to_penalize_mask = (potential_remaining_space > PERFECT_FIT_TOLERANCE) & \
+                                 (potential_remaining_space < SMALL_GAP_THRESHOLD)
+    
+    current_bin_priorities[small_gap_to_penalize_mask] -= SMALL_GAP_SEVERE_PENALTY
+
+    # Assign the calculated priorities back to the main priorities array for bins that can fit.
+    priorities[can_fit_mask] = current_bin_priorities
+
+    return priorities
+```

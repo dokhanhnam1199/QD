@@ -1,0 +1,80 @@
+```python
+import numpy as np
+
+# Assume a global BIN_CAPACITY for context. This is typical in Bin Packing Problem (BPP)
+# where items and bin capacities are often normalized, e.g., to 1.0.
+BIN_CAPACITY = 1.0
+
+# Define heuristic parameters for strategic adjustments.
+# These values are empirical and might require tuning for specific problem distributions.
+
+# EPSILON_CLOSE_TO_ZERO: Tolerance for floating-point comparisons to detect "exact" fits.
+# Essential for numerical robustness in comparisons with zero.
+EPSILON_CLOSE_TO_ZERO = 1e-6
+
+# FRAGMENTATION_LOW_THRESHOLD & FRAGMENTATION_HIGH_THRESHOLD:
+# Define a range for "fragmented" gaps. These are remaining capacities that are
+# too small to be widely useful for future items, but not small enough to be
+# considered a "perfect fit". Placing an item here might lead to wasted space.
+FRAGMENTATION_LOW_THRESHOLD = 0.05 * BIN_CAPACITY # e.g., 5% of bin capacity
+FRAGMENTATION_HIGH_THRESHOLD = 0.20 * BIN_CAPACITY # e.g., 20% of bin capacity
+
+# FRAGMENTATION_PENALTY: The amount by which to reduce the priority for creating
+# a fragmented gap. This is a fixed additive penalty, designed to discourage
+# such outcomes without overriding truly tight fits.
+FRAGMENTATION_PENALTY = 0.3 # A moderate, fixed penalty value.
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes bins using a Best Fit core, with an absolute preference for exact fits,
+    and a fixed penalty for creating small, fragmented remaining capacities.
+    """
+    # Calculate the remaining space in each bin if the item were placed.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Initialize all priorities to negative infinity. This ensures that
+    # any bin that cannot fit the item will never be chosen.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit.
+    # We allow for very small negative remaining space due to floating point inaccuracies,
+    # treating them as effectively zero.
+    can_fit_mask = potential_remaining_space >= -EPSILON_CLOSE_TO_ZERO
+
+    # Extract the potential remaining space for only the bins where the item can fit.
+    fitting_rem_space = potential_remaining_space[can_fit_mask]
+
+    # --- Step 1: Base Priority (Best Fit logic) ---
+    # The base priority is the negative of the potential remaining space.
+    # This means a smaller remaining space (closer to zero) results in a
+    # higher (less negative or zero) priority score. A perfect fit (0 remaining space)
+    # gets a base score of 0, which is the highest possible "default" score.
+    current_priorities_for_fit_bins = -fitting_rem_space
+
+    # --- Step 2: Strategic Additive Adjustments ---
+
+    # 2.1. Overwhelming Priority for Exact/Near-Exact Fits:
+    # Identify bins where the item perfectly or very nearly perfectly fills the bin.
+    # Assign them an extremely high, distinct priority to ensure they are always chosen
+    # if available, as this represents maximal bin utilization.
+    is_exact_or_near_fit = np.abs(fitting_rem_space) < EPSILON_CLOSE_TO_ZERO
+    current_priorities_for_fit_bins[is_exact_or_near_fit] = np.finfo(float).max / 2.0
+
+    # For subsequent adjustments, we only consider bins that are not an exact fit,
+    # as their priority has already been set to the highest possible value.
+    non_exact_mask = ~is_exact_or_near_fit
+
+    # 2.2. Penalty for Fragmented Gaps:
+    # Identify bins that, if chosen, would result in a remaining capacity falling
+    # within the "fragmentation zone". Reduce their priority to discourage their selection,
+    # promoting the creation of either very small (perfect fit) or larger, more usable gaps.
+    is_fragmented_zone_gap = (fitting_rem_space > FRAGMENTATION_LOW_THRESHOLD) & \
+                             (fitting_rem_space < FRAGMENTATION_HIGH_THRESHOLD) & \
+                             non_exact_mask
+    current_priorities_for_fit_bins[is_fragmented_zone_gap] -= FRAGMENTATION_PENALTY
+
+    # Assign the calculated priorities for fitting bins back into the main priorities array.
+    priorities[can_fit_mask] = current_priorities_for_fit_bins
+
+    return priorities
+```

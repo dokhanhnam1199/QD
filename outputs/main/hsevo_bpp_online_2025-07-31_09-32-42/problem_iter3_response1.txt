@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which to add item to each bin, implementing an Adaptive Median Fit heuristic.
+
+    This heuristic dynamically adjusts its target remaining capacity based on the current
+    distribution of *potential* remaining capacities among bins that can fit the item.
+    It aims to select the bin that, after placing the item, would result in a remaining
+    capacity closest to the median of all possible remaining capacities among valid bins.
+
+    This approach seeks to:
+    1.  Promote a more uniform distribution of remaining bin capacities across the system,
+        reducing fragmentation where some bins are left with tiny, unusable gaps while
+        others are very large. This addresses "Problem-aware Robustness".
+    2.  Provide "Adaptive Search" by not always pursuing the absolute tightest fit (as Best Fit does),
+        but rather a fit that aligns with the current central tendency of available options.
+        This allows for more flexible bin states for future items.
+    3.  Offer "Informed Exploration" by considering the overall landscape of available fits
+        (the distribution of potential remaining spaces) rather than just a local minimum.
+        It subtly guides the packing towards a more balanced, sustainable state.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority for placing the item in that bin.
+        Scores are designed such that a perfect match to the 'target_remaining_capacity'
+        gets the highest possible score (0), while bins that cannot fit the item get -inf.
+    """
+    # Initialize all priorities to negative infinity. This ensures that
+    # any bin that cannot fit the item will never be chosen.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Calculate the potential remaining space in each bin if the item were placed.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Identify bins where the item can actually fit (remaining space >= 0).
+    can_fit_mask = potential_remaining_space >= 0
+
+    # Get the potential remaining spaces for only those bins that can fit the item.
+    fitting_bins_potential_rem_space = potential_remaining_space[can_fit_mask]
+
+    # Handle edge case: if no bin can fit the item, all priorities remain -inf.
+    # If only one bin fits, its priority will be 0 (as median is itself), ensuring it's chosen.
+    if len(fitting_bins_potential_rem_space) == 0:
+        return priorities
+
+    # Calculate the median of the potential remaining spaces among fitting bins.
+    # This acts as our dynamic "target remaining capacity". By seeking the median,
+    # we aim to homogenize the bin states, avoiding extremes (too tight or too loose).
+    target_remaining_capacity = np.median(fitting_bins_potential_rem_space)
+
+    # For bins where the item can fit, assign a priority based on how close
+    # their potential remaining space is to the target_remaining_capacity.
+    # We use negative absolute difference: a smaller difference (closer to target)
+    # yields a higher priority (closer to 0, which is the maximum score).
+    priorities[can_fit_mask] = -np.abs(fitting_bins_potential_rem_space - target_remaining_capacity)
+
+    return priorities
+```

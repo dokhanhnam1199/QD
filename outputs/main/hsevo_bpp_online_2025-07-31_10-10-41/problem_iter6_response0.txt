@@ -1,0 +1,84 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority for placing an item using a "Best Fit with Gap Management" strategy.
+
+    This heuristic extends the traditional Best Fit (BF) by incorporating
+    multi-criteria decision-making and simple feature engineering of the
+    resulting bin state. It aims to improve upon basic BF by:
+
+    1.  **Core Best Fit Principle:** Still prioritizes bins that leave less
+        remaining capacity (minimizing immediate waste).
+    2.  **Bin Closure Incentive:** Provides a significant bonus for bins that
+        become "almost full" or "perfectly full" after placing the item. This
+        encourages the efficient closure of bins, reducing the total number of
+        active bins and minimizing "dead" space across many bins.
+    3.  **Awkward Gap Deterrent:** Applies a moderate penalty for bins that are
+        left with an "awkwardly small" remaining capacity. These are gaps
+        that are too small for many subsequent items but too large to be
+        considered efficiently "closed," potentially leading to fragmentation
+        and unused space.
+
+    Assumptions:
+    - Item sizes and bin capacities are normalized, such that the full bin capacity is 1.0.
+      (This allows for generic thresholds like 0.02 or 0.15 for gap analysis).
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score for each bin.
+        Higher scores indicate a more preferred bin. Bins where the item does
+        not fit are assigned -np.inf.
+    """
+    # Assuming normalized item sizes and bin capacities, e.g., 0 to 1.
+    BIN_CAPACITY = 1.0
+
+    # Calculate the remaining capacity of each bin *after* placing the current item.
+    remaining_after_placement = bins_remain_cap - item
+
+    # Initialize priority scores based on the Best Fit principle:
+    # A smaller 'remaining_after_placement' is better, so we negate it to make it a higher priority.
+    # A perfect fit (remaining_after_placement = 0) gets a base priority of 0.
+    priorities = -remaining_after_placement
+
+    # --- Feature Engineering & Multi-criteria Adjustments ---
+    # These thresholds and values are empirical and can be fine-tuned for specific problem instances.
+
+    # Define thresholds for identifying different types of remaining gaps:
+    # EPSILON_CLOSE: If remaining capacity is below this, the bin is considered "nearly full" or "closed".
+    EPSILON_CLOSE = 0.02 * BIN_CAPACITY # e.g., 2% of bin capacity
+
+    # PENALTY_AWKWARD_START/END: If remaining capacity falls within this range, it's considered an "awkward gap".
+    PENALTY_AWKWARD_START = 0.05 * BIN_CAPACITY # e.g., 5% of bin capacity
+    PENALTY_AWKWARD_END = 0.15 * BIN_CAPACITY   # e.g., 15% of bin capacity
+
+    # Define the magnitude of bonuses/penalties:
+    # BONUS_CLOSE: A significant bonus to strongly favor closing a bin.
+    BONUS_CLOSE = 0.5 * BIN_CAPACITY # Large bonus to make closing a bin highly attractive.
+
+    # PENALTY_AWKWARD: A moderate penalty to discourage creating awkward, hard-to-fill gaps.
+    PENALTY_AWKWARD = 0.2 * BIN_CAPACITY # Sufficient to make awkward gaps less desirable than larger ones.
+
+    # 1. Apply bonus for 'closing' bins (remaining capacity is very small or zero)
+    # This promotes a strategy of consolidating items into fewer bins, making them
+    # "closed" for future large items and reducing overall fragmentation.
+    bonus_mask = (remaining_after_placement >= 0) & (remaining_after_placement <= EPSILON_CLOSE)
+    priorities[bonus_mask] += BONUS_CLOSE
+
+    # 2. Apply penalty for 'awkward' small gaps
+    # This discourages creating bins with remaining capacities that are too small
+    # to be easily used by subsequent items, yet not small enough to be efficiently filled.
+    # Such bins can become "dead space" if not managed.
+    penalty_mask = (remaining_after_placement > PENALTY_AWKWARD_START) & \
+                   (remaining_after_placement < PENALTY_AWKWARD_END)
+    priorities[penalty_mask] -= PENALTY_AWKWARD
+
+    # Finally, set the priority to negative infinity for bins where the item does not fit.
+    # This ensures that these bins are never selected as valid options.
+    priorities[remaining_after_placement < 0] = -np.inf
+
+    return priorities
+```

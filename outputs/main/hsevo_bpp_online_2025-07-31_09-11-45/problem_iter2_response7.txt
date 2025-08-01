@@ -1,0 +1,184 @@
+<think>
+Okay, I need to create an improved priority function for the online bin packing problem by combining elements from the provided v0 and v1 versions, while incorporating the analysis and experience mentioned. Let me start by understanding the strengths and weaknesses of each version.
+
+The v0 function uses a quantum-inspired approach with harmonic efficiency (1/residual) and residual potential (sqrt of remaining capacity), combined via geometric mean. The analysis mentions that this creates a balanced trade-off between tight packing and flexibility. The v1 function prioritizes exact fits first, then uses a weighted sum of inverse gap size and utilization. However, the analysis points out that multiplicative terms can over-penalize mid-range bins, and the exact fit handling might not account for floating-point precision properly.
+
+From the analysis, the best heuristics combine harmonic terms with residual potential, use geometric means for balance, handle exact fits correctly with tolerance checks (like np.isclose), and avoid over-penalizing with unstable terms. The worse heuristics use static weights, artificial cliffs, or improper exact fit checks.
+
+So, to improve, I should:
+
+1. Handle exact fits properly using np.isclose to account for floating-point precision, as seen in the analysis of version 13 vs 10.
+2. Use a combination of harmonic efficiency (like v0's 1/(residual + eps)) and another term that encourages future flexibility. The v0 uses sqrt(remaining capacity), which represents residual potential. Maybe keep that.
+3. Combine these terms multiplicatively (geometric mean) as in v0, which the analysis says works better than additive weighted sums (like v1's 0.7 and 0.3 weights).
+4. Avoid the issues in v1 where exact fits are checked with ==, which isn't reliable for floats, and where combined priorities might create cliffs.
+
+So the steps would be:
+
+- Check for exact fits using np.isclose with a tolerance.
+- For valid bins, compute harmonic_term (1/residual) and potential_term (sqrt of remaining capacity).
+- Multiply them for a geometric mean effect.
+- Assign these scores to valid bins, others get -inf.
+- Ensure that exact fits get the highest priority (np.inf) to pack them immediately.
+
+Wait, in v0, the exact fit isn't handled specially, but in v1, exact fits are given np.inf. The analysis mentions that version 13 (better) uses np.isclose for exact fits. So perhaps in the improved version, we should first check for exact fits and prioritize those bins with the highest score.
+
+But in the v0 code, the exact fit would naturally have a very high harmonic_term (since residual is near zero), but maybe handling it explicitly is better to ensure they are chosen first.
+
+So the plan is:
+
+1. Create a mask for exact fits using np.isclose.
+2. For bins that can fit the item (valid_mask), compute the harmonic_term and potential_term.
+3. Combine them multiplicatively.
+4. Set the priority of exact fits to np.inf to ensure they are selected first.
+5. For other valid bins, use the combined score.
+
+Wait, but in the analysis, the better code (v0) doesn't handle exact fits separately. However, the worse code (v1) does. The analysis says that version 13 (which is better) handles exact fits with proper tolerance. So perhaps the improved version should first check for exact fits and prioritize them, then use the combined terms for others.
+
+But in the v0 code, the harmonic_term for an exact fit would be 1/(0 + 1e-9) = 1e9, which is very high. However, using np.inf for exact fits ensures they are chosen first, which might be better. Because even if the residual is very small but not exactly zero (due to floating point), the harmonic term would be large, but maybe not as high as a true exact fit.
+
+So, to properly prioritize exact fits, we should check for them with a tolerance and assign np.inf. Then, for other valid bins, compute the combined score.
+
+So integrating elements from both versions:
+
+- Use exact fit check with np.isclose (from the better approach in the analysis).
+- For non-exact valid bins, use the harmonic * potential term from v0.
+- Assign exact fits the highest priority.
+
+This way, exact fits are handled first, and others are ranked based on the combined terms.
+
+Putting this into code:
+
+- Compute residual = bins_remain_cap - item
+- valid_mask = residual >= 0 (or >= -epsilon, but the problem states bins_remain_cap is the remaining capacity, so item is placed only if residual >=0)
+- exact_fit_mask = np.isclose(bins_remain_cap, item, atol=1e-9)
+- For bins where exact_fit_mask is True, set priority to np.inf
+- For other valid bins (valid_mask & ~exact_fit_mask), compute harmonic_term = 1/(residual + 1e-9) and potential_term = sqrt(bins_remain_cap)
+- Combine them as harmonic_term * potential_term
+- Set priorities for these bins to the combined score
+- All others (invalid) get -inf
+
+This combines the exact fit handling from the better code (v13 in the analysis) with the harmonic and potential terms from v0.
+
+Testing edge cases: if a bin's remaining capacity is exactly the item size, it's an exact fit. If residual is very small but positive, the harmonic term is large, but not infinite. The potential term (sqrt of remaining capacity) would be small if the bin is almost full, but maybe that's okay because we want to fill bins as much as possible.
+
+Wait, the potential_term in v0 is sqrt(bins_remain_cap[valid_indices]), which is the remaining capacity before placing the item. Wait, no: bins_remain_cap is the current remaining capacity. After placing the item, the residual is bins_remain_cap - item. So the potential_term is sqrt of the current remaining capacity. Wait, but in v0, the potential_term is sqrt(bins_remain_cap[valid_indices]), which is the remaining capacity before placing the item. So for a bin with high remaining capacity, this term is higher. But after placing the item, the residual is lower. So this term encourages placing items in bins that have more remaining capacity, which might leave room for future items. But the harmonic term (1/residual) encourages tight fits. The combination balances tight packing with leaving room for future items.
+
+So the potential_term in v0 is the sqrt of the current remaining capacity, not the residual. Wait, in v0's code:
+
+potential_term = np.sqrt(bins_remain_cap[valid_indices])
+
+Yes, that's the remaining capacity before placing the item. So this term is higher for bins that have more space left. So when combined with the harmonic term (which is higher for smaller residuals), the product would be higher for bins where placing the item leaves a small residual (tight fit) and the bin originally had more space (so after placing, there's still some space left for future items). Wait, no: the residual is the remaining capacity after placing the item. So the harmonic term is 1/(residual + 1e-9), which is large when residual is small (tight fit). The potential_term is sqrt of the original remaining capacity (before placing the item). So for a bin that had a lot of space, even after placing the item, the potential_term is based on the original space. Hmm, maybe that's not the best approach. Because after placing the item, the remaining capacity is residual. So perhaps the potential_term should be based on the residual, not the original capacity. Wait, but in v0's code, the potential_term is sqrt of the original remaining capacity. Let me think: the idea is to favor bins that have more remaining capacity, which might allow for more flexibility in future placements. But after placing the current item, the residual is the new remaining capacity. So the potential_term is about the current state before placing the item. Maybe the intention is that bins with higher remaining capacity have more potential to accommodate future items, so placing the current item there (if it's a tight fit) is good because it uses up some of that capacity while leaving some for future. But I'm not sure. Alternatively, maybe the potential_term should be based on the residual (after placing the item), which would be the remaining capacity after placement. That would make more sense, as it's the actual remaining space for future items. For example, if a bin has 10 units left, placing an item of 5 units leaves 5 units. The potential_term could be sqrt(5) instead of sqrt(10). But in v0's code, it's sqrt(10). Hmm. So the original code's potential_term is based on the bin's current remaining capacity, not the residual. That might be a mistake. Let me check the analysis again. The analysis says that the better code (v0) combines harmonic efficiency (1/residual) with residual potential (sqrt of remaining capacity). Wait, residual potential here refers to the remaining capacity before placing the item. So the idea is that even if the current item is placed tightly, the bin's original capacity is considered for potential. But maybe that's not the right approach. Alternatively, maybe the residual potential should be the residual after placement. Let me think: the residual after placement is the remaining capacity. So if we want to favor bins that, after placing the item, have more potential (i.e., more remaining space for future items), then the potential_term should be based on the residual. But in v0's code, it's based on the original remaining capacity. That seems conflicting. Wait, perhaps the analysis describes it as "residual capacity potential (favors bins needing less future energy to fill)", which would imply that the potential is based on the remaining capacity after placing the item. But in the code, it's the original remaining capacity. That might be a discrepancy. So perhaps the code in v0 has a mistake, and the potential_term should be based on the residual (after placement) instead of the original remaining capacity. Let me re-examine the code:
+
+In v0:
+
+residual = bins_remain_cap - item
+
+valid_mask = residual >=0
+
+potential_term = np.sqrt(bins_remain_cap[valid_indices])
+
+So bins_remain_cap is the original remaining capacity. So the potential_term is the sqrt of the original remaining capacity. But the residual is the remaining capacity after placing the item. So the harmonic_term is 1/(residual + 1e-9), which is tightness of the fit. The potential_term is the sqrt of the original capacity. So this combination might be trying to balance between a tight fit (high harmonic_term) and a bin that originally had more space (high potential_term). But after placing the item, the residual is small (tight fit), but the original capacity was large, so the potential_term is large. For example, a bin with original capacity 10, item size 5. Residual is 5. harmonic_term is 1/5, potential_term is sqrt(10) ≈3.16. So the product is 0.2 *3.16=0.632. Another bin with original capacity 6, item size 5. Residual is 1. harmonic_term is 1/1=1, potential_term sqrt(6)=2.45. Product is 2.45. So this bin would have higher priority. Wait, but the first bin's product is 0.632, the second is 2.45. So the second bin is preferred. But the first bin, after placing the item, has more residual (5) which is more space for future items, but the second bin has residual 1. So the code's current approach prefers the second bin because the harmonic_term is higher (tighter fit) and the potential_term is based on original capacity. But the residual after placement in the first bin is 5, which is more flexible. So this might not be the best approach. Maybe the potential_term should be based on the residual (after placement), which is the actual remaining capacity. Let's recalculate:
+
+If potential_term is sqrt(residual):
+
+First bin: residual 5, potential_term sqrt(5)≈2.24. harmonic_term 1/5=0.2. product 0.448.
+
+Second bin: residual 1, potential_term sqrt(1)=1. harmonic_term 1. product 1.0.
+
+So the second bin is still preferred. But if the potential_term is based on residual, then bins with higher residual (more space left) would have higher potential_term, but harmonic_term is lower. So the product would balance between tight fit and remaining space. For example, a bin with residual 3: harmonic_term 1/3≈0.333, potential_term sqrt(3)≈1.732. product≈0.577. Another bin with residual 2: harmonic_term 0.5, potential_term sqrt(2)≈1.414. product≈0.707. So the bin with residual 2 is preferred. This balances between a tighter fit (lower residual) and higher remaining space (higher residual). Wait, no: lower residual means tighter fit (higher harmonic_term), but higher residual means more space left (higher potential_term). So the product would be highest when both terms are balanced. For example, a residual of 1: harmonic_term 1, potential_term 1 → product 1. Residual of 2: 0.5 * 1.414 ≈0.707. Residual of 0.5: 2 * 0.707≈1.414. So the product is highest when the residual is very small. But if the potential_term is based on the residual (after placement), then the product would favor tight fits (small residual) but also some remaining space. Wait, but in this case, the product is highest when the residual is smallest. Because harmonic_term is 1/(residual), which increases as residual decreases. The potential_term is sqrt(residual), which increases as residual increases. So their product is (1/residual) * sqrt(residual) = 1/sqrt(residual). Which is maximized when residual is minimized. So this would just prioritize the tightest fit, same as the harmonic term alone. So that's not helpful. So perhaps the original code's approach of using the original remaining capacity for potential_term is better. Because then, the potential_term is based on the bin's original remaining capacity, which might indicate that the bin is larger and can accommodate more items in the future, even after placing the current item. For example, a bin with original remaining capacity 10, item 5: residual 5. potential_term is sqrt(10)≈3.16. harmonic_term 0.2. product 0.632. Another bin with original capacity 6, item 5: residual 1. potential_term sqrt(6)=2.45. harmonic_term 1. product 2.45. So the second bin is preferred. But after placing, the first bin has more space left. So this approach might not be optimal for future items. Hmm. This is a bit conflicting. The analysis says that the better heuristic combines harmonic efficiency (tight fit) with residual potential (needing less future energy to fill). So residual potential here refers to the remaining capacity after placement. But in the code, it's using the original remaining capacity. Maybe there's a mistake in the code. Alternatively, perhaps the residual potential is the potential to fill the bin further, which would be higher if the remaining capacity after placement is larger. But in that case, the potential_term should be based on the residual (after placement). But in the code, it's based on the original remaining capacity. This is confusing. 
+
+Alternatively, maybe the term 'residual potential' in the analysis refers to the remaining capacity after placement, and the code has a mistake. In that case, the potential_term should be sqrt(residual), not sqrt(bins_remain_cap). Let me adjust that. So in the code, potential_term would be sqrt(residual). Let's recalculate the example:
+
+First bin: original cap 10, item 5. residual 5. harmonic_term 0.2, potential_term sqrt(5)≈2.24. product 0.448.
+
+Second bin: original cap 6, item 5. residual 1. harmonic_term 1, potential_term 1. product 1.0.
+
+Third bin: original cap 3, item 2. residual 1. harmonic_term 1, potential_term 1. product 1.0.
+
+Fourth bin: original cap 4, item 3. residual 1. harmonic_term 1, potential_term 1. product 1.0.
+
+In this case, bins with residual 1 would have higher product. But if another bin has residual 0.5, harmonic_term 2, potential_term sqrt(0.5)≈0.707. product 1.414. So this bin would be preferred. So the product would prioritize tighter fits, even if the residual is very small. But the potential_term (sqrt(residual)) is lower for smaller residuals. So the product is 1/sqrt(residual), which increases as residual decreases. So this would prioritize the tightest fit possible, which is the same as just using the harmonic term. So combining with the potential_term based on residual doesn't add any benefit. 
+
+Therefore, the original code's approach of using the original remaining capacity for potential_term might be better. Because it considers the bin's original size, which might be an indicator of how much 'space' the bin has overall. For example, a larger bin (with higher original remaining capacity) might be more flexible for future items, even after placing the current item. So the potential_term encourages placing items in larger bins, which can accommodate more future items. The harmonic_term encourages tight fits. The combination would favor placing the item in a bin that allows a tight fit and is part of a larger bin, which can still have space for future items. 
+
+So, the code in v0 uses the original remaining capacity for potential_term. The analysis says this is a good approach. So I should retain that in the improved function.
+
+Now, combining the exact fit handling from the analysis's better code (using np.isclose) with the v0's terms.
+
+So the steps for the improved function:
+
+1. Calculate residual = bins_remain_cap - item.
+2. valid_mask = residual >= 0.
+3. exact_fit_mask = np.isclose(bins_remain_cap, item, atol=1e-9) & valid_mask.
+4. For bins where exact_fit_mask is True, set priority to np.inf.
+5. For other valid bins (valid_mask & ~exact_fit_mask), compute harmonic_term = 1/(residual + 1e-9) and potential_term = sqrt(bins_remain_cap).
+6. Combine them as harmonic_term * potential_term.
+7. Set priorities for these bins to the combined score.
+8. All invalid bins get -inf.
+
+This way, exact fits are prioritized first, then the other valid bins are scored based on the combination of tight fit (harmonic) and original bin size potential (sqrt of original remaining capacity).
+
+This combines the exact fit handling from the better code (like version 13) with the multiplicative terms from v0, which the analysis says is effective.
+
+Now, implementing this in code.
+
+The code structure would be:
+
+def priority_v2(...):
+    # Compute residual
+    residual = bins_remain_cap - item
+    valid_mask = residual >= 0
+    exact_fit_mask = np.isclose(bins_remain_cap, item, atol=1e-9) & valid_mask
+
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+
+    # Handle exact fits
+    priorities[exact_fit_mask] = np.inf
+
+    # For other valid bins
+    other_valid_mask = valid_mask & ~exact_fit_mask
+    other_valid_indices = other_valid_mask.nonzero()[0]
+
+    if other_valid_indices.size > 0:
+        harmonic_term = 1 / (residual[other_valid_indices] + 1e-9)
+        potential_term = np.sqrt(bins_remain_cap[other_valid_indices])
+        priorities[other_valid_indices] = harmonic_term * potential_term
+
+    return priorities
+
+The docstring should mention combining exact fit checks with harmonic efficiency and original capacity potential via multiplication.
+
+Testing this function:
+
+- If a bin has exactly the same remaining capacity as the item, it's marked as exact fit and gets priority inf.
+- For other valid bins, the priority is (1/(residual)) * sqrt(original remaining capacity).
+- This balances tight fits (high harmonic_term) with bins that originally had more space (high potential_term), which might be better for future packing.
+
+This should address the issues in the worse code (v1) by avoiding additive weights and handling exact fits properly, while retaining the effective aspects of v0.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Balances exact-fit prioritization with harmonic tightness and original capacity potential using geometric combination."""
+    residual = bins_remain_cap - item
+    valid_mask = residual >= 0
+    exact_fit = np.isclose(bins_remain_cap, item, atol=1e-9)
+    
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+    valid_exact = valid_mask & exact_fit
+    
+    if np.any(valid_exact):
+        priorities[valid_exact] = np.inf  # Absolute priority for perfect fits
+        return priorities
+    
+    valid_indices = valid_mask.nonzero()[0]
+    if valid_indices.size > 0:
+        # Harmonic term rewards tight fits, sqrt(bins_remain_cap) preserves potential
+        harmonic = 1 / (residual[valid_indices] + 1e-9)
+        potential = np.sqrt(bins_remain_cap[valid_indices])  # Original capacity potential
+        priorities[valid_indices] = harmonic * potential  # Geometric combination
+        
+    return priorities
+```

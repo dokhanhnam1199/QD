@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority for each bin, aiming to tightly pack items with a focus on relative utilization.
+
+    This heuristic computes a priority score for each bin based on whether the item can fit
+    and how efficiently it utilizes the bin's remaining capacity.
+    - For bins that can fit the item, priority is based on the ratio of the item's size
+      to the bin's remaining capacity (i.e., relative utilization). A higher ratio (closer to 1.0)
+      indicates a tighter fit and thus a higher priority. A perfect fit yields a score of 1.0.
+    - For bins that cannot fit the item, priority is assigned as the negative of the
+      deficit in capacity (`bins_remain_cap - item`). This results in a negative score
+      that is lower (more negative) for bins that are further from being able to accommodate the item.
+
+    This approach ensures that bins able to fit an item always receive a higher priority
+    (positive, in range (0, 1.0]) than bins unable to fit an item (negative, in range [-MAX_ITEM_SIZE, 0)).
+    It adheres to the principles of local rules and emergent behavior, avoiding explicit
+    infinity/epsilon values or predefined "best fit" criteria beyond the inherent
+    proportionality.
+
+    Args:
+        item: Size of item to be added to the bin. Assumed to be > 0.
+        bins_remain_cap: Array of remaining capacities for each bin. Values are >= 0.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority for placing the item in that bin.
+    """
+    # Initialize priorities array.
+    priorities = np.empty_like(bins_remain_cap, dtype=float)
+
+    # Calculate the potential remaining space if the item were placed.
+    # This value is positive if the item fits, and negative if it doesn't.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Create a boolean mask for bins where the item can actually fit.
+    # This inherently handles cases where bins_remain_cap is 0 (since item > 0, 0 - item < 0).
+    can_fit_mask = potential_remaining_space >= 0
+
+    # Assign priorities for bins where the item can fit.
+    # The priority is `item / bins_remain_cap`.
+    # A perfect fit (bins_remain_cap == item) results in a priority of 1.0.
+    # A loose fit results in a priority closer to 0.
+    # Note: bins_remain_cap[can_fit_mask] will never be zero for `item > 0`
+    # because if bins_remain_cap was 0, `0 - item` would be negative,
+    # and it wouldn't be in `can_fit_mask`.
+    priorities[can_fit_mask] = item / bins_remain_cap[can_fit_mask]
+
+    # Assign priorities for bins where the item cannot fit.
+    # The priority is `potential_remaining_space` (which will be negative).
+    # A bin that is only slightly too small (e.g., potential_remaining_space = -0.01)
+    # will receive a priority score closer to zero than a bin that is much too small
+    # (e.g., potential_remaining_space = -0.9). This means that among non-fitting
+    # bins, those "closer" to fitting are still prioritized relatively higher,
+    # but always below any fitting bin.
+    cannot_fit_mask = ~can_fit_mask
+    priorities[cannot_fit_mask] = potential_remaining_space[cannot_fit_mask]
+
+    return priorities
+```

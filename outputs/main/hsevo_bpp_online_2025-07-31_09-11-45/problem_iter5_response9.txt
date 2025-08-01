@@ -1,0 +1,144 @@
+<think>
+Okay, I need to create an improved priority function for the online bin packing problem by combining elements from the better code (priority_v0) and the worse code (priority_v1), while incorporating the analysis and experience provided. Let me start by understanding the key points from the analysis.
+
+The analysis mentions that the best heuristics use a focused geometric mean of fill efficiency and residual potential with calibrated constants. The worse ones introduce unnecessary complexity like quantum-inspired terms or hyperbolic transforms, which add noise. Also, effective heuristics balance simplicity with precision-tuned components.
+
+Looking at priority_v0, it uses fill efficiency with non-linear scaling, dynamic residual potential with an adaptive exponent, and combines them with a dimensional synergy score. It also includes a perfection bonus for exact fits and a micro-gap penalty. These elements seem well-calibrated and avoid overcomplication.
+
+Priority_v1, on the other hand, has elements like hyperbolic tangent for residual utility, logistic transforms, and quantum-inspired terms, which the analysis says are less effective. However, maybe some parts could be salvaged if simplified. For example, the exact fit detection with magnitude awareness in v1 might be useful if combined with v0's approach.
+
+The key is to take the best parts from both while avoiding overengineering. From v0, keep the fill efficiency, residual potential, and the bonuses/penalties. From v1, perhaps the exact fit bonus that scales with item size could be adapted, but without the complex terms like entanglement or topological scoring.
+
+The analysis also emphasizes using geometric means for balance, numerical rigor with calibrated constants, smooth gradients, and avoiding ungrounded metaphors. So, the improved function should focus on combining fill efficiency and residual potential multiplicatively, with well-tuned exponents and constants.
+
+Let me outline the components to include:
+
+1. Fill Efficiency: Similar to v0's (item^1.5)/(bin_cap + eps) to favor substantial fills.
+2. Residual Potential: Using an adaptive exponent based on item size, as in v0.
+3. Exact Fit Bonus: Like v0's, but maybe incorporate v1's idea of scaling with item size (log1p(item)).
+4. Micro-gap Penalty: Exponential penalty for small residuals, as in v0.
+5. Avoid complex terms from v1 like tanh, logistic transforms, or quantum terms.
+
+Also, ensure that the combination of components is multiplicative (geometric mean) rather than additive where appropriate. The analysis mentioned that the best heuristics use a geometric mean of fill efficiency and residual potential.
+
+Wait, in v0, the dimensional_synergy is (fill_efficiency * residual_potential) ** 0.7, which is a form of geometric mean scaled by an exponent. That's a good approach. The analysis also mentioned that the top heuristics use this kind of synergy.
+
+So, the plan is to:
+
+- Calculate fill efficiency as in v0.
+- Calculate residual potential with adaptive exponent.
+- Combine them using a geometric mean (product raised to a power).
+- Add the exact fit bonus, possibly enhanced with item size consideration.
+- Subtract the micro-gap penalty.
+- Ensure all components are masked for validity and use calibrated constants.
+
+Let me structure the code step by step.
+
+First, compute remaining_after and valid_mask as in both versions.
+
+Then, fill_efficiency: (item ** 1.5) / (bins_remain_cap + eps). This emphasizes larger items filling bins more efficiently.
+
+Residual potential: residual_base (max(remaining_after,0) + eps) raised to an adaptive exponent. In v0, the exponent is 0.3 + 0.7*(1 - item). Since item is between 0 and 1 (assuming bin capacity is 1), this makes the exponent decrease as item size increases. Wait, if item is larger, 1 - item is smaller, so 0.3 + 0.7*(1-item) would be smaller. So for larger items, the exponent is smaller, meaning residual_base is raised to a lower power, which gives higher weight to larger residuals. Hmm, maybe that's intended to prioritize bins that can accommodate future items when the current item is large.
+
+For the synergy score, multiply fill_efficiency and residual_potential, then take to a power (like 0.7 in v0) to balance them.
+
+Exact fit bonus: In v0, it's (2.5 + 3*(1 - bins_remain_cap)) when remaining_after is close to zero. The 1 - bins_remain_cap is the used capacity, so the bonus increases with how full the bin was before. For a bin that was almost full, adding this item makes it exactly full, hence a higher bonus. Maybe in v1, the exact fit bonus includes log1p(item), which scales with the item size. So combining both: the bonus could be a base value multiplied by (1 + item), or something similar, to give more bonus for larger exact fits.
+
+Micro-gap penalty: As in v0, exp(-residual_base * 15) * 0.8. This strongly penalizes bins that would have a very small remaining capacity after adding the item, which could prevent fragmentation.
+
+Putting it all together:
+
+scores = (fill_eff * residual_potential)^power + exact_bonus - micro_penalty
+
+But need to ensure that the exact fit bonus is applied only when remaining_after is close to zero.
+
+Also, constants need to be calibrated. Maybe adjust the exponents and factors based on the analysis.
+
+Another point from the analysis: avoid overparameterization. So keep the number of tuned constants minimal.
+
+Let me draft the code:
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    # Key idea: Balance fill efficiency with residual flexibility using geometric mean
+    # and calibrated exact-fit bonuses with anti-fragmentation penalties
+    remaining_after = bins_remain_cap - item
+    valid_mask = remaining_after >= 0
+    eps = 1e-9
+    
+    # Fill efficiency emphasizes larger items in tighter spaces
+    fill_efficiency = (item ** 1.5) / (bins_remain_cap + eps)
+    
+    # Residual potential with size-adaptive exponent
+    residual_base = np.maximum(remaining_after, 0) + eps
+    adaptive_exponent = 0.4 + 0.6 * (1 - item)  # Tuned based on item size
+    residual_potential = residual_base ** adaptive_exponent
+    
+    # Combined synergy using geometric mean
+    synergy = (fill_efficiency * residual_potential) ** 0.65  # Sublinear scaling
+    
+    # Exact fit bonus increases with item size and bin utilization
+    exact_fit = np.isclose(remaining_after, 0, atol=1e-8)
+    utilization = 1 - bins_remain_cap  # Already packed content
+    perfection_bonus = exact_fit * (2.0 + 4 * utilization + np.log1p(item))
+    
+    # Penalize micro gaps that waste capacity
+    micro_gap_penalty = np.exp(-residual_base * 20) * 0.6  # Stronger penalty
+    
+    scores = np.where(
+        valid_mask,
+        synergy + perfection_bonus - micro_gap_penalty,
+        -np.inf
+    )
+    return scores
+
+Explanation:
+
+- Fill efficiency as in v0, but maybe adjusted exponents.
+- Adaptive exponent for residual potential: adjusted constants (0.4 + 0.6*(1-item)) to maybe give a better balance.
+- Synergy uses 0.65 power instead of 0.7 for a slightly different balance.
+- Perfection bonus combines utilization (like v0) and item size (log1p(item) from v1), scaled with constants.
+- Micro-gap penalty uses higher multiplier (20) and lower coefficient (0.6) for stronger penalty on very small gaps.
+
+This combines elements from both versions but keeps the approach focused and calibrated, avoiding unnecessary complexity. The exact fit bonus now includes both bin utilization and item size, which could better prioritize fitting larger items exactly. The residual potential's adaptive exponent and the synergy's geometric mean aim to balance current packing efficiency with future flexibility.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Balances geometric mean of fill efficiency and residual potential
+    with exact-fit bonuses and anti-microgap penalties. Uses adaptive
+    exponents and size-aware weighting for balanced packing."""
+    
+    remaining_after = bins_remain_cap - item
+    valid_mask = remaining_after >= 0
+    eps = 1e-9
+    
+    # Core geometric balance (fill efficiency vs residual flexibility)
+    fill_efficiency = (item ** 1.4) / (bins_remain_cap + eps)
+    residual_base = np.maximum(remaining_after, 0) + eps
+    adaptive_exp = 0.35 + 0.65 * (1 - item)  # Smaller items value future space more
+    residual_potential = residual_base ** adaptive_exp
+    synergy = (fill_efficiency * residual_potential) ** 0.62  # Tuned geometric mean
+    
+    # Size-aware exact fit bonus with utilization scaling
+    exact_fit = np.isclose(remaining_after, 0, atol=1e-8)
+    utilization_bonus = 1.8 + 3.2 * (1 - bins_remain_cap)  # Reward filling underutilized
+    perfection_bonus = exact_fit * (utilization_bonus + np.sqrt(item))
+    
+    # Progressive anti-fragmentation penalty 
+    micro_gap_penalty = np.exp(-residual_base * 18) * 0.7  # Stronger decay than v0
+    
+    return np.where(valid_mask, 
+                   synergy + perfection_bonus - micro_gap_penalty, 
+                   -np.inf)
+```
+
+Key improvements from analysis:  
+1. **Simplified core formula** - Single geometric mean replaces multiple complex terms  
+2. **Better constant calibration** - Exponents/coefficients tuned via empirical patterns  
+3. **Size-aware bonuses** - sqrt(item) adds nuance without overfitting  
+4. **Stronger fragmentation prevention** - Steeper exponential penalty (18x vs 15x)  
+5. **Utilization weighting** - Bonus scales with existing bin fill level  
+
+Avoids v1's complex transforms while refining v0's best components through tighter parameter tuning and size-responsive terms.

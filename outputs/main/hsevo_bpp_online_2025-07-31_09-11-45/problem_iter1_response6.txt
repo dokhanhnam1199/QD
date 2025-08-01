@@ -1,0 +1,149 @@
+<think>
+Okay, I need to design a priority function for the online bin packing problem. Let's think about what makes a good heuristic here. The goal is to minimize the number of bins used, so we want to pack items as efficiently as possible.
+
+First, the existing priority_v1 just returns zeros, which isn't helpful. For v2, I should consider common heuristics like Best Fit, which places an item in the bin that leaves the least remaining space. But maybe there's a more nuanced approach.
+
+Wait, Stephen Hawking might approach this with some theoretical insights. Black holes have event horizons and entropy... Hmm, maybe not directly applicable, but perhaps think in terms of optimizing space-time efficiency. Or maybe use concepts from information theory.
+
+Alternatively, think about the problem in terms of maximizing the utilization of each bin. The priority could be a combination of factors. For example, if a bin has just enough space left for the item, that's ideal. Also, bins that are almost full but can still fit the item might be prioritized to reduce fragmentation.
+
+Another angle: consider the remaining capacity after placing the item. The priority could be higher for bins where the remaining capacity is minimized but non-negative. That's similar to Best Fit. But maybe add a penalty if the remaining capacity is too small, to avoid creating bins with tiny leftover spaces that can't fit future items.
+
+Wait, but in online BPP, we don't know future items. So the heuristic has to be based on current state. Best Fit is known to perform better than First Fit in some cases. But maybe we can enhance it.
+
+What if the priority is the reciprocal of the remaining space after placing the item? For bins that can't fit the item, set a very low priority (like negative infinity). For others, 1/(remaining_cap - item + 1e-9) to avoid division by zero. Wait, no, because remaining_cap after placing the item would be bins_remain_cap - item. So the remaining space is (bin_cap - item). We want to minimize that, so higher priority when this is smaller. So the priority could be (bins_remain_cap - item) but only if >=0. But how to turn that into a score where higher is better. Maybe the priority is (bins_remain_cap - item) but invert it. Wait, if the remaining space after insertion is small, that's good. So the priority could be 1/(remaining_space_after + 1e-9), but only for bins where the item fits. For those that can't fit, set a very low value like -infinity. So the bins that can fit the item and leave the least space get the highest priority. That's exactly the Best Fit approach.
+
+But the problem is that in the online scenario, Best Fit can sometimes lead to more bins if items are packed too tightly early on, leaving larger gaps. Maybe we need a balance between Best Fit and something else.
+
+Alternatively, consider the square of the remaining capacity. Some heuristics use the sum of squares to minimize fragmentation. For example, the "Almost Worst Fit" or other variants. But in this case, since we're assigning a priority for a single item, perhaps the priority could be based on how well the item fits, but also considering the current state of the bin.
+
+Wait, another idea: prioritize bins where the remaining capacity after adding the item is closest to a certain threshold. For example, if the item size is s, then bins that can fit s and have remaining capacity closest to the average item size might be better. But how to compute the average when items are online?
+
+Alternatively, use a function that combines the remaining capacity after placement and the current bin's utilization. For example, a bin that is 80% full and can fit the item might be better than a bin that is 50% full but leaves more space. But how to model this.
+
+Alternatively, the priority could be a weighted sum of the remaining capacity after placing the item and the current utilization. For example, higher priority for bins that, after placing the item, have a higher utilization. But since utilization is (original capacity - remaining + item)/original capacity. Wait, but the original capacity is fixed. Let's say each bin has capacity C. Then the utilization after adding the item would be (C - (bin_remain_cap - item)) / C = (C - bin_remain_cap + item)/C. But bin_remain_cap is the current remaining capacity. So the utilization after adding the item would be (C - (bin_remain_cap - item)) / C = (C - bin_remain_cap + item)/C. But C is fixed, so perhaps the priority could be (C - bin_remain_cap + item) which is the total used space after adding the item. But maximizing that would mean choosing the bin that, when the item is added, has the highest used space. Which is equivalent to choosing the bin with the least remaining space after adding the item. Which is again Best Fit.
+
+Hmm. So maybe the Best Fit is the way to go. But how to implement that in the priority function.
+
+Wait, the priority function should return a score for each bin. For bins that can't fit the item (i.e., bins_remain_cap[i] < item), their priority should be very low (like -infinity) so they are not selected. For others, the priority is (bins_remain_cap[i] - item), but we want to choose the smallest remaining space. So higher priority for smaller (bins_remain_cap[i] - item). But how to represent that. If we take the negative of (bins_remain_cap[i] - item), then higher values (less remaining space) would have higher priority. Wait, no. Let's see: if a bin has 5 remaining, and the item is 3, then after placing, remaining is 2. For another bin with remaining 4, after placing, remaining is 1. The second bin is better. So the priority for the first bin would be (5-3)=2, the second (4-3)=1. So the priority should be higher for the second bin, which has a smaller (bins_remain_cap[i] - item). So the priority should be (bins_remain_cap[i] - item) but inverted. So the priority could be 1/(bins_remain_cap[i] - item + 1e-9) for bins that can fit. But that would give higher values to smaller denominators. Wait, if (bins_remain_cap[i] - item) is 1, then 1/1=1. If it's 2, 1/2=0.5. So the smaller the remaining space, the higher the priority. That's correct. So for each bin that can fit the item, compute 1/(remaining_after) and assign that as the priority. Bins that can't fit get a very low priority.
+
+But in code, how to handle that. Let's see:
+
+First, compute the remaining after placing the item: remaining_after = bins_remain_cap - item.
+
+For bins where remaining_after >=0, compute 1/(remaining_after + 1e-9) to avoid division by zero. For others, set to -infinity.
+
+So the code would be:
+
+mask = bins_remain_cap >= item
+priority = np.where(mask, 1/(bins_remain_cap - item + 1e-9), -np.inf)
+
+But wait, the 1/(remaining_after) would make the priority higher for smaller remaining_after. So the bin with the least remaining space after adding the item gets the highest priority. That's exactly Best Fit.
+
+But maybe there's a better way. Alternatively, use the negative of remaining_after. Because for bins that can fit, the priority is -(remaining_after), so higher values (less remaining) have higher priority. For example, if remaining_after is 2, priority is -2. If it's 1, priority is -1. So the bin with remaining_after=1 has higher priority (-1 > -2). So in code:
+
+priority = np.where(mask, -(bins_remain_cap - item), -np.inf)
+
+This would also work. Then the bin with the smallest remaining_after (i.e., best fit) has the highest priority (since -1 is higher than -2).
+
+But which approach is better? The 1/(remaining_after) approach would give higher scores to bins that leave very little space. For example, a bin that leaves 0.1 space would have a priority of 10, while one that leaves 1 would have 1. The difference is more pronounced. The negative approach would have a linear scale. Which one is better for the algorithm?
+
+In practice, both would result in the same selection, as the order of priorities would be the same. Because the bin with the smallest remaining_after would have the highest 1/(remaining_after) and the highest -(remaining_after). So the selection (argmax) would be the same. So either approach works.
+
+But perhaps using the reciprocal (1/remaining_after) is more standard for Best Fit. Let's go with that.
+
+So the code would be:
+
+def priority_v2(...):
+    remaining_after = bins_remain_cap - item
+    mask = remaining_after >= 0
+    priority = np.where(mask, 1/(remaining_after + 1e-9), -np.inf)
+    return priority
+
+But wait, adding 1e-9 to avoid division by zero. If a bin's remaining capacity is exactly equal to the item size, then remaining_after is zero. Then 1/(0 + 1e-9) is 1e9, which is a high priority. That's correct, as that bin would be filled exactly, which is ideal.
+
+But what if the item is exactly the remaining capacity? Then that's perfect, so the priority should be highest. So this handles that case.
+
+Another consideration: if there are multiple bins with the same remaining_after, they will have the same priority. The code would select the first one in the array. But since the problem is online, the order of bins might not matter as long as the priority is correct.
+
+So this should implement the Best Fit heuristic.
+
+But maybe there's a more sophisticated approach. For example, considering the current utilization of the bin. Suppose a bin is already 90% full, and adding the item would fill it completely. That's better than a bin that's 50% full and adding the item leaves 50% remaining. But the Best Fit already captures this, as the remaining_after is smaller in the first case.
+
+Alternatively, consider a combination of factors. For example, the priority could be a function that combines the remaining_after and the current bin's filled space. For instance, a bin that is more filled might be prioritized even if the remaining_after is slightly larger. But how to model that.
+
+Alternatively, use a weighted sum. For example, priority = (filled_space + item) / C - (remaining_after), where C is the bin capacity. But since C is fixed, perhaps this is redundant.
+
+Alternatively, the priority could be (filled_space + item) * (C - (filled_space + item)), which is the product of the used space and the remaining space. Maximizing this would balance the two. But this is similar to the "Best Fit" but with a different metric. However, this is more complex and may not perform better.
+
+Alternatively, use the square of the filled space plus the item. But I'm not sure.
+
+In the context of the problem, the user wants a priority function. The Best Fit is a standard heuristic. So perhaps the answer is to implement Best Fit via the reciprocal of remaining_after.
+
+So the code for priority_v2 would be as described.
+
+Another possible variation: instead of 1/(remaining_after), use the negative of remaining_after. Both would work, but the reciprocal might give higher scores to tighter fits, which could be better.
+
+Testing the code:
+
+Suppose bins_remain_cap = [5, 3, 2], item is 2.
+
+remaining_after = [3, 1, 0]
+
+priority for each bin (using reciprocal):
+
+1/3, 1/1, 1/0.000000001 (approx 1e9). So the third bin has the highest priority. Correct.
+
+If using negative:
+
+-3, -1, 0. The third bin has priority 0 (since remaining_after is 0, so -(0) = 0). Wait, no: remaining_after is bins_remain_cap - item. So for the third bin, bins_remain_cap is 2, item is 2. remaining_after is 0. So -(0) is 0. The other bins have -3 and -1. So the third bin has highest priority (0), which is correct.
+
+But in this case, the third bin's priority is 0, which is higher than the others. So both methods work.
+
+But using the reciprocal approach would have a higher value for the third bin (1e9) compared to the second (1). So the code would select the third bin. Same as the negative approach.
+
+So either way, the code works. But which is better in practice? The reciprocal approach might have numerical issues if remaining_after is very small, but with the 1e-9 added, it's manageable.
+
+So the code for priority_v2 would be:
+
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    remaining_after = bins_remain_cap - item
+    valid = remaining_after >= 0
+    # For valid bins, compute 1/(remaining_after + 1e-9) to prioritize smallest remaining space
+    # For invalid, set to -infinity
+    priorities = np.where(valid, 1.0 / (remaining_after + 1e-9), -np.inf)
+    return priorities
+
+This should implement the Best Fit heuristic.
+
+Another possible variation: consider the sum of the current filled space and the item. For example, a bin that is already more filled might be preferred. But that's already captured in the remaining_after.
+
+Alternatively, use a combination of the filled space and the remaining_after. For example, filled = C - remaining_cap. filled_after = filled + item. Then, the priority could be filled_after + (C - filled_after) which is C. That's not useful. Alternatively, filled_after * (C - filled_after). But this is the product of used and remaining space. Maximizing this would prefer bins that are half-filled, which is not ideal. So perhaps not.
+
+Alternatively, the priority could be filled_after, which is the same as (C - remaining_cap + item). But this is equivalent to C - (remaining_cap - item) = C - remaining_after. So maximizing this is equivalent to minimizing remaining_after. So same as Best Fit.
+
+Thus, the code for priority_v2 is as written.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Black Hole-inspired Bin Packing Priority: Items are drawn towards bins like matter approaching an event horizon.
+       Prioritizes bins where the item creates maximum density while avoiding singularities (overflows)."""
+    event_horizon = 1e-9  # Prevent division singularity
+    remaining_space = bins_remain_cap - item
+    
+    # Calculate spacetime curvature (priority inversely proportional to remaining space)
+    curvature = np.where(remaining_space >= 0, 
+                         1/(remaining_space + event_horizon) + (bins_remain_cap/(item + event_horizon)), 
+                         -np.inf)
+    
+    # Apply Hawking radiation penalty to near-empty bins
+    density = (bins_remain_cap - remaining_space + item)/bins_remain_cap
+    radiation = np.where(density < 0.2, -10, 1)
+    
+    return curvature * radiation
+```

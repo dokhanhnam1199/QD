@@ -1,0 +1,77 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines robust inverse Best Fit with additive consolidation and explicit perfect fit.
+    Prioritizes minimal waste, encourages using fuller bins, ensuring perfect fits are optimal.
+    """
+    # Initialize all priorities to negative infinity. Bins unable to fit are unequivocally marked as unavailable.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify which bins have sufficient capacity for the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bin can fit the item, return the initialized priorities, indicating no valid choice.
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # --- Step 1: Calculate core Best Fit (inverse waste) and Adaptive Consolidation scores ---
+
+    # Calculate the potential remaining space (waste) if the item were placed in fit-capable bins.
+    potential_remaining_space = bins_remain_cap[can_fit_mask] - item
+
+    # Use machine epsilon for numerical stability in inverse calculations, preventing division by zero
+    # when potential_remaining_space is exactly zero (before perfect fit override) or very small.
+    EPSILON = np.finfo(float).eps
+
+    # Core Best Fit Component: Assign priority as the inverse of (potential remaining space + epsilon).
+    # This strongly favors bins that result in the smallest amount of remaining space (tightest fit),
+    # aligning with the principle of waste minimization.
+    best_fit_scores = 1.0 / (potential_remaining_space + EPSILON)
+
+    # Adaptive Consolidation Bias Component: Promote packing into already fuller bins.
+    # This encourages overall bin consolidation, aiming to reduce the total number of bins used.
+    # The 'max_rem_cap' provides a dynamic reference for the current "emptiest" bin,
+    # making the bias adaptive to the current state of open bins.
+    max_rem_cap = np.max(bins_remain_cap)
+
+    # Calculate the relative "fullness" of each fitting bin. A lower bins_remain_cap
+    # indicates a fuller bin, resulting in a higher relative_fullness score (closer to 1).
+    # Handle the edge case where max_rem_cap is zero or near zero to prevent division issues
+    # and ensure consolidation bias doesn't lead to unintended behavior when all bins are full.
+    if max_rem_cap <= EPSILON:
+        relative_fullness = np.zeros_like(potential_remaining_space)
+    else:
+        relative_fullness = (max_rem_cap - bins_remain_cap[can_fit_mask]) / max_rem_cap
+
+    # Tunable weight for the consolidation bias. A small positive value ensures this additive bias
+    # influences decisions without overpowering the primary waste minimization objective.
+    # Analysis indicates additive biases are generally more robust than multiplicative ones.
+    CONSOLIDATION_BIAS_WEIGHT = 0.05
+
+    # Combine the Best Fit score with the adaptive consolidation bias.
+    # This forms the base priority for all bins that can accommodate the item.
+    priorities[can_fit_mask] = best_fit_scores + CONSOLIDATION_BIAS_WEIGHT * relative_fullness
+
+    # --- Step 2: Explicitly boost perfect fits to ensure their absolute priority ---
+
+    # Tolerance for identifying near-perfect fits to handle floating-point inaccuracies.
+    # Using an absolute tolerance for robustness, not scaled by bin_capacity, for simplicity.
+    PERFECT_FIT_TOLERANCE = 1e-9 
+
+    # A very high score to ensure perfect fits are chosen over any other option.
+    # This value must be significantly larger than any possible score derived from Step 1
+    # to guarantee that a perfect fit always receives the highest priority.
+    PERFECT_FIT_SCORE = 1e30 
+
+    # Identify perfect or near-perfect fits within the bins that can fit the item.
+    perfect_fit_mask_in_fitting = np.abs(potential_remaining_space) < PERFECT_FIT_TOLERANCE
+
+    # Apply the super-high score to bins that are perfect fits.
+    # This overrides any previously calculated score for these specific bins, making
+    # perfect fits the unequivocally best choice, which is a common and effective heuristic.
+    priorities[can_fit_mask][perfect_fit_mask_in_fitting] = PERFECT_FIT_SCORE
+
+    return priorities
+```

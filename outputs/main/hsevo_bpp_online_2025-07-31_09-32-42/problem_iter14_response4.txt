@@ -1,0 +1,85 @@
+```python
+import numpy as np
+
+# Assume a global BIN_CAPACITY for context. This is typical in Bin Packing Problem (BPP)
+# where items and bin capacities are often normalized, e.g., to 1.0.
+BIN_CAPACITY = 1.0
+
+# Define heuristic parameters for strategic adjustments.
+# These values are empirical and might require tuning for specific problem distributions.
+
+# EPSILON_CLOSE_TO_ZERO: Tolerance for floating-point comparisons to detect "exact" fits.
+# Essential for numerical robustness in comparisons with zero.
+EPSILON_CLOSE_TO_ZERO = 1e-6
+
+# CONSOLIDATION_BONUS: A fixed additive bonus for placing an item into a bin
+# that is already partially filled. This encourages consolidating items into
+# existing bins rather than opening new ones, promoting better bin utilization.
+# This value should be positive but significantly smaller than the exact fit bonus.
+CONSOLIDATION_BONUS = 0.1 # A moderate, fixed bonus value.
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with an overwhelming exact fit preference and a consolidation bonus.
+    """
+    # Calculate the remaining space in each bin if the item were placed.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Initialize all priorities to negative infinity. This ensures that
+    # any bin that cannot fit the item will never be chosen.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Create a boolean mask for bins where the item can actually fit.
+    # We allow for very small negative remaining space due to floating point inaccuracies,
+    # treating them as effectively zero.
+    can_fit_mask = potential_remaining_space >= -EPSILON_CLOSE_TO_ZERO
+
+    # If no bin can fit the item, return the priorities as they are (all -inf).
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Extract the potential remaining space for only the bins where the item can fit.
+    fitting_rem_space = potential_remaining_space[can_fit_mask]
+    # Also get the original remaining capacity for these bins to identify partially filled ones.
+    fitting_bins_remain_cap_orig = bins_remain_cap[can_fit_mask]
+
+    # --- Step 1: Base Priority (Best Fit logic) ---
+    # The base priority is the negative of the potential remaining space.
+    # This means a smaller remaining space (closer to zero) results in a
+    # higher (less negative or zero) priority score. A perfect fit (0 remaining space)
+    # gets a base score of 0, which is the highest possible "default" score for non-bonused bins.
+    current_priorities_for_fit_bins = -fitting_rem_space
+
+    # --- Step 2: Strategic Additive Adjustments ---
+
+    # 2.1. Overwhelming Priority for Exact/Near-Exact Fits:
+    # Identify bins where the item perfectly or very nearly perfectly fills the bin.
+    # Assign them an extremely high, distinct priority to ensure they are always chosen
+    # if available, as this represents maximal bin utilization and closes a bin efficiently.
+    is_exact_or_near_fit = np.abs(fitting_rem_space) < EPSILON_CLOSE_TO_ZERO
+    current_priorities_for_fit_bins[is_exact_or_near_fit] = np.finfo(float).max / 2.0
+
+    # 2.2. Consolidation Bonus:
+    # For bins that are NOT exact fits, apply a bonus if they are already partially
+    # filled (i.e., not completely empty at the start). This encourages placing items
+    # into bins that are already in use, rather than opening new ones, thereby
+    # consolidating items and reducing the total number of bins used.
+    # We apply this bonus only to bins that are not already exact fits, as exact fits
+    # already have the highest priority.
+    non_exact_mask = ~is_exact_or_near_fit
+    
+    # A bin is considered 'partially filled' if its original remaining capacity
+    # is less than the full BIN_CAPACITY (allowing for epsilon to account for
+    # small floating point differences from initial fill). This identifies bins
+    # that are not 'freshly opened' or completely empty.
+    is_partially_filled_before_placement = fitting_bins_remain_cap_orig < (BIN_CAPACITY - EPSILON_CLOSE_TO_ZERO)
+
+    # Apply the consolidation bonus to fitting, non-exact-fit, and already partially-filled bins.
+    apply_consolidation_bonus_mask = non_exact_mask & is_partially_filled_before_placement
+    current_priorities_for_fit_bins[apply_consolidation_bonus_mask] += CONSOLIDATION_BONUS
+
+    # Assign the calculated priorities for fitting bins back into the main priorities array.
+    priorities[can_fit_mask] = current_priorities_for_fit_bins
+
+    return priorities
+```

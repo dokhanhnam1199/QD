@@ -1,0 +1,48 @@
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    item_min_threshold: float = 0.01747868701569464,
+    priority_if_invalid: float = -52340.53274102956,
+    priority_score_max: float = 7.910044086974383,
+    priority_score_min: float = -0.04248923375996416) -> np.ndarray:
+    """Returns priority, favoring tightest fits (Best Fit) with a normalized scale.
+
+    This heuristic prioritizes bins that minimize wasted space, assigning higher scores
+    to tighter linear fits (priority_score_min to priority_score_max, with priority_score_max being a perfect fit).
+    Bins incapable of holding the item receive the lowest possible priority, ensuring robustness.
+    """
+    # Robustness check: Items less than or equal to 'item_min_threshold' are typically not valid in BPP.
+    if item <= item_min_threshold:
+        return np.full_like(bins_remain_cap, priority_if_invalid)
+
+    # Calculate potential remaining space (wasted space) if the item were placed.
+    # This is the core "Best Fit" principle.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Initialize all priorities to a very low value, ensuring non-fitting bins are never chosen.
+    priorities = np.full_like(bins_remain_cap, priority_if_invalid, dtype=float)
+
+    # Identify the bins where the item can actually fit.
+    fitting_bins_mask = potential_remaining_space >= 0
+
+    # Extract the 'wasted space' for only the bins where the item fits.
+    wasted_space_for_fits = potential_remaining_space[fitting_bins_mask]
+
+    # Dynamically normalize priorities within the range of fitting bins.
+    if wasted_space_for_fits.size > 0:
+        max_wasted_space_among_fits = np.max(wasted_space_for_fits)
+        
+        # If all fitting bins are perfect fits (max_wasted_space is 0), assign max priority.
+        if max_wasted_space_among_fits == 0:
+            priorities[fitting_bins_mask] = priority_score_max
+        else:
+            # Linearly scale the priority: smallest wasted space (0) gets priority_score_max,
+            # largest wasted space gets priority_score_min.
+            # This is a linear transformation ensuring a normalized scale from priority_score_min to priority_score_max.
+            normalized_wasted_ratio = wasted_space_for_fits / max_wasted_space_among_fits
+            # The formula maps normalized_wasted_ratio from [0, 1] to a score in [priority_score_min, priority_score_max]
+            priorities[fitting_bins_mask] = priority_score_max - normalized_wasted_ratio * (priority_score_max - priority_score_min)
+    
+    return priorities

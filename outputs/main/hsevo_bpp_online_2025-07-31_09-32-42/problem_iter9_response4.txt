@@ -1,0 +1,84 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority for placing an item into bins, implementing a multi-objective
+    heuristic that combines Best Fit with strategic bin consolidation and exact fit preference.
+
+    This heuristic extends the Best Fit strategy by introducing weighted bonuses to prioritize
+    actions that lead to more efficient bin utilization and fewer open bins.
+
+    Objectives:
+    1.  **Prioritize Exact Fits (Consolidation):** Give a very high bonus to bins where the item
+        fits perfectly, resulting in 0 remaining capacity. This encourages "closing" bins.
+    2.  **Minimize Remaining Capacity (Best Fit):** For non-exact fits, prefer the bin that
+        will have the least remaining capacity, as per the standard Best Fit approach.
+    3.  **Prefer Partially Filled Bins (Strategic Consolidation):** Give a small bonus to bins
+        that are already partially filled (i.e., not completely empty) over completely empty bins
+        (new bins). This aims to consolidate items into existing bins, reducing the total number
+        of bins used over time.
+
+    Args:
+        item: Size of item to be added to the bin (expected to be > 0 and <= BIN_CAPACITY).
+        bins_remain_cap: Array of current remaining capacities for each bin.
+                         Assumes capacities are normalized (e.g., BIN_CAPACITY = 1.0).
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority for placing the item in that bin.
+        Bins that cannot accommodate the item receive the lowest possible priority (-inf).
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.full(num_bins, -np.inf, dtype=float)
+
+    # Assume a standard bin capacity for normalization. This is crucial for
+    # distinguishing between partially filled and completely empty bins.
+    BIN_CAPACITY = 1.0
+
+    # Define constants for bonus scores and floating-point comparisons.
+    # EXACT_FIT_BONUS must be significantly larger than any possible base Best Fit score
+    # (which ranges from -BIN_CAPACITY to 0).
+    EXACT_FIT_BONUS = 100.0
+
+    # PARTIALLY_FILLED_BIN_BONUS should be small enough not to override a significantly
+    # better Best Fit score, but large enough to break ties or give a slight preference.
+    PARTIALLY_FILLED_BIN_BONUS = 0.005
+
+    # Epsilon for robust floating-point comparisons, accounts for precision errors.
+    # Using np.finfo(float).eps * a_factor is generally robust for numerical stability.
+    EPSILON = np.finfo(float).eps * 100
+
+    # 1. Calculate the potential remaining space in each bin if the item were placed.
+    potential_remaining_space = bins_remain_cap - item
+
+    # 2. Identify bins where the item can actually fit.
+    # We use a small negative tolerance for `potential_remaining_space` to account for
+    # minor floating-point inaccuracies that might make a valid fit appear slightly negative.
+    can_fit_mask = potential_remaining_space >= -EPSILON
+
+    # For scoring, ensure remaining space is non-negative. If it's slightly negative
+    # due to precision (but within fit tolerance), treat it as 0.
+    potential_remaining_space_for_scoring = np.where(potential_remaining_space < 0, 0, potential_remaining_space)
+
+    # 3. Base Score: Apply the Best Fit logic.
+    # A smaller potential_remaining_space results in a higher score (less negative).
+    # A perfect fit (0 remaining space) will get a base score of 0.
+    priorities[can_fit_mask] = -potential_remaining_space_for_scoring[can_fit_mask]
+
+    # 4. Apply Exact Fit Bonus: Strongly prioritize bins that become perfectly full.
+    # A bin is considered an exact fit if its remaining space after placing the item is
+    # very close to zero.
+    exact_fit_mask = can_fit_mask & (potential_remaining_space_for_scoring < EPSILON)
+    priorities[exact_fit_mask] += EXACT_FIT_BONUS
+
+    # 5. Apply Partially Filled Bin Bonus: Promote consolidation into existing bins.
+    # Identify bins that are not completely empty (i.e., already contain items)
+    # and are not already handled by the exact fit bonus.
+    is_empty_bin_mask = np.isclose(bins_remain_cap, BIN_CAPACITY, atol=EPSILON)
+    is_partially_filled_bin_mask = can_fit_mask & ~is_empty_bin_mask & ~exact_fit_mask
+
+    priorities[is_partially_filled_bin_mask] += PARTIALLY_FILLED_BIN_BONUS
+
+    return priorities
+```

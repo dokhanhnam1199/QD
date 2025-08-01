@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Mutated priority function for online Bin Packing, incorporating a Best Fit strategy
+    with enhancements for bin completion and fragmentation avoidance.
+
+    This heuristic combines multiple criteria:
+    1.  **Best Fit Preference:** Prioritizes bins that result in the smallest remaining capacity
+        after placing the item. This is the primary driver for efficient space utilization.
+    2.  **Bin Completion Bonus:** Applies a significant bonus to bins that would become
+        completely full (or virtually full) after placing the item. This encourages "closing"
+        bins, reducing the number of active bins and potentially simplifying future decisions.
+    3.  **Small Gap Penalty:** Applies a penalty for bins where placing the item would leave
+        a very small, non-zero remaining capacity. Such tiny gaps can be difficult to fill
+        with subsequent items, leading to wasted space and fragmentation. This aims to
+        deter creating "unusable" leftover space.
+
+    Args:
+        item: Size of item to be added to the bin. Assumed to be a positive float.
+        bins_remain_cap: Array of current remaining capacities for each bin.
+                         Assumed to be non-negative floats.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority. Bins where the item does not fit
+        are assigned -np.inf.
+    """
+    # Define constants for heuristic parameters. These values might need tuning
+    # depending on the specific distribution of item sizes and bin capacities.
+    # Assumes a typical bin capacity is implicitly scaled, e.g., to 1.0.
+    EPSILON = 1e-9  # Tolerance for floating point comparisons (e.g., for "perfect fit")
+    PERFECT_FIT_BONUS = 1000.0 # Large bonus for a perfect fit to make it highly preferred
+    SMALL_GAP_THRESHOLD = 0.1 # Threshold for defining a "small" remaining capacity
+                              # (e.g., 0.1 means 10% of a common normalized bin capacity)
+    SMALL_GAP_PENALTY = -0.5  # Penalty applied if placing the item leaves a small, unusable gap
+
+    # Calculate the remaining capacity after placing the item in each bin
+    remaining_after_placement = bins_remain_cap - item
+
+    # Initialize priority scores based on the Best Fit principle:
+    # A smaller remaining_after_placement (closer to 0) is better, so we take the negative.
+    # This means 0 remaining capacity gets a 0 score, 0.1 gets -0.1, etc.
+    priorities = -remaining_after_placement
+
+    # --- Apply Bin Completion Bonus ---
+    # Identify bins where the item fits perfectly or almost perfectly.
+    # This condition uses EPSILON to account for floating-point inaccuracies.
+    perfect_fit_mask = remaining_after_placement <= EPSILON
+
+    # Add a significant bonus to these bins. This ensures that perfect fits are
+    # prioritized above all other considerations (e.g., even above the small gap penalty
+    # if it were to accidentally apply to a near-perfect fit, though logically it shouldn't).
+    priorities[perfect_fit_mask] += PERFECT_FIT_BONUS
+
+    # --- Apply Small Gap Penalty ---
+    # Identify bins where the item fits, but leaves a small, non-zero remaining capacity.
+    # Such small gaps can lead to fragmentation.
+    small_unusable_gap_mask = (remaining_after_placement > EPSILON) & \
+                              (remaining_after_placement < SMALL_GAP_THRESHOLD)
+
+    # Apply a penalty to these bins. This makes them less attractive than bins that
+    # either perfectly fit the item or leave a larger, potentially more usable space.
+    # The penalty value is critical: it should be strong enough to deter but not so strong
+    # that it prevents all small fits when no better option exists.
+    priorities[small_unusable_gap_mask] += SMALL_GAP_PENALTY
+
+    # --- Final Filtering for Non-Fitting Bins ---
+    # Set priority to negative infinity for bins where the item does not fit (i.e.,
+    # remaining_after_placement is negative). This ensures these bins are never chosen.
+    priorities[remaining_after_placement < 0] = -np.inf
+
+    return priorities
+```

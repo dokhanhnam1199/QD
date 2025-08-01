@@ -1,0 +1,269 @@
+<think>
+Okay, I need to design a priority function for the online bin packing problem. Let's think about what makes a good heuristic here. The goal is to minimize the number of bins used. So, we want to pack items efficiently, leaving as little wasted space as possible.
+
+Marie Curie's approach might involve some scientific principles. Maybe she would consider the efficiency of each bin after adding the item. Let's recall common heuristics like Best Fit, which places the item in the bin that leaves the least remaining space. But maybe we can improve on that.
+
+Wait, what if we also consider how well the remaining space in the bin could accommodate future items? For example, if a bin has a certain remaining capacity after adding the current item, maybe we can prioritize bins where that remaining capacity is a size that's more common in typical item distributions. But since it's online, we don't know future items. Hmm.
+
+Alternatively, we can use a scoring system that combines multiple factors. Let's think of factors like:
+
+1. **Remaining Capacity After Placement**: If the bin's remaining capacity after adding the item is small, that's good because it minimizes wasted space. So higher priority for bins where (remaining_cap - item) is small but non-negative.
+
+2. **Exponential Weighting**: Maybe use an exponential function to heavily penalize bins that would have very little remaining space. For example, if after placing the item, the bin has 0.1 left, that's great. So the priority could be something like 1 / (remaining_space + epsilon) to prioritize bins that are filled as much as possible.
+
+Wait, but in Best Fit, the priority is the negative of the remaining space. So the bin with the smallest remaining space (but enough to fit the item) is chosen. But maybe we can add another term to the priority function to account for how "useful" the remaining space is. For example, if the remaining space after placing the item is a value that's more likely to fit future items, that's better.
+
+But how to quantify that without knowing future items? One approach is to assume that items follow a certain distribution. For example, if items are typically small, then bins with a small remaining capacity might be more useful. Alternatively, we can use a function that values remaining space that's a multiple of some base unit. But that's speculative.
+
+Another idea: combine the remaining space after placement with the current utilization of the bin. For example, a bin that is 90% full (after adding the item) is better than one that's 50% full. So the priority could be the sum of the current utilization plus some function of the remaining space.
+
+Wait, but the priority function needs to assign a score to each bin. Let's think of a mathematical formula. Let's denote:
+
+- For each bin, after placing the item, the remaining capacity is (bin_remain_cap - item). Let's call this 'remaining'.
+
+We want to maximize the score for bins where 'remaining' is as small as possible. But also, perhaps, we can consider the inverse of 'remaining' to prioritize those bins. However, if 'remaining' is zero, that's perfect. So the score could be 1/(remaining + 1e-9) for bins where the item fits. For bins that can't fit the item, the score should be negative infinity or something so they are not selected.
+
+But in the code, the function needs to return a priority score for each bin. So first, we need to check which bins can accommodate the item. For those that can't, their priority should be very low (like -infinity). For those that can, compute the score.
+
+Wait, the function is supposed to return a priority for each bin, but bins that can't fit the item (i.e., bins_remain_cap[i] < item) should have a low priority. So in the code, we can first create a mask of feasible bins (where bins_remain_cap >= item), then compute the scores for those, and set others to a very low value.
+
+But how to structure this in code. Let's see. The input is bins_remain_cap as a numpy array. The item is the size of the current item.
+
+So, the steps for priority_v2 could be:
+
+1. Compute the remaining capacity after placing the item in each bin: remaining = bins_remain_cap - item.
+
+2. For bins where remaining >=0, compute a score. For others, set a very low score.
+
+3. The score could be a combination of factors. For example:
+
+   a. The remaining capacity (smaller is better).
+
+   b. The square of the remaining capacity, to prioritize even more tightly packed bins.
+
+   c. Maybe the current utilization of the bin (original capacity minus remaining capacity after adding the item). Wait, but the original capacity isn't given. Wait, the bins_remain_cap is the remaining capacity. So the original capacity is not known. Hmm. So we can't compute the utilization percentage unless we know the bin's original size, which is fixed. But the problem states that the bins are fixed-sized. So the original capacity is a fixed value, say, 1 (assuming normalized item sizes). Wait, but the problem statement says "fixed-sized bins" but doesn't specify the size. So perhaps the bins have a fixed capacity, say, 1.0, and items are between 0 and 1. But the code as written doesn't have that information. So the priority function can't assume the original bin size. Therefore, we can't compute the utilization percentage. So that's a problem.
+
+Wait, the function's parameters are item and bins_remain_cap. So the original bin size is not passed. Therefore, we can't know the original capacity. So any heuristic that depends on the original capacity (like utilization percentage) can't be implemented. So we have to work with the remaining capacity after adding the item.
+
+So, given that, perhaps the best approach is to use a combination of the remaining space and some other factor. For example, the priority could be (1 / (remaining + 1e-9)) + (some term that encourages certain distributions of remaining space).
+
+Alternatively, inspired by the "Best Fit" heuristic, which selects the bin with the smallest remaining space. But maybe we can add a term that also considers the current remaining capacity of the bin. For example, if a bin has a remaining capacity that is a multiple of the item's size, perhaps that's better. But again, without knowing future items, this is speculative.
+
+Wait, here's an idea: the priority could be the reciprocal of the remaining space (to prioritize bins that are filled as much as possible) multiplied by a term that represents how "useful" the remaining space is. For example, if the remaining space is a common item size, then that's better. But how to model that without knowing future items?
+
+Alternatively, we can use a function that gives higher scores to remaining spaces that are in certain ranges. For example, if the remaining space after placing the item is between 0 and 0.2, that's considered very good. So the priority could be higher for those bins. But how to encode that.
+
+Alternatively, use a sigmoid function that gives higher scores to smaller remaining spaces. For example, the score could be 1 / (1 + exp(-k*(1 - remaining))), where k is a parameter. But this might complicate things.
+
+Alternatively, use a weighted sum of the remaining space and the square of the remaining space. For example, score = -remaining - 0.5 * remaining^2. This would heavily penalize larger remaining spaces.
+
+Wait, but in Best Fit, the priority is simply the negative of the remaining space. So the bin with the smallest remaining space (after placing the item) is chosen. So the priority is (bins_remain_cap - item) for feasible bins, and then select the maximum (since higher remaining space is worse, but wait, no: Best Fit picks the bin with the smallest remaining space. So if the remaining space is (bins_remain_cap - item), then the priority for Best Fit would be -(remaining_space), so that the bin with the smallest remaining space has the highest priority (since -0.1 is higher than -0.5).
+
+But in the code, the function returns a priority score, and the bin with the highest score is selected. So for Best Fit, the priority would be (bins_remain_cap - item) for feasible bins, and then the maximum of that (smallest remaining space) would be selected. Wait, no. Wait, if the remaining space after placing the item is (bins_remain_cap[i] - item), then the smaller that value is, the better. So the priority for Best Fit would be (1 / (remaining + epsilon)) for feasible bins, so that the smallest remaining space gives the highest priority. Alternatively, the priority could be -remaining, so that the largest negative (smallest remaining) is the highest.
+
+But in code, for each bin, if the bin can fit the item, compute the remaining space. Then assign a priority that is higher for smaller remaining spaces. So for example, for feasible bins, priority = 1/(remaining + 1e-9), and for non-feasible bins, priority is -infinity. Then, the bin with the highest priority (smallest remaining space) is chosen.
+
+But maybe we can improve upon Best Fit. For example, the "Almost Full" heuristic: prioritize bins that, after adding the item, have a remaining capacity less than a certain threshold. But how to set that threshold.
+
+Alternatively, use a combination of Best Fit and another heuristic. For example, the priority could be the remaining space plus a term that encourages bins that are already more filled. Wait, but how to measure that.
+
+Wait, another approach: the priority could be the sum of the remaining space and the reciprocal of the remaining space. Wait, that might not make sense. Let me think.
+
+Alternatively, use the product of the remaining space and some function. For example, if the remaining space is R, then the priority could be (1 - R) * (1 / (R + epsilon)). The (1 - R) term represents how full the bin is after adding the item (assuming the original bin size is 1). But again, without knowing the original bin size, this is not possible. Wait, but if the original bin size is fixed, say, 1, then the remaining capacity after adding the item is (original_cap - (original_cap - bins_remain_cap) - item) = bins_remain_cap - item. Wait, no. The original bin capacity is a fixed value, say, C. Then, the current remaining capacity of a bin is bins_remain_cap[i]. When we add an item of size 'item', the new remaining capacity is bins_remain_cap[i] - item. So the total used space in the bin would be (C - bins_remain_cap[i]) + item. But since C is fixed, but not known to the function, we can't compute that. So this line of thinking is not helpful.
+
+Hmm. So given that the original bin size is not known, perhaps the best we can do is to focus on the remaining space after placing the item.
+
+Another idea: the priority could be the remaining space after placing the item, but with a twist. For example, if the remaining space is very small (like less than 0.1), then it's very good. So the priority could be higher for those bins. But how to model that.
+
+Alternatively, use a piecewise function. For example:
+
+- If remaining space R is in [0, 0.1], priority is 1000 - R (so higher for smaller R)
+- If R is in (0.1, 0.5], priority is 500 - R
+- Else, priority is 100 - R
+
+But this is arbitrary and may not generalize well.
+
+Alternatively, use an exponential decay function. For example, priority = exp(-k * R), where k is a constant. So as R increases, the priority decreases exponentially. This would heavily prioritize bins with small R.
+
+But how to choose k. Maybe k=10. So for R=0.1, exp(-10*0.1)=exp(-1)=0.367, for R=0.2, exp(-2)=0.135, etc. So the priority is higher for smaller R.
+
+But in code, this would be:
+
+remaining = bins_remain_cap - item
+feasible = remaining >=0
+scores = np.exp(-10 * remaining) * feasible
+scores[~feasible] = -np.inf
+return scores
+
+But this is similar to Best Fit but with an exponential weighting. Maybe this would work better than Best Fit in some cases.
+
+Alternatively, use a reciprocal function. For example, scores = 1/(remaining + 1e-9) for feasible bins. This would give very high scores to bins with very small remaining space.
+
+But in practice, Best Fit uses exactly this approach (selecting the bin with the smallest remaining space), which is equivalent to using 1/(remaining + epsilon) as the priority.
+
+So perhaps the priority_v2 can be a modified version of Best Fit, but with some additional terms.
+
+Another idea: consider not only the remaining space after placing the item but also the current remaining space of the bin. For example, a bin that is already nearly full (small remaining capacity) might be a better candidate to fill up. But how to model that.
+
+Wait, the current remaining capacity of the bin is bins_remain_cap[i]. After placing the item, the new remaining capacity is bins_remain_cap[i] - item. So the current remaining capacity is (bins_remain_cap[i]). So perhaps bins that are already more full (smaller bins_remain_cap[i]) are better candidates, provided that they can fit the item. But that's not necessarily true. For example, a bin with 0.5 remaining can fit a 0.3 item, leaving 0.2. Another bin with 0.4 remaining can fit the 0.3 item, leaving 0.1. The second bin is better. So the current remaining capacity (before adding the item) is not directly considered, except in that it must be >= item.
+
+So perhaps the priority should be based solely on the remaining capacity after adding the item.
+
+But maybe we can add a term that also considers the current remaining capacity. For example, the priority could be (1/(remaining_after + epsilon)) + (1/(current_remaining + epsilon)). But this would prioritize bins that are already more full. Wait, but current_remaining is bins_remain_cap[i], and remaining_after is bins_remain_cap[i] - item. So for example, if a bin has 0.5 remaining, and the item is 0.3, then remaining_after is 0.2. The current_remaining is 0.5. So the priority would be 1/0.2 + 1/0.5 = 5 + 2 =7. Another bin with 0.4 remaining and item 0.3 would have remaining_after 0.1. The priority is 1/0.1 + 1/0.4 = 10 + 2.5=12.5. So this bin would be selected. But this approach might not be better than just using remaining_after. Because the second term (1/current_remaining) is redundant. Because the remaining_after is already dependent on current_remaining. So perhaps this approach is not helpful.
+
+Alternatively, the priority could be the product of the two terms. For example, (1/(remaining_after + epsilon)) * (1/(current_remaining + epsilon)). But this would give higher priority to bins that are already more full. For example, a bin with current_remaining=0.3 and item=0.2: remaining_after=0.1. The product is (10) * (3.33) = 33.3. Another bin with current_remaining=0.4 and item=0.3: remaining_after=0.1. The product is (10) * (2.5) =25. So the first bin would be chosen, even though both have the same remaining_after. But why? Because the first bin was already more full. But this might not be better. It's unclear.
+
+Alternatively, maybe the current_remaining is not useful. So perhaps the best approach is to focus on remaining_after.
+
+But then, how to improve upon Best Fit. Maybe by using a different weighting function. For example, using the square of the reciprocal of remaining_after. So priority = 1/(remaining_after^2 + epsilon). This would give even higher priority to bins with smaller remaining_after. For example, a remaining_after of 0.1 would have a priority of 100, while 0.2 would have 25. So this would more aggressively prioritize bins with smaller remaining_after.
+
+Alternatively, use a combination of remaining_after and the item's size. For example, if the item is large, we might want to prioritize bins that can fit it with as little remaining space as possible. If the item is small, maybe we can be more flexible. But how to model that.
+
+Wait, the item's size is known. So for example, if the item is large (close to 1), then the remaining_after will be small. But for small items, the remaining_after could be larger. So perhaps the priority function can adjust based on the item's size. For example, for small items, prioritize bins that have remaining_after close to the item's size. But this is getting complicated.
+
+Alternatively, use a heuristic that combines Best Fit with a look-ahead for potential future items. For example, if the remaining_after is a common item size, then it's better. But without knowing the distribution of items, this is hard. However, perhaps we can assume that small items are more common. So remaining_after that is small is better. Which is what Best Fit does.
+
+Hmm. Maybe the key is to use a priority function that not only considers the remaining_after but also how well that remaining_after can accommodate future items. For example, if remaining_after is 0.3, and the next item is 0.3, then it's perfect. But since we don't know the next items, we can't do that. So perhaps we can use a statistical approach. For example, if items are typically uniformly distributed between 0 and 1, then the expected number of items that can fit into a remaining_after of R is higher for larger R. But this is conflicting with the Best Fit approach. So perhaps a balance is needed.
+
+Alternatively, use a weighted sum of remaining_after and the square of remaining_after. For example, priority = -remaining_after - 0.5 * remaining_after^2. This would give higher priority to bins with smaller remaining_after, and the quadratic term would penalize larger remaining_after more heavily.
+
+But I'm not sure if this would perform better than the standard Best Fit.
+
+Another approach: use the concept of "waste" which is the unused space in a bin. The goal is to minimize the total waste. So when placing an item, we want to choose the bin that results in the least additional waste. But the waste is the remaining_after. So again, this is Best Fit.
+
+Alternatively, consider the sum of the squares of the remaining capacities across all bins. This is known as the "minimum sum of squares" heuristic, which aims to distribute the remaining space more evenly, which can lead to better packing in the long run. But how to model that in an online setting.
+
+Wait, the sum of squares is a global measure, but in an online setting, we can't compute that. However, when placing an item, we can choose the bin that, after placing the item, contributes the least to the sum of squares. The sum of squares after placing the item in bin i would be (remaining_after_i)^2 plus the sum of squares of other bins. So to minimize the sum, we should choose the bin with the smallest (remaining_after_i)^2. Which is equivalent to choosing the bin with the smallest remaining_after_i. So again, this is Best Fit.
+
+Hmm. So perhaps the Best Fit heuristic is already optimal in some sense. But in practice, there are other heuristics like First Fit, Worst Fit, etc. But for online BPP, Best Fit is known to perform better than First Fit in many cases.
+
+But the user is asking for a creative priority function. So perhaps we can combine multiple factors.
+
+Wait, here's an idea inspired by physics (since Marie Curie is a physicist). Think of the remaining capacity as a kind of "energy state". The priority could be based on minimizing the energy, where energy is a function of the remaining space. For example, energy could be the remaining space raised to a higher power, making it more unfavorable. So priority = - (remaining_after)^3. This would heavily penalize larger remaining spaces.
+
+Alternatively, use an exponential function to make the priority drop off rapidly as remaining_after increases. For example, priority = exp(-k * remaining_after), where k is a large constant. This way, even small differences in remaining_after result in large differences in priority.
+
+Alternatively, use a sigmoid function to prioritize bins where remaining_after is below a certain threshold. For example, priority = 1 / (1 + exp(k*(remaining_after - threshold))). This would give a high score to bins with remaining_after below the threshold and low score otherwise. But choosing the threshold and k is arbitrary.
+
+Alternatively, use a piecewise linear function. For example, if remaining_after is less than 0.2, priority is 1.0; between 0.2 and 0.5, priority is 0.5; else 0.1. But again, this is arbitrary.
+
+Another angle: Marie Curie worked with radioactive materials, which decay over time. Maybe the priority function can incorporate a decay factor based on the age of the bin. But the problem is online, and the function doesn't have access to the history of the bins. So that's not possible.
+
+Alternatively, think of the bins as having a "potential" to attract items. The potential could be higher for bins that are closer to being full. So the priority is higher for bins with higher potential after adding the item.
+
+But how to model potential. For example, potential = 1 / (remaining_after + epsilon). Which is the same as Best Fit.
+
+Hmm. Maybe the key is to use a non-linear transformation of the remaining_after. For example, using the reciprocal of the square of the remaining_after. This would give even higher priority to bins with very small remaining_after.
+
+So, in code:
+
+def priority_v2(item, bins_remain_cap):
+    remaining = bins_remain_cap - item
+    feasible = remaining >= 0
+    # For feasible bins, compute priority as 1/(remaining^2 + epsilon)
+    # to prioritize bins with smallest remaining space
+    epsilon = 1e-9
+    scores = np.where(feasible, 1 / (remaining**2 + epsilon), -np.inf)
+    return scores
+
+This would make the priority for a bin with remaining_after=0.1 be 100, while for 0.2 it's 25, which is a bigger difference than the linear reciprocal. This could lead to better packing by more aggressively selecting bins that leave very little space.
+
+Alternatively, use the cube: 1/(remaining^3 + epsilon). But this might be too aggressive.
+
+Another idea: combine the reciprocal of remaining_after with the current remaining capacity. For example, priority = (1/(remaining_after + epsilon)) + (1/(bins_remain_cap + epsilon)). But this would prioritize bins that are already more full (smaller bins_remain_cap) and have smaller remaining_after. But this might not be better than just using remaining_after.
+
+Alternatively, multiply the two terms: priority = (1/(remaining_after + epsilon)) * (1/(bins_remain_cap + epsilon)). This would give higher scores to bins that were already more full and can fit the item with small remaining_after. For example, a bin with bins_remain_cap=0.3 (so it's already 0.7 full if bin size is 1) and item=0.2, remaining_after=0.1. The priority would be (1/0.1) * (1/0.3) = 10 * 3.33 = 33.3. Another bin with bins_remain_cap=0.4 and item=0.3, remaining_after=0.1. The priority is (10) * (2.5) =25. So the first bin is preferred. But why? Because it was already more full. But the remaining_after is the same. So this might not be better. It's unclear.
+
+Alternatively, the priority could be the sum of the reciprocal of remaining_after and the reciprocal of the current remaining capacity. But again, this might not add value.
+
+Another approach: consider the item's size in relation to the remaining capacity. For example, if the item is large, we want to place it in a bin that can fit it with as little space left as possible. If the item is small, maybe we can be more flexible. But how to model this.
+
+For example, for large items (item > 0.5), use Best Fit. For small items, use a different heuristic. But the function has to handle all items, so it can't branch based on item size. Or can it?
+
+Wait, the function can certainly use the item's size in its calculation. So perhaps the priority function can vary based on the item's size.
+
+For example, if the item is large (e.g., > 0.5), prioritize bins where remaining_after is smallest. If the item is small, prioritize bins where remaining_after is closest to the average item size (but we don't know the average). Alternatively, for small items, prioritize bins that have a remaining capacity that is a multiple of the item's size. For example, if the item is 0.2, then a remaining_after of 0.4 can fit two more 0.2 items. But this is speculative.
+
+But without knowing future items, this is hard. So perhaps for small items, the priority could be the remaining_after divided by the item size. So if remaining_after is a multiple of the item size, it's better. For example, remaining_after / item. If this is an integer, then it's good. But how to compute that.
+
+Alternatively, the priority could be (remaining_after // item) + 1, but this is for discrete items. Since the problem is about continuous sizes, this might not work.
+
+Alternatively, for small items, the priority could be the reciprocal of remaining_after multiplied by the item size. For example, (item / (remaining_after + epsilon)). This would give higher priority to bins where the remaining_after is a small multiple of the item size. But I'm not sure.
+
+Alternatively, for small items, the priority could be the remaining_after. So for small items, we want to pack them into bins with larger remaining_after, to leave room for future larger items. But this is the opposite of Best Fit and might lead to more fragmentation.
+
+Hmm. This is getting complicated. Maybe the best approach is to stick with a modified Best Fit that uses a non-linear transformation of the remaining_after to more aggressively prioritize bins with very little remaining space.
+
+So, the code for priority_v2 could be:
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    remaining = bins_remain_cap - item
+    feasible = remaining >= 0
+    epsilon = 1e-9
+    # Use reciprocal of squared remaining space to heavily prioritize tight fits
+    scores = np.where(feasible, 1 / (remaining**2 + epsilon), -np.inf)
+    return scores
+
+This would make the priority for a bin with remaining_after=0.1 be 100, while for 0.2 it's 25. This is a more aggressive version of Best Fit, which might lead to better packing by more strictly preferring bins that leave minimal space.
+
+Alternatively, use the cube:
+
+scores = np.where(feasible, 1 / (remaining**3 + epsilon), -np.inf)
+
+But this might be overkill.
+
+Another idea: add a term that considers the current remaining capacity of the bin. For example, if a bin has a remaining capacity of 0.5 and the item is 0.3, the remaining_after is 0.2. The current remaining capacity is 0.5. So the bin was half empty before adding the item. Maybe we want to prioritize bins that are already more filled. So the priority could be (1/(remaining_after + epsilon)) + (1/(bins_remain_cap + epsilon)). But this would give higher scores to bins that are already more filled. For example, a bin with bins_remain_cap=0.3 (current remaining) and item=0.2: remaining_after=0.1. The score is 10 + 3.33 =13.33. Another bin with bins_remain_cap=0.4 and item=0.3: remaining_after=0.1. Score is 10 + 2.5=12.5. So the first bin is preferred. But why? Because it was already more filled. But the remaining_after is the same. This might help in cases where multiple bins have the same remaining_after but different current remaining capacities. But I'm not sure if this leads to better overall packing.
+
+Alternatively, multiply the two terms: (1/(remaining_after + epsilon)) * (1/(bins_remain_cap + epsilon)). For the first bin, 10 * 3.33=33.3. For the second bin, 10 * 2.5=25. So the first bin is preferred. This might encourage packing items into bins that are already more filled, which could lead to more bins being filled completely. But again, this is speculative.
+
+But how to test this without actual data. Since the user is asking for a creative approach, perhaps this multiplicative approach is worth trying.
+
+So the code would be:
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    remaining_after = bins_remain_cap - item
+    feasible = remaining_after >= 0
+    epsilon = 1e-9
+    # Combine reciprocal of remaining_after and current remaining capacity
+    scores = np.where(
+        feasible,
+        (1 / (remaining_after + epsilon)) * (1 / (bins_remain_cap + epsilon)),
+        -np.inf
+    )
+    return scores
+
+This way, the priority is higher for bins that have both a small remaining_after and were already more filled (small bins_remain_cap). This could encourage items to be placed into bins that are already closer to being full, which might help in filling up bins faster.
+
+But I'm not sure if this is better than the standard Best Fit. However, the user wants a creative approach, so this could be a valid attempt.
+
+Alternatively, another approach inspired by Marie Curie's work: use a logarithmic function. For example, priority = -np.log(remaining_after + epsilon). This would assign higher priorities to smaller remaining_after values, as the logarithm decreases as remaining_after increases. But the negative log would make smaller remaining_after have higher (less negative) values. Wait, no: np.log(0.1) is -2.3, so -np.log(0.1) is 2.3. So higher remaining_after would have lower priority. So this is similar to the reciprocal approach but with a different scaling.
+
+But again, this is similar to Best Fit but with a different weighting.
+
+After considering various options, I think the most creative approach that still has a logical basis is to use a combination of the reciprocal of the remaining_after and the reciprocal of the current remaining capacity. This way, the priority takes into account both how well the item fits into the bin and how full the bin already is. This could lead to more efficient packing by preferring bins that are already more filled and can accommodate the item with minimal leftover space.
+
+So the code for priority_v2 would be as follows.
+</think>
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins using inverse square of remaining space combined with current utilization.
+    
+    Combines tightness of fit (1/remaining²) with inverse of current bin capacity
+    to favor packing into bins that are both efficiently filled now and were previously underutilized.
+    """
+    remaining_after = bins_remain_cap - item
+    feasible = remaining_after >= 0
+    epsilon = 1e-9
+    
+    # Calculate two complementary factors
+    tightness_factor = 1 / (remaining_after**2 + epsilon)  # Favors smallest remaining space
+    utilization_factor = 1 / (bins_remain_cap + epsilon)    # Favors bins that were more full originally
+    
+    # Combine factors multiplicatively
+    combined_score = tightness_factor * utilization_factor
+    
+    return np.where(feasible, combined_score, -np.inf)
+```

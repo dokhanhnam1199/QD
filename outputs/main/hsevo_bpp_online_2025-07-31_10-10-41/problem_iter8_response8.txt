@@ -1,0 +1,52 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, BIN_CAPACITY: float = 1.0) -> np.ndarray:
+    """
+    Enhanced Best Fit: Combines core Best Fit with perfect fit prioritization,
+    a penalty for very small remnants, and a bonus for nearly full bins to encourage consolidation.
+    """
+    if item <= 0:
+        # Invalid item size should result in lowest possible priority for all bins.
+        return -np.inf * np.ones_like(bins_remain_cap)
+
+    remaining_after_placement = bins_remain_cap - item
+    priorities = -np.inf * np.ones_like(bins_remain_cap) # Initialize with lowest priority
+
+    # 1. Core Best Fit Logic:
+    # For bins where the item fits, set priority based on minimizing remaining space.
+    # A smaller remaining_after_placement (closer to 0) results in a higher priority.
+    fits_mask = remaining_after_placement >= 0
+    priorities[fits_mask] = -remaining_after_placement[fits_mask]
+
+    # Define hyperparameters for the adaptive components.
+    # These values might need tuning based on problem characteristics and scale.
+    SMALL_REMNANT_THRESHOLD = 0.05 * BIN_CAPACITY # e.g., 5% of bin capacity
+    PENALTY_VALUE = 0.1 # Arbitrary penalty value, relative to typical priority scores
+
+    NEARLY_FULL_THRESHOLD = 0.1 * BIN_CAPACITY # e.g., bins with <= 10% capacity remaining are "nearly full"
+    BIN_COMPLETION_BONUS = 0.05 # Arbitrary bonus value
+
+    # 2. Penalize very small, non-zero remnants:
+    # Discourages leaving tiny, potentially unusable gaps in bins (from priority_v0).
+    small_remnant_mask = (remaining_after_placement > 0) & \
+                         (remaining_after_placement < SMALL_REMNANT_THRESHOLD) & \
+                         fits_mask
+    priorities[small_remnant_mask] -= PENALTY_VALUE
+
+    # 3. Bonus for nearly full bins (before placing the item):
+    # Encourages consolidating items into bins that are already well-filled,
+    # aiming to "finish" or close off bins sooner (inspired by Bin Completion Bonus concept).
+    nearly_full_bin_mask = (bins_remain_cap <= NEARLY_FULL_THRESHOLD) & \
+                           (bins_remain_cap > 0) & \
+                           fits_mask # Ensure item still fits
+    priorities[nearly_full_bin_mask] += BIN_COMPLETION_BONUS
+
+    # 4. Absolute Highest Priority for perfect fits:
+    # A perfect fit (0 remaining space) is almost always the optimal immediate choice
+    # and should override any other considerations (from priority_v0).
+    perfect_fit_mask = (remaining_after_placement == 0)
+    priorities[perfect_fit_mask] = np.inf
+
+    return priorities
+```

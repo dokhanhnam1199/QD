@@ -1,0 +1,65 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_capacity: float = 1.0) -> np.ndarray:
+    """
+    Returns priority for placing an item, combining Best Fit with a strong perfect-fit bonus
+    and a subtle discouragement for creating "dead space" remnants.
+
+    This heuristic prioritizes perfect fits for global utility (bin closure). It uses
+    Best Fit as the primary mechanism, but adaptively applies a soft penalty to
+    discourage leaving very small, potentially unusable "dead space" in bins,
+    promoting more versatile remaining capacities.
+    """
+
+    # Initialize priorities to negative infinity for bins that cannot fit the item.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Calculate potential remaining space for each bin if the item were placed.
+    potential_remaining_space = bins_remain_cap - item
+
+    # Mask for bins where the item can fit (remaining space >= 0).
+    can_fit_mask = potential_remaining_space >= 0
+
+    # Apply the base Best Fit priority: negative of the potential remaining space.
+    # Smaller remaining space -> higher priority (less negative).
+    priorities[can_fit_mask] = -potential_remaining_space[can_fit_mask]
+
+    # --- Incorporate "Predictive State" and "Global Utility" via Perfect Fit Bonus ---
+    # Identify perfect fits (potential_remaining_space is effectively zero).
+    # Using a small epsilon for robust floating point comparison.
+    PERFECT_FIT_TOLERANCE = np.finfo(float).eps * 10 # A small tolerance for near-zero remaining space
+
+    perfect_fit_mask = can_fit_mask & (potential_remaining_space <= PERFECT_FIT_TOLERANCE)
+
+    # Assign a very high score for perfect fits to make them overwhelmingly preferred.
+    # This ensures bins are "closed" as efficiently as possible, a strong global optimization.
+    # The bonus is scaled by bin_capacity for robustness across different bin sizes.
+    PERFECT_FIT_BONUS = 1e6 * bin_capacity
+
+    # Only apply bonus to perfect fits among those that can fit
+    priorities[perfect_fit_mask] = PERFECT_FIT_BONUS
+
+    # --- Incorporate "Adaptive Logic" and "Problem-aware Robustness" via Soft Dead Space Discouragement ---
+    # Define thresholds for 'dead space' relative to bin_capacity.
+    # 'Dead space' is a small, non-zero remaining capacity that might be hard to fill later.
+    DEAD_SPACE_LOWER_BOUND = PERFECT_FIT_TOLERANCE  # Must be strictly greater than zero to exclude perfect fits
+    DEAD_SPACE_UPPER_BOUND = 0.15 * bin_capacity     # e.g., up to 15% of bin capacity is considered 'dead space'
+
+    # Identify bins that would create 'dead space' after placement.
+    dead_space_creation_mask = (potential_remaining_space > DEAD_SPACE_LOWER_BOUND) & \
+                               (potential_remaining_space < DEAD_SPACE_UPPER_BOUND) & \
+                               can_fit_mask
+
+    # Apply a 'soft' penalty. This penalty aims to make 'dead space' options
+    # slightly less attractive than leaving a larger, potentially more useful space.
+    # The magnitude is chosen to shift the priority below immediate Best Fit options
+    # that leave more versatile space, but not so drastically that it's always worse
+    # than opening an entirely empty new bin.
+    SOFT_DEAD_SPACE_PENALTY_VALUE = 0.20 * bin_capacity # Penalty value, scaled by bin_capacity
+
+    # Apply penalty to the priorities of bins creating dead space.
+    priorities[dead_space_creation_mask] -= SOFT_DEAD_SPACE_PENALTY_VALUE
+
+    return priorities
+```

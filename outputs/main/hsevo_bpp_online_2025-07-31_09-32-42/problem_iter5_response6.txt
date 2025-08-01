@@ -1,0 +1,43 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, BIN_CAPACITY: float = 1.0) -> np.ndarray:
+    """
+    Adaptive Best Fit with strong preference for perfect fits.
+    Prioritizes bins inversely to remaining waste, ensuring numerical stability.
+    Leverages inverse waste to balance immediate tight fits with robustness for various item sizes.
+    """
+    # Initialize all priorities to negative infinity, excluding bins that cannot fit the item.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins where the item can actually be placed.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the potential remaining space if the item were placed in fitting bins.
+    fitting_bins_current_cap = bins_remain_cap[can_fit_mask]
+    potential_remaining_space = fitting_bins_current_cap - item
+
+    # Define constants for heuristic scoring.
+    # A small tolerance for robust floating-point comparison to identify perfect fits.
+    PERFECT_FIT_TOLERANCE = 1e-9 * BIN_CAPACITY 
+    # A very high score to ensure perfect fits are chosen over any other option.
+    PERFECT_FIT_SCORE = 1e12 
+    # A small epsilon for numerical stability in inverse calculations, preventing division by zero.
+    STABILITY_EPSILON = np.finfo(float).eps
+
+    # 1. Apply Perfect Fit Bonus: Identify and highly prioritize near-perfect fits.
+    perfect_fit_mask_in_fitting = np.abs(potential_remaining_space) < PERFECT_FIT_TOLERANCE
+    priorities[can_fit_mask][perfect_fit_mask_in_fitting] = PERFECT_FIT_SCORE
+
+    # 2. For non-perfect fits, prioritize inversely to the remaining waste.
+    # This inherently penalizes larger waste (including small fragments) by giving them disproportionately lower scores.
+    non_perfect_fit_mask_in_fitting = ~perfect_fit_mask_in_fitting
+    non_perfect_potential_rem = potential_remaining_space[non_perfect_fit_mask_in_fitting]
+    
+    # Calculate inverse of (waste + epsilon) for non-perfect fits.
+    # A smaller waste results in a higher priority.
+    inverse_waste_scores = 1.0 / (non_perfect_potential_rem + STABILITY_EPSILON)
+    priorities[can_fit_mask][non_perfect_fit_mask_in_fitting] = inverse_waste_scores
+
+    return priorities
+```
