@@ -1,50 +1,60 @@
 import numpy as np
 
 def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
-    """Returns priority with which we want to add item to each bin.
-    This heuristic refines the Best-Fit strategy by explicitly rewarding perfect matches
-    with a distinct high score, while other valid fits are prioritized based on
-    tightness (smallest remaining capacity). Invalid fits are penalized.
-    This approach aims to consolidate items in existing bins and minimize new bin openings
-    by aggressively favoring the most efficient use of current bin space,
-    especially perfect fits which close a bin efficiently.
+    """Returns priority with which we want to add item to each bin using Softmax-Based Fit.
+
+    This function implements a "Softmax-Based Fit" strategy for online bin packing.
+    The core idea is to assign a 'raw fit score' to each bin based on how well it
+    accommodates the current item. Bins that result in a smaller remaining capacity
+    (a "tighter" fit) receive higher raw scores. These raw scores are then
+    transformed using the softmax function to produce normalized priority scores.
+
+    A bin that cannot fit the item is assigned a very low raw score, ensuring its
+    priority after softmax is effectively zero.
 
     Args:
         item: Size of item to be added to the bin.
-        bins_remain_cap: Array of capacities for each bin.
+        bins_remain_cap: A NumPy array containing the remaining capacities of each bin.
 
-    Return:
-        Array of same size as bins_remain_cap with priority score of each bin.
+    Returns:
+        A NumPy array of the same size as bins_remain_cap, where each element
+        represents the priority score for the corresponding bin. These scores
+        will sum to 1.0 if at least one bin can accommodate the item. If no bin
+        can accommodate the item, all priorities will be 0.
     """
-    # Calculate the remaining capacity for each bin if the item were placed in it.
-    # A negative value indicates the item does not fit.
-    hypothetical_remaining = bins_remain_cap - item
+    # Initialize raw scores for all bins to a very low value.
+    # This ensures that bins which cannot fit the item will have their
+    # exponential term become effectively zero, resulting in zero priority.
+    raw_fit_scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
 
-    # Initialize priority scores for all bins to a very low value (-infinity).
-    # This ensures that bins where the item does not fit will never be selected
-    # by argmax.
-    priority_scores = np.full_like(bins_remain_cap, -np.inf)
+    # Create a boolean mask for bins that can accommodate the current item.
+    can_fit_mask = bins_remain_cap >= item
 
-    # Create a boolean mask for bins where the item actually fits (i.e.,
-    # hypothetical_remaining is non-negative).
-    fits_mask = hypothetical_remaining >= 0
+    # For bins that can fit, calculate their raw fit score.
+    # The score is calculated as (item - remaining_capacity).
+    # A perfect fit (remaining_capacity == item) yields a score of 0, which is the
+    # highest possible score in this formulation (indicating the tightest fit).
+    # Looser fits (larger remaining_capacity) yield more negative scores.
+    # Example: item=0.5
+    #   - Bin with capacity 0.5: score = 0.5 - 0.5 = 0.0 (perfect fit, highest score)
+    #   - Bin with capacity 0.7: score = 0.5 - 0.7 = -0.2 (tighter fit than 1.0)
+    #   - Bin with capacity 1.0: score = 0.5 - 1.0 = -0.5 (looser fit, lower score)
+    raw_fit_scores[can_fit_mask] = item - bins_remain_cap[can_fit_mask]
 
-    # Identify perfect fits: where remaining capacity would be exactly 0.
-    # These are highly desirable as they efficiently "close" a bin.
-    perfect_fits_mask = (hypothetical_remaining == 0) & fits_mask
+    # Apply the exponential function to the raw scores.
+    # np.exp(-np.inf) correctly evaluates to 0.0, handling non-fitting bins.
+    exp_scores = np.exp(raw_fit_scores)
 
-    # Identify other valid fits: where item fits but remaining capacity is > 0.
-    other_fits_mask = (hypothetical_remaining > 0) & fits_mask
+    # Calculate the sum of the exponential scores. This will be used for normalization.
+    sum_exp_scores = np.sum(exp_scores)
 
-    # Assign a distinct, high positive score for perfect fits.
-    # This significantly elevates their priority, ensuring they are chosen
-    # over any non-perfect valid fit, fulfilling the "rewarding perfect matches"
-    # aspect of the reflection.
-    priority_scores[perfect_fits_mask] = 1.0
+    # Compute the final priorities using softmax normalization.
+    if sum_exp_scores == 0:
+        # If sum_exp_scores is 0, it means no bin could fit the item (all raw_fit_scores were -np.inf).
+        # In this case, all priorities are 0, indicating no suitable bin was found.
+        priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    else:
+        # Normalize the exponential scores to obtain probabilities/priorities that sum to 1.
+        priorities = exp_scores / sum_exp_scores
 
-    # For other valid fits, assign a score based on the negation of remaining capacity.
-    # This implements the Best-Fit strategy: smaller remaining capacities (tighter fits)
-    # result in higher scores (closer to 0, but still less than 1.0).
-    priority_scores[other_fits_mask] = -hypothetical_remaining[other_fits_mask]
-
-    return priority_scores
+    return priorities

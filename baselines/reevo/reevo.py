@@ -71,6 +71,7 @@ class ReEvo:
             problem_desc=self.problem_desc,
             func_desc=self.func_desc,
         )
+        self.init_user_generator_prompt = file_to_string(f'{self.prompt_dir}/common/init_user_generator.txt')
         self.seed_prompt = file_to_string(f'{self.prompt_dir}/common/seed.txt').format(
             seed_func=self.seed_func,
             func_name=self.func_name,
@@ -81,6 +82,8 @@ class ReEvo:
         self.print_mutate_prompt = True  # Print mutate prompt for the first iteration
         self.print_short_term_reflection_prompt = True  # Print short-term reflection prompt for the first iteration
         self.print_long_term_reflection_prompt = True  # Print long-term reflection prompt for the first iteration
+
+        self.strategies = self.cfg.problem.strategies
 
         _cur_file_ = os.path.dirname(__file__)
         _cur_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -118,27 +121,42 @@ class ReEvo:
         self.update_iter()
 
         # Generate responses
-        system = self.system_generator_prompt
-        user = self.user_generator_prompt + "\n" + self.seed_prompt + "\n" + self.long_term_reflection_str
+        messages_lst = []
+        for i in range(self.cfg.init_pop_size):
+            user_generator_prompt_full = self.init_user_generator_prompt.format(
+                strategy=self.strategies[i % len(self.strategies)],
+                func_name=self.func_name,
+                problem_desc=self.problem_desc,
+                func_desc=self.func_desc,
+            )
 
-        pre_messages = {"system": system, "user": user}
-        messages = format_messages(self.cfg, pre_messages)
-        logging.info("Initial Population Prompt: \nSystem Prompt: \n" + system + "\nUser Prompt: \n" + user)
+            system_generator_prompt_full = self.system_generator_prompt
 
-        # Write to file
-        file_name = f"problem_iter{self.iteration}_prompt.txt"
-        with open(file_name, 'w') as file:
-            file.writelines(json.dumps(pre_messages))
+            # Generate responses
+            system = system_generator_prompt_full
+            user = user_generator_prompt_full + "\n" + self.seed_prompt + "\n" + self.long_term_reflection_str
 
-        responses = multi_chat_completion([messages], self.cfg.init_pop_size, self.cfg.model,
-                                          self.cfg.temperature + 0.3)  # Increase the temperature for diverse initial population
-        self.cal_usage_LLM([messages], responses)
+            pre_messages = {"system": system, "user": user}
+            messages = format_messages(self.cfg, pre_messages)
+            messages_lst.append(messages)
+
+            logging.info("Initial Population Prompt: \nSystem Prompt: \n" + system + "\nUser Prompt: \n" + user)
+
+            # Write to file
+            file_name = f"problem_iter{self.iteration}_prompt{i}.txt"
+            with open(file_name, 'w') as file:
+                file.writelines(json.dumps(pre_messages))
+
+        responses = multi_chat_completion(messages_lst, 1, self.cfg.model, self.cfg.temperature + 0.3)
+        self.cal_usage_LLM(messages_lst, responses)
+        '''responses = multi_chat_completion([messages], self.cfg.init_pop_size, self.cfg.model,
+                                          self.cfg.temperature + 0.3)  # Increase the temperature for diverse initial population'''
         population = [self.response_to_individual(response, response_id) for response_id, response in
                       enumerate(responses)]
 
         # Run code and evaluate population
         population = self.evaluate_population(population)
-
+        
         # Update iteration
         self.population = population
         self.update_iter()
@@ -294,6 +312,11 @@ class ReEvo:
         return process
     
     def behavior_descriptor(self, individual: dict, bd_file_name: str, response_id) -> subprocess.Popen:
+        """
+        Write code into a file and run bd script.
+        """
+        with open(self.output_file, 'w') as file:
+            file.writelines(individual["code"] + '\n')
         # Execute the python file with flags
         with open(individual["stdout_filepath"], 'a') as f:
             bd_file_path = f'{self.root_dir}/problems/{self.problem}/{bd_file_name}.py'

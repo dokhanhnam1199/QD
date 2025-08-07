@@ -63,6 +63,7 @@ class HSEvo:
         self.crossover_prompt = file_to_string(f'{self.prompt_dir}/common/crossover.txt')
         self.mutation_prompt = file_to_string(f'{self.prompt_dir}/common/mutation.txt')
         self.user_generator_prompt = file_to_string(f'{self.prompt_dir}/common/user_generator.txt')
+        self.init_user_generator_prompt = file_to_string(f'{self.prompt_dir}/common/init_user_generator.txt')
         self.seed_prompt = file_to_string(f'{self.prompt_dir}/common/seed.txt').format(
             seed_func=self.seed_func,
             func_name=self.func_name,
@@ -91,6 +92,8 @@ class HSEvo:
             "You are Rosalind Franklin, DNA structure revealer.",
             "You are Ada Lovelace, computer programming pioneer."
         ]
+
+        self.strategies = self.cfg.problem.strategies
 
         _cur_file_ = os.path.dirname(__file__)
         _cur_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -131,8 +134,9 @@ class HSEvo:
         messages_lst = []
 
         for i in range(self.cfg.init_pop_size):
-            user_generator_prompt_full = self.user_generator_prompt.format(
+            user_generator_prompt_full = self.init_user_generator_prompt.format(
                 seed=self.scientists[i % len(self.scientists)],
+                strategy=self.strategies[i % len(self.strategies)],
                 func_name=self.func_name,
                 problem_desc=self.problem_desc,
                 func_desc=self.func_desc,
@@ -335,6 +339,11 @@ class HSEvo:
         return process
     
     def behavior_descriptor(self, individual: dict, bd_file_name: str, response_id) -> subprocess.Popen:
+        """
+        Write code into a file and run bd script.
+        """
+        with open(self.output_file, 'w') as file:
+            file.writelines(individual["code"] + '\n')
         # Execute the python file with flags
         with open(individual["stdout_filepath"], 'a') as f:
             bd_file_path = f'{self.root_dir}/problems/{self.problem}/{bd_file_name}.py'
