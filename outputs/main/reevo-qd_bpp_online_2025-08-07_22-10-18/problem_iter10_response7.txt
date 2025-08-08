@@ -1,0 +1,88 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Deterministic priority scores for online bin packing.
+
+    The function evaluates each currently open bin and returns a score;
+    higher scores indicate a more desirable bin for placing the incoming
+    ``item``. Infeasible bins (those that cannot accommodate the item) are
+    assigned ``-np.inf``. The score is based on an adaptive sigmoid that
+    depends on the distribution of the residual capacities of feasible bins.
+    A tiny deterministic tie‑breaker (decreasing bias with bin index) ensures
+    a stable ordering when scores tie.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item (must be non‑negative).
+    bins_remain_cap : np.ndarray
+        1‑D array containing the remaining capacity of each currently open bin.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores, same shape as ``bins_remain_cap``.
+    """
+    # Ensure a 1‑D float array.
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.shape[0]
+
+    # Empty input → nothing to score.
+    if n_bins == 0:
+        return np.empty(0, dtype=float)
+
+    # Residual capacity after (hypothetically) placing the item.
+    residual = caps - item
+
+    # Feasibility mask: bins that can hold the item.
+    feasible = residual >= 0.0
+
+    # Initialise all scores to -inf (infeasible).
+    scores = np.full(n_bins, -np.inf, dtype=float)
+
+    # If no bin can accommodate the item, return the -inf vector.
+    if not np.any(feasible):
+        return scores
+
+    # Residual capacities of feasible bins.
+    feas_res = residual[feasible]
+
+    # --- Adaptive steepness using MAD (median absolute deviation) ---
+    median_res = np.median(feas_res)
+    mad = np.median(np.abs(feas_res - median_res))
+    # Convert MAD to an estimate of standard deviation (for normal data).
+    spread = mad * 1.4826
+
+    # Fallback strategies if MAD is zero or extremely small.
+    if spread <= 0.0:
+        std = np.std(feas_res)
+        if std > 0.0:
+            spread = std
+        else:
+            # Use range as a last resort.
+            r = np.max(feas_res) - np.min(feas_res)
+            spread = r if r > 0.0 else 1.0
+
+    # Base steepness factor (tunable). Larger spread → softer sigmoid.
+    base_steepness = 5.0
+    slope = base_steepness / spread
+
+    # --- Sigmoid scoring -------------------------------------------------
+    # Logistic function decreasing with residual.
+    # score = 1 / (1 + exp(slope * residual))
+    # Clip exponent to avoid overflow/underflow.
+    exp_arg = np.clip(slope * feas_res, -700.0, 700.0)
+    scores_feas = 1.0 / (1.0 + np.exp(exp_arg))
+
+    # Assign scores to feasible bins.
+    scores[feasible] = scores_feas
+
+    # --- Deterministic tie‑breaker ---------------------------------------
+    # Tiny decreasing bias with bin index ensures stable ordering when scores tie.
+    tie_bias = -np.arange(n_bins, dtype=float) * 1e-12
+    scores = np.where(scores > -np.inf, scores + tie_bias, scores)
+
+    return scores
+```

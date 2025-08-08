@@ -1,0 +1,66 @@
+```python
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    steepness: float = 12.0,
+    midpoint: float = 0.5,
+    eps: float = 1e-12,
+) -> np.ndarray:
+    """
+    Deterministic, fit‑aware priority for online Bin Packing.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of currently open bins.
+    steepness : float, optional
+        Controls the sharpness of the sigmoid. Larger values give a
+        stronger preference for bins that are almost full.
+    midpoint : float, optional
+        The ratio (item/cap) at which the sigmoid output equals 0.5.
+        Default 0.5 gives a balanced bias between tight and loose fits.
+    eps : float, optional
+        Small constant added to denominators to avoid division by zero.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores with the same shape as ``bins_remain_cap``.
+        Feasible bins receive a smooth sigmoid‑based score in (0, 1].
+        Infeasible bins receive ``-np.inf`` so they are never chosen.
+    """
+    # Ensure we work with a NumPy array of floats for vectorised operations
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item
+    feasible = caps >= item
+
+    # Initialise all priorities as -inf (worst possible)
+    priorities = np.full_like(caps, -np.inf, dtype=float)
+
+    # If no bin can fit the item, return the -inf array
+    if not np.any(feasible):
+        return priorities
+
+    # Compute the fit ratio only for feasible bins
+    ratio = item / (caps[feasible] + eps)
+
+    # Apply a sigmoid transformation:
+    #   s(r) = 1 / (1 + exp(-steepness * (r - midpoint)))
+    # This yields values in (0, 1), close to 1 when r ≈ 1 (tight fit)
+    # and close to 0 when r is small (poor fit).
+    sigmoid = 1.0 / (1.0 + np.exp(-steepness * (ratio - midpoint)))
+
+    # Assign the computed scores to the feasible bins
+    priorities[feasible] = sigmoid
+
+    # Clip to the [0, 1] interval for numerical robustness
+    np.clip(priorities, 0.0, 1.0, out=priorities)
+
+    return priorities
+```

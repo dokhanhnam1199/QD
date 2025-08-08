@@ -1,0 +1,173 @@
+```python
+import numpy as np
+from typing import Optional
+
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    capacity: Optional[float] = None,
+    epsilon: float = 0.05,
+    noise_scale: float = 1e-4,
+    alpha_fit: float = 12.0,
+    target_fit: float = 0.80,
+    alpha_waste: float = 12.0,
+    waste_target: float = 0.07,
+    alpha_used: float = 10.0,
+    used_target: float = 0.40,
+    temperature: Optional[float] = None,
+    rng: Optional[np.random.Generator] = None,
+) -> np.ndarray:
+    """
+    Compute a priority score for each open bin in an online bin‑packing
+    setting. The score combines three sigmoid components (fit, waste,
+    used‑fraction) multiplicatively, adds fit‑scaled noise, and optionally
+    applies ε‑greedy exploration and temperature‑scaled softmax.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item (must be positive).
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the currently open bins.
+    capacity : float | None, optional
+        Fixed bin capacity. If ``None`` the maximum remaining capacity among
+        the current bins is used as a surrogate.
+    epsilon : float, default 0.05
+        Probability of performing ε‑greedy random selection among feasible bins.
+    noise_scale : float, default 1e-4
+        Uniform noise magnitude added to the raw score. Scaled by ``(1‑fit_ratio)``.
+    alpha_fit, target_fit : float, default 12.0, 0.80.0
+        Sigmoid steepness and target for the *fit ratio* component.
+    alpha_waste, waste_target : float, default 12.0, 0.07
+        Sigmoid steepness and target for the *waste* component.
+    alpha_used, used_target : float, default 10.0, 0.40
+        Sigmoid steepness and target for the *used‑fraction* component.
+    temperature : float | None, optional
+        If provided, the final scores are transformed into a probability
+        distribution using a temperature‑scaled softmax.
+    rng : np.random.Generator | None, optional
+        Random number generator for reproducibility. If ``None`` a new default
+        generator is created.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (or probabilities when ``temperature`` is set) for each
+        bin. Infeasible bins receive ``-np.inf`` (or zero probability).
+    """
+    # ------------------------------------------------------------------
+    # RNG setup
+    # ------------------------------------------------------------------
+    if rng is None:
+        rng = np.random.default_rng()
+
+    # ------------------------------------------------------------------
+    # Input handling & validation
+    # ------------------------------------------------------------------
+    bins = np.asarray(bins_remain_cap, dtype=np.float64).ravel()
+    if bins.ndim != 1:
+        raise ValueError("bins_remain_cap must be a one‑dimensional array")
+    if item <= 0.0:
+        raise ValueError("item size must be positive")
+    if not (0.0 <= epsilon <= 1.0):
+        raise ValueError("epsilon must be in [0, 1]")
+    if noise_scale < 0.0:
+        raise ValueError("noise_scale must be non‑negative")
+    if temperature is not None and temperature <= 0.0:
+        raise ValueError("temperature must be positive when provided")
+
+    # Early exit for empty bin list
+    if bins.size == 0:
+        return np.array([], dtype=np.float64)
+
+    # ------------------------------------------------------------------
+    # Feasibility mask
+    # ------------------------------------------------------------------
+    feasible = bins >= item
+    if not np.any(feasible):
+        return np.full_like(bins, -np.inf, dtype=np.float64)
+
+    # ------------------------------------------------------------------
+    # Determine bin capacity
+    # ------------------------------------------------------------------
+    if capacity is None:
+        # Use the largest observed remaining capacity as an estimate.
+        capacity_est = float(bins.max())
+        capacity = capacity_est if capacity_est > 1e-12 else 1.0
+    else:
+        if capacity <= 0.0:
+            raise ValueError("capacity must be positive")
+
+    # ------------------------------------------------------------------
+    # Component 1 – Fit ratio (item / remaining capacity)
+    # ------------------------------------------------------------------
+    fit_ratio = np.zeros_like(bins, dtype=np.float64)
+    np.divide(item, bins, out=fit_ratio, where=feasible)
+    np.clip(fit_ratio, 0.0, 1.0, out=fit_ratio)
+    fit_score = 1.0 / (1.0 + np.exp(-alpha_fit * (fit_ratio - target_fit)))
+    fit_score[~feasible] = 0.0
+
+    # ------------------------------------------------------------------
+    # Component 2 – Waste (remaining capacity after placement)
+    # ------------------------------------------------------------------
+    waste = bins - item
+    waste_norm = waste / capacity
+    np.clip(waste_norm, 0.0, 1.0, out=waste_norm)
+    waste_score = 1.0 / (1.0 + np.exp(alpha_waste * (waste_norm - waste_target)))
+    waste_score[~feasible] = 0.0
+
+    # ------------------------------------------------------------------
+    # Component 3 – Used fraction (how full the bin already is)
+    # ------------------------------------------------------------------
+    used_fraction = (capacity - bins) / capacity
+    np.clip(used_fraction, 0.0, 1.0, out=used_fraction)
+    used_score = 1.0 / (1.0 + np.exp(-alpha_used * (used_fraction - used_target)))
+    used_score[~feasible] = 0.0
+
+    # ------------------------------------------------------------------
+    # Combine components multiplicatively
+    # ------------------------------------------------------------------
+    priorities = fit_score * waste_score * used_score
+
+    # ------------------------------------------------------------------
+    # Add fit‑scaled exploration noise
+    # ------------------------------------------------------------------
+    if noise_scale > 0.0:
+        noise = rng.uniform(-noise_scale, noise_scale, size=priorities.shape)
+        noise *= (1.0 - fit_ratio) * feasible  # damp noise for good fits
+        priorities += noise
+
+    # ------------------------------------------------------------------
+    # ε‑greedy random exploration
+    # ------------------------------------------------------------------
+    if rng.random() < epsilon:
+        rand_scores = rng.random(size=priorities.shape)
+        rand_scores[~feasible] = -np.inf
+        priorities = rand_scores
+
+    # ------------------------------------------------------------------
+    # Explicitly mark infeasible bins
+    # ------------------------------------------------------------------
+    priorities[~feasible] = -np.inf
+
+    # ------------------------------------------------------------------
+    # Optional temperature‑scaled softmax → probability distribution
+    # ------------------------------------------------------------------
+    if temperature is not None:
+        feasible_scores = priorities[feasible]
+        if feasible_scores.size > 0:
+            # Stabilise exponentiation
+            max_score = feasible_scores.max()
+            exp_vals = np.exp((feasible_scores - max_score) / temperature)
+            probs = exp_vals / exp_vals.sum()
+            out = np.full_like(priorities, -np.inf, dtype=np.float64)
+            out[feasible] = probs
+            priorities = out
+        else:
+            # No feasible bins – return -inf everywhere
+            priorities = np.full_like(priorities, -np.inf, dtype=np.float64)
+
+    return priorities
+```

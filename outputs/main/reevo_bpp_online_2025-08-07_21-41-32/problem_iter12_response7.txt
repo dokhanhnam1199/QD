@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+# Global RNG for reproducible stochastic tie‑breaking, used when no RNG is supplied.
+_GLOBAL_RNG = np.random.default_rng(123456789)
+
+
+def priority_v2(item: float,
+                bins_remain_cap: np.ndarray,
+                *,
+                eps: float = 1e-12,
+                noise_scale: float = 1e-6,
+                idx_penalty: float = 1e-15,
+                rng: np.random.Generator = None) -> np.ndarray:
+    """
+    Compute priority scores for bins in an online bin‑packing setting.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the currently open bins.
+    eps : float, optional
+        Small constant added to slack to avoid division by zero.
+    noise_scale : float, optional
+        Relative magnitude of the stochastic tie‑breaking noise. The actual
+        noise added to a bin is ``U(0,1) * noise_scale * inverse_slack``.
+    idx_penalty : float, optional
+        Deterministic penalty proportional to the bin index used to break any
+        remaining ties (very small to preserve the order dictated by the
+        inverse‑slack bias).
+    rng : numpy.random.Generator, optional
+        Random number generator for stochastic tie‑breaking. If ``None`` a
+        global reproducible generator is used.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (higher = more attractive). Bins that cannot accommodate
+        the item receive ``-np.inf`` so they are never selected.
+    """
+    # Ensure a flat float array.
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.size
+
+    # Start with infeasible scores.
+    priorities = np.full(n_bins, -np.inf, dtype=float)
+
+    # Feasibility mask.
+    feasible = caps >= item
+    if not np.any(feasible):
+        return priorities
+
+    # Slack that would remain after placing the item.
+    slack = caps[feasible] - item
+
+    # Inverse‑slack bias: larger when slack is smaller (tighter fit).
+    inv_slack = 1.0 / (slack + eps)
+
+    # Stochastic tie‑breaking: small random perturbation scaled to the bias.
+    if rng is None:
+        rng = _GLOBAL_RNG
+    rand = rng.random(inv_slack.shape)          # Uniform [0, 1)
+    noise = rand * noise_scale * inv_slack
+
+    # Deterministic index penalty for any remaining ties.
+    idx = np.nonzero(feasible)[0].astype(float)  # indices of feasible bins
+    penalty = idx * idx_penalty
+
+    # Final priority: bias + noise – penalty.
+    scores = inv_slack + noise - penalty
+    priorities[feasible] = scores
+
+    return priorities
+```

@@ -1,0 +1,84 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute dynamic priority scores for bins in an online Bin Packing Problem.
+
+    The priority blends best‑fit (tight leftover) and worst‑fit (large leftover)
+    using a data‑driven weight α that adapts to the current distribution of
+    leftovers.  A linear waste penalty is subtracted, and a temperature
+    scaling smooths the scores.  A tiny negative tie‑breaker based on the
+    bin index resolves exact ties.  Feasible bins that cannot accommodate the
+    item receive -inf and are never selected.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities for each bin.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores (same shape as ``bins_remain_cap``).
+    """
+    # Ensure numeric array
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Feasibility mask
+    feasible = caps >= item
+
+    # If no feasible bin, return -inf for all
+    if not np.any(feasible):
+        return np.full_like(caps, -np.inf, dtype=float)
+
+    # Compute leftover capacity if the item is placed
+    leftover = caps[feasible] - item  # >= 0
+
+    # ----- Dynamic alpha based on leftover distribution -----
+    max_leftover = np.max(leftover)
+    if max_leftover > 0:
+        mean_leftover = np.mean(leftover)
+        alpha = np.clip(mean_leftover / max_leftover, 0.0, 1.0)
+    else:
+        # All feasible bins are exact fits
+        alpha = 0.5
+
+    # ----- Normalize leftover to [0,1] for stable scoring -----
+    if max_leftover > 0:
+        leftover_norm = leftover / max_leftover
+    else:
+        leftover_norm = leftover  # all zeros
+
+    # ----- Best‑fit and worst‑fit components -----
+    best_score = -leftover_norm   # tighter fit → higher
+    worst_score = leftover_norm   # larger leftover → higher
+
+    # ----- Linear blend -----
+    combined = (1.0 - alpha) * best_score + alpha * worst_score
+
+    # ----- Waste penalty -----
+    base_penalty = 0.1
+    penalty_factor = base_penalty * np.mean(leftover_norm)
+    combined -= penalty_factor * leftover_norm
+
+    # ----- Temperature scaling -----
+    std_norm = np.std(leftover_norm)
+    temperature = 1.0 + std_norm  # higher variation → smoother scores
+    if temperature <= 0.0:
+        temperature = 1e-8
+    combined /= temperature
+
+    # ----- Tie‑breaker based on bin index (avoid fixed epsilon) -----
+    idx = np.arange(caps.size, dtype=float)
+    epsilon = 1e-6 * (np.max(np.abs(combined)) + 1e-12)
+    tie_break = -epsilon * idx
+
+    # ----- Assemble final scores -----
+    full_scores = np.full_like(caps, -np.inf, dtype=float)
+    full_scores[feasible] = combined + tie_break[feasible]
+
+    return full_scores
+```

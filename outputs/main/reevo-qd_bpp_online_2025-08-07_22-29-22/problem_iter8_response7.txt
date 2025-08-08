@@ -1,0 +1,65 @@
+```python
+import numpy as np
+
+# Global random generator (single instance to avoid reseeding)
+_rng = np.random.default_rng()
+
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Priority function for online Bin Packing.
+
+    1. Exact‑fit bins receive the highest priority (score 0).
+    2. Among the remaining feasible bins, priority is proportional to the
+       negative of the waste (-leftover capacity).  Less waste → higher score.
+    3. Infeasible bins receive -inf.
+    4. If multiple bins share the same highest priority, a tiny random jitter
+       is added to break ties.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of each currently open bin.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (same shape as ``bins_remain_cap``).  The bin with the
+        maximum score will be chosen for the item.
+    """
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Handle empty input
+    if caps.size == 0:
+        return np.empty_like(caps, dtype=float)
+
+    # Compute leftover capacity after placing the item
+    leftover = caps - item
+
+    eps = 1e-9  # tolerance for exact fit
+
+    # Initialize priorities with -inf for infeasible bins
+    priorities = np.full_like(caps, -np.inf, dtype=float)
+
+    # Masks for feasibility and exact fit
+    feasible = leftover >= -eps
+    exact_fit = np.abs(leftover) <= eps
+
+    # Assign priorities
+    priorities[feasible & exact_fit] = 0.0
+    # For non‑exact but feasible bins, priority = -waste
+    non_exact = feasible & ~exact_fit
+    priorities[non_exact] = -leftover[non_exact]
+
+    # Random tie‑breaking: if multiple bins share the same top priority
+    max_val = np.max(priorities)
+    tie_mask = np.isclose(priorities, max_val, atol=1e-12)
+    if tie_mask.sum() > 1:
+        # Add a small positive jitter to break ties
+        jitter = _rng.random(tie_mask.sum()) * 1e-6
+        priorities[tie_mask] += jitter
+
+    return priorities
+```

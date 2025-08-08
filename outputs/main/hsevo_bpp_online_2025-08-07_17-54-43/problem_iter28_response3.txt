@@ -1,0 +1,52 @@
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    epsilon_initial: float = 0.6192492904161195,
+    epsilon_min: float = 0.04016551090091591,
+    epsilon_decay: float = 0.9890969862343644,
+    ratio_weight: float = 0.48946270077714155,
+    near_full_thresh_const: float = 0.0670618540292664,
+    near_full_thresh_factor: float = 0.03803174979599915,
+    boost: float = 1.8690801155810446,
+    jitter_scale: float = 4.004301117047734e-05,
+) -> np.ndarray:
+    """Score bins using negative slack, a small ratio penalty, and a near‑full boost.
+    Occasionally explore random bins with decaying epsilon."""
+    # Initialise epsilon state on first call
+    if not hasattr(priority_v2, "_epsilon"):
+        priority_v2._epsilon = epsilon_initial
+        priority_v2._epsilon_min = epsilon_min
+        priority_v2._epsilon_decay = epsilon_decay
+        priority_v2._step = 0
+    priority_v2._step += 1
+
+    # Decay epsilon
+    priority_v2._epsilon = max(
+        priority_v2._epsilon_min,
+        priority_v2._epsilon * priority_v2._epsilon_decay,
+    )
+    eps = priority_v2._epsilon
+
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    feasible = bins_remain_cap >= item
+    if not np.any(feasible):
+        return scores
+
+    slack = bins_remain_cap[feasible] - item
+    base = -slack
+    ratio = item / bins_remain_cap[feasible]
+
+    # Near‑full threshold and boost
+    near_full_thresh = max(near_full_thresh_const, near_full_thresh_factor * item)
+    bonus = np.where(slack <= near_full_thresh, boost, 0.0)
+
+    deterministic = base + ratio_weight * ratio + bonus
+
+    if np.random.rand() < eps:
+        scores[feasible] = np.random.rand(feasible.sum())
+    else:
+        jitter = np.random.rand(feasible.sum()) * jitter_scale
+        scores[feasible] = deterministic + jitter
+    return scores

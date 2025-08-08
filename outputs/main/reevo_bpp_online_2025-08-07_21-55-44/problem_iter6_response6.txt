@@ -1,0 +1,82 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute a priority score for each bin in an online Bin Packing Problem.
+
+    The scoring scheme combines:
+      * A massive bonus for exact fits.
+      * A quadratic penalty on leftover capacity (smaller leftover → higher priority).
+      * An adaptive weighting factor (α) that reacts to the distribution of
+        leftover capacities among feasible bins.
+      * A tiny index‑based epsilon tie‑breaker for deterministic selection.
+      * Infeasible bins receive ``-np.inf`` and are never chosen.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities for each bin.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores (higher is better).  The caller should select
+        the bin with the maximal score.
+    """
+    # Ensure we work with a float array
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    n_bins = caps.shape[0]
+
+    # Initialise all scores as infeasible
+    scores = np.full(n_bins, -np.inf, dtype=float)
+
+    # Feasibility mask: bins that can accommodate the item
+    feasible = caps >= item
+    if not feasible.any():
+        return scores
+
+    # Remaining capacity after placing the item
+    leftover = caps - item  # >= 0 for feasible bins
+
+    # -----------------------------------------------------------------
+    # Adaptive weighting: compute a coefficient α based on the spread
+    # of leftover capacities among feasible bins.
+    # -----------------------------------------------------------------
+    leftover_feas = leftover[feasible]
+    mean_left = leftover_feas.mean()
+    std_left = leftover_feas.std()
+    # Coefficient of variation (cv) captures relative dispersion; avoid div‑by‑zero
+    cv = std_left / mean_left if mean_left > 0 else 0.0
+    base_alpha = 1e-3               # baseline quadratic strength
+    alpha = base_alpha * (1.0 + cv) # larger cv → stronger quadratic penalty
+
+    # -----------------------------------------------------------------
+    # Quadratic penalty: prioritize bins with smaller leftovers
+    # -----------------------------------------------------------------
+    # priority = -leftover - α * leftover²  (more negative → lower priority)
+    base_priority = -leftover_feas - alpha * (leftover_feas ** 2)
+
+    # -----------------------------------------------------------------
+    # Tiny tie‑breaker based on bin index (deterministic)
+    # -----------------------------------------------------------------
+    epsilon = 1e-12
+    tie_breaker = -epsilon * np.arange(n_bins, dtype=float)
+
+    # Assign base priority (including tie‑breaker) to feasible bins
+    scores[feasible] = base_priority + tie_breaker[feasible]
+
+    # -----------------------------------------------------------------
+    # Exact‑fit detection: give a massive bonus to bins that fit the item perfectly
+    # -----------------------------------------------------------------
+    exact_tolerance = 1e-9
+    exact_fit = feasible & np.isclose(leftover, 0.0, atol=exact_tolerance)
+    if exact_fit.any():
+        EXACT_BONUS = 1e12  # dominates any other term
+        scores[exact_fit] = EXACT_BONUS + tie_breaker[exact_fit]
+
+    return scores
+```

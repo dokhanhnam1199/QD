@@ -1,0 +1,143 @@
+```python
+import numpy as np
+from typing import Optional, Union, Sequence
+
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: Union[np.ndarray, Sequence[float]],
+    *,
+    bin_capacity: Optional[float] = None,
+    lookahead_items: Optional[Union[np.ndarray, Sequence[float]]] = None,
+    k_base: float = 8.0,
+    alpha: float = 0.2,
+    exact_fit_bonus: float = 1e5,
+    reuse_bonus: float = 0.05,
+    jitter_eps: float = 1e-12,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
+) -> np.ndarray:
+    """
+    Compute priority scores for each open bin in an online bin‑packing setting.
+
+    The score is larger for bins that:
+      * can accommodate the item (infeasible bins get -inf);
+      * leave little slack after placement, with a sigmoid that becomes steeper
+        for bins that are already fuller;
+      * achieve an exact fit (large additive bonus);
+      * are expected to accommodate look‑ahead items (multiplicative boost);
+      * are already opened (small reuse bonus);
+      * have a tiny random jitter to break ties.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : array‑like of float
+        Remaining capacities of currently open bins.
+    bin_capacity is optional: the fixed capacity of each bin. If omitted it is
+        inferred from the maximum remaining capacity, guaranteeing it can
+        accommodate the current item.
+    lookahead_items : array‑like of float, optional
+        Sizes of items expected to arrive soon. Bins that can still fit many
+        of these after the current placement receive a multiplicative boost.
+    k_base : float, default 8.0
+        Base steepness for the logistic sigmoid; scaled by bin fullness.
+    alpha : float, default 0.2
+        Strength of the look‑ahead multiplicative boost.
+    exact_fit_bonus : float, default 1e5
+        Large additive bonus for bins that become exactly full after placement.
+    reuse_bonus : float, default 0.05
+        Small constant added to every feasible bin to prefer reusing an existing bin.
+    jitter_eps : float, default 1e-12
+        Magnitude of the random tie‑breaker added to each feasible score.
+    random_state : int or np.random.Generator, optional
+        Seed or generator for the random tie‑breaker.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores of shape ``(len(bins_remain_cap),)``. Infeasible bins
+        contain ``-np.inf``.
+    """
+    # ------------------------------------------------------------
+    # Normalise inputs
+    # ------------------------------------------------------------
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.size
+
+    if n_bins == 0:
+        return np.empty(0, dtype=float)
+
+    # Infer bin capacity if not supplied
+    if bin_capacity is None:
+        max_cap = caps.max() if caps.size > 0 else 0.0
+        # Ensure capacity can hold the incoming item
+        bin_capacity = float(max_cap if max_cap >= item else max_cap + item)
+
+    if bin_capacity <= 0.0:
+        raise ValueError("bin_capacity must be positive.")
+
+    # ------------------------------------------------------------
+    # Feasibility mask
+    # ------------------------------------------------------------
+    feasible = caps >= item
+    priority = np.full(n_bins, -np.inf, dtype=float)
+
+    if not feasible.any():
+        # No bin can accommodate the item; caller may open a new bin.
+        return priority
+
+    # ------------------------------------------------------------
+    # Core deterministic components
+    # ------------------------------------------------------------
+    # Slack after placing the item (non‑negative for feasible bins)
+    slack = caps[feasible] - item
+    slack_norm = slack / bin_capacity                      # ∈ [0, 1]
+
+    # Bin fullness before placement (0 = empty, 1 = full)
+    fullness = (bin_capacity - caps[feasible]) / bin_capacity
+
+    # Sigmoid steepness scales with fullness
+    k = k_base * (1.0 + fullness)
+
+    # Logistic sigmoid decreasing with slack_norm
+    # Argument centred at slack = 0.5 * bin_capacity so that slack = 0.5*C yields 0.5 score.
+    arg = k * (slack_norm - 0.5)
+    arg = np.clip(arg, -700.0, 700.0)          # avoid overflow in exp
+    sigmoid_score = 1.0 / (1.0 + np.exp(arg))  # range (0, 1)
+
+    # Exact‑fit bonus (large additive boost)
+    exact_fit_mask = np.isclose(slack, 0.0, atol=1e-12)
+    exact_fit_add = np.where(exact_fit_mask, exact_fit_bonus, 0.0)
+
+    # ------------------------------------------------------------
+    # Look‑ahead multiplicative boost
+    # ------------------------------------------------------------
+    lookahead_multiplier = 1.0
+    if lookahead_items is not None:
+        look = np.asarray(lookahead_items, dtype=float).ravel()
+        if look.size > 0:
+            # For each feasible bin count how many look‑ahead items would still fit.
+            fits = (look[None, :] <= slack[:, None]).sum(axis=1)
+            fit_ratio = fits / float(look.size)          # ∈ [0, 1]
+            lookahead_multiplier = 1.0 + alpha * fit_ratio
+
+    # ------------------------------------------------------------
+    # Random jitter for tie‑breaking
+    # ------------------------------------------------------------
+    rng = np.random.default_rng(random_state)
+    jitter = rng.uniform(-jitter_eps, jitter_eps, size=slack.shape)
+
+    # ------------------------------------------------------------
+    # Assemble final scores for feasible bins
+    # ------------------------------------------------------------
+    scores = (
+        sigmoid_score * lookahead_multiplier
+        + exact_fit_add
+        + reuse_bonus
+        + jitter
+    )
+
+    priority[feasible] = scores
+    return priority
+```

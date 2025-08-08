@@ -1,0 +1,80 @@
+```python
+import numpy as np
+
+# Global constants (tuned offline)
+CAP = 1.0            # Bin capacity (assumed 1.0 for normalized terms)
+K_BASE = 10.0        # Base steepness for the variance‑adapted sigmoid
+VAR_MAX = 0.25       # Max variance for a uniform [0,1] distribution
+EPSILON = 0.01       # Exploration probability for ε‑greedy
+HUGE_BONUS = 1e6     # Exact‑fit bonus
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Priority scores for online bin‑packing with variance‑adapted sigmoids,
+    product scoring, exact‑fit bonus, and ε‑greedy exploration.
+    Feasible bins receive a finite score; infeasible bins get -inf.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the current bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (higher = more desirable).  Infeasible bins receive
+        ``-np.inf`` so they are never selected.
+    """
+    caps = np.asarray(bins_remain_cap, dtype=float)
+    feasible = caps >= item
+    n_bins = caps.shape[0]
+
+    # Return -inf for all bins if none can accommodate the item
+    if not np.any(feasible):
+        return np.full(n_bins, -np.inf, dtype=float)
+
+    # Remaining capacity after placing the item
+    leftover = caps - item
+
+    # Basic terms (all lie in [0,1] because CAP == 1.0)
+    norm_leftover = np.where(feasible, leftover / CAP, 0.0)
+    fit_ratio    = np.where(feasible, item / CAP, 0.0)
+    usage_after  = np.where(feasible, 1.0 - leftover / CAP, 0.0)
+
+    def sigmoid_term(term_arr: np.ndarray) -> np.ndarray:
+        """Variance‑adapted sigmoid centered at 0.5."""
+        # Compute variance only over feasible bins
+        if np.any(feasible):
+            var = np.var(term_arr[feasible])
+        else:
+            var = 0.0
+        var_norm = min(var / VAR_MAX, 1.0)
+        k = K_BASE * (1.0 - var_norm)  # lower variance → steeper sigmoid
+        return 1.0 / (1.0 + np.exp(-k * (term_arr - 0.5)))
+
+    # Sigmoid transforms for each term
+    sig_leftover = sigmoid_term(norm_leftover)
+    sig_fit      = sigmoid_term(fit_ratio)
+    sig_usage    = sigmoid_term(usage_after)
+
+    # Product of weighted sigmoid scores (weights are exponents; tuned offline)
+    weighted_score = (sig_leftover ** 1.0) * \
+                     (sig_fit     ** 1.0) * \
+                     (sig_usage   ** 1.0)
+
+    # Add a huge bonus for exact‑fit placements
+    exact_fit_mask = feasible & np.isclose(leftover, 0.0, atol=1e-9)
+    weighted_score[exact_fit_mask] += HUGE_BONUS
+
+    # ε‑greedy exploration: mix with uniform random scores
+    rng = np.random.default_rng()
+    random_score = rng.random(n_bins)
+    final_score = (1.0 - EPSILON) * weighted_score + EPSILON * random_score
+
+    # Ensure infeasible bins are never chosen
+    final_score[~feasible] = -np.inf
+
+    return final_score
+```

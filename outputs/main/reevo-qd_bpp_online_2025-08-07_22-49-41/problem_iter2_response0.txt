@@ -1,0 +1,67 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute a priority score for each bin for online bin packing.
+
+    The priority vector is designed to:
+      1. Prune infeasible bins (those that cannot accommodate the item).
+      2. Prefer bins that would become the tightest after inserting the item
+         (best‑fit) by scoring them with the negative slack.
+      3. With a decaying ε probability, explore by selecting one random
+         feasible bin and giving it a high priority to ensure it is chosen.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item to pack.
+    bins_remain_cap : np.ndarray
+        1‑D array containing the remaining capacities of the existing bins.
+
+    Returns
+    -------
+    np.ndarray
+        An array of the same shape as `bins_remain_cap` containing the
+        priority of each bin.  The bin with the highest value is the
+        preferred choice for the item.  Infeasible bins receive `-inf`.
+    """
+    # Ensure we work with a NumPy array of float dtype
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+    n_bins = bins_remain_cap.size
+
+    # Start with the worst priority for all bins
+    priorities = np.full(n_bins, -np.inf, dtype=float)
+
+    # No bins available – nothing to do
+    if n_bins == 0:
+        return priorities
+
+    # Identify bins that can accommodate the item
+    can_fit = bins_remain_cap >= item
+    if not np.any(can_fit):
+        # All bins are infeasible; return the all -inf vector
+        return priorities
+
+    # Compute the remaining capacity after a potential placement
+    slack = bins_remain_cap - item
+    # Best‑fit: bins that would have the smallest leftover capacity
+    # (i.e., largest negative slack) get higher priority
+    greedy_scores = -slack
+    greedy_scores[~can_fit] = -np.inf  # Explicitly mark infeasible bins
+
+    # Decaying exploration rate – encourages early exploration
+    # and later exploitation as the number of bins grows
+    epsilon = max(0.01, min(0.3, 0.2 / np.sqrt(n_bins)))
+
+    if np.random.rand() < epsilon:
+        # Exploration: pick a random feasible bin and give it a very high priority
+        feasible_indices = np.nonzero(can_fit)[0]
+        chosen_idx = np.random.choice(feasible_indices)
+        priorities[chosen_idx] = 1.0  # ensures selection of this bin
+    else:
+        # Exploitation: use best‑fit scores
+        priorities = greedy_scores
+
+    return priorities
+```

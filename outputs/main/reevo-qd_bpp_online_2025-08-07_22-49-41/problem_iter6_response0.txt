@@ -1,0 +1,79 @@
+```python
+import numpy as np
+import math
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute adaptive priority scores for online Bin Packing.
+
+    The function:
+      * Prefers tight fits via a sigmoid score on relative slack.
+      * Adapts the sigmoid steepness based on the median relative slack.
+      * Applies a decaying epsilon‑greedy exploration that is modulated by
+        the context (median slack) to balance exploration/exploitation.
+      * Returns -np.inf for bins that cannot accommodate the item.
+
+    Parameters
+    ----------
+    item : float
+        Size of the item to be packed.
+    bins_remain_cap : np.ndarray
+        1‑D array of the remaining capacity of each bin.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin; the bin with the largest score is
+        selected.  Unfit bins receive ``-np.inf``.
+    """
+    # Ensure the array is float64 for consistency
+    bins = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # Feasible bins
+    feasible = bins >= item
+    if not np.any(feasible):
+        return np.full(bins.shape, -np.inf, dtype=np.float64)
+
+    # Slack and relative slack
+    slack = bins - item
+    rel_slack = np.zeros_like(bins)
+    rel_slack[feasible] = slack[feasible] / bins[feasible]  # normalize by capacity
+
+    # Adaptive steepness from median relative slack (range [5, 10])
+    median_rel = np.median(rel_slack[feasible])
+    alpha = 5.0 * (2.0 - median_rel)
+
+    # Sigmoid fit‑score: 1 for perfect fit, decreasing with slack
+    scores = np.full(bins.shape, -np.inf, dtype=np.float64)
+    sigmoid = 1.0 / (1.0 + np.exp(alpha * rel_slack[feasible]))
+    scores[feasible] = 2.0 * sigmoid  # scale to [0,1], perfect fit -> 1
+    np.clip(scores[feasible], 0.0, 1.0, out=scores[feasible])
+
+    # ------------------------------------
+    # Exploration: decaying epsilon‑greedy
+    # ------------------------------------
+    if not hasattr(priority_v2, "_iter"):
+        priority_v2._iter = 0
+    priority_v2._iter += 1
+    iteration = priority_v2._iter
+
+    # Base epsilon depends on the context (median slack)
+    min_eps, max_eps = 0.01, 0.20
+    base_eps = min_eps + (max_eps - min_eps) * median_rel
+
+    # Exponential decay over time (tau controls speed)
+    decay_tau = 1000.0
+    decay_factor = math.exp(-iteration / decay_tau)
+    epsilon = base_eps * decay_factor
+
+    if np.random.rand() < epsilon:
+        # Random priorities for feasible bins
+        rand_scores = np.random.rand(np.count_nonzero(feasible))
+        scores[feasible] = rand_scores
+    else:
+        # Small jitter to break ties without changing ordering much
+        jitter = np.random.uniform(0, 1e-6, size=np.count_nonzero(feasible))
+        scores[feasible] += jitter
+
+    return scores
+```

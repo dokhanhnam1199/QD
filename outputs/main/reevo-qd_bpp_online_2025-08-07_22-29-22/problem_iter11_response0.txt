@@ -1,0 +1,70 @@
+```python
+import numpy as np
+
+# EMA parameters
+EMA_ALPHA = 0.1
+EMA_median_slack = None
+JITTER_EPS = 1e-5
+EPSILON = 1e-9
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Priority function for online Bin Packing with EMA-based softmax.
+
+    Parameters
+    ----------
+    item : float
+        Size of the item to pack.
+    bins_remain_cap : np.ndarray
+        Remaining capacities of each bin.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (probabilities) for each bin; higher scores indicate higher priority.
+    """
+    global EMA_median_slack
+
+    slack = bins_remain_cap - item
+
+    # Treat bins that fit within ±ε tolerance as exact fits
+    clamped_slack = slack.copy()
+    clamped_slack[np.abs(slack) <= EPSILON] = 0.0
+
+    # Bins that can accommodate the item (allow small overshoot within tolerance)
+    valid_mask = slack >= -EPSILON
+
+    # Compute median slack of feasible bins for EMA
+    if np.any(valid_mask):
+        median_slack = np.median(clamped_slack[valid_mask])
+        if EMA_median_slack is None:
+            EMA_median_slack = median_slack
+        else:
+            EMA_median_slack = EMA_ALPHA * median_slack + (1 - EMA_ALPHA) * EMA_median_slack
+    else:
+        # No feasible bins; keep previous EMA
+        median_slack = 0.0
+
+    # Base score: prefer smaller slack (i.e., larger -slack). Exact fits yield 0.
+    score = np.full_like(slack, -np.inf, dtype=float)
+    score[valid_mask] = -clamped_slack[valid_mask]
+
+    # Tie‑break by oldest bin and penalize newer bins
+    idx = np.arange(len(bins_remain_cap))
+    jitter = JITTER_EPS * (len(bins_remain_cap) - idx)
+    score += jitter
+
+    # Temperature for softmax
+    temp = EMA_median_slack if EMA_median_slack is not None and EMA_median_slack > 0 else 1e-6
+
+    # Numerical stable softmax
+    if np.any(valid_mask):
+        max_score = np.max(score[valid_mask])
+        exp_values = np.exp((score - max_score) / temp)
+        exp_values[~valid_mask] = 0.0
+        softmax = exp_values / np.sum(exp_values)
+    else:
+        softmax = np.zeros_like(score)
+
+    return softmax
+```

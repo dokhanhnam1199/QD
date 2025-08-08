@@ -1,0 +1,74 @@
+```python
+import numpy as np
+
+# priority_v2: hybrid inverse‑slack with ε‑greedy and simple online statistics.
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Hybrid inverse‑slack with epsilon‑greedy, using feasibility mask and optional avg‑slack.
+    """
+    # Hyperparameters
+    _EPSILON = 0.15
+    _BETA = 0.02
+    _GAMMA = 0.5
+    _DELTA = 0.1
+    _UCB_WEIGHT = 0.03
+
+    # Initialize static state on first call
+    if not hasattr(priority_v2, "_total_calls"):
+        priority_v2._total_calls = 0
+        priority_v2._avg_slack = None
+        priority_v2._slack_counts = None
+        priority_v2._bin_capacity = None
+
+    caps = np.asarray(bins_remain_cap, dtype=float)
+    n = caps.size
+    if n == 0:
+        return np.array([], dtype=float)
+
+    # Update known maximum bin capacity
+    if priority_v2._bin_capacity is None:
+        priority_v2._bin_capacity = caps.max() if caps.size > 0 else 1.0
+    else:
+        max_cap = caps.max()
+        if max_cap > priority_v2._bin_capacity:
+            priority_v2._bin_capacity = max_cap
+
+    # Ensure average‑slack arrays match current number of bins
+    if priority_v2._avg_slack is None or priority_v2._avg_slack.shape[0] != n:
+        priority_v2._avg_slack = np.zeros(n, dtype=float)
+        priority_v2._slack_counts = np.zeros(n, dtype=int)
+
+    priority_v2._total_calls += 1
+
+    feasible = caps >= item
+    scores = np.full_like(caps, -np.inf, dtype=float)
+    if not np.any(feasible):
+        return scores
+
+    slack = caps[feasible] - item
+    inv_slack = 1.0 / (slack + 1e-9)
+    fill = 1.0 - slack / priority_v2._bin_capacity
+
+    idx = np.where(feasible)[0]
+    avg_slack = priority_v2._avg_slack[idx]
+    counts = priority_v2._slack_counts[idx]
+    ucb_bonus = np.sqrt(2 * np.log(priority_v2._total_calls) / (counts + 1e-9))
+
+    deterministic = (
+        inv_slack
+        - _BETA * slack**2
+        + _GAMMA * fill
+        - _DELTA * avg_slack
+        + _UCB_WEIGHT * ucb_bonus
+    )
+    random_part = np.random.rand(deterministic.size)
+    scores_feas = (1 - _EPSILON) * deterministic + _EPSILON * random_part
+    scores[feasible] = scores_feas
+
+    # Update average slack and selection counts
+    new_counts = counts + 1
+    priority_v2._avg_slack[idx] = (avg_slack * counts + slack) / new_counts
+    priority_v2._slack_counts[idx] = new_counts
+
+    return scores
+```

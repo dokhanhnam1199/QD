@@ -1,0 +1,130 @@
+```python
+import numpy as np
+from typing import Optional
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    bin_capacity: Optional[float] = None,
+    lookahead_items: Optional[np.ndarray] = None,
+    random_state: Optional[int] = None,
+) -> np.ndarray:
+    """
+    Compute a priority score for each bin in an online Bin Packing setting.
+
+    The priority favours bins that will have a small positive residual after
+    packing the current `item`.  It additionally:
+
+    * Adjusts the sigmoid sharpness (parameter `k`) according to how full the
+      bin already is – fuller bins receive a steeper curve, encouraging tighter
+      packing.
+    * Normalises gaps by the bin capacity to make the score scale‑invariant.
+    * Adds a tiny random tie‑breaker to avoid deterministic ties.
+    * (Optionally) incorporates a simple look‑ahead: bins that are also able to
+      accommodate more of the upcoming items obtain a boost.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities for each bin.
+    bin_capacity : float, optional
+        Fixed capacity of each bin.  If omitted it is inferred as the maximum
+        possible capacity observed (the largest remaining capacity plus the
+        current item size).  All bins are assumed to have the same capacity.
+    lookahead_items : np.ndarray, optional
+        1‑D array of sizes of future items that may arrive soon.  The function
+        rewards bins that could also hold at least one of these items after the
+        current one is placed.
+    random_state : int, optional
+        Seed for the internal RNG used for tie‑breaking noise.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores with the same shape as ``bins_remain_cap``.
+        Infeasible bins (remaining capacity < ``item``) receive ``-np.inf``.
+    """
+    # ------------------------------------------------------------------ #
+    # Preparations
+    # ------------------------------------------------------------------ #
+    rng = np.random.default_rng(random_state)
+
+    # Ensure a proper NumPy array
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+
+    # Infer bin capacity if not supplied (assumes homogeneous bins)
+    if bin_capacity is None:
+        # At least one bin must be able to hold the current item.
+        # Adding `item` guarantees capacity is not underestimated.
+        bin_capacity = float(bins_remain_cap.max() + item)
+
+    # ------------------------------------------------------------------ #
+    # Feasibility mask
+    # ------------------------------------------------------------------ #
+    feasible = bins_remain_cap >= item
+
+    # Initialise all priorities with -inf (infeasible)
+    priorities = np.full_like(bins_remain_cap, fill_value=-np.inf, dtype=float)
+
+    if not feasible.any():
+        # No bin can accommodate the item; return all -inf.
+        return priorities
+
+    # ------------------------------------------------------------------ #
+    # Core sigmoid score (small residuals preferred)
+    # ------------------------------------------------------------------ #
+    # Gap after placing the item
+    gaps = bins_remain_cap - item                     # may be negative for infeasible
+
+    # Normalise gaps to [0, 1] using the known bin capacity
+    norm_gaps = gaps / bin_capacity
+
+    # Base steepness of the sigmoid
+    base_k = 8.0
+
+    # Dynamically adjust k: fuller bins (small remaining capacity) get larger k
+    # fullness factor = (C - remaining) / C  ∈ [0, 1]
+    fullness = (bin_capacity - bins_remain_cap) / bin_capacity
+    dynamic_k = base_k * (1.0 + fullness)            # ∈ [base_k, 2*base_k]
+
+    # Compute sigmoid safely (clip exponent to avoid overflow)
+    exponent = np.clip(dynamic_k * norm_gaps, -700, 700)
+    sigmoid_score = np.where(
+        feasible,
+        1.0 / (1.0 + np.exp(exponent)),  # larger when norm_gaps is small
+        -np.inf
+    )
+
+    # ------------------------------------------------------------------ #
+    # Tie‑breaking random noise (very small magnitude)
+    # ------------------------------------------------------------------ #
+    noise = rng.uniform(0.0, 1e-6, size=bins_remain_cap.shape)
+    sigmoid_score += noise
+
+    # ------------------------------------------------------------------ #
+    # Look‑ahead boost (optional)
+    # ------------------------------------------------------------------ #
+    if lookahead_items is not None and lookahead_items.size > 0:
+        # Broadcast to compute remaining capacity after placing current item
+        # and each look‑ahead item.
+        future_gaps = bins_remain_cap[:, None] - item - lookahead_items[None, :]
+        # Count how many future items could still fit in each bin.
+        future_fits = (future_gaps >= 0).sum(axis=1)
+        # Normalise to [0, 1]
+        fit_ratio = future_fits / lookahead_items.size
+        # Boost factor: bins that can host more future items are slightly favoured.
+        # Alpha controls the strength of the boost.
+        alpha = 0.2
+        boost = 1.0 + alpha * fit_ratio
+        sigmoid_score *= boost
+
+    # ------------------------------------------------------------------ #
+    # Assemble final priority vector
+    # ------------------------------------------------------------------ #
+    priorities[feasible] = sigmoid_score[feasible]
+
+    return priorities
+```

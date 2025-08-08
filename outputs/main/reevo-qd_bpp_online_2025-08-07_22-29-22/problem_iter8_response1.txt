@@ -1,0 +1,86 @@
+```python
+import numpy as np
+
+# Global random generator for tie-breaking noise
+_rng = np.random.default_rng()
+
+def priority_v2(item, bins_remain_cap, *, temperature=0.1, noise_scale=1e-12, rng=None):
+    """Compute a priority vector for online bin packing using a temperature‑controlled softmax.
+
+    The priority vector favours bins with the smallest slack (i.e. where the item
+    fits most tightly).  A low temperature drives the distribution toward a
+    deterministic best‑fit selection, while a higher temperature spreads the
+    mass more evenly.  A very small uniform noise can be added to break ties
+    reproducibly.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities for the existing bins.
+    temperature : float, optional (default=0.1)
+        Softmax temperature.  Must be positive.  Very small values approximate
+        a deterministic best‑fit strategy.
+    noise_scale : float, optional (default=1e-12)
+        Magnitude of a tiny uniform noise added to logits for tie‑breaking.
+    rng : np.random.Generator, optional
+        Random number generator to use for the noise.  If omitted, a global
+        generator is used.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin.  Infeasible bins receive a score of 0.
+    """
+    if temperature <= 0.0:
+        raise ValueError("temperature must be a positive float")
+
+    caps = np.asarray(bins_remain_cap, dtype=np.float64)
+    feasible = caps >= item
+    priorities = np.zeros_like(caps)
+
+    # No bin can accommodate the item
+    if not np.any(feasible):
+        return priorities
+
+    # Indices of feasible bins in flattened view
+    feasible_idx = np.flatnonzero(feasible)
+
+    # Slack for feasible bins (unused capacity after placing the item)
+    slack = caps[feasible] - item
+
+    # Deterministic best‑fit when temperature is negligible
+    eps = 1e-12
+    if temperature < eps:
+        best_local = np.argmin(slack)
+        best_global = feasible_idx[best_local]
+        priorities.flat[best_global] = 1.0
+        return priorities
+
+    # Logits: tighter fit gets a higher logit (negative slack scaled by temperature)
+    logits = np.full_like(caps, -np.inf, dtype=np.float64)
+    logits[feasible] = -slack / temperature
+
+    # Optional tie‑breaking noise
+    if rng is None:
+        rng = _rng
+    if noise_scale > 0.0:
+        noise = rng.uniform(-noise_scale, noise_scale, size=caps.shape)
+        logits[feasible] += noise[feasible]
+
+    # Numerically stable softmax
+    max_logit = np.max(logits[feasible])
+    exp_shifted = np.exp(logits - max_logit)
+    sum_exp = np.sum(exp_shifted)
+
+    # Fallback to best‑fit if numerical issues arise
+    if sum_exp <= 0.0:
+        best_local = np.argmin(slack)
+        best_global = feasible_idx[best_local]
+        priorities.flat[best_global] = 1.0
+        return priorities
+
+    priorities = exp_shifted / sum_exp
+    return priorities
+```

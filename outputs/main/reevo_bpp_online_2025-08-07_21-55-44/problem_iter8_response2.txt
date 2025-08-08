@@ -1,0 +1,109 @@
+```python
+import numpy as np
+from typing import Union, Optional
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: Union[np.ndarray, list, tuple],
+    *,
+    bin_capacity: Optional[float] = None,
+    lookahead_items: Optional[Union[np.ndarray, list, tuple]] = None,
+    k_base: float = 8.0,
+    alpha: float = 0.2,
+    exact_fit_bonus: float = 1e5,
+    jitter_eps: float = 1e-12,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
+) -> np.ndarray:
+    """
+    Compute priority scores for each bin in an online Bin Packing Problem.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : array-like of float
+        Remaining capacities of the current bins.
+    bin_capacity : float, optional
+        The fixed capacity of each bin. If omitted, it is inferred from the
+        current bins, ensuring that the inferred capacity can accommodate
+        the incoming item.
+    lookahead_items : array-like of float, optional
+        Sizes of items that are expected to arrive soon. Bins that can still
+        accommodate more of these items after the current placement receive
+        a multiplicative boost.
+    k_base : float, default 8.0
+        Base steepness parameter for the sigmoid; scaled by bin fullness.
+    alpha : float, default 0.2
+        Strength of the look‑ahead boost (fractional multiplier).
+    exact_fit_bonus : float, default 1e5
+        Large additive bonus for bins that will have zero slack after
+        placement (i.e., an exact fit).
+    jitter_eps : float, default 1e-12
+        Magnitude of the tiny random tie‑breaker added to each score.
+    random_state : int or np.random.Generator, optional
+        Seed or generator for the tiny random tie‑breaker.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores with the same length as ``bins_remain_cap``.
+        Feasible bins receive a finite score; infeasible bins receive
+        ``-np.inf`` and will never be selected.
+    """
+    # Convert input to a 1‑D float array
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.size
+    if n_bins == 0:
+        return np.empty(0, dtype=float)
+
+    # Infer bin capacity if not provided
+    if bin_capacity is None:
+        max_cap = np.max(caps)
+        bin_capacity = float(max_cap if max_cap >= item else max_cap + item)
+    if bin_capacity <= 0:
+        raise ValueError("bin_capacity must be positive.")
+
+    # Feasibility mask
+    feasible = caps >= item
+    if not np.any(feasible):
+        return np.full(n_bins, -np.inf, dtype=float)
+
+    # Remaining capacity after placing the item (only for feasible bins)
+    leftover = caps[feasible] - item  # >= 0
+    gap_norm = leftover / bin_capacity  # normalised gap in [0, 1)
+
+    # Fullness before placement (fraction already used)
+    fullness = (bin_capacity - caps[feasible]) / bin_capacity
+    k = k_base * (1.0 + fullness)  # dynamic steepness
+
+    # Logistic sigmoid: decreasing in gap_norm
+    arg = k * (gap_norm - 0.5)
+    # Clip to avoid overflow
+    arg = np.clip(arg, -700.0, 700.0)
+    scores = 1.0 / (1.0 + np.exp(arg))  # in (0,1)
+
+    # Tiny random tie‑breaker
+    rng = np.random.default_rng(random_state)
+    eps = jitter_eps * max(1.0, np.max(scores)) if scores.size else 0.0
+    scores += rng.uniform(0.0, eps, size=scores.shape)
+
+    # Look‑ahead boost
+    if lookahead_items is not None:
+        look = np.asarray(lookahead_items, dtype=float).ravel()
+        if look.size > 0:
+            fits = (look <= leftover[:, None]).sum(axis=1)
+            fit_ratio = fits / float(look.size)  # in [0, 1]
+            scores = scores * (1.0 + alpha * fit_ratio)
+            scores = np.clip(scores, 0.0, 1.0)
+
+    # Exact‑fit bonus
+    exact_fit_mask = np.isclose(leftover, 0.0, atol=1e-12)
+    if np.any(exact_fit_mask):
+        scores[exact_fit_mask] += exact_fit_bonus
+
+    # Assemble full priority vector
+    priority = np.full(n_bins, -np.inf, dtype=float)
+    priority[feasible] = scores
+
+    return priority
+```

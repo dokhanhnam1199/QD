@@ -1,0 +1,117 @@
+```python
+import numpy as np
+
+# Global random generator for reproducibility (used only for optional tie‑breaking noise)
+_rng = np.random.default_rng()
+
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    base_temperature: float = 0.1,
+    min_temperature: float = 1e-4,
+    eps: float = 1e-12,
+) -> np.ndarray:
+    """
+    Adaptive Softmax‑Based priority for online Bin Packing.
+
+    The function scores each existing bin by how tightly the incoming ``item``
+    would fit (negative slack).  These scores are transformed by a softmax
+    whose temperature is *adaptively* tuned based on the spread of the slack
+    values:
+
+    * When the slack distribution is highly variable, the temperature stays
+      close to ``base_temperature`` → the algorithm behaves almost greedily,
+      favouring the tightest fit.
+    * When the slacks are similar (low variability), the temperature is raised
+      (up to roughly ``2 * base_temperature``) → the selection becomes more
+      stochastic, helping to avoid deterministic tie‑breaking.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the current bins.
+    base_temperature : float, optional
+        Base temperature for the softmax (must be > 0). Default = 0.1.
+    min_temperature : float, optional
+        Lower bound for the adaptive temperature to avoid division by zero.
+        Default = 1e‑4.
+    eps : float, optional
+        Small constant to avoid division by zero in coefficient‑of‑variation
+        calculation. Default = 1e‑12.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin.  Infeasible bins receive a priority of 0.
+        The vector sums to 1 across all feasible bins (or to 0 if none are
+        feasible).
+    """
+    if base_temperature <= 0:
+        raise ValueError("base_temperature must be positive")
+
+    # Ensure input is a NumPy array of float64 for safe arithmetic
+    caps = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # No bins at all → return empty array
+    if caps.size == 0:
+        return caps
+
+    # Feasibility mask: bins that can accommodate the item
+    feasible = caps >= item
+
+    # Initialise priorities (0 for infeasible bins)
+    priorities = np.zeros_like(caps, dtype=np.float64)
+
+    # If nothing fits, simply return the zero vector (caller may open a new bin)
+    if not np.any(feasible):
+        return priorities
+
+    # Slack = unused capacity after placing the item (only for feasible bins)
+    slack = caps[feasible] - item  # shape = (num_feasible,)
+
+    # --- Adaptive temperature -------------------------------------------------
+    # Coefficient of variation (std / mean) measures spread of slack values
+    slack_mean = np.mean(slack)
+    slack_std = np.std(slack)
+
+    # Prevent division by zero when mean slack is (near) zero
+    cv = slack_std / (slack_mean + eps)
+
+    # Scale temperature: larger when CV is small (slacks similar),
+    # smaller when CV is large (slacks diverse).  Clamp cv to [0, 1] for stability.
+    cv_clamped = min(cv, 1.0)
+    # Scaling factor lies in [1, 2]; temperature in [base, 2*base]
+    scaling = 2.0 - cv_clamped
+    temperature = max(min_temperature, base_temperature * scaling)
+
+    # --- Softmax computation --------------------------------------------------
+    # Logits are higher for tighter fits (smaller slack)
+    logits = -slack / temperature  # shape = (num_feasible,)
+
+    # Optional tiny random perturbation to break exact ties without adding
+    # noticeable randomness (especially when slacks are identical)
+    if np.any(logits == logits.max()):
+        # Add uniform noise in a very small range to the maximal logits only
+        tie_mask = logits == logits.max()
+        logits[tie_mask] += _rng.uniform(-eps, eps, size=tie_mask.sum())
+
+    # Stabilize softmax by subtracting max logit (numerical stability)
+    max_logit = np.max(logits)
+    exp_logits = np.exp(logits - max_logit)
+
+    # Normalise to obtain a probability‑like priority distribution
+    sum_exp = np.sum(exp_logits)
+    if sum_exp > 0:
+        probs = exp_logits / sum_exp
+    else:
+        # Degenerate case (should not happen), fall back to uniform distribution
+        probs = np.full_like(exp_logits, 1.0 / exp_logits.size)
+
+    # Fill the priority vector for feasible bins
+    priorities[feasible] = probs
+
+    return priorities
+```

@@ -1,0 +1,92 @@
+```python
+import numpy as np
+
+# Global random generator used for optional tie‑breaking noise
+_rng = np.random.default_rng()
+
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    temperature: float = 0.1,
+    random_noise: bool = False,
+    noise_scale: float = 1e-12,
+) -> np.ndarray:
+    """
+    Compute a softmax‑based priority vector for an online Bin Packing item.
+
+    The function favours bins that leave the smallest slack (i.e. a tight fit)
+    after placing the item. For each feasible bin the negative slack, scaled by
+    ``temperature``, is used as a logit. The logits are turned into a
+    probability‑like priority distribution via a numerically stable softmax.
+    Infeasible bins receive a priority of 0. Optionally a tiny uniform noise can
+    be added to the logits for stochastic tie‑breaking.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of the remaining capacities of the currently open bins.
+    temperature : float, optional (default=0.1)
+        Controls the sharpness of the softmax. Smaller values make the decision
+        more deterministic (approaching a greedy Best‑Fit), larger values spread
+        the probability mass more uniformly.
+    random_noise : bool, optional (default=False)
+        If True, adds a tiny uniform noise drawn from ``[-noise_scale,
+        noise_scale]`` to each feasible logit to break ties in a reproducible
+        stochastic way.
+    noise_scale : float, optional (default=1e-12)
+        Amplitude of the optional tie‑breaking noise. Ignored if ``random_noise``
+        is ``False``.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (same shape as ``bins_remain_cap``). The
+        scores sum to 1 across all feasible bins; infeasible bins have a score
+        of 0. The bin with the highest priority should be selected for the item.
+
+    Raises
+    ------
+    ValueError
+        If ``temperature`` is not strictly positive.
+    """
+    if temperature <= 0.0:
+        raise ValueError("temperature must be a positive float")
+
+    # Ensure a NumPy array of float64 for stable arithmetic
+    caps = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # Mask of bins that can accommodate the item
+    feasible = caps >= item
+
+    # Initialise the priority vector: infeasible bins stay zero
+    priorities = np.zeros_like(caps, dtype=np.float64)
+
+    # If no bin can fit the item, return the zero vector (caller may open a new bin)
+    if not np.any(feasible):
+        return priorities
+
+    # Slack = unused capacity after placing the item (non‑negative by construction)
+    slack = caps[feasible] - item
+
+    # Logits: tighter fit (smaller slack) → larger logit
+    logits = -slack / temperature
+
+    # Optional tiny noise for stochastic tie‑breaking
+    if random_noise:
+        logits += _rng.uniform(-noise_scale, noise_scale, size=logits.shape)
+
+    # Numerically stable softmax over feasible logits
+    max_logit = np.max(logits)                     # safe: at least one feasible bin
+    exp_shifted = np.exp(logits - max_logit)       # exp(-inf) not needed because only feasible logits exist
+    sum_exp = np.sum(exp_shifted)                  # >0 because at least one entry
+    probs = exp_shifted / sum_exp
+
+    # Assign the computed probabilities back to the feasible entries
+    priorities[feasible] = probs
+
+    return priorities
+```

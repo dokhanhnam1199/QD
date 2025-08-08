@@ -1,0 +1,102 @@
+```python
+import numpy as np
+from typing import Optional, Sequence, Union
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: Union[np.ndarray, Sequence[float]],
+    *,
+    bin_capacity: Optional[float] = None,
+    lookahead_items: Optional[Union[np.ndarray, Sequence[float]]] = None,
+    base_k: float = 8.0,
+    lookahead_alpha: float = 0.2,
+    exact_fit_bonus: float = 1e6,
+    jitter_eps: float = 1e-12,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
+) -> np.ndarray:
+    """
+    Compute priority scores for each bin in an online Bin Packing problem.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : array-like of float
+        Remaining capacities of the currently opened bins.
+    bin_capacity : float, optional
+        Fixed capacity of a bin. If ``None`` the capacity is inferred from the
+        maximum remaining capacity (plus the current item if needed).
+    lookahead_items : array-like of float, optional
+        Sizes of items expected to arrive soon. Bins that can still accommodate
+        a larger fraction of these items after placing the current item receive
+        a multiplicative boost.
+    base_k : float, default 8.0
+        Steepness of the logistic scaling; larger values make the function
+        more discriminative between tight and loose fits.
+    lookahead_alpha : float, default 0.2
+        Strength of the multiplicative look‑ahead boost.
+    exact_fit_bonus : float, default 1e6
+        Large additive bonus for bins that become exactly full after placement.
+    jitter_eps : float, default 1e-12
+        Magnitude of the random tie‑breaker added to each score.
+    random_state : int or np.random.Generator, optional
+        Seed or generator for reproducible jitter.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin. Infeasible bins receive ``-np.inf``.
+    """
+    # Convert bins to numpy array and flatten
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.size
+    if n_bins == 0:
+        return np.empty(0, dtype=float)
+
+    # Infer bin capacity if not provided
+    if bin_capacity is None:
+        max_cap = caps.max() if caps.size > 0 else 0.0
+        bin_capacity = float(max_cap if max_cap >= item else max_cap + item)
+    if bin_capacity <= 0.0:
+        raise ValueError("bin_capacity must be positive.")
+
+    # Feasibility mask: bin can hold the item
+    feasible = caps >= item
+    if not np.any(feasible):
+        return np.full(n_bins, -np.inf, dtype=float)
+
+    # Remaining capacity after placing the item (only for feasible bins)
+    leftover = caps[feasible] - item
+    slack_norm = leftover / bin_capacity  # normalized slack in [0, 1]
+
+    # Logistic scaling: high score for small slack, low score for large slack.
+    # Center the logistic at slack = 0.5 so a half‑empty bin gets ~0.5.
+    arg = base_k * (slack_norm - 0.5)
+    arg = np.clip(arg, -700.0, 700.0)               # avoid overflow
+    scores = 1.0 / (1.0 + np.exp(arg))              # values in (0, 1)
+
+    # Look‑ahead multiplicative boost
+    if lookahead_items is not None:
+        look = np.asarray(lookahead_items, dtype=float).ravel()
+        if look.size > 0:
+            fits = (look <= leftover[:, None]).sum(axis=1)
+            fit_ratio = fits / float(look.size)    # proportion of look‑ahead items that still fit
+            scores *= (1.0 + lookahead_alpha * fit_ratio)
+
+    # Exact‑fit bonus
+    eps = 1e-12
+    exact_fit_mask = leftover <= eps
+    if np.any(exact_fit_mask):
+        scores[exact_fit_mask] += exact_fit_bonus
+
+    # Random jitter to break ties
+    rng = np.random.default_rng(random_state)
+    jitter = rng.uniform(-jitter_eps, jitter_eps, size=scores.shape)
+    scores += jitter
+
+    # Assemble full priority vector
+    priority = np.full(n_bins, -np.inf, dtype=float)
+    priority[feasible] = scores
+
+    return priority
+```

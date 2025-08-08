@@ -1,0 +1,93 @@
+```python
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    alpha: float = 0.5,
+    penalty_factor: float = 0.1,
+    temperature: float = 1.0,
+    epsilon: float = 1e-12,
+) -> np.ndarray:
+    """
+    Priority function for online Bin Packing.
+
+    The score for each bin blends a best‑fit component (tightest remaining
+    capacity) with a worst‑fit component (largest remaining capacity).  A
+    linear waste penalty discourages selections that would leave a lot of
+    unused space.  Scores are temperature‑scaled to control the sharpness
+    of the selection.  Infeasible bins (remaining capacity < item) receive
+    ``-np.inf`` and are never chosen.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities for each currently opened bin.
+    alpha : float, optional
+        Weight of the worst‑fit component (0 → pure best‑fit, 1 → pure worst‑fit).
+        Default ``0.5`` (equal blend).
+    penalty_factor : float, optional
+        Coefficient for the linear waste penalty. Larger values penalise bins
+        that would leave more leftover capacity. Default ``0.1``.
+    temperature : float, optional
+        # Temperature for scaling the combined score.
+        Higher values flatten the distribution (more exploration);
+        lower values sharpen differences (more exploitation). Default ``1.0``.
+    epsilon : float, optional
+        Small constant to avoid division‑by‑zero and to provide a deterministic
+        tie‑breaker based on bin index. Default ``1e-12``.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (same shape as ``bins_remain_cap``).
+        Infeasible bins have score ``-np.inf``.
+    """
+    # Ensure the input is a float NumPy array
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Initialise all scores as -inf (infeasible)
+    scores = np.full_like(caps, fill_value=-np.inf, dtype=float)
+
+    # Identify bins that can accommodate the item
+    feasible = caps >= item
+    if not np.any(feasible):
+        # No feasible bin – return the all -inf array
+        return scores
+
+    # Clip alpha to [0, 1] for safety
+    alpha = np.clip(alpha, 0.0, 1.0)
+
+    # Compute leftover capacity for each feasible bin
+    leftover capacity after placing the item
+    leftover = caps[feasible] - item  # >= 0
+
+    # ---- Component scores -------------------------------------------------
+    # Best‑fit: tighter fit → higher priority (negative leftover)
+    best_score = -leftover
+
+    # Worst‑fit: looser fit → higher priority (positive leftover)
+    worst_score = leftover
+
+    # Linear blend of best‑fit and worst‑fit
+    combined = (1.0 - alpha) * best_score + alpha * worst_score
+
+    # Apply a linear waste penalty (larger leftover => larger penalty)
+    combined -= penalty_factor * leftover
+
+    # ---- Temperature scaling -----------------------------------------------
+    temp = max(temperature, epsilon)  # avoid division by zero
+    combined /= temp
+
+    # ---- Deterministic tie‑breaker (prefer lower index) --------------------
+    # Subtract a tiny amount proportional to the bin index.
+    idx = np.arange(caps.size, dtype=float)[feasible]
+    combined -= epsilon * idx
+
+    # Populate the scores array for feasible bins
+    scores[feasible] = combined
+
+    return scores
+```

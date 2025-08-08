@@ -1,0 +1,88 @@
+```python
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    epsilon0: float = 0.20,
+    decay: float = 0.001,
+    smoothing: float = 1e-6,
+) -> np.ndarray:
+    """
+    Adaptive epsilon‑greedy priority for the online Bin Packing Problem.
+
+    The function assigns a priority score to each currently open bin based on
+    how tightly the incoming ``item`` would fit (inverse slack) and a
+    decaying exploration component.  Infeasible bins receive ``-inf`` so they
+    are never selected.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the currently open bins.
+    epsilon0 : float, optional
+        Initial exploration probability (default 0.20).
+    decay : float, optional
+        Decay rate of epsilon per call (default 0.001). Larger values reduce
+        exploration faster.
+    smoothing : float, optional
+        Small constant added to slack to avoid division by zero and to keep
+        scores finite (default 1e‑6).
+
+    Returns
+    -------
+    np.ndarray
+        Array of the same shape as ``bins_remain_cap`` containing the priority
+        score for each bin.  Bins that cannot accommodate ``item`` receive
+        ``-inf``.
+    """
+    # Ensure input is a NumPy array of floats
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+
+    # Initialise all priorities as infeasible
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Compute slack (remaining capacity after placing the item)
+    slack = bins_remain_cap - item
+    feasible_mask = slack >= 0
+
+    # If no bin can accommodate the item, return all -inf
+    if not np.any(feasible_mask):
+        return priorities
+
+    # ------------------------------------------------------------------
+    # Track number of calls to decay epsilon
+    # ------------------------------------------------------------------
+    if not hasattr(priority_v2, "_call_counter"):
+        priority_v2._call_counter = 0
+    call_index = priority_v2._call_counter
+    priority_v2._call_counter += 1
+
+    # Decaying epsilon, bounded between 0 and epsilon0
+    epsilon = epsilon0 / (1.0 + decay * call_index)
+    epsilon = max(0.0, min(epsilon0, epsilon))
+
+    # ------------------------------------------------------------------
+    # Exploitation component: inverse slack (tighter fits get larger score)
+    # ------------------------------------------------------------------
+    inv_slack = 1.0 / (slack[feasible_mask] + smoothing)   # > 0
+    inv_slack_norm = inv_slack / inv_slack.sum()          # normalized
+
+    # ------------------------------------------------------------------
+    # Exploration component: random scores, also normalized
+    # ------------------------------------------------------------------
+    rand_scores = np.random.rand(inv_slack.shape[0])
+    rand_norm = rand_scores / rand_scores.sum()
+
+    # ------------------------------------------------------------------
+    # Blend exploitation and exploration using epsilon‑greedy scheme
+    # ------------------------------------------------------------------
+    combined = (1.0 - epsilon) * inv_slack_norm + epsilon * rand_norm
+
+    # Assign combined priorities to feasible bins
+    priorities[feasible_mask] = combined
+
+    return priorities
+```

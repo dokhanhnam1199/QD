@@ -1,0 +1,89 @@
+```python
+import numpy as np
+
+class PriorityV2:
+    """
+    Adaptive priority function for the online Bin Packing Problem.
+
+    Features:
+    - Epsilon‑greedy exploration with a decaying epsilon.
+    - Exploitation uses a Best‑Fit rule (minimise waste) plus a small bias
+      towards older bins (lower index) to encourage closing bins early.
+    - A tiny random tie‑breaker prevents deterministic ties.
+
+    The instance is callable so it can be used directly as:
+        score = priority_v2(item, bins_remain_cap)
+    """
+
+    def __init__(self,
+                 init_epsilon: float = 0.5,
+                 min_epsilon: float = 0.01,
+                 decay: float = 0.99,
+                 age_weight: float = 1e-3,
+                 tie_noise: float = 1e-6):
+        """
+        Parameters
+        ----------
+        init_epsilon : float
+            Starting exploration probability.
+        min_epsilon : float
+            Lower bound for epsilon (ensures occasional exploration).
+        decay : float
+            Multiplicative decay factor applied each call (0 < decay ≤ 1).
+        age_weight : float
+            Weight of the age bias (smaller values give a weaker bias).
+        tie_noise : float
+        """
+        self.init_epsilon = init_epsilon
+        self.min_epsilon = min_epsilon
+        self.decay = decay
+        self.age_weight = age_weight
+        self.tie_noise = tie_noise
+        self.step = 0  # number of items processed
+
+    def __call__(self, item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+        """Return a priority vector for the given item."""
+        # Update step counter and compute the current epsilon
+        self.step += 1
+        epsilon = max(self.min_epsilon,
+                      self.init_epsilon * (self.decay ** self.step))
+
+        # Ensure a 1‑D float array
+        caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+        n_bins = caps.size
+
+        # Feasibility mask
+        feasible = caps >= item
+
+        # Initialise priorities with -inf for infeasible bins
+        priorities = np.full(n_bins, -np.inf, dtype=float)
+
+        # No feasible bin – return all -inf
+        if not np.any(feasible):
+            return priorities
+
+        # Decide between exploration and exploitation
+        if np.random.rand() < epsilon:
+            # Exploration: assign random scores to feasible bins
+            priorities[feasible] = np.random.rand(np.sum(feasible))
+        else:
+            # Exploitation: Best‑Fit + age bias + tiny random tie‑breaker
+            waste = caps[feasible] - item          # leftover space if item placed
+            base_priority = -waste                 # smaller waste → larger priority
+
+            # Age bias: earlier (older) bins get a small boost.
+            feasible_indices = np.nonzero(feasible)[0]
+            age_bias = -self.age_weight * feasible_indices.astype(float)
+
+            # Combine and add tie‑breaker noise
+            priorities[feasible] = (
+                base_priority + age_bias +
+                np.random.rand(np.sum(feasible)) * self.tie_noise
+            )
+
+        return priorities
+
+
+# Reusable instance – can be imported and called directly
+priority_v2 = PriorityV2()
+```

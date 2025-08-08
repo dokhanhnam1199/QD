@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+# scaling factor (larger → greedier selection)
+_SBF_ALPHA = 10.0
+_SBF_EPS = 1e-12
+
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Softmax‑Based Fit priority for online bin packing.
+
+    Computes a probability‑like priority for each existing bin based on how
+    tightly the ``item`` would fit.  Bins that cannot accommodate the item receive
+    a priority of zero.  Among feasible bins, the priority is the softmax of
+    ``‑α·(remaining_capacity_after_item)`` where ``α`` controls the greediness.
+
+    Args:
+        item: Size of the incoming item.
+        bins_remain_cap: 1‑D array of the remaining capacities of the current bins.
+
+    Returns:
+        A 1‑D ``np.ndarray`` of the same shape as ``bins_remain_cap`` containing
+        non‑negative priority scores that sum to one across all feasible bins.
+        If no bin can host the item, an array of zeros is returned.
+    """
+    # Ensure float array for -inf handling
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Feas mask: only bins with enough room are considered
+    feasible = caps >= item
+
+    # No feasible bin → all priorities zero (external logic may open a new bin)
+    if not np.any(feasible):
+        return np.zeros_like(caps)
+
+    # Compute residual capacity after placing the item (≥0 for feasible bins)
+    residual = caps[feasible] - item
+
+    # Raw score: tighter fit (smaller residual) → higher (less negative) score.
+    # Using -α·residual; larger α makes distribution sharper.
+    raw_feasible = -_SBF_ALPHA * residual
+
+    # Fill full raw score array; infeasible bins get -inf → exp = 0
+    raw_scores = np.full_like(caps, -np.inf, dtype=float)
+    raw_scores[feasible] = raw_feasible
+
+    # Numerically stable softmax (shift by max)
+    max_raw = raw_scores.max()  # finite because at least one feasible bin exists
+    exp_scores = np.exp(raw_scores - max_raw)  # exp(-inf) = 0 for infeasibles
+
+    sum_exp = exp_scores.sum()
+    if sum_exp < _SBF_EPS:  # safeguard (should be unreachable)
+        return np.zeros_like(caps)
+
+    priorities = exp_scores / sum_exp
+    return priorities
+```

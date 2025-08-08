@@ -1,0 +1,72 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Deterministic priority function for the online bin packing problem.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array containing the remaining capacities of currently open bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin. Higher scores indicate more desirable bins.
+        Bins that cannot accommodate the item receive a score of 0.
+        Exact‑fit bins receive the maximal score (1.0) and are ordered
+        deterministically by their index to break ties.
+    """
+    # ---- Parameters ---------------------------------------------------------
+    tolerance = 1e-12           # floating‑point tolerance for feasibility & exact fit
+    alpha = 12.0                # steepness of the sigmoid
+    mid_point = 0.5             # centre of the sigmoid
+    tie_eps = 1e-12             # deterministic bias to break ties by index
+
+    # ---- Prepare data --------------------------------------------------------
+    caps = np.asarray(bins_remain_cap, dtype=np.float64)
+    priorities = np.zeros_like(caps, dtype=np.float64)
+
+    # Slack after (potential) placement; positive slack = free space left
+    slack = caps - item
+
+    # Feasibility mask (allow a tiny tolerance)
+    feasible_mask = slack >= -tolerance
+    if not np.any(feasible_mask):
+        return priorities  # No bin can take the item
+
+    # Indices and slack values of feasible bins
+    idx_feasible = np.where(feasible_mask)[0]
+    slack_feasible = slack[feasible_mask]
+
+    # ---- Exact fits ---------------------------------------------------------
+    exact_mask = slack_feasible <= tolerance
+    priorities[idx_feasible[exact_mask]] = 1.0
+
+    # ---- Non‑exact feasible bins --------------------------------------------
+    non_exact_mask = ~exact_mask
+    if np.any(non_exact_mask):
+        slack_non_exact = slack_feasible[non_exact_mask]
+        max_slack = np.max(slack_non_exact)  # > 0 by construction
+
+        # Normalised fit score: 1 for tightest, 0 for loosest feasible bin
+        fit_score = 1.0 - slack_non_exact / max_slack
+
+        # Steep sigmoid to accentuate preference for tighter fits
+        sigmoid_arg = alpha * (fit_score - mid_point)
+        sigmoid = 1.0 / (1.0 + np.exp(-sigmoid_arg))
+
+        priorities[idx_feasible[non_exact_mask]] = sigmoid
+
+    # ---- Deterministic tie‑breaking -----------------------------------------
+    # Slightly penalise higher indices so lower‑indexed bins win ties
+    priorities[idx_feasible] -= tie_eps * idx_feasible
+
+    # Clip to non‑negative (optional, keeps infeasible bins at exactly 0)
+    priorities = np.maximum(priorities, 0.0)
+
+    return priorities
+```

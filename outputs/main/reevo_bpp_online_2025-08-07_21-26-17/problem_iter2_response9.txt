@@ -1,0 +1,73 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Softmax‑based priority for online bin packing that balances tight packing
+    (small leftover) with load‑balancing across bins.
+
+    The score for each feasible bin i is:
+        s_i = - (remaining capacity after placement)
+              - α * variance_of_remaining_capacities_after_placement
+
+    The scores are transformed with a softmax (exp) so that the highest score
+    corresponds to the highest priority. Infeasible bins receive a priority of 0.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the current bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority values for each bin (same shape as ``bins_remain_cap``).
+    """
+    # Ensure input is a NumPy array of floats
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item
+    feasible = bins_remain_cap >= item
+
+    # If no bin can accommodate the item, return zeros (no feasible bin)
+    if not feasible.any():
+        return np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Remaining capacity after placing the item in each bin
+    leftover = bins_remain_cap - item
+
+    # Weight for the variance term (tunable)
+    alpha = 0.5
+
+    # Number of bins
+    n_bins = bins_remain_cap.shape[0]
+
+    # Pre‑compute aggregate statistics of the current remaining capacities
+    total_sum = bins_remain_cap.sum()
+    total_sq_sum = np.square(bins_remain_cap).sum()
+
+    # After placing the item, total remaining capacity is reduced by `item`
+    new_total_sum = total_sum - item
+
+    # Variance of the remaining capacities if the item were placed in bin i.
+    # Computed without copying the array:
+    #   var_i = (total_sq_sum - 2*item*bins_remain_cap[i] + item**2) / n_bins
+    #           - (new_total_sum / n_bins)**2
+    var_after = (total_sq_sum - 2 * item * bins_remain_cap + item ** 2) / n_bins \
+                - (new_total_sum / n_bins) ** 2
+
+    # Raw scores: penalize leftover and penalize variance (to promote load balance)
+    raw_scores = -leftover - alpha * var_after
+
+    # Infeasible bins should not be selected: assign -inf (exp(-inf)=0)
+    raw_scores = np.where(feasible, raw_scores, -np.inf)
+
+    # Softmax transformation for numerical stability
+    max_score = np.max(raw_scores[feasible])
+    shifted = raw_scores - max_score
+    priorities = np.exp(shifted)  # infeasible bins become 0
+
+    return priorities
+```

@@ -1,0 +1,90 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Priority function for the online Bin Packing Problem.
+
+    For each existing bin the function returns a score; the bin with the
+    highest score is selected for the incoming ``item``.  The heuristic
+    combines three ingredients:
+
+    1. **Inverse‑slack bias** – bins with less remaining capacity after the
+       item (i.e. tighter fits) receive a larger base score.
+    2. **Percentile‑based boost** – bins whose slack falls below a low‑percentile
+       (default 10 %) are further boosted, encouraging the algorithm to fill
+       “almost full’’ bins.
+    3. **Controlled randomness** – a mild random factor in the range
+       [0.9, 1.0] breaks ties while keeping the deterministic bias dominant.
+
+    Infeasible bins (those that cannot accommodate the item) obtain ``-np.inf``,
+    guaranteeing they are never chosen.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities for each bin.
+
+    Returns
+    -------
+    np.ndarray
+        1‑D array of priority scores (higher is better).  Infeasible bins are
+        marked with ``-np.inf``.
+    """
+    # Ensure we work with a float array
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Slack after hypothetically placing the item
+    slack = caps - item
+    feasible = slack >= 0
+
+    # Initialise all scores as -inf (infeasible)
+    priorities = np.full_like(caps, -np.inf, dtype=float)
+
+    # If no bin can hold the item, return early
+    if not np.any(feasible):
+        return priorities
+
+    # ------------------------------------------------------------------
+    # 1) Adaptive epsilon and inverse‑slack bias
+    # ------------------------------------------------------------------
+    # Typical slack magnitude – use mean of feasible slacks
+    mean_slack = np.mean(slack[feasible])
+    # epsilon scales with the typical slack to avoid division‑by‑zero
+    eps = max(1e-12, 1e-6 * mean_slack)
+    inv_slack = 1.0 / (slack[feasible] + eps)   # larger when slack is smaller
+
+    # ------------------------------------------------------------------
+    # 2) Percentile‑based boost for “almost full’’ bins
+    # ------------------------------------------------------------------
+    low_percentile = 0.10                     # 10 % percentile
+    slack_feas = slack[feasible]
+    # Threshold slack value below which bins receive a boost
+    threshold = np.quantile(slack_feas, low_percentile) if slack_feas.size else 0.0
+
+    # Linear boost proportional to distance below the threshold
+    boost_factor = 5.0                         # magnitude of boost
+    boost = np.zeros_like(slack_feas)
+    low_slack_mask = slack_feas <= threshold
+    boost[low_slack_mask] = boost_factor * (threshold - slack_feas[low_slack_mask])
+
+    # ------------------------------------------------------------------
+    # 3) Combine deterministic components
+    # ------------------------------------------------------------------
+    combined = inv_slack + boost
+
+    # ------------------------------------------------------------------
+    # 4) Controlled random tie‑breaker (range [0.9, 1.0])
+    # ------------------------------------------------------------------
+    rand_vals = np.random.rand(caps.size)      # one random number per bin
+    rand_factor = 0.9 + 0.1 * rand_vals         # maps to [0.9, 1.0]
+    # Apply only to feasible bins
+    final_score = combined * rand_factor[feasible]
+
+    # Store the computed scores back into the full array
+    priorities[feasible] = final_score
+
+    return priorities
+```

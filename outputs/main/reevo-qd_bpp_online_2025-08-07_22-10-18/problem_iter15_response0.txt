@@ -1,0 +1,123 @@
+```python
+import numpy as np
+
+# ----------------------------------------------------------------------
+# Global state (persisted across calls) – used for adaptive epsilon‑greedy.
+# ----------------------------------------------------------------------
+_call_counter: int = 0                # Number of items processed so far
+_EPSILON0: float = 0.15                # Initial exploration probability
+_MIN_EPSILON: float = 0.02             # Floor for exploration probability
+_DECAY_RATE: float = 5e-4              # Exponential decay rate for epsilon
+_EPS: float = 1e-12                    # Tiny epsilon to avoid division‑by‑zero
+_rng = np.random.default_rng(12345)   # Fixed RNG for reproducibility
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive priority function for the online Bin Packing Problem.
+
+    The function blends several heuristics:
+      • Exact‑fit bins (zero waste) receive infinite priority.
+      • For feasible non‑exact bins, leftovers are scaled by the
+        Median Absolute Deviation (MAD) and fed into a sigmoid whose
+        steepness is set by the median residual.
+      • A deterministic tiny jitter (based on bin index) breaks ties.
+      • With a decaying ε‑greedy probability a random feasible bin is
+        chosen to encourage exploration.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item (non‑negative).
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the current bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (higher = more preferred).
+        Infeasible bins receive -inf.
+    """
+    global _call_counter
+
+    # ------------------------------------------------------------------
+    # 0) Normalise input.
+    # ------------------------------------------------------------------
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+
+    # ------------------------------------------------------------------
+    # 1) Update call counter and compute adaptive epsilon.
+    # ------------------------------------------------------------------
+    _call_counter += 0  # no‑op to silence unused‑var warning
+    _call_counter += 1
+    epsilon = max(_MIN_EPSILON,
+                  _EPSILON0 * np.exp(-_DECAY_RATE * _call_counter))
+
+    # ------------------------------------------------------------------
+    # 2) Exploration branch – with probability epsilon pick a random
+    #    feasible bin.  This adds stochasticity without heavy per‑call
+    #    computation.
+    # ------------------------------------------------------------------
+    if _rng.random() < epsilon:
+        feasible = bins_remain_cap >= item - _EPS  # tiny tolerance
+        random_scores = _rng.random(bins_remain_cap.shape[0])
+        # Infeasible bins are penalised with -inf
+        return np.where(feasible, random_scores, -np.inf)
+
+    # ------------------------------------------------------------------
+    # 3) Deterministic scoring branch.
+    # ------------------------------------------------------------------
+    waste = bins_remain_cap - item                     # leftover space
+    feasible_mask = waste >= -_EPS                     # allow tiny negative
+
+    # Initialise priorities: infeasible bins get -inf
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # ------------------------------------------------------------------
+    # 3a) Exact‑fit (zero waste) detection – give infinite priority.
+    # ------------------------------------------------------------------
+    atol_exact = 1e-9
+    exact_fit_mask = np.isclose(waste, 0.0, atol=atol_exact) & feasible_mask
+    priorities[exact_fit_mask] = np.inf
+
+    # ------------------------------------------------------------------
+    # 3b) Non‑exact feasible bins.
+    # ------------------------------------------------------------------
+    non_exact_mask = feasible_mask & ~exact_fit_mask
+    if np.any(non_exact_mask):
+        waste_feas = waste[non_exact_mask]
+
+        # Median residual (center of sigmoid)
+        median_waste = np.median(waste_feas)
+
+        # Median Absolute Deviation (scale for sigmoid)
+        mad = np.median(np.abs(waste_feas - median_waste))
+        if mad < _EPS:
+            mad = _EPS
+
+        # Steepness factor set by median residual (smaller median → steeper)
+        steepness = 1.0 / (median_waste + _EPS)
+
+        # Normalised waste (dimensionless)
+        normalized = (waste_feas - median_waste) / mad * steepness
+
+        # Clip to avoid overflow in exp
+        normalized = np.clip(normalized, -30.0, 30.0)
+
+        # Sigmoid: high score for low waste, low score for high waste
+        sigmoid_score = 1.0 / (1.0 + np.exp(normalized))
+
+        # Ensure scores are strictly positive (but less than 1)
+        sigmoid_score = np.maximum(sigmoid_score, _EPS)
+
+        priorities[non_exact_mask] = sigmoid_score
+
+    # ------------------------------------------------------------------
+    # 4) Deterministic tie‑breaker jitter (tiny, index‑based).
+    # ------------------------------------------------------------------
+    # Only add jitter to finite scores; infinite scores stay infinite.
+    jitter = (np.arange(bins_remain_cap.shape[0]) + 1) * 1e-12
+    finite_mask = np.isfinite(priorities)
+    priorities[finite_mask] += jitter[finite_mask]
+
+    return priorities
+```

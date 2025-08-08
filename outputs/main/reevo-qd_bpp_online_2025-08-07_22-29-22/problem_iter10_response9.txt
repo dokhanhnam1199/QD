@@ -1,0 +1,136 @@
+```python
+import numpy as np
+
+# Global random generator and running statistics
+_rng = np.random.default_rng()
+_item_count = 0
+_item_sum = 0.0
+
+
+def priority_v2(item: float,
+                bins_remain_cap: np.ndarray,
+                temperature: float = 0.1) -> np.ndarray:
+    """
+    Compute priority scores for online bin packing.
+
+    The function blends a temperature‑scaled best‑fit softmax with:
+      • per‑bin adaptive random noise (larger for small items & diverse slacks)
+      • a look‑ahead boost using the running average item size
+      • a slight penalty for brand‑new bins (still at full capacity)
+      • a deterministic tie‑breaker that favours lower‑index bins
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the current bins.
+    temperature : float, optional (default=0.1)
+        Softmax temperature (>0). Smaller values make the decision more
+        greedy (closer to deterministic best‑fit).
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (same shape as ``bins_remain_cap``).
+        Scores sum to 1 over feasible bins; infeasible bins receive 0.
+    """
+    global _item_count, _item_sum
+
+    if temperature <= 0:
+        raise ValueError("temperature must be positive")
+
+    # Ensure a float64 array for numerical stability
+    bins = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # Edge case: no bins yet
+    if bins.size == 0:
+        _item_count += 1
+        _item_sum += item
+        return np.empty_like(bins, dtype=np.float64)
+
+    eps = 1e-12
+    feasible = bins + eps >= item   # allow tiny tolerance for floating errors
+
+    # Output vector initialised with zeros (infeasible bins stay zero)
+    priorities = np.zeros_like(bins, dtype=np.float64)
+
+    # Nothing fits → return zero scores (caller may open a new bin)
+    if not np.any(feasible):
+        _item_count += 1
+        _item_sum += item
+        return priorities
+
+    # Slack after placing the item (>=0 for feasible bins)
+    slack = bins[feasible] - item
+
+    # -------------------------------------------------------------
+    # 1. Base logits – best‑fit prefers smaller slack
+    # -------------------------------------------------------------
+    base_logits = -slack / temperature
+
+    # -------------------------------------------------------------
+    # 2. Adaptive random noise
+    # -------------------------------------------------------------
+    full_capacity = bins.max()                     # treat max remaining as original capacity
+    item_ratio = min(item / full_capacity, 1.0)    # ∈ [0,1]
+
+    if slack.size > 1:
+        slack_range = slack.max() - slack.min()
+    else:
+        slack_range = 0.0
+
+    # Noise scale grows for small items and when slack spread is large
+    noise_scale = slack_range * 0.05 * (1.0 - item_ratio)
+    if noise_scale > 0:
+        noise = _rng.normal(loc=0.0, scale=noise_scale, size=slack.shape[0])
+    else:
+        noise = np.zeros_like(slack)
+
+    # -------------------------------------------------------------
+    # 3. Look‑1head boost using running average item size
+    # -------------------------------------------------------------
+    if _item_count > 0:
+        avg_item = _item_sum / _item_count
+    else:
+        avg_item = item
+    future_weight = 0.02
+    future_adjust = (slack - avg_item) * future_weight
+
+    # -------------------------------------------------------------
+    # 4. Deterministic tie‑breaker (lower index gets tiny boost)
+    # -------------------------------------------------------------
+    tie_eps = 1e-12
+    tie_breaker = -np.arange(bins.shape[0], dtype=np.float64)[feasible] * tie_eps
+
+    # -------------------------------------------------------------
+    # 5. Combine components into logits
+    # -------------------------------------------------------------
+    logits = base_logits + noise + future_adjust + tie_breaker
+
+    # -------------------------------------------------------------
+    # 6. Penalty for brand‑new bins (still at full capacity)
+    # -------------------------------------------------------------
+    new_bin_mask = feasible & np.isclose(bins, full_capacity, atol=1e-12)
+    if np.any(new_bin_mask):
+        penalty = 0.001                     # 0.1 % reduction
+        logits[new_bin_mask] += np.log(1.0 - penalty)   # reduces softmax weight
+
+    # -------------------------------------------------------------
+    # 7. Softmax over feasible bins (numerically stable)
+    # -------------------------------------------------------------
+    max_logit = np.max(logits)
+    exp_logits = np.exp(logits - max_logit)
+    probs = exp_logits / np.sum(exp_logits)
+
+    # Fill the full priority vector
+    priorities[feasible] = probs
+
+    # -------------------------------------------------------------
+    # 8. Update running statistics
+    # -------------------------------------------------------------
+    _item_count += 1
+    _item_sum += item
+
+    return priorities
+```

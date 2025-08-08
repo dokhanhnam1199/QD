@@ -1,0 +1,83 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive smooth priority for online bin packing.
+
+    Computes a continuous priority score for each bin, decreasing
+    monotonically with the residual capacity that would remain after
+    placing the incoming `item`.  The steepness of the decay is driven
+    by the dispersion (MAD) of the residuals of all feasible bins,
+    ensuring automatic adaptation to the current packing state.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of the remaining capacities of the currently open bins.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores (same shape as `bins_remain_cap`).  Bins
+        that cannot accommodate the item receive `-inf`.  The scores are
+        smooth, deterministic and tie‑broken by a tiny index‑dependent
+        bias.
+    """
+    # Ensure a 1‑D float array
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.size
+    if n_bins == 0:
+        return np.empty(0, dtype=float)
+
+    residual = caps - item
+    feasible = residual >= 0
+
+    # Initialize scores
+    scores = np.full(n_bins, -np.inf, dtype=float)
+
+    if not np.any(feasible):
+        return scores
+
+    # Feasible residuals
+    feas_res = residual[feasible]
+
+    # Robust dispersion estimate: MAD
+    median_res = np.median(feas_res)
+    mad = np.median(np.abs(feas_res - median_res))
+    spread = mad * 1.4826  # approximate std for normal data
+    eps = 1e-12
+    if spread <= 0:
+        # Fallback to standard deviation
+        std = np.std(feas_res)
+        if std > 0:
+            spread = std
+        else:
+            # Use range as last resort
+            rng = np.ptp(feas_res)
+            spread = rng if rng > 0 else 1.0
+
+    # Decay steepness
+    slope = 1.0 / (spread + eps)
+
+    # Base exponential decay: higher score for lower residual
+    base_scores = np.exp(-slope * feas_res)
+
+    # Optional continuous penalty for waste larger than average waste
+    avg_residual = feas_res.mean()
+    penalty_factor = 0.2  # maximum penalty (20%)
+    excess = np.maximum(0.0, feas_res - avg_residual)
+    penalty = penalty_factor * (excess / (avg_residual + eps))
+    penalty = np.clip(penalty, 0.0, penalty_factor)
+    final_scores = base_scores * (1.0 - penalty)
+
+    scores[feasible] = final_scores
+
+    # Deterministic tie‑breaker: tiny decreasing bias by index
+    tie_bias = -np.arange(n_bins, dtype=float) * 1e-12
+    scores = np.where(scores > -np.inf, scores + tie_bias, scores)
+
+    return scores
+```

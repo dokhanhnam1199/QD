@@ -1,0 +1,98 @@
+```python
+import numpy as np
+from numpy.random import default_rng
+
+# Global statistics for adaptive epsilon‑greedy exploration
+_call_counter: int = 0
+_total_item_size: float = 0.0
+
+# Exploration parameters (epsilon‑greedy)
+_EPSILON0: float = 0.2          # Initial exploration probability
+_MIN_EPSILON: float = 0.01      # Minimum exploration probability
+_DECAY_RATE: float = 0.001      # Exponential decay rate of epsilon
+
+# Penalty weight for waste compared to average item size
+_ALPHA: float = 0.5
+
+# Small constant to avoid division by zero
+_EPS: float = 1e-12
+
+# Random number generator (seeded once)
+_rng = default_rng()
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Priority function for online Bin Packing that combines several heuristics:
+
+    1. **Exact‑fit first**: a bin that can accommodate the item exactly
+       receives a very high priority (``inf``) so it will always be chosen.
+    2. **Best‑fit**: for other feasible bins the priority is inversely
+       proportional to the waste after placing the item.
+    3. **Waste penalty**: bins whose waste is significantly larger than
+       the observed average item size are penalised by subtracting a
+       penalty proportional to the excess waste.
+    4. **Adaptive epsilon‑greedy exploration**: with a decaying
+       probability the algorithm chooses a random feasible bin.
+    5. **Low‑index tie‑break**: when priorities are equal, the
+       algorithm prefers the bin with the lower index.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the current bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (higher = more preferred).
+        Bins that cannot accommodate the item receive ``-inf``.
+    """
+    global _call_counter, _total_item_size
+
+    # Ensure a NumPy array of floats
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Update online statistics
+    _call_counter += 1
+    _total_item_size += item
+    avg_item_size = _total_item_size / _call_counter
+
+    # Dynamic epsilon (decays exponentially, never below _MIN_EPSILON)
+    epsilon = max(_MIN_EPSILON, _EPSILON0 * np.exp(-_DECAY_RATE * _call_counter))
+
+    # Exploration branch: random feasible bin with probability epsilon
+    if _rng.random() < epsilon:
+        feasible = caps >= item
+        rand_scores = _rng.random(caps.shape[0])
+        return np.where(feasible, rand_scores, -np.inf)
+
+    # Deterministic scoring branch
+    waste = caps - item
+
+    # Masks for feasibility and exact fit
+    atol = 1e-9
+    exact_fit_mask = np.isclose(waste, 0.0, atol=atol)
+    feasible_mask = waste >= -atol  # allow slight negative due to tolerance
+
+    # Initialise priorities with -inf for infeasible bins
+    priorities = np.full_like(caps, -np.inf, dtype=float)
+
+    # Exact fits get the highest possible priority
+    priorities[exact_fit_mask] = np.inf
+
+    # Non‑exact but feasible bins: inverse waste scoring with penalty
+    non_exact_mask = feasible_mask & ~exact_fit_mask
+    if np.any(non_exact_mask):
+        base_score = 1.0 / (waste[non_exact_mask] + _EPS)
+        excess = np.maximum(0.0, waste[non_exact_mask] - avg_item_size)
+        penalty = _ALPHA * excess
+        priorities[non_exact_mask] = base_score - penalty
+
+    # Low‑index tie‑break: subtract a tiny amount proportional to index
+    tie_break = -1e-9 * np.arange(priorities.size)
+    priorities += tie_break
+
+    return priorities
+```

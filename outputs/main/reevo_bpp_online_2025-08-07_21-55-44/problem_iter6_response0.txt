@@ -1,0 +1,116 @@
+```python
+import numpy as np
+from typing import Optional, Union
+
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: Union[np.ndarray, list, tuple],
+    *,
+    bin_capacity: Optional[float] = None,
+    lookahead_items: Optional[Union[np.ndarray, list, tuple]] = None,
+    alpha: float = 0.2,
+    k_base: float = 8.0,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
+) -> np.ndarray:
+    """
+    Compute priority scores for bins in an online bin‑packing setting.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : array‑like of float
+        Remaining capacities of the existing bins.
+    bin_capacity : float, optional
+        Fixed capacity of each bin. If omitted, inferred from the maximum
+        observed remaining capacity (augmented by ``item`` if needed).
+    lookahead_items : array‑like of float, optional
+        Sizes of future items that may arrive soon. Bins that can still fit
+        more of these items after placing the current item receive a boost.
+    alpha : float, default 0.2
+        Strength of the look‑ahead boost (multiplicative factor).
+    k_base : float, default 8.0
+        Base steepness for the sigmoid; scaled by each bin’s fullness.
+    random_state : int or np.random.Generator, optional
+        Seed or generator for the tiny random tie‑breaker.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin; infeasible bins receive ``-np.inf``.
+    """
+    # ------------------------------------------------------------------
+    # Normalise inputs
+    # ------------------------------------------------------------------
+    caps = np.asarray(bins_remain_cap, dtype=float)
+    n_bins = caps.size
+    if n_bins == 0:
+        return np.empty(0, dtype=float)
+
+    # ------------------------------------------------------------------
+    # Infer bin capacity if not supplied
+    # ------------------------------------------------------------------
+    if bin_capacity is None:
+        max_cap = np.max(caps)
+        # Ensure the inferred capacity can hold the current item
+        bin_capacity = float(max_cap if max_cap >= item else max_cap + item)
+    if bin_capacity <= 0:
+        raise ValueError("bin_capacity must be positive.")
+
+    # ------------------------------------------------------------------
+    # Feasibility mask
+    # ------------------------------------------------------------------
+    feasible = caps >= item
+    if not np.any(feasible):
+        return np.full(n_bins, -np.inf, dtype=float)
+
+    # ------------------------------------------------------------------
+    # Compute leftover capacity after placing the item (feasible bins only)
+    # ------------------------------------------------------------------
+    leftover = caps[feasible] - item                # >= 0
+    gap_norm = leftover / bin_capacity               # normalised gap in [0, 1)
+
+    # ------------------------------------------------------------------
+    # Dynamic sigmoid steepness based on bin fullness
+    # ------------------------------------------------------------------
+    # Fullness before placement (fraction already used)
+    fullness = (bin_capacity - caps[feasible]) / bin_capacity
+    k = k_base * (1.0 + fullness)                    # per‑bin steepness
+
+    # ------------------------------------------------------------------
+    # Monotonic decreasing sigmoid: high score for small gap_norm
+    # ------------------------------------------------------------------
+    # Shift sigmoid so that gap_norm = 0.5 maps to a moderate score.
+    arg = k * (0.5 - gap_norm)
+    # Clip to avoid overflow in exp
+    arg = np.clip(arg, -700.0, 700.0)
+    scores = 1.0 / (1.0 + np.exp(-arg))
+
+    # ------------------------------------------------------------------
+    # Tiny random tie‑breaker
+    # ------------------------------------------------------------------
+    rng = np.random.default_rng(random_state)
+    eps = 1e-12 * max(1.0, np.max(np.abs(scores)))
+    scores += rng.uniform(0.0, eps, size=scores.shape)
+
+    # ------------------------------------------------------------------
+    # Optional look‑ahead boost
+    # ------------------------------------------------------------------
+    if lookahead_items is not None and len(lookahead_items) > 0:
+        look = np.asarray(lookahead_items, dtype=float)
+        # For each feasible bin, count future items that would still fit
+        fits = (look[None, :] <= leftover[:, None]).sum(axis=1)
+        fit_ratio = fits / float(look.size)        # in [0, 1]
+        # Multiplicative boost (clipped to keep scores bounded)
+        scores = scores * (1.0 + alpha * fit_ratio)
+        scores = np.clip(scores, 0.0, 1.0)
+
+    # ------------------------------------------------------------------
+    # Assemble full priority vector
+    # ------------------------------------------------------------------
+    priority = np.full(n_bins, -np.inf, dtype=float)
+    priority[feasible] = scores
+
+    return priority
+```

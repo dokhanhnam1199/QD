@@ -1,0 +1,100 @@
+```python
+import numpy as np
+
+# Global random generator – reused across calls to avoid reseeding
+_rng = np.random.default_rng()
+
+# Running statistics of items seen so far
+_item_count = 0
+_item_sum = 0.0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Hybrid priority function for online Bin Packing.
+
+    Combines best‑fit scoring with controlled randomness, a look‑ahead
+    adjustment based on the running average item size, and a deterministic
+    tie‑breaker that favours lower‑index bins.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of existing bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (same shape as ``bins_remain_cap``).  The
+        bin with the highest score will be selected.  Infeasible bins receive
+        ``-np.inf``.
+    """
+    global _item_count, _item_sum
+
+    # Ensure a NumPy array and cast to float
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+
+    # No existing bins – the caller will open a new one
+    if bins_remain_cap.size == 0:
+        _item_count += 1
+        _item_sum += item
+        return np.array([], dtype=float)
+
+    # Feasibility check
+    leftover = bins_remain_cap - item
+    feasible = leftover >= 0.0
+
+    # Initialise all priorities to -inf (worst possible)
+    priorities = np.full(bins_remain_cap.shape, -np.inf, dtype=float)
+
+    # If nothing fits, just record statistics and return
+    if not np.any(feasible):
+        _item_count += 1
+        _item_sum += item
+        return priorities
+
+    # ---------- 1. Best‑fit base score ----------
+    # Smaller leftover → higher priority (i.e. tighter fit)
+    base_score = -leftover[feasible]
+
+    # ---------- 2. Controlled randomness ----------
+    # Estimate of the bin capacity (max current capacity + current item)
+    approx_capacity = bins_remain_cap.max() + item
+    approx_capacity = max(approx_capacity, 1.0)  # guard against zero
+
+    # Item‑size ratio: larger items receive less random noise
+    item_ratio = item / approx_capacity
+
+    # Range of leftover space among feasible bins
+    leftover_feasible = leftover[feasible]
+    leftover_range = leftover_feasible.max() - leftover_feasible.min()
+
+    # Noise scale proportional to leftover spread, dampened by item size
+    noise_scale = leftover_range * 0.05 * (1.0 - item_ratio)
+    noise_scale = max(noise_scale, 0.0)
+
+    random_noise = _rng.random(leftover_feasible.shape) * noise_scale
+
+    # ---------- 3. Look‑ahead adjustment ----------
+    avg_item = (_item_sum / _item_count) if _item_count > 0 else item
+    future_adjust = (leftover_feasible - avg_item) * 0.02
+
+    # ---------- 4. Deterministic tie‑breaker ----------
+    # Slight penalty for higher indices to break ties deterministically
+    tie_breaker = -np.arange(bins_remain_cap.size, dtype=float) * 1e-12
+
+    # ---------- 5. Combine all components ----------
+    priorities[feasible] = (
+        base_score
+        + random_noise
+        + future_adjust
+        + tie_breaker[feasible]
+    )
+
+    # Record the current item for future look‑ahead calculations
+    _item_count += 1
+    _item_sum += item
+
+    return priorities
+```

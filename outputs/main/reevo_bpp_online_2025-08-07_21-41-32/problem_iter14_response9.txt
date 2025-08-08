@@ -1,0 +1,87 @@
+```python
+import numpy as np.ndarray
+from typing import Optional
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    tolerance: float = 1e-12,
+    epsilon: float = 1e-12,
+    tie_breaker: float = 1e-12,
+    random_state: Optional[np.random.Generator] = None,
+) -> np.ndarray:
+    """
+    Compute priority scores for each open bin in an online bin‑packing setting.
+
+    Higher scores indicate more desirable bins for placing the incoming ``item``.
+    The score combines three ingredients:
+
+    1. **Feasibility** – a bin must have enough remaining capacity (within a
+       numerical ``tolerance``) to hold the item; infeasible bins receive
+       ``-np.inf``.
+    2. **Tight‑fit bias** – bins that would leave little slack after insertion are
+       favoured via the term ``1 / (slack + epsilon)`` (larger for tighter fits).
+    3. **Diversification & tie‑breaking** – a uniform random factor per bin adds
+       stochasticity, while a tiny deterministic penalty proportional to the
+       bin index (`tie_break) breaks exact ties in favour of lower‑indexed bins.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the currently open bins.
+    tolerance : float, optional
+        Numerical tolerance for the feasibility check (default ``1e-12``).
+    epsilon : float, optional
+        Small constant added to slack to avoid division‑by‑zero (default ``1e-12``).
+    tie_breaker : float, optional
+        Weight of the deterministic index penalty (default ``1e-12``). Must be
+        small enough not to outweigh the main bias.
+    random_state : np.random.Generator, optional
+        Random number generator for reproducibility. If ``None`` a fresh default
+        generator is created.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores (shape = ``bins_remain_cap.shape``). Infeasible
+        bins have a score of ``-np.inf`` and will never be selected.
+    """
+    # Ensure reproducible randomness
+    rng = random_state if random_state is not None else np.random.default_rng()
+
+    # Normalise input to a flat float
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.size
+
+    # Feasibility mask: bin can accommodate the item (allow tolerance)
+    feasible = caps >= (item - tolerance)
+
+    # Initialise scores to -inf (infeasible by default)
+    scores = np.full(n_bins, -np.inf, dtype=float)
+
+    # Early exit if nothing fits
+    if not np.any(feasible):
+        return scores
+
+    # Slack after placing the item (clip tiny negatives)
+    slack = caps[feasible] - item
+    slack = np.maximum(slack, 0.0)
+
+    # Tight‑fit bias: larger for smaller slack
+    bias = 1.0 / (slack + epsilon)
+
+    # Random diversification component (one per bin)
+    rand = rng.random(n_bins)
+
+    # Deterministic tie‑breaker: smaller index => slightly higher score
+    idx_penalty = np.arange(n_bins, dtype=float) * tie_breaker
+
+    # Combine components for feasible bins
+    scores[feasible] = bias * rand[feasible] - idx_penalty[feasible]
+
+    return scores
+```

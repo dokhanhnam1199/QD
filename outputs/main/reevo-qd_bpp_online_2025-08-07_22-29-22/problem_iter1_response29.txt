@@ -1,0 +1,65 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Softmax‑Based Fit priority function for online Bin Packing.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of each currently open bin.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin. Scores sum to 1 across bins that can host the
+        item (softmax probabilities). Infeasible bins receive a score of 0.
+    
+    Strategy
+    --------
+    1. Determine which bins can accommodate the item.
+    2. Compute the *waste* that would remain after inserting the item:
+          waste_i = bins_remain_cap[i] - item.
+    3. Transform waste into a fitness score with exponential decay:
+          score_i = exp(-λ * waste_i)
+       where λ controls the steepness of the softmax. λ is set adaptively as
+       the inverse of the average waste among feasible bins.
+    4. Apply a softmax normalisation so tighter fits (smaller waste) obtain
+       higher priority.
+    """
+    # Ensure a NumPy array of float for vectorised operations
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # ---------- 1. Feasibility ----------
+    feasible = caps >= item
+    if not np.any(feasible):
+        # No open bin can host the item → caller should open a new bin.
+        return np.zeros_like(caps)
+
+    # ---------- 2. Compute waste ----------
+    # waste for feasible bins, np.inf for infeasible (will be ignored later)
+    waste = np.where(feasible, caps - item, np.inf)
+
+    # ---------- 3. Adaptive λ (softmax temperature) ----------
+    # Small epsilon avoids division by zero if waste is exactly zero.
+    eps = 1e-12
+    mean_waste = waste[feasible].mean()
+    lam = 1.0 / (mean_waste + eps)
+
+    # ---------- 4. Raw scores via exponential decay ----------
+    raw = np.exp(-lam * waste)
+    raw[~feasible] = 0.0  # enforce zero for infeasible bins
+
+    # ---------- 5. Softmax normalisation ----------
+    total = raw.sum()
+    if total > 0:
+        priorities = raw / total
+    else:
+        # Numerically unlikely fallback: uniform over feasible bins
+        priorities = np.where(feasible, 1.0 / feasible.sum(), 0.0)
+
+    return priorities
+```

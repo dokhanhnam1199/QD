@@ -1,0 +1,36 @@
+```python
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    epsilon: float = 0.0,
+    tau: float = 1.0,
+    alpha: float = 0.5,
+    k: float = 12.0,
+    seed: int | None = None,
+) -> np.ndarray:
+    """Hybrid softmax + logistic priority with epsilon‑greedy exploration."""
+    feasible = bins_remain_cap >= item
+    if not np.any(feasible):
+        return np.zeros_like(bins_remain_cap, dtype=float)
+    rng = np.random.default_rng(seed)
+    if epsilon > 0.0 and rng.random() < epsilon:
+        probs = np.zeros_like(bins_remain_cap, dtype=float)
+        probs[feasible] = 1.0 / feasible.sum()
+        return probs
+    # Compute raw scores: negative residual (greedy) plus logistic tightness term
+    residual = bins_remain_cap - item
+    raw_scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    # Base greedy component
+    base = -residual[feasible] / tau
+    # Logistic tightness component (higher when bin is tightly filled)
+    ratio = residual[feasible] / bins_remain_cap[feasible]
+    logistic = 1.0 / (1.0 + np.exp(-k * (1.0 - ratio)))
+    raw_scores[feasible] = base + alpha * logistic
+    # Stable softmax
+    max_score = np.max(raw_scores)
+    exp_scores = np.exp(raw_scores - max_score)
+    sum_exp = np.sum(exp_scores)
+    return exp_scores / sum_exp if sum_exp > 0 else np.zeros_like(raw_scores, dtype=float)
+```

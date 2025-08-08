@@ -1,0 +1,128 @@
+```python
+import numpy as np
+
+# Global random generator (optional for stochastic tie-breaking)
+_rng = np.random.default_rng()
+
+# EMA parameters for item size statistics
+_alpha_ema = 0.1          # smoothing factor for EMA
+_epsilon_factor = 0.05   # tolerance factor (fraction of std)
+_exact_fit_offset = 1e9  # large offset to guarantee exact fits win
+_new_bin_penalty = 0.001 # penalise brand‑new bins (0.1 % reduction)
+_tiny_eps = 1e-12        # tiny epsilon for deterministic tie‑breaking
+
+# EMA state variables
+_ema_mean = 0.0
+_ema_sq = 0.0
+_item_count = 0
+
+
+def _update_item_stats(item: float):
+    """Update EMA statistics for the observed item size."""
+    global _ema_mean, _ema_sq, _item_count
+    _item_count += 1
+    _ema_mean = (1 - _alpha_ema) * _ema_mean + _alpha_ema * item
+    _ema_sq = (1 - _alpha_ema) * _ema_sq + _alpha_ema * (item * item)
+
+
+def _current_std() -> float:
+    """Return the current EMA‑based standard deviation of item sizes."""
+    var = _ema_sq - _ema_mean * _ema_mean
+    if var < 0.0:
+        var = 0.0
+    return np.sqrt(var)
+
+
+def _tolerance() -> float:
+    """Tolerance used for feasibility and exact‑fit detection."""
+    std = _current_std()
+    # Ensure a non‑zero floor to avoid degenerate epsilon when std≈0
+    return max(1e-9, _epsilon_factor * std)
+
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive priority function for the online Bin Packing Problem.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the currently open bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (same shape as ``bins_remain_cap``).
+        Infeasible bins receive ``-np.inf``.  The bin with the highest score
+        should be selected for placement.
+    """
+    # Update EMA statistics (used for tolerance computation)
+    _update_item_stats(item)
+
+    caps = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # Slack after placing the item in each bin
+    slack = caps - item
+
+    # Feasibility mask (allow a tiny tolerance for floating‑point errors)
+    eps = _tolerance()
+    feasible = slack >= -eps
+
+    # Initialise priority vector with -inf for infeasible bins
+    priorities = np.full_like(caps, -np.inf, dtype=np.float64)
+
+    if not np.any(feasible):
+        # No feasible bin – caller may open a new bin
+        return priorities
+
+    # ------------------------------------------------------------------
+    # 1. Exact‑fit detection (within tolerance)
+    # ------------------------------------------------------------------
+    exact_fit = feasible & (np.abs(slack) <= eps)
+    if np.any(exact_fit):
+        # Deterministic tie‑breaker: lower index gets a tiny boost
+        idx_exact = np.nonzero(exact_fit)[0].astype(np.float64)
+        priorities[exact_fit] = _exact_fit_offset - _tiny_eps * idx_exact
+
+    # ------------------------------------------------------------------
+    # 2. Non‑exact feasible bins: softmax over negative slack
+    # ------------------------------------------------------------------
+    non_exact = feasible & ~exact_fit
+    if np.any(non_exact):
+        # Slack values for non‑exact bins (always >= eps)
+        slack_nz = slack[non_exact]
+
+        # Adaptive temperature: median slack among all feasible bins
+        median_slack = np.median(slack[feasible])
+        temperature = max(median_slack, 1e-6)   # avoid division by zero
+
+        # Logits: tighter fit (smaller slack) → larger logit
+        logits = -slack_nz / temperature
+
+        # Numerically stable softmax
+        max_logit = np.max(logits)
+        exp_shifted = np.exp(logits - max_logit)
+        softmax_vals = exp_shifted / np.sum(exp_shifted)
+
+        # Assign softmax scores
+        priorities[non_exact] = softmax_vals
+
+        # ------------------------------------------------------------------
+        # 3. Penalise brand‑new bins (still at full capacity)
+        # ------------------------------------------------------------------
+        # Estimate bin capacity as the maximum remaining capacity observed.
+        bin_capacity_est = np.max(caps)
+        new_bin_mask = np.isclose(caps, bin_capacity_est) & non_exact
+        if np.any(new_bin_mask):
+            priorities[new_bin_mask] *= (1.0 - _new_bin_penalty)
+
+        # ------------------------------------------------------------------
+        # 4. Deterministic tie‑breaker for non‑exact bins
+        # ------------------------------------------------------------------
+        idx_non_exact = np.nonzero(non_exact)[0].astype(np.float64)
+        priorities[non_exact] -= _tiny_eps * idx_non_exact
+
+    return priorities
+```

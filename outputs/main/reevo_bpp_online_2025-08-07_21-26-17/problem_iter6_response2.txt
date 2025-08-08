@@ -1,0 +1,130 @@
+```python
+import numpy as np
+from typing import Optional
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    epsilon: float = 0.02,
+    noise_scale: float = 1e-5,
+    alpha_fit: float = 10.0,
+    target_fit: float = 0.75,
+    alpha_waste: float = 12.0,
+    waste_target: float = 0.05,
+    alpha_used: float = 8.0,
+    used_target: float = 0.40,
+    random_state: Optional[int] = None,
+) -> np.ndarray:
+    """
+    Compute a priority score for each open bin in an online Bin Packing problem.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array with the remaining free capacity of each currently open bin.
+    epsilon : float, optional
+        Probability of replacing the deterministic score with a random ranking
+        (ε‑greedy exploration). Default 0.02.
+    noise_scale : float, optional
+        Scale of uniform additive noise used to break ties. Default 1e‑5.
+    alpha_fit, target_fit : float, optional
+        Logistic parameters for the *fit‑ratio* component.
+        ``fit_ratio = item / remaining_capacity``.
+        The component is high when the ratio is near ``target_fit``.
+    alpha_waste, waste_target : float, optional
+        Logistic parameters for the *waste* component.
+        ``waste_norm = (remaining_capacity - item) / bin_capacity``.
+        The component is high when waste is below ``waste_target``.
+    alpha_used, used_target : float, optional
+        Logistic parameters for the *used‑fraction* component.
+        ``used_after = (capacity - remaining_capacity + item) / capacity``.
+        The component is high when the used fraction after placement is near
+        ``used_target``.
+    random_state : int or None, optional
+        Seed for the internal RNG. Useful for reproducibility.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (higher = better) for each bin. Infeasible bins receive
+        ``-np.inf`` so they will never be selected by ``np.argmax``.
+    """
+    # Ensure a NumPy array of float64
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # Edge case: no bins currently open
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=np.float64)
+
+    # Feasibility mask
+    feasible = bins_remain_cap >= item
+    if not np.any(feasible):
+        # No bin can accommodate the item → all scores -inf
+        return np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+
+    # Estimate the (static) bin capacity – the largest remaining capacity
+    bin_capacity = float(np.max(bins_remain_cap))
+    if bin_capacity <= 0.0:
+        # Defensive: all bins are full
+        return np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+
+    rng = np.random.default_rng(random_state)
+
+    # ------------------------------------------------------------------
+    # 1) Fit‑ratio component (item size relative to remaining capacity)
+    # ------------------------------------------------------------------
+    fit_ratio = np.zeros_like(bins_remain_cap, dtype=np.float64)
+    # compute only for feasible bins to avoid division by zero
+    np.divide(item, bins_remain_cap, out=fit_ratio, where=feasible)
+    # logistic: high when fit_ratio ≈ target_fit (i.e., fills a good fraction)
+    fit_score = 1.0 / (1.0 + np.exp(-alpha_fit * (fit_ratio - target_fit)))
+
+    # ------------------------------------------------------------------
+    # 2) Waste component (leftover capacity after placement)
+    # ------------------------------------------------------------------
+    waste_norm = np.clip((bins_remain_cap - item) / bin_capacity, 0.0, 1.0)
+    # logistic decreasing: small waste → high score
+    waste_score = 1.0 / (1.0 + np.exp(alpha_waste * (waste_norm - waste_target)))
+
+    # ------------------------------------------------------------------
+    # 3) Used‑fraction component (how much of the bin will be occupied)
+    # ------------------------------------------------------------------
+    used_before = (bin_capacity - bins_remain_cap) / bin_capacity
+    used_after = np.clip(used_before + item / bin_capacity, 0.0, 1.0)
+    used_score = 1.0 / (1.0 + np.exp(-alpha_used * (used_after - used_target)))
+
+    # ------------------------------------------------------------------
+    # Combine components multiplicatively (stronger signal)
+    # ------------------------------------------------------------------
+    combined_score = fit_score * waste_score * used_score
+
+    # Infeasible bins must be penalised with -inf (they will never be chosen)
+    combined_score[~feasible] = -np.inf
+
+    # ------------------------------------------------------------------
+    # Small deterministic tie‑breaker (bin index)
+    # ------------------------------------------------------------------
+    tie_breaker = np.arange(bins_remain_cap.shape[0], dtype=np.float64) * 1e-12
+    combined_score += tie_breaker
+
+    # ------------------------------------------------------------------
+    # Add exploration noise
+    # ------------------------------------------------------------------
+    if noise_scale > 0.0:
+        noise = rng.random(bins_remain_cap.shape) * noise_scale
+        combined_score[feasible] += noise[feasible]
+
+    # ------------------------------------------------------------------
+    # ε‑greedy exploration: with probability epsilon replace scores by random
+    # ------------------------------------------------------------------
+    if epsilon > 0.0 and rng.random() < epsilon:
+        # Random ranking only for feasible bins
+        random_scores = np.full_like(combined_score, -np.inf, dtype=np.float64)
+        random_scores[feasible] = rng.random(np.count_nonzero(feasible))
+        combined_score = random_scores
+
+    return combined_score
+```

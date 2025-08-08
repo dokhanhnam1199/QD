@@ -1,0 +1,118 @@
+```python
+import numpy as np
+
+# Global random generator reused across calls
+_rng = np.random.default_rng()
+
+# Running statistics of observed item sizes (simple sum/count)
+_item_count = 0
+_item_sum = 0.0
+
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Priority function for the online Bin Packing Problem.
+
+    Higher scores indicate more desirable bins. The scoring combines:
+      • Best‑fit (smaller leftover → higher score)
+      • Controlled random perturbation (more for small items)
+      • A look‑ahead boost based on the running average item size
+      • A deterministic tie‑breaker favouring lower‑index bins
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the existing bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (same shape as ``bins_remain_cap``).
+        Infeasible bins receive ``-np.inf``.
+    """
+    global _item_count, _item_sum
+
+    # Ensure we are working with a NumPy array of floats
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+
+    # No bins yet – just record statistics and return empty array
+    if bins_remain_cap.size == 0:
+        _item_count += 1
+        _item_sum += item
+        return np.array([], dtype=float)
+
+    # Compute leftover capacity if the item were placed in each bin
+    leftover = bins_remain_cap - item
+
+    # Small epsilon to guard against floating‑point round‑off
+    eps = 1e-12
+    feasible = leftover >= -eps
+
+    # Initialise priority vector with -inf for infeasible bins
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # If nothing fits, update stats and return
+    if not np.any(feasible):
+        _item_count += 1
+        _item_sum += item
+        return priorities
+
+    # ------------------------------------------------------------------
+    # 1. Base best‑fit score (smaller leftover → larger score)
+    # ------------------------------------------------------------------
+    base_score = -leftover[feasible]
+
+    # ------------------------------------------------------------------
+    # 2. Controlled randomness (more for small items)
+    # ------------------------------------------------------------------
+    # Approximate bin capacity (max remaining + current item) – fallback 1.0
+    approx_capacity = max(bins_remain_cap.max() + item, 1.0)
+    item_ratio = item / approx_capacity                     # ∈ [0, 1]
+
+    # Spread of leftover among feasible bins
+    leftover_feas = leftover[feasible]
+    if leftover_feas.size > 1:
+        leftover_range = leftover_feas.max() - leftover_feas.min()
+    else:
+        leftover_range = 0.0
+
+    # Noise scale grows when the item is small (item_ratio low) and when
+    # there is a larger spread of leftover capacities.
+    noise_scale = leftover_range * 0.05 * (1.0 - item_ratio)
+    noise_scale = max(noise_scale, 0.0)
+    random_noise = _rng.random(leftover_feas.shape) * noise_scale
+
+    # ------------------------------------------------------------------
+    # 3. Look‑ahead boost using running average item size
+    # ------------------------------------------------------------------
+    if _item_count > 0:
+        avg_item = _item_sum / _item_count
+    else:
+        avg_item = item  # first item fallback
+
+    # Small positive boost if the bin would still have room for a typical
+    # future item; slight penalty otherwise.
+    future_weight = 0.02
+    future_adjust = (leftover_feas - avg_item) * future_weight
+
+    # ------------------------------------------------------------------
+    # 4. Deterministic tie‑breaker (prefer lower index bins)
+    # ------------------------------------------------------------------
+    tie_breaker = -np.arange(bins_remain_cap.size, dtype=float) * 1e-12
+
+    # ------------------------------------------------------------------
+    # 5. Combine components
+    # ------------------------------------------------------------------
+    combined = base_score + random_noise + future_adjust + tie_breaker[feasible]
+    priorities[feasible] = combined
+
+    # ------------------------------------------------------------------
+    # 6. Update global statistics
+    # ------------------------------------------------------------------
+    _item_count += 1
+    _item_sum += item
+
+    return priorities
+```

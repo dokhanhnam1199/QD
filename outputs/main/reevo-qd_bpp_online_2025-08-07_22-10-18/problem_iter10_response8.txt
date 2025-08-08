@@ -1,0 +1,67 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Priority scoring for online bin packing.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item (0 < item <= bin capacity).
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of currently open bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority score for each bin (higher is better). Infeasible bins receive
+        ``-np.inf``. If no bins are open, an empty array is returned.
+    """
+    import numpy as np
+
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.size
+    if n_bins == 0:
+        return np.array([], dtype=float)
+
+    # Feasibility mask
+    fit_mask = caps >= item
+    if not np.any(fit_mask):
+        # No bin can accommodate the item
+        return np.full(n_bins, -np.inf, dtype=float)
+
+    # Estimate bin capacity from the largest remaining capacity
+    bin_capacity = caps.max()
+    if bin_capacity <= 0:
+        bin_capacity = item
+
+    utilisation = 1.0 - caps / bin_capacity
+    avg_util = utilisation.mean()
+    fit_frac = fit_mask.mean()
+
+    # Epsilon‑greedy exploration probability
+    base_eps = 0.10
+    epsilon = base_eps * (1.0 - fit_frac) * (1.0 + (1.0 - avg_util))
+    epsilon = np.clip(epsilon, 0.0, 1.0)
+
+    rng = np.random.default_rng()
+
+    if rng.random() < epsilon:
+        # Exploration: random scores for feasible bins
+        scores = np.full(n_bins, -np.inf, dtype=float)
+        scores[fit_mask] = rng.random(np.count_nonzero(fit_mask))
+        return scores
+
+    # Deterministic exploitation: favor tighter fit and higher utilisation
+    # Fill ratio (higher means tighter fit)
+    fill_ratio = item / caps[fit_mask]
+    # Score: weighted sum of fill ratio and utilisation
+    util_weight = 0.3
+    priority = np.full(n_bins, -np.inf, dtype=float)
+    priority[fit_mask] = fill_ratio + util_weight * utilisation[fit_mask]
+
+    # Small jitter to break ties reproducibly
+    jitter = rng.random(np.count_nonzero(fit_mask)) * 1e-9
+    priority[fit_mask] += jitter
+
+    return priority
+```

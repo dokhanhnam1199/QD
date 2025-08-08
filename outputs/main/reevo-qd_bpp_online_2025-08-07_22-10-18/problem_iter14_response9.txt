@@ -1,0 +1,92 @@
+```python
+import numpy as np
+
+# Global random generator – avoids creating a new RNG on every call
+_rng = np.random.default_rng()
+
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive priority function for online Bin Packing.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array with the remaining capacities of currently open bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (higher = more desirable). Infeasible bins
+        receive -inf. The caller should pick the bin with the highest score; if
+        all scores are -inf a new bin must be opened.
+    """
+    # Ensure a NumPy float array
+    rem = np.asarray(bins_remain_cap, dtype=float)
+    n_bins = rem.shape[0]
+
+    # No open bins – caller will need to open a new one
+    if n_bins == 0:
+        return np.array([], dtype=float)
+
+    # Feasibility mask
+    fit_mask = rem >= item
+
+    # If no bin can accommodate the item, return -inf for all bins
+    if not np.any(fit_mask):
+        return np.full(n_bins, -np.inf, dtype=float)
+
+    # ---------- Adaptive epsilon‑greedy exploration ----------
+    base_eps = 0.1                     # max exploration probability
+    fit_frac = np.count_nonzero(fit_mask) / n_bins
+    epsilon = base_eps * (1.0 - fit_frac)   # more exploration when few bins fit
+
+    if _rng.random() < epsilon:
+        # Pure exploration: random scores for feasible bins
+        scores = _rng.random(n_bins)
+        scores[~fit_mask] = -np.inf
+        return scores
+
+    # ---------- Core scoring ----------
+    # Estimate bin capacity (all bins share the same capacity)
+    bin_capacity = np.max(rem)
+    if bin_capacity <= 0.0:
+        # Safe fallback (item size or 1.0) – occurs only in degenerate cases
+        bin_capacity = max(item, 1.0)
+
+    # Global utilization of open bins (0 = empty, 1 = fully packed)
+    avg_util = 1.0 - np.mean(rem) / bin_capacity
+    avg_util = np.clip(avg_util, 0.0, 1.0)
+
+    # Dynamic sigmoid steepness – steeper when bins are heavily utilized
+    base_k = 12.0
+    k = base_k * (1.0 + avg_util)
+
+    # Fill ratio for feasible bins: proportion of remaining capacity that will be used
+    fill_ratio = np.empty(n_bins, dtype=float)
+    fill_ratio.fill(0.0)
+    fill_ratio[fit_mask] = item / rem[fit_mask]      # in (0, 1]
+
+    # Logistic transformation centred at 0.5 fill ratio
+    arg = -k * (fill_ratio[fit_mask] - 0.5)
+    arg = np.clip(arg, -700.0, 700.0)                # avoid overflow
+    sigmoid = 1.0 / (1.0 + np.exp(arg))               # higher for tighter fits
+
+    # Normalised waste after placing the item (relative to bin capacity)
+    waste = np.empty(n_bins, dtype=float)
+    waste.fill(0.0)
+    waste[fit_mask] = (rem[fit_mask] - item) / bin_capacity  # in [0, 1]
+
+    # Combine sigmoid score with a linear waste penalty
+    beta = 0.5                                         # waste weight
+    scores = np.full(n_bins, -np.inf, dtype=float)
+    scores[fit_mask] = sigmoid - beta * waste[fit_mask]
+
+    # ---------- Tie‑breaking jitter ----------
+    jitter = _rng.random(n_bins) * 1e-9
+    scores[fit_mask] += jitter[fit_mask]
+
+    return scores
+```

@@ -1,0 +1,74 @@
+```python
+import numpy as np
+
+def priority_v2(item, bins_remain_cap, *, bin_capacity=None, lookahead_items=None,
+                alpha=0.2, k_base=8.0, random_state=None):
+    """
+    Compute priority scores for each bin in an online Bin Packing scenario.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : array-like of float
+        Remaining capacity of each existing bin.
+    bin_capacity : float, optional
+        Capacity of each bin. If omitted, it is inferred as max(bins_remain_cap) + item.
+    lookahead_items : array-like of float, optional
+        Sizes of future items that may arrive soon.  Bins that can also accommodate
+        more of these items after the current placement receive a bonus.
+    alpha : float, optional
+        Strength of the look‑ahead bonus (default 0.2).
+    k_base : float, optional
+        Base steepness for the sigmoid (default 8.0).  It is dynamically increased
+        for bins that are already fuller.
+    random_state : int or np.random.Generator, optional
+        Seed or RNG for tie‑breaking noise.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores with the same shape as ``bins_remain_cap``.
+        Infeasible bins (remaining capacity < item) receive ``-np.inf``.
+    """
+    rng = np.random.default_rng(random_state)
+
+    bins = np.asarray(bins_remain_cap, dtype=float)
+    n_bins = bins.size
+    if n_bins == 0:
+        return np.empty(0, dtype=float)
+
+    if bin_capacity is None:
+        bin_capacity = float(max(bins.max() + item, 1.0))
+
+    feasible = bins >= item
+    if not feasible.any():
+        return np.full(n_bins, -np.inf, dtype=float)
+
+    gaps = bins - item
+    norm_gaps = gaps / bin_capacity
+    fullness = (bin_capacity - bins) / bin_capacity
+    k = k_base * (1.0 + fullness)
+
+    exponent = k * norm_gaps
+    exponent = np.clip(exponent, -700, 700)
+
+    # Compute sigmoid for feasible bins
+    exp_val = np.exp(exponent[feasible])
+    scores = 1.0 / (1.0 + exp_val)
+
+    # Tiny random noise to break ties deterministically
+    scores += rng.uniform(0.0, 1e-6, size=scores.shape)
+
+    # Optional look‑ahead boost
+    if lookahead_items is not None and lookahead_items.size > 0:
+        future_gaps = gaps[feasible][:, None] - np.asarray(lookahead_items, dtype=float)[None, :]
+        fits = (future_gaps >= 0).sum(axis=1)
+        fit_ratio = fits / float(lookahead_items.size)
+        scores *= (1.0 + alpha * fit_ratio)
+
+    priority = np.full(n_bins, -np.inf, dtype=float)
+    priority[feasible] = scores
+
+    return priority
+```

@@ -1,0 +1,109 @@
+```python
+import numpy as np
+
+# Global random generator for optional tie‑breaking noise
+_rng = np.random.default_rng()
+
+# EMA parameters for adaptive epsilon based on observed item sizes
+_alpha_ema = 0.1
+_ema_item_size = 0.0
+_ema_item_sq = 0.0
+_item_count = 0
+
+
+def _update_item_stats(item: float) -> None:
+    """Update exponential moving averages of item size and squared size."""
+    global _ema_item_size, _ema_item_sq, _item_count
+    _item_count += 1
+    _ema_item_size = (1 - _alpha_ema) * _ema_item_size + _alpha_ema * item
+    _ema_item_sq = (1 - _alpha_ema) * _ema_item_sq + _alpha_ema * (item * item)
+
+
+def _current_std() -> float:
+    """Return the current estimated standard deviation of item sizes."""
+    var = _ema_item_sq - _ema_item_size * _ema_item_size
+    if var < 0.0:
+        var = 0.0
+    return np.sqrt(var)
+
+
+def _adaptive_epsilon() -> float:
+    """Tolerance for feasibility checks, grows with observed variability."""
+    std = _current_std()
+    # 1 % of the std, but never below a tiny absolute floor
+    return max(1e-12, 0.01 * std)
+
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    temperature: float = 0.1,
+    random_noise: bool = False,
+    noise_scale: float = 1e-12,
+) -> np.ndarray:
+    """
+    Softmax‑based priority for online bin packing.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the currently open bins.
+    temperature : float, optional (default=0.1)
+        Controls the sharpness of the softmax. Lower values make the decision
+        more deterministic (approaching a greedy Best‑Fit), higher values
+        produce a more uniform distribution.
+    random_noise : bool, optional (default=False)
+        If True, adds a tiny uniform noise to logits to break ties stochastically.
+    noise_scale : float, optional (default=1e-12)
+        Amplitude of the optional tie‑breaking noise.
+
+    Returns
+    -------
+    np.ndarray
+        Normalized priority scores (probabilities) for each bin. Infeasible
+        bins receive a priority of 0. The scores sum to 1 across all bins.
+    """
+    if temperature <= 0.0:
+        raise ValueError("temperature must be a positive float")
+
+    # Update global EMA statistics (used only for epsilon)
+    _update_item_stats(item)
+
+    # Work with a float64 array for numerical stability
+    caps = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # Adaptive feasibility tolerance
+    eps = _adaptive_epsilon()
+    feasible = caps >= item - eps
+
+    # Initialise priority vector (zeros for infeasible bins)
+    priorities = np.zeros_like(caps, dtype=np.float64)
+
+    if not np.any(feasible):
+        # No bin can accommodate the item – return zero vector
+        return priorities
+
+    # Slack (unused capacity) after placing the item in each feasible bin
+    slack = caps[feasible] - item  # non‑negative by construction (up to eps)
+
+    # Logits: tighter fit (smaller slack) → larger logit
+    logits = -slack / temperature
+
+    if random_noise:
+        logits += _rng.uniform(-noise_scale, noise_scale, size=logits.shape)
+
+    # Numerically stable softmax over feasible bins
+    max_logit = np.max(logits)            # safe because feasible is non‑empty
+    shifted = logits - max_logit
+    exp_shifted = np.exp(shifted)
+    sum_exp = np.sum(exp_shifted)
+    probs = exp_shifted / sum_exp
+
+    # Assign probabilities to the feasible positions
+    priorities[feasible] = probs
+
+    return priorities
+```

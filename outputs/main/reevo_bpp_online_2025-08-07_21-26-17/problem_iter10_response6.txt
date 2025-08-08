@@ -1,0 +1,76 @@
+```python
+import numpy as np
+from typing import Optional
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    random_state: Optional[int] = None,
+    epsilon_min: float = 0.05,
+    epsilon_max: float = 0.25,
+) -> np.ndarray:
+    """
+    Compute priority scores for online bin packing.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of currently open bins.
+    random_state : int or None, optional
+        Seed for reproducible random exploration.
+    epsilon_min, epsilon_max : float, optional
+        Minimum and maximum exploration/exploitation mixing factor.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin; infeasible bins receive -inf.
+        The bin with the highest score should be chosen for the item.
+    """
+    # Convert to a NumPy array of float64 for safe arithmetic.
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # Identify bins that can accommodate the item.
+    feasible = bins_remain_cap >= item
+    if not np.any(feasible):
+        # No feasible bin – return -inf for all entries.
+        return np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+
+    # Remaining capacity after placing the item.
+    leftover = bins_remain_cap - item
+
+    # Base score: tighter fits (smaller leftover) get larger scores.
+    eps = 1e-12  # avoid division by zero.
+    base = np.zeros_like(bins_remain_cap, dtype=np.float64)
+    base[feasible] = 1.0 / (leftover[feasible] + eps)
+
+    # Adaptive epsilon based on variance of leftover space among feasible bins.
+    lo = leftover[feasible]
+    var = np.var(lo, ddof=0)          # variance of leftovers.
+    L = np.max(lo)                   # maximal leftover.
+    if L > 0.0:
+        # Maximum possible variance on [0, L] is (L^2)/4.
+        var_max = (L ** 2) / 4.0
+        var_norm = np.clip(var / var_max, 0.0, 1.0)
+    else:
+        var_norm = 0.0
+
+    # Low variance → larger epsilon (more exploration), high variance → smaller epsilon.
+    epsilon = epsilon_min + (epsilon_max - epsilon_min) * (1.0 - var_norm)
+
+    # Random exploration component.
+    rng = np.random.default_rng(random_state)
+    random_score = rng.random(bins_remain_cap.shape)
+
+    # Blend exploitation (tight‑fit) and exploration (random).
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    priorities[feasible] = (1.0 - epsilon) * base[feasible] + epsilon * random_score[feasible]
+
+    # Minimal deterministic tie‑breaker: a tiny offset based on index.
+    priorities += np.arange(bins_remain_cap.size, dtype=np.float64) * 1e-12
+
+    return priorities
+```

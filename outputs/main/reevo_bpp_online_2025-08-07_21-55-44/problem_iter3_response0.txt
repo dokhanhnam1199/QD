@@ -1,0 +1,95 @@
+```python
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    exact_fit_bonus: float = 1e6,
+    slack_sigmoid_k: float = 10.0,
+    next_item_bonus: float = 0.1,
+    jitter: float = 1e-12,
+) -> np.ndarray:
+    """
+    Priority function for online Bin Packing.
+
+    The function returns a score for each currently opened bin. Higher scores
+    indicate a more desirable bin for the incoming `item`.
+
+    Heuristics incorporated:
+    • Huge bonus for exact fits (remaining capacity after placement ≈ 0).
+    • Primary ranking by minimal waste (negative remaining slack).
+    • A sigmoid‑like exponential bonus for bins with small slack
+      (normalized waste → exp(-k·norm_slack)).
+    • Small extra bonus for bins that would still have enough room for another
+      item of size `item` after placement (anticipating the next item).
+    • Infeasible bins (insufficient capacity) receive -inf priority.
+    • Tiny index‑based jitter to break ties deterministically.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities for each opened bin.
+    exact_fit_bonus : float, optional
+        Large constant added when the item exactly fits a bin.
+    slack_sigmoid_k : float, optional
+        Controls the steepness of the exponential slack bonus.
+    next_item_bonus : float, optional
+        Small bonus for bins that would still accommodate another item of
+        size `item` after this placement.
+    jitter : float, optional
+        Magnitude of the deterministic tie‑breaker based on bin index.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (same shape as ``bins_remain_cap``). The caller should
+        select the bin with the maximum priority.
+    """
+    # Ensure input is a 1‑D NumPy array of floats
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = bins_remain_cap.size
+
+    if n_bins == 0:
+        return np.array([], dtype=float)
+
+    # Compute remaining slack if the item were placed in each bin
+    slack = bins_remain_cap - item  # slack >= 0 => feasible
+
+    # Feasibility mask
+    feasible = slack >= 0
+
+    # Base priority: negative slack (higher = less waste) for feasible bins,
+    # -inf for infeasible bins.
+    base_priority = np.where(feasible, -slack, -np.inf)
+
+    # Normalized slack for feasible bins (to [0, 1])
+    norm_slack = np.zeros_like(slack)
+    if np.any(feasible):
+        max_slack = np.max(slack[feasible])
+        # Avoid division by zero when all feasible bins have zero slack
+        denom = max_slack + 1e-12
+        norm_slack[feasible] = slack[feasible] / denom
+
+    # Exponential slack bonus: high when slack is small, low when slack is large
+    slack_bonus = np.exp(-slack_sigmoid_k * norm_slack)
+
+    # Anticipate next item: give a tiny boost if the bin would still have
+    # enough capacity for another item of size `item` after this placement.
+    anticipate_bonus = np.where(feasible & (slack >= item), next_item_bonus, 0.0)
+
+    # Combine all components
+    priority = base_priority + slack_bonus + anticipate_bonus
+
+    # Add huge bonus for exact fits (within numerical tolerance)
+    exact_fit_mask = feasible & np.isclose(slack, 0.0, atol=1e-12)
+    priority[exact_fit_mask] += exact_fit_bonus
+
+    # Deterministic tie‑breaker: slightly favor lower‑index bins
+    tie_breaker = -np.arange(n_bins, dtype=float) * jitter
+    priority += tie_breaker
+
+    return priority
+```

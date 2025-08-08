@@ -1,0 +1,44 @@
+```python
+import numpy as np
+from typing import Optional
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    temperature: float = 1.0,
+    epsilon: float = 0.0,
+    rank_power: float = 1.0,
+    rng: Optional[np.random.Generator] = None,
+) -> np.ndarray:
+    """Score bins by waste, rank, temperature, and ε‑scaled Gumbel noise via stable softmax."""
+    if rng is None:
+        rng = np.random.default_rng()
+    bins = np.asarray(bins_remain_cap, dtype=float)
+    residual = bins - item
+    feasible = residual >= 0
+    scores = np.full_like(bins, -np.inf, dtype=float)
+    if not np.any(feasible):
+        return scores
+    # Deterministic component: negative residual (higher = tighter fit)
+    waste = -residual[feasible] / max(temperature, 1e-12)
+    # Rank weighting: tighter fits get larger weight
+    num_feas = waste.size
+    sorted_idx = np.argsort(residual[feasible])
+    rank = np.empty(num_feas, dtype=int)
+    rank[sorted_idx] = np.arange(num_feas)
+    rank_weight = (num_feas - rank) ** rank_power
+    deterministic = waste + np.log(rank_weight + 1e-12)
+    # ε‑scaled Gumbel perturbation for exploration
+    if epsilon > 0.0:
+        u = rng.random(num_feas)
+        u = np.clip(u, 1e-12, 1 - 1e-12)
+        gumbel = -np.log(-np.log(u))
+        deterministic = deterministic + epsilon * gumbel
+    # Stable softmax conversion to probabilities
+    shift = deterministic - np.max(deterministic)
+    exp_vals = np.exp(shift / max(temperature, 1e-12))
+    probs = exp_vals / exp_vals.sum()
+    scores[feasible] = probs
+    return scores
+```

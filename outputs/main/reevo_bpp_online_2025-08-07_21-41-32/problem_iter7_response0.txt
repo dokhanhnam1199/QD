@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute a priority score for each bin in an online bin‑packing setting.
+
+    The score favours bins where the item fits exactly (slack = 0) by using
+    the inverse of the slack plus an adaptive epsilon.  An adaptive epsilon,
+    proportional to the total remaining capacity, guards against division by
+    zero and scales the scores to the current waste.  A tiny random perturbation
+    (scaled by epsilon) is added only to bins that are tied for the tightest
+    fit, and a deterministic index‑based penalty resolves any remaining ties
+    in favour of lower‑indexed bins.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of each bin.
+
+    Returns
+    -------
+    np.ndarray
+        1‑D array of priority scores (same length as ``bins_remain_cap``).
+        Infeasible bins (capacity < item) receive ``-np.inf``.
+    """
+    # Ensure we are working with a float array.
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Feasibility mask: bins that can accommodate the item.
+    feasible = caps >= item
+
+    # Initialise priority vector with -inf for infeasible bins.
+    priorities = np.full_like(caps, -np.inf, dtype=float)
+
+    if not np.any(feasible):
+        # No bin can hold the item; return all -inf.
+        return priorities
+
+    # Slack (unused capacity) if the item were placed in each bin.
+    slack = caps - item
+
+    # Adaptive epsilon: small positive number that grows with the total
+    # remaining capacity (i.e., current waste).  This keeps scores numerically
+    # stable across problem scales.
+    total_remain = caps.sum()
+    epsilon = max(1e-12, total_remain * 1e-12)
+
+    # Base score: inverse slack (higher for tighter fits; exact fits get
+    # the maximal value 1/epsilon).
+    base_score = np.zeros_like(caps, dtype=float)
+    base_score[feasible] = 1.0 / (slack[feasible] + epsilon)
+
+    # Identify bins with the smallest slack among feasible bins (tightest fits).
+    min_slack = np.min(slack[feasible])
+    tie_mask = feasible & np.isclose(slack, min_slack, atol=1e-12)
+
+    # Add a tiny random noise only to the tied bins to break stochastic ties.
+    # Scale the noise by epsilon so it never overwhelms the base score.
+    noise_scale = epsilon * 1e-6
+    random_noise = np.random.rand(np.sum(tie_mask)) * noise_scale
+    base_score[tie_mask] += random_noise
+
+    # Deterministic tie‑breaker: small penalty proportional to bin index.
+    # The penalty is far smaller than any meaningful score difference.
+    index_penalty = np.arange(caps.size, dtype=float) * (epsilon * 1e-7)
+    base_score[feasible] -= index_penalty[feasible]
+
+    # Assign the computed scores to the output array.
+    priorities[feasible] = base_score[feasible]
+
+    return priorities
+```

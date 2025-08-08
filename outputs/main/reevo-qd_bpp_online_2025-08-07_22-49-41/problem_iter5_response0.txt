@@ -1,0 +1,84 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute priority scores for bins in an online bin packing setting.
+
+    The heuristic prefers bins that will be nearly full after placing the item.
+    It uses an exponential decay of the normalized slack (deterministic score),
+    adds a tiny random jitter for deterministic tie‑breaking, and incorporates a
+    very small epsilon‑greedy random component for exploration.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of currently open bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin. Higher scores indicate higher preference.
+        Infeasible bins (remaining capacity < item) receive -np.inf.
+    """
+    # Guard against empty input
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=float)
+
+    # Estimate uniform bin capacity as the maximum remaining capacity observed.
+    # Works when at least one bin is empty; otherwise approximates the capacity
+    # of the least‑filled bin.
+    capacity = np.max(bins_remain_cap)
+    if capacity <= 0:
+        # No capacity to place any item.
+        return np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Tolerance for floating‑point comparisons
+    tol = 1e-12
+
+    # Feasibility mask: bins that can accommodate the item
+    can_fit = bins_remain_cap >= item - tol
+
+    # Initialise all priorities to -inf (infeasible)
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    if not np.any(can_fit):
+        # No feasible bin found
+        return priorities
+
+    # Slack after placing the item for feasible bins
+    slack = bins_remain_cap[can_fit] - item
+
+    # Normalized slack in [0, 1]
+    slack_norm = slack / capacity
+
+    # Adaptive steepness: larger items use a steeper decay
+    base_alpha = 10.0
+    alpha = base_alpha * (item / capacity + 0.1)  # ensure >0
+
+    # Deterministic score: exponential decay of slack.
+    # Exact fits (slack ≤ tol) get the maximal score of 1.0.
+    exact_fit = slack <= tol
+    deterministic_score = np.where(
+        exact_fit,
+        1.0,
+        np.exp(-alpha * slack_norm)
+    )
+
+    # ε‑greedy exploration (tiny random perturbation)
+    eps_greedy = 1e-6
+    random_score = np.random.rand(deterministic_score.shape[0])
+    combined_score = (1.0 - eps_greedy) * deterministic_score + eps_greedy * random_score
+
+    # Tiny jitter for deterministic tie‑breaking
+    eps_jitter = 1e-9
+    jitter = np.random.uniform(-eps_jitter, eps_jitter, size=combined_score.shape)
+    combined_score += jitter
+
+    # Assign computed scores to feasible bins
+    priorities[can_fit] = combined_score
+
+    return priorities
+```

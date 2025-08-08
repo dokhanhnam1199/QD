@@ -1,0 +1,65 @@
+```python
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    gamma: float = 1.0,
+    temperature: float = 1.0,
+    random_seed: int | None = None,
+    tie_break: bool = False,
+) -> np.ndarray:
+    """
+    Compute priority scores for each bin using a soft‑max over negative waste.
+
+    The score is high for bins that leave the least waste after placing the item.
+    Infeasible bins receive a score of zero.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of the remaining capacities of each existing bin.
+    gamma : float, optional
+        Scale factor for waste penalty; larger values favor tighter fits more
+        aggressively. Default is 1.0.
+    temperature : float, optional
+        Temperature for the soft‑max; lower values make the distribution
+        sharper (more greedy), higher values make it smoother (more
+        exploratory). Must be > 0. Default is 1.0.
+    random_seed : int or None, optional
+        If provided and `tie_break` is True, random noise will be added to the
+        logits in a reproducible way to break ties.
+    tie_break : bool, optional
+        If True, add a very small random perturbation to the logits to avoid
+        deterministic ties when multiple bins have identical waste.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores of the same shape as `bins_remain_cap`.  The array
+        contains values in [0, 1] that sum to 1 over the feasible bins; all
+        infeasible bins receive 0.
+    """
+    caps = np.asarray(bins_remain_cap, dtype=np.float64, copy=False)
+    feasible = caps >= item
+
+    if not np.any(feasible):
+        return np.zeros_like(caps, dtype=np.float64)
+
+    waste = caps - item
+    logits = np.full_like(caps, -np.inf, dtype=np.float64)
+    logits[feasible] = -gamma * waste[feasible] / temperature
+
+    if tie_break:
+        rng = np.random.default_rng(random_seed)
+        noise = rng.uniform(low=-1e-12, high=1e-12, size=feasible.sum())
+        logits[feasible] += noise
+
+    max_logit = np.max(logits)
+    exp_vals = np.exp(logits - max_logit)
+    priorities = exp_vals / np.sum(exp_vals)
+
+    return priorities
+```

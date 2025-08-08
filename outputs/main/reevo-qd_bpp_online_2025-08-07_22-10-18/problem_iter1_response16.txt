@@ -1,0 +1,54 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Sigmoid Fit Score priority for online bin packing.
+
+    This function assigns a higher priority to bins where the item fits tightly.
+    Bins that cannot accommodate the item receive a very low (‑inf) priority.
+    For feasible bins the remaining capacity after placement is fed through a
+    sigmoid: the smaller the leftover space, the larger the score.
+
+    Args:
+        item: Size of the incoming item.
+        bins_remain_cap: 1‑D array with the remaining capacity of each bin.
+
+    Returns:
+        np.ndarray of the same shape as `bins_remain_cap` with priority scores.
+        Higher values indicate more desirable bins.
+    """
+    # Ensure input is a NumPy array of floats.
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+
+    # Residual capacity if we placed the item in each bin.
+    residual = bins_remain_cap - item
+
+    # Identify infeasible bins (item does not fit).
+    infeasible = residual < 0
+
+    # Feasible residuals for slope calibration.
+    feasible_res = residual[~infeasible]
+
+    # If there are no feasible bins, return an array of -inf.
+    if feasible_res.size == 0:
+        return np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Adaptive sigmoid steepness:
+    # Larger spread of feasible residuals → softer sigmoid.
+    std = np.std(feasible_res)
+    # Guard against zero std (all residuals identical).
+    std = std if std > 0 else 1.0
+    slope = 5.0 / std  # 5.0 is a tunable base steepness.
+
+    # Compute sigmoid of negative residual: tighter fit → higher score.
+    # score = 1 / (1 + exp(slope * residual))
+    # Clip exponent to avoid overflow in np.exp.
+    exp_arg = np.clip(slope * residual, -700, 700)
+    scores = 1.0 / (1.0 + np.exp(exp_arg))
+
+    # Force infeasible bins to the lowest possible priority.
+    scores = np.where(infeasible, -np.inf, scores)
+
+    return scores
+```

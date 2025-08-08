@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute a priority score for each bin in an online bin‑packing setting.
+
+    Strategy
+    --------
+    1. **Exact fits** (remaining capacity == item) receive the highest possible
+       priority (`np.inf`), guaranteeing they are chosen first.
+    2. **Near fits** are scored by the inverse of the slack (remaining capacity
+       after placing the item).  Smaller slack ⇒ larger base priority.
+    3. **Adaptive random exploration**: a small jitter proportional to an
+       exploration rate is added to the base priority of near‑fit bins.
+       The exploration rate grows when many bins can accommodate the item,
+       encouraging diversification when the choice is ambiguous.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of the remaining capacity of each currently open bin.
+
+    Returns
+    -------
+    np.ndarray
+        Array of the same shape as `bins_remain_cap` containing priority scores.
+        The bin with the highest score (e.g., via ``np.argmax``) should be selected.
+        Infeasible bins receive ``-np.inf``.
+    """
+    # Ensure numpy array with float dtype for consistent calculations
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+
+    # Initialise all priorities as infeasible
+    priorities = np.full(bins_remain_cap.shape, -np.inf, dtype=np.float64)
+
+    # Compute slack (remaining capacity after hypothetically placing the item)
+    slack = bins_remain_cap - item
+
+    # Feasible bins: slack >= 0
+    feasible_mask = slack >= 0
+    if not np.any(feasible_mask):
+        # No bin can accommodate the item
+        return priorities
+
+    # Exact‑fit bins: slack ≈ 0
+    exact_mask = feasible_mask & np.isclose(slack, 0.0, atol=1e-12)
+    priorities[exact_mask] = np.inf
+
+    # Non‑exact feasible bins
+    non_exact_mask = feasible_mask & ~exact_mask
+    if np.any(non_exact_mask):
+        # Base priority = 1 / (slack + ε) – larger for tighter fits
+        eps = 1e-12
+        base_priority = 1.0 / (slack[non_exact_mask] + eps)
+
+        # Adaptive exploration factor:
+        #   More feasible bins ⇒ higher exploration chance.
+        n_feasible = np.count_nonzero(feasible_mask)
+        n_total = bins_remain_cap.size
+        # Scale between 0.05 and 0.30
+        exploration_rate = 0.05 + 0.25 * (n_feasible - 1) / max(1, n_total - 1)
+        exploration_rate = min(exploration_rate, 0.30)
+
+        # Random jitter in [-1, 1] scaled by exploration_rate and base priority
+        jitter = (np.random.rand(base_priority.size) - 0.5) * 2.0
+        jitter_scaled = jitter * exploration_rate * base_priority
+
+        # Final priority with jitter added
+        final_priority = base_priority + jitter_scaled
+        priorities[non_exact_mask] = final_priority
+
+    return priorities
+```

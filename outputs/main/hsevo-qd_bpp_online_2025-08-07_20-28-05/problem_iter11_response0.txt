@@ -1,0 +1,44 @@
+```python
+import numpy as np
+
+# Adaptive weighted scoring: combine best‑fit slack minimization with a balance rule,
+# and adapt rule weights inversely to their observed waste.
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Score bins using best‑fit and balance, weighting each rule by inverse avg waste."""
+    if not hasattr(priority_v2, "initialized"):
+        priority_v2.num_rules = 2
+        priority_v2.sum_waste = np.zeros(priority_v2.num_rules, dtype=float)
+        priority_v2.count = np.zeros(priority_v2.num_rules, dtype=int)
+        priority_v2.epsilon = 1e-9
+        priority_v2.initialized = True
+    slack = bins_remain_cap - item
+    feasible = slack >= 0
+    if not feasible.any():
+        return np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    best_fit_score = -slack
+    target = bins_remain_cap.mean()
+    fill_bal_score = -np.abs(slack - target)
+    rule_scores = np.stack([best_fit? Actually best_fit_score, fill_bal_score])
+    waste_per_rule = np.empty(priority_v2.num_rules, dtype=float)
+    for i in range(priority_v2.num_rules):
+        scores_i = rule_scores[i]
+        masked = np.where(feasible, scores_i, -np.inf)
+        idx = np.argmax(masked)
+        waste_per_rule[i] = slack[idx]
+    for i in range(priority_v2.num_rules):
+        if np.isfinite(waste_per_rule[i]):
+            priority_v2.sum_waste[i] += waste_per_rule[i]
+            priority_v2.count[i] += 1
+    avg_waste = np.where(priority_v2.count > 0,
+                         priority_v2.sum_waste / priority_v2.count,
+                         np.inf)
+    raw_weights = 1.0 / (avg_waste + priority_v2.epsilon)
+    total = raw_weights.sum()
+    if total > 0:
+        weights = raw_weights / total
+    else:
+        weights = np.full(priority_v2.num_rules, 1.0 / priority_v2.num_rules)
+    combined_scores = (weights[:, None] * rule_scores).sum(axis=0)
+    combined_scores[~feasible] = -np.inf
+    return combined_scores
+```

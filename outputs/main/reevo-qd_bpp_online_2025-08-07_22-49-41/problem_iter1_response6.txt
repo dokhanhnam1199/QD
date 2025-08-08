@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+def _sigmoid(x: np.ndarray) -> np.ndarray:
+    """Standard sigmoid function."""
+    return 1.0 / (1.0 + np.exp(-x))
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Priority scores for an item based on a Sigmoid Fit Score strategy.
+
+    The score favours bins where the item would leave a *small* remaining capacity,
+    i.e. a tight fit.  Bins that cannot accommodate the item receive a very low
+    (negative‑infinity) score so they are never selected.
+
+    Args:
+        item: Size of the incoming item.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        A NumPy array of priority scores, one per bin.
+    """
+    # Remaining capacity if the item were placed into each bin
+    leftover = bins_remain_cap - item
+
+    # Identify bins that can actually hold the item
+    can_fit = leftover >= 0
+
+    # If no bin can accommodate the item, return an array of -inf priorities
+    if not np.any(can_fit):
+        return np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Scale factor for the sigmoid; using the median positive leftover ensures
+    # the curve adapts to the typical slack in the current bin set.
+    scale = np.median(leftover[can_fit] + 1e-9)  # small epsilon avoids division by zero
+    scale = max(scale, 1e-3)                     # guard against extremely small medians
+
+    # Sigmoid shape parameter – larger values make the transition sharper.
+    alpha = 6.0
+
+    # Compute a reverse‑sigmoid score: high when leftover ≈ 0 (tight fit), low otherwise.
+    # The expression 1 - sigmoid(alpha * (leftover / scale)) maps:
+    #   leftover ≈ 0   → score ≈ 0.5 (maximal tendency)
+    #   larger leftover → score → 0
+    raw_score = 1.0 - _sigmoid(alpha * (leftover / scale))
+
+    # Set invalid bins (cannot fit) to -inf so they are never chosen.
+    priorities = np.where(can_fit, raw_score, -np.inf)
+
+    return priorities
+```

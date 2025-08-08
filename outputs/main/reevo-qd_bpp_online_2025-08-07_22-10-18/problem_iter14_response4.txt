@@ -1,0 +1,71 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive sigmoid priority for online bin packing.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of the remaining capacities of the currently open bins.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores (higher is better).  Infeasible bins receive
+        ``-np.inf``.
+    """
+    # Convert input to a 1‑D float array
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.size
+
+    if n_bins == 0:
+        return np.empty(0, dtype=float)
+
+    # Residual capacity after placing the item
+    residual = caps - item
+    feasible = residual >= 0
+
+    # Default scores for infeasible bins
+    scores = np.full(n_bins, -np.inf, dtype=float)
+
+    if not np.any(feasible):
+        return scores
+
+    # Use residuals of feasible bins to adapt the sigmoid steepness
+    feas_res = residual[feasible]
+
+    # Robust spread estimator: MAD × 1.4826 approximates standard deviation
+    median_res = np.median(feas_res)
+    mad = np.median(np.abs(feas_res - median_res))
+    spread = mad * 1.4826
+
+    # Fallbacks if MAD is zero
+    if spread <= 0.0:
+        std = np.std(feas_res)
+        if std > 0.0:
+            spread = std
+        else:
+            rng = np.max(feas_res) - np.min(feas_res)
+            spread = rng if rng > 0.0 else 1.0
+
+    # Base steepness (tunable). Larger spread → gentler slope.
+    base_steepness = 10.0
+    slope = base_steepness / spread
+
+    # Logistic sigmoid: higher priority for smaller residuals
+    exp_arg = np.clip(slope * residual[feasible], -700, 700)
+    scores_feas = 1.0 / (1.0 + np.exp(exp_arg))
+
+    scores[feasible] = scores_feas
+
+    # Deterministic tie‑breaker: tiny decreasing bias by bin index
+    epsilon = 1e-12
+    tie_bias = -np.arange(n_bins, dtype=float) * epsilon
+    scores = np.where(scores > -np.inf, scores + tie_bias, scores)
+
+    return scores
+```

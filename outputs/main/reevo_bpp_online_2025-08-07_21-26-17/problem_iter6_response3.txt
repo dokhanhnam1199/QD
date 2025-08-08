@@ -1,0 +1,69 @@
+```python
+import numpy as np
+
+# Exploration vs. exploitation balance (0 = pure greedy, 1 = pure random)
+_EPSILON = 0.15
+
+# Weights for the exploitation component
+_WFIT = 0.7   # Preference for tighter fits (inverse leftover)
+_WUSE = 0.3   # Preference for higher usage ratio
+
+# Global RNG to avoid re‑creating it on every call
+_rng = np.random.default_rng()
+
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute a simple priority score for each bin in an online Bin Packing
+    problem.
+
+    The score favours bins that fit the item tightly (large inverse leftover)
+    while also rewarding bins that utilise a larger fraction of their remaining
+    capacity (usage ratio). An epsilon‑greedy term adds random exploration.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        Remaining capacity of each bin.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (higher = more desirable). Infeasible
+        bins receive a score of 0.
+    """
+    # Ensure a NumPy array of floats.
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Bins that can accommodate the item.
+    can_fit = caps >= item
+    # If no bin can fit, return zeros so the caller can open a new bin.
+    if not np.any(can_fit):
+        return np.zeros_like(caps)
+
+    # Remaining capacity after placing the item.
+    leftover = caps - item
+
+    # --- Exploitation component ------------------------------------------------
+    # Inverse leftover: tighter fits get higher values.
+    inv_leftover = np.where(can_fit, 1.0 / (leftover + 1e-12), 0.0)
+
+    # Usage ratio: fraction of the bin's capacity that will be used.
+    usage_ratio = np.where(can_fit, item / (caps + 1e-12), 0.0)
+
+    # Linear combination of the two exploitation signals.
+    base_priority = _WFIT * inv_leftover + _WUSE * usage_ratio
+
+    # --- Exploration component -------------------------------------------------
+    # Random scores for all bins, masked to keep infeasible bins at zero.
+    random_score = _rng.random(caps.shape)
+    random_score = np.where(can_fit, random_score, 0.0)
+
+    # --- Blend exploitation and exploration ------------------------------------
+    priority = (1.0 - _EPSILON) * base_priority + _EPSILON * random_score
+
+    ----------
+    return priority
+```

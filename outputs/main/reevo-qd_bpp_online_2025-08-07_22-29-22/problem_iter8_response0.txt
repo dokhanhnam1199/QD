@@ -1,0 +1,93 @@
+```python
+import numpy as np
+
+# Constant parameters
+EMA_ALPHA = 0.1
+EPSILON_FACTOR = 0.05
+SWAP_WEIGHT = 0.05
+PENALTY_BRAND_NEW = 0.01
+TIE_BREAK_INDEX_EPS = 1e-9
+RANDOM_JITTER_SCALE = 1e-10
+EXACT_FIT_OFFSET = 1e9
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute a priority score for each bin for the incoming item.
+
+    The priority favors exact fits, then bins with smaller slack, applies a
+    swap‑improvement boost when the slack is close to the mean item size,
+    penalises brand‑new bins, breaks ties deterministically by bin index,
+    and adds a small random jitter to avoid degenerate cases.
+    """
+    # Initialise static state on first call
+    if not hasattr(priority_v2, "_ema_slack"):
+        priority_v2._ema_slack = 0.0
+        priority_v2._ema_item_size = 0.0
+        priority_v2._ema_item_sq = 0.0
+        priority_v2._item_count = 0
+        priority_v2._rng = np.random.default_rng()
+
+    # Update item‑size statistics
+    priority_v2._item_count += 1
+    priority_v2._ema_item_size = (1 - EMA_ALPHA) * priority_v2._ema_item_size + EMA_ALPHA * item
+    priority_v2._ema_item_sq = (1 - EMA_ALPHA) * priority_v2._ema_item_sq + EMA_ALPHA * (item * item)
+
+    # Current standard deviation of item sizes
+    var = priority_v2._ema_item_sq - priority_v2._ema_item_size ** 2
+    var = max(var, 0.0)
+    std = np.sqrt(var)
+
+    # Tolerance for exact fit (adapted to observed variance)
+    eps = max(1e-9, EPSILON_FACTOR * std)
+
+    # Compute slack for each bin
+    slack = bins_remain_cap - item
+
+    # Feasibility and exact‑fit masks
+    feasible = slack >= -eps
+    exact_fit = (np.abs(slack) <= eps) & feasible
+
+    # Prepare priority array
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Exact fits get huge priority
+    if np.any(exact_fit):
+        tie_noise = priority_v2._rng.uniform(0.0, 1e-6, size=exact_fit.sum())
+        priorities[exact_fit] = EXACT_FIT_OFFSET + tie_noise
+
+    # Non‑exact but feasible bins
+    non_exact = feasible & ~exact_fit
+    if np.any(non_exact):
+        # Update EMA of slack with median of current slack values
+        median_slack = np.median(slack[non_exact])
+        priority_v2._ema_slack = (1 - EMA_ALPHA) * priority_v2._ema_slack + EMA_ALPHA * median_slack
+        lam = priority_v2._ema_slack + 1e-9  # avoid division by zero
+
+        # Primary component: decreases with increasing slack
+        primary = np.exp(-slack[non_exact] / lam)
+
+        # Swap‑improvement boost: slack close to mean item size
+        mean_item_size = priority_v2._ema_item_size if priority_v2._item_count > 0 else item
+        distance_to_mean = np.abs(slack[non_exact] - mean_item_size)
+        boost = SWAP_WEIGHT / (distance_to_mean + eps)
+        combined = primary + boost
+
+        # Penalty for brand‑new bins (those with maximum remaining capacity)
+        max_remaining = np.max(bins_remain_cap)
+        brand_new_mask = bins_remain_cap == max_remaining
+        penalty_array = np.zeros_like(bins_remain_cap, dtype=float)
+        penalty_array[brand_new_mask] = -PENALTY_BRAND_NEW
+        combined += penalty_array[non_exact]
+
+        # Deterministic tie‑breaker: older bins get slightly higher priority
+        indices = np.arange(len(bins_remain_cap))
+        combined -= indices[non_exact] * TIE_BREAK_INDEX_EPS
+
+        # Small random jitter
+        jitter = priority_v2._rng.normal(scale=RANDOM_JITTER_SCALE, size=combined.shape)
+        combined += jitter
+
+        priorities[non_exact] = combined
+
+    return priorities
+```

@@ -1,0 +1,84 @@
+```python
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    epsilon0: float = 0.20,
+    decay: float = 0.001,
+    smoothing: float = 1e-6,
+    tolerance: float = 1e-9,
+) -> np.ndarray:
+    """
+    Adaptive epsilon‑greedy priority for the online Bin Packing Problem.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the currently open bins.
+    epsilon0 : float, optional
+        Initial exploration probability (default 0.20).
+    decay : float, optional
+        Decay rate of epsilon per call (default 0.001).
+    smoothing : float, optional
+        Small constant added to the slack term to avoid division by zero
+        and to smooth the inverse‑slack calculation.
+    tolerance : float, optional
+        Tolerance used to detect exact fits (default 1e-9).
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin; infeasible bins receive ``-inf``.
+    """
+    # Ensure a NumPy array of floats for vectorized operations
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+
+    # Initialise priorities with -inf for infeasible bins
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Compute slack after placing the item
+    slack = bins_remain_cap - item
+    feasible_mask = slack >= 0
+
+    # If no feasible bin exists, return all -inf
+    if not np.any(feasible_mask):
+        return priorities
+
+    # Maintain a call counter to decay epsilon over time
+    if not hasattr(priority_v2, "_call_counter"):
+        priority_v2._call_counter = 0
+    step = priority_v2._call_counter
+    priority_v2._call_counter += 1
+
+    # Adaptive epsilon
+    epsilon = epsilon0 / (1.0 + decay * step)
+    epsilon = max(0.0, min(epsilon0, epsilon))
+
+    # Indices and slack of feasible bins
+    feasible_indices = np.where(feasible_mask)[0]
+    slack_feasible = slack[feasible_mask]
+
+    # Exploitation component: inverse slack, with optional exact‑fit bonus
+    exploitation = 1.0 / (slack_feasible + smoothing)
+    exact_feasible = slack_feasible <= tolerance
+    if np.any(exact_feasible):
+        exploitation[exact_feasible] += 1e6  # large bonus for exact fits
+
+    # Normalise exploitation scores to sum to 1
+    exploit_norm = exploitation / exploitation.sum()
+
+    # Exploration component: random scores normalised to sum to 1
+    rand_scores = np.random.rand(len(feasible_indices))
+    explore_norm = rand_scores / rand_scores.sum()
+
+    # Blend exploitation and exploration
+    combined = (1.0 - epsilon) * exploit_norm + epsilon * explore_norm
+
+    # Assign combined priorities to feasible bins
+    priorities[feasible_indices] = combined
+
+    return priorities
+```

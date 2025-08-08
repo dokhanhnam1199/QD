@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+_pv2_selection_counts = None
+_pv2_total_rewards = None
+_pv2_total_calls = 0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Adaptive scoring: inverse slack + UCB + reward learning + diversity + epsilon noise."""
+    global _pv2_selection_counts, _pv2_total_rewards, _pv2_total_calls
+    caps = np.asarray(bins_remain_cap, dtype=float)
+    n = caps.size
+    if n == 0:
+        return np.empty(0, dtype=float)
+    if _pv2_selection_counts is None or _pv2_selection_counts.shape[0] != n:
+        _pv2_selection_counts = np.zeros(n, dtype=float)
+        _pv2_total_rewards = np.zeros(n, dtype=float)
+        _pv2_total_calls = 0
+    feasible = caps >= item
+    if not np.any(feasible):
+        return np.full(n, -np.inf, dtype=float)
+    leftovers = caps[feasible] - item
+    inv_slack = 1.0 / (leftovers + 1.0)
+    eps = 0.2
+    random_term = np.random.rand(leftovers.size)
+    base = (1 - eps) * inv_slack + eps * random_term
+    indices = np.arange(n)[feasible]
+    best_fit = -leftovers
+    first_fit = -indices
+    selection_counts_feasible = _pv2_selection_counts[feasible]
+    avg_reward_feasible = np.where(selection_counts_feasible > 0,
+                                   _pv2_total_rewards[feasible] / selection_counts_feasible,
+                                   0.0)
+    c = 0.5
+    ucb_bonus = c * np.sqrt(np.log(_pv2_total_calls + 1) / (selection_counts_feasible + 1))
+    median_leftover = np.median(leftovers) if leftovers.size > 0 else 0.0
+    diversity = 1.0 / (np.abs(leftovers - median_leftover) + 1.0)
+    w_base, w_ucb, w_reward, w_div, w_best_fit, w_first_fit = 0.4, 0.2, 0.15, 0.1, 0.1, 0.05
+    score_feasible = (w_base * base + w_ucb * ucb_bonus + w_reward * avg_reward_feasible
+                      + w_div * diversity + w_best_fit * best_fit + w_first_fit * first_fit)
+    scores = np.full(n, -np.inf, dtype=float)
+    scores[feasible] = score_feasible
+    best = int(np.argmax(scores))
+    chosen_leftover = caps[best] - item
+    reward = -chosen_leftover
+    _pv2_selection_counts[best] += 1
+    _pv2_total_rewards[best] += reward
+    _pv2_total_calls += 1
+    return scores
+```

@@ -1,0 +1,86 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Priority function for the online Bin Packing Problem.
+
+    The function assigns a score to each currently open bin based on:
+      * Feasibility (bins that cannot accommodate the item receive -inf).
+      * Adaptive slack weighting: a coefficient α is derived from the
+        distribution (mean/std) of leftover capacities among feasible bins.
+      * Non‑linear penalty on leftover capacity (quadratic term) to
+        prioritize tighter fits.
+      * Small bonus for bins that would still be able to accommodate another
+        item of the same size after this placement.
+      * Massive bonus for exact fits (leftover ≈ 0) that dominates all other
+        terms.
+      * Deterministic index‑based tie‑breaker (tiny epsilon) to ensure a
+        reproducible choice when scores are otherwise equal.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities for each currently opened bin.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores (higher is better).  Infeasible bins have
+        ``-np.inf`` and will never be selected.
+    """
+    # Ensure a 1‑D float array; do not modify caller's array.
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.size
+
+    # Initialise all scores as infeasible.
+    scores = np.full(n_bins, -np.inf, dtype=float)
+
+    if n_bins == 0:
+        return scores
+
+    # Feasibility mask: bin can accommodate the item.
+    feasible = caps >= item
+    if not np.any(feasible):
+        return scores
+
+    # Remaining capacity after placing the item (non‑negative for feasible bins).
+    leftover = caps - item
+
+    # Adaptive slack weighting: compute coefficient α from the spread of leftovers.
+    leftover_feas = leftover[feasible]
+    mean_left = leftover_feas.mean()
+    std_left = leftover_feas.std()
+    cv = std_left / mean_left if mean_left > 0 else 0.0   # coefficient of variation
+    base_alpha = 1e-4                                     # baseline quadratic strength
+    alpha = base_alpha * (1.0 + cv)                       # larger cv → stronger penalty
+
+    # Non‑linear leftover penalty (quadratic).
+    # The more leftover, the lower (more negative) the score.
+    base_score = -leftover_feas - alpha * (leftover_feas ** 2)
+
+    # Small bonus for bins that would still fit another item of the same size.
+    future_factor = 1e-2
+    future_mask = feasible & (leftover >= item)
+
+    # Tiny deterministic tie‑breaker (lower index gets a minuscule advantage).
+    epsilon = 1e-12
+    tie_breaker = -epsilon * np.arange(n_bins, dtype=float)
+
+    # Assign base scores (including tie‑breaker) to feasible bins.
+    scores[feasible] = base_score + tie_breaker[feasible]
+
+    # Apply the future‑capacity bonus.
+    scores[future_mask] += future_factor
+
+    # Massive exact‑fit bonus: dominates any other term.
+    exact_tolerance = 1e-12
+    exact_fit_mask = feasible & np.isclose(leftover, 0.0, atol=exact_tolerance)
+    if np.any(exact_fit_mask):
+        EXACT_BONUS = 1e12
+        scores[exact_fit_mask] = EXACT_BONUS + tie_breaker[exact_fit_mask]
+
+    return scores
+```

@@ -1,0 +1,84 @@
+```python
+import numpy as np
+
+# Global state
+_call_counter = 0
+_rng = np.random.default_rng()
+
+# Epsilon‑greedy parameters
+_EPSILON0 = 0.15
+_MIN_EPSILON = 0.02
+_DECAY_RATE = 5e-4
+
+# Sigmoid and safety parameters
+_MAX_EXPONENT = 20.0
+_EPS = 1e-12
+_HIGH_PRIORITY = 1e9
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Online Bin Packing priority function.
+
+    Computes a priority score for each bin based on leftover capacity after
+    placing the item. Feasible bins receive a score; infeasible bins get -inf.
+    The function employs:
+      - Sigmoid on normalized leftover (using MAD) to penalise waste.
+      - Exact‑fit boost with a very high priority.
+      - Deterministic tie‑breaker via a small jitter proportional to bin index.
+      - Optional epsilon‑greedy exploration with a decaying probability.
+    """
+    global _call_counter
+
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+    n_bins = bins_remain_cap.size
+
+    # Increment global counter
+    _call_counter += 1
+
+    # Compute leftover capacity if item is placed in each bin
+    leftover = bins_remain_cap - item
+
+    # Feasibility mask
+    feasible = leftover >= 0.0
+
+    # All bins infeasible: return -inf for all
+    if not np.any(feasible):
+        return np.full(n_bins, -np.inf, dtype=float)
+
+    # ----- Epsilon‑greedy exploration -----
+    epsilon = max(_MIN_EPSILON, _EPSILON0 * np.exp(-_DECAY_RATE * _call_counter))
+    if _rng.random() < epsilon:
+        # Random score for feasible bins
+        rand_scores = _rng.random(n_bins)
+        return np.where(feasible, rand_scores, -np.inf)
+
+    # ----- Deterministic scoring -----
+    # Compute MAD only on feasible leftovers
+    feas_leftover = leftover[feasible]
+    med = np.median(feas_leftover)
+    mad = np.median(np.abs(feas_leftover - med))
+    mad = max(mad, _EPS)  # avoid division by zero
+
+    # Normalized ratio
+    ratio = feas_leftover / mad
+    # Clip ratio to avoid overflow in exp
+    ratio = np.clip(ratio, 0.0, _MAX_EXPONENT)
+
+    # Sigmoid that rewards small leftover: 1/(1+exp(ratio))
+    base_scores = 1.0 / (1.0 + np.exp(ratio))
+
+    # Prepare priority array
+    priorities = np.full(n_bins, -np.inf, dtype=float)
+    priorities[feasible] = base_scores
+
+    # Boost exact fits
+    exact_mask = np.isclose(feas_leftover, 0.0, atol=1e-9)
+    if np.any(exact_mask):
+        priorities[feasible][exact_mask] = _HIGH_PRIORITY
+
+    # ----- Deterministic tie‑breaker -----
+    jitter = 1e-8 * np.arange(n_bins, dtype=float)
+    priorities += jitter
+
+    return priorities
+```

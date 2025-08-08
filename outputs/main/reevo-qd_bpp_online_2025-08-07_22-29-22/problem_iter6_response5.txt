@@ -1,0 +1,115 @@
+```python
+import numpy as np
+
+# Single global random generator for reproducibility
+_rng = np.random.default_rng()
+
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute a sigmoid‑based, size‑aware, slightly stochastic priority for each
+    open bin in an online Bin Packing setting.
+
+    The heuristic favours bins that:
+      * can accommodate the item (feasibility),
+      * will have little residual capacity after placement (tight fit, via a
+        sigmoid on the normalised waste),
+      * allow the item to occupy a large fraction of the bin (item‑size weight),
+      * receive a modest random perturbation to break ties and inject exploration.
+
+    The returned vector contains non‑negative scores that sum to 1 (i.e. a
+    probability distribution).  The bin with the highest score should be chosen
+    for the item.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item (must be non‑negative).
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the currently open bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (same shape as ``bins_remain_cap``).
+    """
+    # ------------------------------------------------------------
+    # 1. Normalise input
+    # ------------------------------------------------------------
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Edge case: no bins at all
+    if caps.size == 0:
+        return np.empty_like(caps)
+
+    # ------------------------------------------------------------
+    # 2. Feasibility mask
+    # ------------------------------------------------------------
+    feasible = caps >= item
+    if not np.any(feasible):
+        # No open bin can host the item – caller may open a new bin.
+        return np.zeros_like(caps)
+
+    # ------------------------------------------------------------
+    # 3. Compute waste (residual capacity) for feasible bins
+    # ------------------------------------------------------------
+    waste = caps - item                # >= 0 for feasible bins
+
+    # ------------------------------------------------------------
+    # 4. Estimate the true bin capacity (used for normalisation)
+    # ------------------------------------------------------------
+    # Adding ``item`` ensures that an empty bin yields a capacity estimate
+    # close to the actual bin size.
+    est_capacity = np.max(caps) + item
+    eps = 1e-12                         # safeguard against division by zero
+
+    # ------------------------------------------------------------
+    # 5. Normalised waste and sigmoid‑based tight‑fit score
+    # ------------------------------------------------------------
+    # Normalised residual after placement (fraction of estimated capacity)
+    norm_waste = np.clip(waste / (est_capacity + eps), 0.0, 1.0)
+
+    # Sigmoid hyper‑parameters
+    steepness = 12.0                    # controls transition sharpness
+    tolerance = 0.10                    # desired maximal leftover fraction
+
+    sigmoid_score = np.zeros_like(caps)
+    # High score when normalised waste ≤ tolerance, low otherwise
+    sigmoid_score[feasible] = 1.0 / (
+        1.0 + np.exp(-steepness * (tolerance - norm_waste[feasible]))
+    )
+
+    # ------------------------------------------------------------
+    # 6. Item‑size weight (larger fraction → higher priority)
+    # ------------------------------------------------------------
+    size_weight = np.zeros_like(caps)
+    size_weight[feasible] = item / (caps[feasible] + eps)
+
+    # ------------------------------------------------------------
+    # 7. Random perturbation (clamped to [1‑α, 1+α])
+    # ------------------------------------------------------------
+    alpha = 0.15                        # strength of randomness
+    rand_factor = np.ones_like(caps)
+    num_feas = feasible.sum()
+    if num_feas:
+        # Uniform in [1‑α, 1+α]
+        rand_factor[feasible] = 1.0 + alpha * (2.0 * _rng.random(num_feas) - 1.0)
+
+    # ------------------------------------------------------------
+    # 8. Combine components
+    # ------------------------------------------------------------
+    raw_score = sigmoid_score * size_weight * rand_factor
+    raw_score[~feasible] = 0.0          # enforce zero for infeasible bins
+
+    # ------------------------------------------------------------
+    # 9. Normalise to a probability distribution
+    # ------------------------------------------------------------
+    total = raw_score.sum()
+    if total > 0.0:
+        priorities = raw_score / total
+    else:
+        # Fallback: uniform distribution over feasible bins
+        priorities = np.where(feasible, 1.0 / num_feas, 0.0)
+
+    return priorities
+```

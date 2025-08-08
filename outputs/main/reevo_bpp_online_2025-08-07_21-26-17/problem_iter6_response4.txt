@@ -1,0 +1,148 @@
+```python
+import numpy as np
+
+def priority_v2(item: float,
+                bins_remain_cap: np.ndarray,
+                *,
+                temperature: float = 1.0,
+                alpha: float = 0.5,
+                fit_weight: float = 1.0,
+                noise_scale: float = 1e-4,
+                epsilon: float = 0.05) -> np.ndarray:
+    """
+    Computes a probability distribution over the currently open bins
+    for an incoming item in the online bin‑packing problem.
+
+    The score for each *feasible* bin i is a weighted combination of:
+
+    * **Leftover capacity** after placement – smaller is better
+    * **Fit ratio**   : item / remaining_capacity – larger is better
+    * **Load‑balance penalty** – the variance of the remaining
+      capacities after placement (smaller variance is better)
+
+    The raw scores are turned into probabilities using a temperature
+   ‑scaled softmax.  Infeasible bins (remaining capacity < item) receive a
+    score of ``0``.  Optional small noise and ε‑greedy exploration can be
+    enabled to avoid deterministic ties.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.  Must be positive.
+    bins_remain_cap : array‑like of shape (n_bins,)
+        Remaining capacity of each currently open bin.
+    temperature : float, default=1.0
+        Softmax temperature.  Lower values produce a more deterministic
+        choice; higher values make the distribution flatter.
+    alpha : float, default=0.5
+        Weight of the variance penalty.  Larger values encourage a more
+        balanced load across bins.
+    fit_weight : float, default=1.0
+        Weight of the fit‑ratio term.  Larger values favour bins that
+        fit the item more tightly.
+    noise_scale : float, default=1e-4
+        Scale of random noise added to the raw scores before softmax.
+        Set to ``0`` to disable.
+    epsilon : float, default=0.05
+        Probability of selecting a random distribution over the
+        feasible bins (ε‑greedy exploration).  Set to ``0`` to
+        disable.
+
+    Returns
+    -------
+    priorities : ndarray of shape (n_bins,)
+        Probabilities for selecting each bin.  Feasible bins sum to
+        ``1``; infeasible bins receive ``0``.  If no bin can accommodate
+        the item, all priorities are zero.
+
+    Notes
+    -----
+    * The function is fully vectorised and performs only a few
+      arithmetic operations per bin.
+    * It assumes that ``bins_remain_cap`` is a one‑dimensional
+      array; any shape will be flattened.
+    * The computation of the variance penalty uses the analytic
+      formula for the variance of the remaining capacities after
+      placing the item into each candidate bin.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> bins = np.array([5.0, 3.0, 7.0])  # remaining capacities
+    >>> priority_v2(2.5, bins)
+    array([0.280..., 0.546..., 0.174...])  # example output
+    """
+    # Input sanitisation ----------------------------------------------------
+    if item <= 0:
+        raise ValueError("item size must be positive")
+
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+    n_bins = bins_remain_cap.size
+    if n_bins == 0:
+        return np.array([], dtype=float)
+
+    if temperature <= 0.0:
+        raise ValueError("temperature must be a positive number")
+
+    rng = np.random.default_rng()
+
+    # Feasibility ------------------------------------------------------------
+    feasible = bins_remain_cap >= item
+
+    if not np.any(feasible):
+        # No bin can accommodate the item – all priorities zero
+        return np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Leftover capacity after placement ------------------------------------
+    leftover = bins_remain_cap - item
+
+    # Fit ratio -------------------------------------------------------------
+    fit_ratio = np.empty_like(bins_remain_cap)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        np.divide(item, bins_remain_cap, out=fit_ratio, where=feasible)
+    fit_ratio[~feasible] = 0.0  # irrelevant for infeasible bins
+
+    # Variance penalty after placement --------------------------------------
+    total_sum = bins_remain_cap.sum()
+    total_sq_sum = np.square(bins_remain_cap).sum()
+    new_sum = total_sum - item
+    mean_new = new_sum / n_bins
+    var_after = (total_sq_sum - 2.0 * item * bins_remain_cap + item**2) / n_bins
+    var_after -= mean_new**2
+    var_after[~feasible] = 0.0  # ignore infeasible bins
+
+    # Raw score: weighted combination --------------------------------------
+    raw_score = -leftover + fit_weight * fit_ratio - alpha * var_after
+    raw_score = np.where(feasible, raw_score, -np.inf)
+
+    # Optional noise --------------------------------------------------------
+    if noise_scale != 0.0:
+        noise = rng.random(bins_remain_cap.shape) * noise_scale
+        raw_score[feasible] += noise[feasible]
+
+    # ε‑greedy exploration --------------------------------------------------
+    if epsilon > 0.0 and rng.random() < epsilon:
+        random_priorities = np.zeros_like(bins_remain_cap, dtype=float)
+        idx = np.nonzero(feasible)[0]
+        if idx.size > 0:
+            random_priorities[idx] = rng.random(idx.size)
+            random_priorities[idx] /= random_priorities[idx].sum()
+        return random_priorities
+
+    # Softmax transformation -------------------------------------------------
+    # Numerical stability: subtract max of feasible scores
+    max_feasible = raw_score[feasible].max()
+    scaled = (raw_score - max_feasible) / temperature
+    exp_scaled = np.exp(scaled)
+
+    # Normalise only over feasible bins
+    exp_feasible = exp_scaled[feasible]
+    total_exp = exp_feasible.sum()
+    if total_exp == 0.0:
+        # All feasible scores were -inf – return zeros
+        return np.zeros_like(bins_remain_cap, dtype=float)
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    priorities[feasible] = exp_feasible / total_exp
+    return priorities
+```

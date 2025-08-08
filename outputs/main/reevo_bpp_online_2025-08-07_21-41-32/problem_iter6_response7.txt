@@ -1,0 +1,91 @@
+```python
+import numpy as np
+from typing import Optional
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    random_state: Optional[int] = None,
+) -> np.ndarray:
+    """
+    Priority function for online Bin Packing.
+
+    Each feasible bin (i.e. a bin with enough remaining capacity) receives a
+    score that blends a tight‑fit bias with a random component.  The relative
+    weight of the bias adapts online based on the current packing situation:
+    when few bins can accommodate the item we trust the bias more (tight fit);
+    when many bins are feasible we rely more on randomness to explore diverse
+    placements.
+
+    Infeasible bins receive a score of -inf so they are never selected.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities for each bin.
+    random_state : int, optional
+        Seed for reproducibility.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (higher is better) for each bin.
+    """
+    eps = 1e-12                     # avoid division by zero
+    caps = np.asarray(bins_remain_cap, dtype=float)
+    n_bins = caps.size
+
+    # Initialise all priorities to -inf (infeasible by default)
+    priorities = np.full(n_bins, -np.inf, dtype=float)
+
+    # Identify feasible bins
+    feasible = caps >= item
+    if not np.any(feasible):
+        # Nothing fits – return all -inf
+        return priorities
+
+    # Slack after placing the item in each feasible bin
+    slack = caps - item
+
+    # ---- 1. Tight‑fit bias -------------------------------------------------
+    # Bias is higher when the remaining slack is small.
+    bias = np.zeros_like(caps)
+    bias[feasible] = 1.0 / (slack[feasible] + eps)
+
+    # Normalise bias to the range [0, 1] for a fair combination with randomness.
+    max_bias = bias[feasible].max()
+    bias_norm = np.zeros_like(caps)
+    bias_norm[feasible] = bias[feasible] / (max_bias + eps)
+
+    # ---- 2. Random component -----------------------------------------------
+    rng = np.random.default_rng(random_state)
+    rand_scores = rng.random(n_bins)          # uniform [0, 1) for every bin
+
+    # ---- 3. Adaptive weighting -----------------------------------------------
+    # Weight of the tight‑fit bias depends on how many bins are feasible.
+    # Few feasible bins → high bias weight (focus on tight fit).
+    # Many feasible bins → lower bias weight (more exploration).
+    feasible_frac = feasible.sum() / n_bins          # ∈ (0, 1]
+    w_bias = 1.0 - feasible_frac                      # larger when few bins fit
+
+    # Clamp the weight to avoid extreme domination of one term.
+    w_bias = np.clip(w_bias, 0.1, 0.9)
+
+    # ---- 4. Combine bias and randomness ---------------------------------------
+    # Linear blend of the two components for feasible bins.
+    combined = np.zeros_like(caps)
+    combined[feasible] = (
+        w_bias * bias_norm[feasible] + (1.0 - w_bias) * rand_scores[feasible]
+    )
+
+    # ---- 5. Tiny random tie‑breaker (numerical stability) --------------------
+    tie_eps = 1e-8
+    combined[feasible] += rng.random(combined[feasible].shape) * tie_eps
+
+    # Fill the output array
+    priorities[feasible] = combined[feasible]
+
+    return priorities
+```

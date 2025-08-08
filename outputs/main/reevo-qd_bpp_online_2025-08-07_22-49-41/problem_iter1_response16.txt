@@ -1,0 +1,59 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Compute bin priorities using a Sigmoid Fit Score strategy.
+
+    The priority is based on the residual space after inserting the item
+    into a bin.  Bins that leave almost no slack (i.e., perfect fit)
+    obtain the highest score.  The decay of the score is governed by a
+    sigmoid (logistic) function over the relative residual
+    `r = (remaining - item) / remaining`.
+
+    Bins that cannot accommodate the item receive a very low priority
+    (``-np.inf``) so that they are never selected.
+
+    Parameters
+    ----------
+    item : float
+        Size of the item to be inserted.
+    bins_remain_cap : np.ndarray
+        Remaining capacities of the candidate bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores in the range [0, 1], with 1 corresponding to a perfect fit.
+    """
+    # Ensure we work on a NumPy array of floats
+    bins = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # Bin can hold the item?
+    fits = bins >= item
+
+    # Residual space if item fits
+    residual = bins - item
+
+    # Relative residual: 0 when perfect fit, increasing with slack
+    rel_residual = np.zeros_like(bins)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        rel_residual = np.where(
+            fits & (bins > 0),
+            residual / bins,
+            0.0
+        )
+
+    # Sigmoid decay parameter – steeper values emphasize tight fits.
+    alpha = 10.0
+    scores = np.where(
+        fits,
+        1.0 / (1.0 + np.exp(alpha * rel_residual)),
+        -np.inf   # unfit bins get minimal score
+    )
+
+    # Scale to [0, 1] so perfect fit yields 1.0
+    scores *= 2.0
+    np.clip(scores, 0.0, 1.0, out=scores)
+
+    return scores
+```

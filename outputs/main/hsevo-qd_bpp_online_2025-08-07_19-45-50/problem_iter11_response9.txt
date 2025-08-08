@@ -1,0 +1,26 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, tau: float = 0.1, epsilon: float = 0.05, rng: np.random.Generator = None) -> np.ndarray:
+    """Probability distribution over bins favoring minimal residual capacity, with epsilon mixing and Gumbel noise."""
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+    feasible = bins_remain_cap >= item
+    if not np.any(feasible):
+        return np.zeros_like(bins_remain_cap, dtype=float)
+    if rng is None:
+        rng = np.random.default_rng()
+    temperature = max(tau, 1e-12)
+    residual = bins_remain_cap - item
+    logits = -residual / temperature
+    logits[~feasible] = -np.inf
+    gumbel = -np.log(-np.log(rng.random(logits.shape) + 1e-12) + 1e-12)
+    logits_noisy = logits + gumbel
+    logits_noisy[~feasible] = -np.inf
+    max_logit = np.max(logits_noisy)
+    exp_shifted = np.exp(logits_noisy - max_logit)
+    sum_exp = np.sum(exp_shifted)
+    softmax = exp_shifted / sum_exp if sum_exp > 0 else np.zeros_like(bins_remain_cap, dtype=float)
+    uniform = np.zeros_like(bins_remain_cap, dtype=float)
+    uniform[feasible] = 1.0 / feasible.sum()
+    return (1 - epsilon) * softmax + epsilon * uniform
+```

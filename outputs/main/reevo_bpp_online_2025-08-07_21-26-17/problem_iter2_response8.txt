@@ -1,0 +1,77 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive priority for the online Bin Packing Problem.
+
+    This heuristic blends a First‑Fit style index preference with a
+    Worst‑Fit style remaining‑capacity preference.  The relative weight of
+    the two components changes smoothly with the current load of the
+    bin set: when bins are largely empty the algorithm behaves like
+    First‑Fit; as the bins become increasingly full it gradually turns
+    into a Worst‑Fit strategy.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the current bins.  Must be
+        non‑negative.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin; the highest score corresponds to
+        the bin that will receive the item.  Infeasible bins receive
+        ``-np.inf``.
+    """
+    # Ensure float type to avoid integer overflow when computing differences
+    bins_remain_cap = bins_remain_cap.astype(float, copy=False)
+
+    # Feasible bins: those that can accommodate the item
+    feasible = bins_remain_cap >= item
+
+    # Initialise all priorities to -inf (unfeasible)
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # If no bin can hold the item, return immediately
+    if not np.any(feasible):
+        return priorities
+
+    # Indices of bins
+    indices = np.arange(bins_remain_cap.shape[0])
+
+    # Remaining capacities of feasible bins
+    remaining = bins_remain_cap[feasible]
+
+    # Avoid division by zero in the load calculation
+    eps = 1e-12
+    max_remain = np.max(remaining)
+
+    # Load factor: 0 when a bin has almost the maximum remaining capacity
+    # (bins are empty), 1 when the bin has almost zero remaining capacity
+    # (bins are almost full).  It is computed element‑wise.
+    load_factor = 1.0 - remaining / (max_remain + eps)
+    load_factor = np.clip(load_factor, 0.0, 1.0)
+
+    # Weight given to the index term (First‑Fit) and to the remaining capacity
+    # term (Worst‑Fit)
+    index_weight = 1.0 - load_factor
+
+    # Combine the two components into a single priority score
+    #  * index term favours lower indices (First‑Fit)
+    #  * remaining term favours bins with more space (Worst‑Fit)
+    priorities[feasible] = (
+        -indices[feasible] * index_weight
+        + remaining * load_factor
+    )
+
+    # Tiny tie‑breaker: a very small addition proportional to the remaining
+    # capacity.  This ensures deterministic selection when priorities are
+    # numerically identical.
+    priorities[feasible] += 1e-6 * remaining
+
+    return priorities
+```

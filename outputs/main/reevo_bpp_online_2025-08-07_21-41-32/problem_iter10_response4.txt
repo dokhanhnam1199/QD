@@ -1,0 +1,91 @@
+```python
+import numpy as np
+from typing import Optional, Union
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    tolerance: float = 1e-12,
+    tie_breaker: float = 1e-12,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
+) -> np.ndarray:
+    """
+    Priority function for online bin‑packing that blends exact‑fit scoring,
+    slack bias, bounded randomness, tolerance checks, and a deterministic
+    tie‑breaker.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacity for each currently open bin.
+    tolerance : float, optional
+        Numerical tolerance used for feasibility checks and exact‑fit
+        detection. Default is 1e-12.
+    tie_breaker : float, optional
+        Small positive constant used to break ties deterministically
+        (lower‑indexed bins are slightly preferred). Default is 1e-12.
+    random_state : int or np.random.Generator, optional
+        Seed or generator for reproducible randomness. If ``None`` the
+        global NumPy RNG is used.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores, one per bin (higher = more attractive).
+        Infeasible bins receive ``-np.inf``.
+    """
+    # Ensure we work with a flat float array.
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.size
+
+    # Handle the empty case early.
+    if n_bins == 0:
+        return np.empty(0, dtype=float)
+
+    # Feasibility mask: bins that can accommodate the item.
+    feasible = caps >= item - tolerance
+
+    # Initialise priorities with -inf for infeasible bins.
+    priorities = np.full(n_bins, -np.inf, dtype=float)
+
+    # If no bin can fit the item, we return the default priorities.
+    if not np.any(feasible):
+        return priorities
+
+    # Slack for feasible bins (non‑negative).
+    slack = caps[feasible] - item
+    slack = np.maximum(slack, 0.0)
+
+    # Exact‑fit score: larger when slack is smaller (exact fit → 0).
+    exact_score = -slack
+
+    # Slack bias: larger for tighter fits, normalised to [0, 1].
+    bias = 1.0 / (slack + tolerance)
+    bias_norm = bias / bias.max() if bias.max() > 0 else np.zeros_like(bias)
+
+    # Random generator handling.
+    if isinstance(random_state, np.random.Generator):
+        rng = random_state
+    else:
+        rng = np.random.default_rng(random_state)
+
+    # Random component scaled by bias_norm; bounded in [0, 1].
+    random_component = bias_norm * rng.random(bias.size)
+
+    # Weight of the random component: reduce randomness if an exact fit exists.
+    w_random = 0.0 if np.any(np.isclose(slack, 0.0, atol=tolerance)) else 0.5
+
+    # Deterministic tie‑breaker: lower‑indexed bins receive a slight advantage.
+    idx_feasible = np.where(feasible)[0]
+    tie_term = idx_feasible.astype(float) * tie_breaker
+
+    # Combine components: larger value → higher priority.
+    combined = exact_score + w_random * random_component - tie_term
+
+    # Assign the computed priorities back to the corresponding bins.
+    priorities[feasible] = combined
+
+    return priorities
+```

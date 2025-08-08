@@ -1,0 +1,104 @@
+```python
+import numpy as np
+
+def priority_v2(item: float,
+                bins_remain_cap: np.ndarray,
+                temperature: float = 1.0,
+                next_item_estimate: float | None = None,
+                weight_fit: float = 1.0,
+                weight_future: float = 1.0,
+                weight_balance: float = 0.5) -> np.ndarray:
+    """
+    Priority function for the online Bin Packing Problem (BPP).
+
+    This heuristic combines several signals:
+    * **Tight fit** – prefers bins where the leftover capacity after placing
+      the current item is small.
+    * **Future‑item feasibility** – if an estimate of the next item's size is
+      provided, bins that will still be able to accommodate that item receive
+      a bonus.
+    * **Bin‑balance** – encourages the remaining capacities of bins to stay
+      close to the average, avoiding a situation where some bins are almost
+      empty while others are nearly full.
+
+    The raw scores are transformed into a probability‑like priority vector
+    using a temperature‑controlled softmax. Bins that cannot accommodate the
+    current item receive a priority of zero.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of the remaining capacities of the bins.
+    temperature : float, optional
+        Positive temperature controlling the softness of the softmax.
+        Smaller values make the selection more deterministic.
+    next_item_estimate : float or None, optional
+        Estimated size of the next item. If given, bins that will still have
+        enough capacity for that next item after placing the current one get
+        a bonus.
+    weight_fit : float, optional
+        Weight for the tight‑fit component.
+    weight_future : float, optional
+        Weight for the future‑item feasibility component.
+    weight_balance : float, optional
+        Weight for the bin‑balance component.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (sum to 1 over feasible bins, zero for infeasible
+        bins).
+    """
+    # Ensure a 1‑D float array.
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=np.float64).ravel()
+
+    # Feasibility mask: bins that can accommodate the current item.
+    feasible = bins_remain_cap >= item
+    if not np.any(feasible):
+        # No bin can accept the item.
+        return np.zeros_like(bins_remain_cap, dtype=np.float64)
+
+    # Remaining capacity after placing the item.
+    leftover = bins_remain_cap - item  # >= 0 for feasible bins.
+
+    # ---- Component 1: Tight fit (smaller leftover -> higher score) ----
+    # Using negative leftover so that a smaller leftover yields a larger value.
+    fit_score = -leftover * weight_fit
+
+    # ---- Component 2: Future‑item feasibility (optional) ----
+    if next_item_estimate is not None:
+        # Binary bonus for bins that would still be able to host the next item.
+        future_feasibility = (leftover >= next_item_estimate).astype(np.float64)
+        future_score = weight_future * future_feasibility
+    else:
+        future_score = 0.0
+
+    # ---- Component 3: Bin balance ----
+    # Encourage bins whose remaining capacity is close to the mean remaining.
+    avg_remain = np.mean(bins_remain_cap)
+    balance_score = -np.abs(bins_remain_cap - avg_remain) * weight_balance
+
+    # Combine components into a raw score.
+    raw_score = fit_score + future_score + balance_score
+
+    # Infeasible bins should never be selected → assign -inf before softmax.
+    raw_score = np.where(feasible, raw_score, -np.inf)
+
+    # ---- Temperature‑controlled softmax ----
+    eps = 1e-12
+    temp = max(temperature, eps)  # avoid division by zero.
+    max_raw = np.max(raw_score)   # finite because at least one feasible bin.
+    # Subtract max for numerical stability.
+    exp_scores = np.exp((raw_score - max_raw) / temp)
+    # exp(-inf) = 0, so infeasible bins contribute nothing.
+    sum_exp = np.sum(exp_scores)
+    if sum_exp == 0.0:
+        # Guard against pathological cases.
+        priorities = np.zeros_like(bins_remain_cap, dtype=np.float64)
+    else:
+        priorities = exp_scores / sum_exp
+
+    return priorities
+```

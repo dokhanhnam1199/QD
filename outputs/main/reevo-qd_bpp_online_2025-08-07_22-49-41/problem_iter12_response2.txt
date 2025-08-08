@@ -1,0 +1,140 @@
+```python
+import numpy as np
+from typing import Union
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    step: int = 0,
+    epsilon0: float = 0.15,
+    decay_rate: float = 0.01,
+    base_alpha: float = 10.0,
+    exact_bonus: float = 1e9,
+    tolerance: float = 1e-12,
+    jitter_scale: float = 1e-12,
+    random_state: Union[int, np.random.Generator, None] = None,
+) -> np.ndarray:
+    """
+    Priority function for the online Bin Packing Problem (BPP).
+
+    This version builds on the adaptive logistic scoring approach:
+      * exact‑fit bins receive a large constant bonus,
+      * non‑exact feasible bins are scored with a logistic transform of the
+        *tightness* of the fit (tightness = 1 – slack / max_remaining_capacity),
+        * median tightness of the current feasible set is used as the logistic
+          midpoint,
+        * the steepness (α) adapts to the spread of tightness values via the
+          inter‑quartile range,
+      * a deterministic jitter (scaled by ``jitter_scale``) breaks ties
+        reproducibly,
+      * an ε‑greedy exploration step decays over time.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        Remaining capacities of currently open bins.
+    step : int, optional
+        Number of items processed so far (used for ε decay). Default ``0``.
+    epsilon0 : float, optional
+        Initial exploration probability. Default ``0.15``.
+    decay_rate : float, optional
+        Decay factor for ε (ε = ε₀ / (1 + decay_rate * step)). Default ``0.01``.
+    base_alpha : float, optional
+        Base steepness for the logistic curve. Adapted by the IQR of tightness.
+        Default ``10.0``.
+    exact_bonus : float, optional
+        Bonus added to exact‑fit bins to guarantee selection. Default ``1e9``.
+    tolerance : float, optional
+        Numerical tolerance for floating‑point comparisons. Default ``1e-12``.
+    jitter_scale : float, optional
+        Scale of deterministic jitter for tie‑breaking. Default ``1e-12``.
+    random_state : int | np.random.Generator | None, optional
+        Seed or generator for random numbers (used for ε‑greedy exploration).
+        Default ``None``.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin; infeasible bins have ``-np.inf``.
+    """
+    # --------------------------------------------------------------------- #
+    # 1. Prepare data
+    # --------------------------------------------------------------------- #
+    caps = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # Feasibility mask – bin must have enough free space (with tolerance)
+    feasible = caps >= (item - tolerance)
+
+    # Initialise all priorities to -inf (infeasible)
+    priorities = np.full_like(caps, -np.inf, dtype=np.float64)
+
+    if not feasible.any():
+        # No bin can accommodate the item – caller will need to open a new bin
+        return priorities
+
+    # --------------------------------------------------------------------- #
+    # 2. Compute slack and identify exact‑fit bins
+    # --------------------------------------------------------------------- #
+    slack = caps - item
+    exact_fit = np.abs(slack) <= tolerance
+    priorities[exact_fit] = exact_bonus
+
+    # --------------------------------------------------------------------- #
+    # 3. Score non‑exact feasible bins
+    # --------------------------------------------------------------------- #
+    non_exact = feasible & ~exact_fit
+    if non_exact.any():
+        # Normalise slack by the largest remaining capacity among feasible bins
+        max_cap = caps[feasible].max()
+        max_cap = max(max_cap, 1e-12)  # protect against division by zero
+
+        # Normalised slack ∈ [0, 1]; tightness = 1 - normalized slack
+        norm_slack = slack[non_exact] / max_cap
+        tightness = 1.0 - norm_slack  # tighter fit → larger value
+
+        # Adaptive logistic midpoint: median tightness of current feasible set
+        median_tight = np.median(tightness)
+
+        # Adaptive steepness: increase α when distribution is narrow,
+        # decrease when it is wide. Use IQR as a proxy for spread.
+        iqr = np.percentile(tightness, 75) - np.percentile(tightness, 25)
+        # Prevent division by zero; ensure α stays within reasonable bounds
+        adaptive_alpha = base_alpha * (1.0 / (iqr + 1e-12))
+        adaptive_alpha = np.clip(adaptive_alpha, 1.0, 1e3)
+
+        # Logistic transform
+        logistic_arg = adaptive_alpha * (tightness - median_tight)
+        logistic_arg = np.clip(logistic_arg, -50, 50)  # avoid overflow
+        logistic_score = 1.0 / (1.0 + np.exp(-logistic_arg))
+
+        # Deterministic jitter based on bin index (break ties reproducibly)
+        idx_non_exact = np.where(non_exact)[0]
+        jitter = jitter_scale * (idx_non_exact.astype(np.float64) / (len(caps) + 1.0))
+
+        priorities[non_exact] = logistic_score + jitter
+
+    # --------------------------------------------------------------------- #
+    # 4. ε‑greedy exploration (decaying ε)
+    # --------------------------------------------------------------------- #
+    epsilon = epsilon0 / (1.0 + decay_rate * step)
+    epsilon = min(max(epsilon, 0.0), 1.0)  # clamp to [0, 1]
+
+    # Prepare RNG (allow passing a Generator or a seed)
+    rng = (
+        random_state
+        if isinstance(random_state, np.random.Generator)
+        else np.random.default_rng(random_state)
+    )
+
+    if rng.random() < epsilon:
+        # Exploration: assign random scores to all feasible bins (except exact)
+        rand_vals = rng.random(non_exact.sum())
+        priorities[non_exact] = rand_vals
+        # Preserve exact‑fit bonus (they remain the highest)
+        priorities[exact_fit] = exact_bonus
+
+    return priorities
+```

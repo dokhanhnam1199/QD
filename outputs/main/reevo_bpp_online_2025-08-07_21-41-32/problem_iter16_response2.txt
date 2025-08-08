@@ -1,0 +1,109 @@
+```python
+import numpy as np
+from typing import Optional
+
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    tolerance: float = 1e-12,
+    epsilon: float = 1e-12,
+    tie_breaker: float = 1e-6,
+    rand_scale: float = 1e-6,
+    random_state: Optional[np.random.Generator] = None,
+) -> np.ndarray:
+    """
+    Priority function for the online Bin Packing Problem.
+
+    Computes a score for each open bin indicating how desirable it is
+    to place the incoming ``item`` in that bin. Higher scores are
+    preferred. Infeasible bins (remaining capacity smaller than the
+    item) receive ``-np.inf`` and will never be selected.
+
+    The score combines:
+    * An inverse‑slack bias (tight fits get higher scores) that is
+      normalised to ``[0, 1]``.
+    * A small random perturbation to break ties and diversify
+      decisions.
+    * A deterministic tie‑breaker that favours bins with lower index.
+    * A weighting by the fraction of bins that are feasible, which
+      down‑scales the bias when many bins can accept the item.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the currently open bins.
+    tolerance : float, optional
+        Numerical tolerance for feasibility checks.
+    epsilon : float, optional
+        Small constant added to slack to avoid division‑by‑zero.
+    tie_breaker : float, optional
+        Weight of the deterministic tie‑breaker (must be tiny).
+    rand_scale : float, optional
+        Scale of the random perturbation (tiny).
+    random_state : np.random.Generator, optional
+        Random generator for reproducibility. If ``None``, a new
+        default generator is created.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (higher is better). Infeasible bins
+        contain ``-np.inf``.
+    """
+    # Random generator (reproducible if provided)
+    rng = random_state if random_state is not None else np.random.default_rng()
+
+    # Ensure a flat float array of capacities
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.size
+
+    # Slack after placing the item
+    slack = caps - item
+
+    # Feasibility mask (allow small tolerance)
+    feasible = slack >= -tolerance
+
+    # Initialise all scores as -inf (infeasible)
+    priorities = np.full(n_bins, -np.inf, dtype=float)
+
+    # Early exit if nothing fits
+    if not np.any(feasible):
+        return priorities
+
+    # Positive slack for feasible bins (negative slack -> 0)
+    slack_pos = np.maximum(slack[feasible], 0.0)
+
+    # Inverse‑slack bias: tighter fit -> larger bias
+    bias = 1.0 / (slack_pos + epsilon)
+
+    # Normalise bias to [0, 1]
+    bias_norm = bias / bias.max()
+
+    # Weight by fraction of feasible bins
+    feasible_frac = feasible.sum() / n_bins
+    weighted_bias = bias_norm * feasible_frac
+
+    # Tiny random perturbation
+    rand_vals = rng.random(weighted_bias.shape) * rand_scale
+
+    # Deterministic tie‑breaker: lower index gets slight advantage
+    tie_vals = -np.arange(n_bins, dtype=float)[feasible] * tie_breaker
+
+    # Combine components
+    scores = weighted_bias + rand_vals + tie_vals
+
+    # Populate feasible positions
+    priorities[feasible] = scores
+
+    # Final normalisation among feasible scores (preserve ordering, bound to [0,1])
+    feas_scores = priorities[feasible]
+    min_score = feas_scores.min()
+    max_score = feas_scores.max()
+    if max_score > min_score:
+        priorities[feasible] = (feas_scores - min_score) / (max_score - min_score)
+
+    return priorities
+```

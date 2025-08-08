@@ -1,0 +1,140 @@
+```python
+import numpy as np
+from typing import Optional
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    random_state: Optional[int] = None,
+    epsilon_min: float = 0.01,
+    epsilon_max: float = 0.15,
+    temperature: float = 0.5,
+    sigmoid_steepness: float = 12.0,
+) -> np.ndarray:
+    """
+    Adaptive priority function for the online Bin Packing Problem.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item (must be non‑negative).
+    bins_remain_cap : np.ndarray
+        1‑D (float) – remaining capacities of the currently open bins.
+    random_state : int or None, optional
+        Seed for reproducible random numbers.
+    epsilon_min, epsilon_max : float, optional
+        Minimum and maximum exploration probabilities for the ε‑greedy scheme.
+        ``epsilon`` is adapted to the variance of leftover space.
+    temperature : float, optional
+        Softmax temperature (>0). Smaller values make the priority more
+        deterministic, larger values increase randomness.
+    sigmoid_steepness : float, optional
+        Steepness of the logistic (sigmoid) scaling applied to the normalized
+        features.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (shape identical to ``bins_remain_cap``).
+        Infeasible bins receive ``-np.inf``.  The bin with the highest value
+        should be selected for the item.
+    """
+    # ------------------------------------------------------------------
+    # 1. Input validation & basic setup
+    # ------------------------------------------------------------------
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=np.float64)
+    n_bins = bins_remain_cap.size
+
+    if n_bins == 0:
+        return np.array([], dtype=np.float64)
+
+    # Feasibility mask (bin can accommodate the item)
+    feasible = bins_remain_cap >= item
+    if not np.any(feasible):
+        # No bin can hold the item → all scores are -inf
+        return np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+
+    # Remaining capacity after placing the item (for feasible bins)
+    leftover = bins_remain_cap - item
+
+    # ------------------------------------------------------------------
+    # 2. Feature computation (normalized & sigmoid‑scaled)
+    # ------------------------------------------------------------------
+    # Bin capacity – all bins share the same original capacity.
+    # The maximum remaining capacity corresponds to an empty bin.
+    bin_capacity = np.max(bins_remain_cap)
+    bin_capacity = max(bin_capacity, 1e-12)  # guard against division by zero
+
+    # (a) Normalized leftover (smaller leftover → higher score)
+    norm_leftover = leftover / bin_capacity                     # ∈ [0, 1]
+    score_leftover = 1.0 - norm_leftover                         # invert
+
+    # (b) Fit ratio: how much of the bin the item occupies
+    fit_ratio = item / bins_remain_cap                           # ∈ (0, 1]
+    # Logistic sigmoid centred at 0.5
+    score_fit = 1.0 / (1.0 + np.exp(-sigmoid_steepness * (fit_ratio - 0.5)))
+
+    # (c) Bin usage: how filled the bin already is
+    usage = 1.0 - bins_remain_cap / bin_capacity                  # ∈ [0, 1]
+    score_usage = 1.0 / (1.0 + np.exp(-sigmoid_steepness * (usage - 0.5)))
+
+    # (d) Exact‑fit bonus (adds a fixed boost when leftover ≈ 0)
+    exact_fit_bonus = np.where(np.isclose(leftover, 0.0, atol=1e-9), 1.0, 0.0)
+
+    # Weighted aggregation of the three main signals
+    w_left, w_fit, w_use = 0.35, 0.45, 0.20
+    exploitation = (
+        w_left * score_leftover
+        + w_fit * score_fit
+        + w_use * score_usage
+        + exact_fit_bonus
+    )
+
+    # Mask infeasible bins with -inf before any further processing
+    exploitation = np.where(feasible, exploitation, -np.inf)
+
+    # ------------------------------------------------------------------
+    # 3. Variance‑driven ε‑greedy exploration rate
+    # ------------------------------------------------------------------
+    lo_feas = leftover[feasible]
+    var_lo = np.var(lo_feas)
+    L = np.max(lo_feas)
+    if L > 0:
+        var_max = (L ** 2) / 4.0                     # max variance of a uniform [0, L]
+        var_norm = np.clip(var_lo / var_max, 0.0, 1.0)
+    else:
+        var_norm = 0.0
+    epsilon = epsilon_min + (epsilon_max - epsilon_min) * var_norm
+
+    # ------------------------------------------------------------------
+    # 4. Random exploration component (uniform noise)
+    # ------------------------------------------------------------------
+    rng = np.random.default_rng(random_state)
+    random_score = rng.random(n_bins)               # uniform ∈ [0, 1)
+
+    # Blend exploitation and exploration according to ε
+    combined = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    combined[feasible] = (1.0 - epsilon) * exploitation[feasible] + epsilon * random_score[feasible]
+
+    # ------------------------------------------------------------------
+    # 5. Temperature‑scaled softmax (exponential scaling)
+    # ------------------------------------------------------------------
+    if temperature <= 0.0:
+        raise ValueError("temperature must be strictly positive")
+    # Numerically stable exponentiation
+    feasible_vals = combined[feasible]
+    max_val = np.max(feasible_vals)
+    exp_scaled = np.exp((feasible_vals - max_val) / temperature)
+
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+    priorities[feasible] = exp_scaled
+
+    # ------------------------------------------------------------------
+    # 6. Deterministic tie‑breaker (tiny index‑dependent bump)
+    # ------------------------------------------------------------------
+    idx = np.arange(n_bins, dtype=np.float64)
+    priorities[feasible] += idx[feasible] * 1e-12
+
+    return priorities
+```

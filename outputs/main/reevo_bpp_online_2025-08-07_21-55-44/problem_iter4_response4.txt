@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute priority scores for bins in an online Bin Packing Problem.
+
+    The priority incorporates:
+      * Massive bonus for exact fits.
+      * Quadratic penalty on leftover capacity (discourages large fragments).
+      * Tiny index‑based epsilon tie‑breaker for deterministic selection.
+      * Infeasible bins are assigned ``-np.inf``.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of each bin.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores (higher is better).  The caller should pick
+        the bin with the maximal score.
+    """
+    # Convert to a float array for safe arithmetic
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    n_bins = caps.shape[0]
+
+    # Initialise all scores as -inf (infeasible)
+    scores = np.full(n_bins, -np.inf, dtype=float)
+
+    # Feasibility mask: bins that can accommodate the item
+    feasible = caps >= item
+    if not feasible.any():
+        return scores
+
+    # Leftover capacity after placing the item
+    leftover = caps - item
+
+    # Quadratic penalty on leftover (smaller leftover => larger priority)
+    # α controls the strength of the quadratic term
+    alpha = 1e-3
+    base_priority = -leftover - alpha * (leftover ** 2)
+
+    # Tiny epsilon tie‑breaker weighted by bin index (earlier bins preferred)
+    epsilon = 1e-12
+    tie_breaker = -epsilon * np.arange(n_bins, dtype=float)
+    base_priority += tie_breaker
+
+    # Assign base priority to feasible bins
+    scores[feasible] = base_priority[feasible]
+
+    # Exact‑fit detection and massive bonus
+    exact_tolerance = 1e-9
+    exact_fit = feasible & np.isclose(leftover, 0.0, atol=exact_tolerance)
+    if exact_fit.any():
+        EXACT_BONUS = 1e12  # sufficiently large to dominate any other term
+        scores[exact_fit] = EXACT_BONUS + tie_breaker[exact_fit]
+
+    return scores
+```

@@ -1,0 +1,23 @@
+**Analysis:**  
+
+- **1st (best) vs 20th (worst)** – Both contain a full docstring, but the 1st uses a *simple* best‑fit score `‑slack` with a modest near‑full boost (`+0.5`). Infeasible bins are marked `‑inf`, preserving feasibility. The epsilon‑greedy exploration only **replaces** the whole score vector, never mixing random with deterministic values, which keeps exploitation strong.  
+  The 20th adds a large `near_full_boost = 2.0`, multiplies the base score, and then injects an index‑based penalty (`‑idx*1e‑6`). This over‑emphasises near‑full bins and biases toward low‑index bins, hurting packing quality. The extra arithmetic also obscures the intent, making the code harder to audit.
+
+- **2nd vs 19th** – The 2nd is virtually identical to the 1st (same docstring, same boost, same epsilon handling). The 19th repeats the same logic but introduces the same index penalty as the 20th and keeps the code duplicated, indicating a design drift without performance gain.
+
+- **3rd vs 18th** – Again the 3rd mirrors the 1st. The 18th adds a *different* near‑full threshold (`0.1`) and a *multiplicative* boost (`*2.0`). It also builds a `bin_scores` array mixing random exploration per‑bin (`explore = rand < eps`) rather than a single‑vector switch. This granular mixing creates stochastic noise in the deterministic part, reducing the reliability of the best‑fit signal.
+
+- **4th vs 17th** – The 4th switches to an inverse‑slack base `1/(slack+ε)` and adds a constant boost. It keeps the epsilon‑greedy switch clean. The 17th adds a convex combination of the base score and a random score (`(1‑ε)*base + ε*rand`), which dilutes the best‑fit ordering and can cause premature exploration, especially early when `ε` is still relatively high.
+
+- **5th vs 16th** – The 5th is a duplicate of the 4th (same docstring, same logic). The 16th introduces a *global* `near_full_threshold` based on `0.05 * max(bins_remain_cap)` and a boost factor of `1.5`. It then mixes random scores with the base using a weighted sum, similar to 17th, but also uses a fixed `‑inf` for infeasible bins. The dynamic threshold can be unstable when bin capacities vary widely.
+
+- **6th (better) vs 15th (worse)** – The 6th has a clean docstring, uses a modest additive boost (`+3.0` for exact fits, `+0.5` for near‑full), and only switches to pure random scores when the epsilon trigger fires. The 15th is incomplete (truncated after validity check) and contains many unused parameters (`near_full_thresh_base`, `base_priority_increment`, etc.), indicating a half‑implemented design that would be confusing to maintain.
+
+- **7th vs 14th** – The 7th uses a compact docstring, explicit static attributes, and a clear epsilon decay (`max(min_epsilon, eps*decay)`). It returns `‑inf` for infeasible bins and applies a small boost. The 14th is a copy of the 13th with identical logic, but the comment “Adaptive best‑fit with worst‑fit bias” is misleading because the bias (`+α*slack`) is tiny (`α=0.01`) and has negligible effect, adding unnecessary complexity.
+
+- **8th vs 13th** – The 8th adds a *worst‑fit bias coefficient* (`‑β*slack`) to the inverse‑slack score, which can unintentionally favor bins with larger slack, contradicting the best‑fit goal. The 13th, despite its “worst‑fit bias” label, uses a small additive term (`α*slack`) that is dominated by the `‑slack` term, so the bias is harmless. The 8th’s bias is more aggressive, degrading solution quality.
+
+Overall, the top‑ranked heuristics share: concise, accurate docstrings; simple deterministic scoring (best‑fit or inverse‑slack); modest, additive near‑full boosts; clean `‑inf` handling for infeasibility; and an epsilon‑greedy switch that *replaces* the whole score vector. Lower‑ranked versions introduce: large multiplicative boosts, index‑based penalties, per‑element random mixing, over‑parameterization, and ambiguous “bias” terms that dilute the primary heuristic.
+
+**Experience:**  
+Design heuristics with clear, minimal scoring, modest additive boosts, strict infeasibility masking, and a simple ε‑greedy switch. Avoid over‑parameterization, multiplicative boosts, and per‑element random mixing, which obscure intent and harm performance.

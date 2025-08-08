@@ -1,0 +1,85 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Sigmoid Fit Score priority for online Bin Packing.
+
+    The function prefers bins where the item leaves minimal slack.
+    Slack after a hypothetical placement is transformed by a sigmoid:
+    * small slack → priority ≈ 1
+    * large slack → priority ≈ 0
+    Infeasible bins (cannot accommodate the item) receive a very low score.
+
+    The sigmoid steepness is automatically scaled to the bin capacity, so the
+    same code works for any fixed bin size.
+
+    Args:
+        item: Size of the incoming item.
+        bins_remain_cap: Remaining capacity of each currently open bin.
+
+    Returns:
+        np.ndarray with a priority score for each bin (higher is better).
+    """
+    # -------------------------------------------------------------------------
+    # 1. Infer the original bin capacity.
+    #    In online BPP all bins have the same capacity.  The fullest bin (largest
+    #    remaining capacity) corresponds to an untouched bin, i.e. the original
+    #    capacity.
+    # -------------------------------------------------------------------------
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=np.float64)
+
+    bin_capacity = np.max(bins_remain_cap)
+
+    # -------------------------------------------------------------------------
+    # 2. Compute the slack that would remain if we placed the item in each bin.
+    # -------------------------------------------------------------------------
+    slack = bins_remain_cap - item                # slack >= 0 → feasible
+
+    # -------------------------------------------------------------------------
+    # 3. Initialise priorities: infeasible bins get -inf so they are never chosen.
+    # -------------------------------------------------------------------------
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+
+    feasible_mask = slack >= 0
+    if not np.any(feasible_mask):
+        # No bin can accommodate the item – return all -inf priorities.
+        return priorities
+
+    # -------------------------------------------------------------------------
+    # 4. Normalise slack to the range [0, 1] (0 = perfect fit, 1 = empty bin).
+    # -------------------------------------------------------------------------
+    # Guard against division by zero for pathological input.
+    if bin_capacity > 0:
+        norm_slack = slack[feasible_mask] / bin_capacity
+    else:
+        # Fallback: treat raw slack as normalised (will be >0)
+        norm_slack = slack[feasible_mask]
+
+    # -------------------------------------------------------------------------
+    # 5. Apply the sigmoid transform.
+    #    We want a decreasing function of slack: the smaller the slack,
+    #    the larger the score.  Using sigmoid(-a * norm_slack) achieves that.
+    #    Parameter `a` controls steepness.  A value around 10 gives a sharp
+    #    transition from high to low priority within the first ~10 % of slack.
+    # -------------------------------------------------------------------------
+    a = 10.0  # steepness coefficient (tunable)
+    scores = 1.0 / (1.0 + np.exp(a * norm_slack))   # sigmoid(-a * norm_slack)
+
+    # -------------------------------------------------------------------------
+    # 6. Optional boost for an almost‑exact fit (tiny slack → priority = 1).
+    # -------------------------------------------------------------------------
+    epsilon = 1e-8
+    scores = np.where(norm_slack < epsilon, 1.0, scores)
+
+    # -------------------------------------------------------------------------
+    # 7. Populate the priorities array with the computed scores.
+    # -------------------------------------------------------------------------
+    priorities[feasible_mask] = scores
+
+    # Tiny epsilon ensures that ties (e.g., two identical scores) are broken
+    # consistently without affecting ordering.
+    priorities += 1e-12
+
+    return priorities
+```

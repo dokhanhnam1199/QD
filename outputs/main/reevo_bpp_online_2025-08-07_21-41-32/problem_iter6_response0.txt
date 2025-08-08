@@ -1,0 +1,100 @@
+```python
+import numpy as np
+from typing import Optional, Union
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    tolerance: float = 1e-12,
+    tie_breaker: float = 1e-12,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
+) -> np.ndarray:
+    """
+    Blend exact‑fit scoring with a random bias for online bin packing.
+
+    For each bin the function returns a priority score (higher = more attractive).
+    Infeasible bins receive ``-np.inf`` so they are never chosen.
+
+    The priority consists of three parts:
+      * Exact‑fit component: prefers bins with smaller remaining slack.
+      * Random bias component: 1/(slack+ε) gives a larger random boost to tighter
+        fits, encouraging diversification when no near‑exact fit exists.
+      * Deterministic tie‑breaker: a tiny index‑dependent penalty ensures
+        reproducible ordering for otherwise equal scores.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacity for each currently open bin.
+    tolerance : float, optional
+        Numerical tolerance for feasibility checks and exact‑fit detection.
+    tie_breaker : float, optional
+        Tiny positive constant used to break ties deterministically
+        (lower‑indexed bins are slightly preferred).
+    random_state : int or np.random.Generator, optional
+        Seed or generator for reproducible randomness. If ``None`` the global
+        NumPy RNG is used.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores, one per bin (shape matches ``bins_remain_cap``).
+    """
+    # Normalise input to a flat float array.
+    caps = np.asarray(bins_remain_cap, dtype=float).ravel()
+    n_bins = caps.size
+
+    # Feasibility mask: bins that can accommodate the item (within tolerance).
+    feasible = caps >= (item - tolerance)
+
+    # Initialise priorities with -inf (infeasible bins).
+    priorities = np.full(n_bins, -np.inf, dtype=float)
+
+    # Early exit if nothing fits.
+    if not np.any(feasible):
+        return priorities
+
+    # Slack for feasible bins (non‑negative, with tiny negatives clipped).
+    slack = caps[feasible] - item
+    slack = np.maximum(slack, 0.0)
+
+    # Exact‑fit score: larger when slack is smaller (exact fit => 0).
+    exact_score = -slack
+
+    # Random bias: larger for tighter fits.
+    epsilon = tolerance
+    bias = 1.0 / (slack + epsilon)               # shape = (n_feasible,)
+    # Normalise bias to [0, 1] to keep the random term comparable across bins.
+    bias_norm = bias / bias.max()
+
+    # Random generator handling.
+    if isinstance(random_state, np.random.Generator):
+        rng = random_state
+    else:
+        rng = np.random.default_rng(random_state)
+
+    rand_vals = rng.random(n_bins)               # one random number per bin
+    rand_feasible = rand_vals[feasible]
+
+    random_component = bias_norm * rand_feasible  # in [0, 1]
+
+    # Adaptive weighting of the random part.
+    # If an (almost) exact fit exists, we reduce randomness to favour it.
+    if np.min(slack) <= tolerance:
+        w_random = 0.1   # favour exact fits
+    else:
+        w_random = 0.5 if False else 0.5  # balanced exploration
+
+    # Deterministic tie‑breaker (lower index slightly preferred).
+    idx_feasible = np.where(feasible)[0]
+    tie_term = idx_feasible.astype(float) * tie_breaker
+
+    # Combine the components.
+    combined = exact_score + w_random * random_component - tie_term
+
+    # Populate the result array.
+    priorities[feasible] = combined
+    return priorities
+```

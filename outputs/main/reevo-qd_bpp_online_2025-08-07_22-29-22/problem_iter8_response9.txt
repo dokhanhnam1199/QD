@@ -1,0 +1,101 @@
+```python
+import numpy as np
+
+# Global RNG for tiny tie‑breaking noise
+_rng = np.random.default_rng()
+
+# Hyper‑parameter controlling the influence of the item‑to‑capacity ratio.
+# Can be tuned externally via `set_alpha`.
+_alpha = 0.5
+
+
+def set_alpha(alpha: float) -> None:
+    """
+    Update the global α that balances waste minimisation against the
+    item‑to‑capacity ratio term.
+
+    Parameters
+    ----------
+    alpha : float
+        New value for α, must satisfy 0 ≤ α ≤ 1.
+    """
+    global _alpha
+    _alpha = float(alpha)
+
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute priority scores for placing `item` into existing bins.
+
+    The priority combines a waste‑based exponential decay with an
+    item‑to‑capacity ratio term. An adaptive λ is derived from the
+    mean waste among feasible bins. The resulting scores are normalised
+    via a softmax, and infeasible bins receive ``-inf`` priority.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item (non‑negative).
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of currently open bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority values for each bin (same shape as ``bins_remain_cap``).
+        Higher values indicate more desirable bins; infeasible bins are
+        marked with ``-np.inf``.
+    """
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Edge case: empty input
+    if caps.size == 0:
+        return np.array([], dtype=float)
+
+    # Feasibility mask: bin can accommodate the item
+    feasible = caps >= item
+
+    # If no feasible bin, all priorities are -inf
+    if not np.any(feasible):
+        return np.full_like(caps, -np.inf, dtype=float)
+
+    # Waste after hypothetically placing the item
+    waste = caps - item
+
+    # Adaptive λ based on mean waste of feasible bins
+    eps = 1e-12
+    mean_waste = waste[feasible].mean()
+    lam = 1.0 / (mean_waste + eps)
+
+    # Waste‑based exponential score (larger for smaller waste)
+    waste_score = np.exp(-lam * waste)
+    waste_score[~feasible] = 0.0
+
+    # Item‑to‑capacity ratio term
+    ratio = np.where(feasible, item / caps, 0.0)
+
+    # Combine components; α controls strength of ratio term
+    combined = waste_score * (ratio ** _alpha)
+
+    # Tiny random perturbation for deterministic tie‑breaking
+    combined += _rng.uniform(0.0, 1e-9, size=combined.shape)
+
+    # Infeasible bins should not influence the softmax
+    combined[~feasible] = -np.inf
+
+    # Stable softmax computation
+    max_val = combined[feasible].max()
+    exp_vals = np.exp(combined - max_val)           # exp(-inf) = 0 for infeasible bins
+    total = exp_vals.sum()
+
+    if total > 0.0:
+        probs = exp_vals / total
+    else:
+        # Fallback: uniform distribution over feasible bins
+        probs = np.where(feasible, 1.0 / feasible.sum(), 0.0)
+
+    # Mark infeasible bins with -inf to keep argmax safe
+    probs[~feasible] = -np.inf
+
+    return probs
+```

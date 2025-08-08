@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Softmax‑Based Priority for Online Bin Packing (SoftMaxFit).
+
+    The idea is to prefer bins that:
+    1. Can accommodate the item (remaining capacity >= item).
+    2. Leave the least residual space after placement – i.e. a “best‑fit” approach.
+
+    Each fitting bin receives a weight proportional to the softmax of the *negative*
+    residual space (the smaller the residual, the larger the weight).  This creates
+    a smooth ranking that is less greedy than pure Best‑Fit and can help avoid
+    premature creation of new bins in highly dynamic scenarios.
+
+    Args:
+        item: Size of the incoming item.
+        bins_remain_cap: 1‑D numpy array of remaining capacities of the open bins.
+
+    Returns:
+        A 1‑D numpy array of the same shape as bins_remain_cap where larger
+        values indicate a higher priority for placing the item into the bin.
+    """
+    # Calculate residual space if the item is placed in each bin
+    residual = bins_remain_cap - item
+
+    # Masks for bins that can fit the item
+    can_fit = residual >= 0
+
+    # Base array to hold priorities
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    if np.any(can_fit):
+        # Restrict residuals to those that can fit
+        fit_residual = residual[can_fit]
+
+        # Temperature controls the softness of the softmax.
+        # Using the largest residual in the pool gives a
+        # problem‑size‑aware temperature – we smooth over a
+        # factor of 10 to keep the exponent stable.
+        T = np.max(fit_residual) / 10.0 + 1e-6
+
+        # Logits: we use the negative residual so that bins with
+        # little leftover space get a higher exponent value.
+        logits = -fit_residual / T
+
+        # Compute exponentials (softmax numerator).
+        # Dividing by the sum is unnecessary for ranking, but we
+        # optionally normalise for numerical sanity.
+        exp_values = np.exp(logits)
+
+        # Normalise (optional; can be omitted if only ranking needed)
+        # exp_values /= exp_values.sum()
+
+        priorities[can_fit] = exp_values
+
+    # If no bin can fit the item, all priorities stay 0.0.
+    # (The caller can decide to start a new bin.)
+    return priorities
+```

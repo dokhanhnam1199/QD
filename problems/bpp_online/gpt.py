@@ -1,60 +1,120 @@
 import numpy as np
+from typing import Optional, Union
 
-def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
-    """Returns priority with which we want to add item to each bin using Softmax-Based Fit.
-
-    This function implements a "Softmax-Based Fit" strategy for online bin packing.
-    The core idea is to assign a 'raw fit score' to each bin based on how well it
-    accommodates the current item. Bins that result in a smaller remaining capacity
-    (a "tighter" fit) receive higher raw scores. These raw scores are then
-    transformed using the softmax function to produce normalized priority scores.
-
-    A bin that cannot fit the item is assigned a very low raw score, ensuring its
-    priority after softmax is effectively zero.
-
-    Args:
-        item: Size of item to be added to the bin.
-        bins_remain_cap: A NumPy array containing the remaining capacities of each bin.
-
-    Returns:
-        A NumPy array of the same size as bins_remain_cap, where each element
-        represents the priority score for the corresponding bin. These scores
-        will sum to 1.0 if at least one bin can accommodate the item. If no bin
-        can accommodate the item, all priorities will be 0.
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    step: int = 0,
+    epsilon0: float = 0.20,
+    decay_rate: float = 0.01,
+    alpha: float = 10.0,
+    exact_bonus: float = 1e6,
+    tolerance: float = 1e-12,
+    random_state: Optional[Union[int, np.random.Generator]] = None,
+) -> np.ndarray:
     """
-    # Initialize raw scores for all bins to a very low value.
-    # This ensures that bins which cannot fit the item will have their
-    # exponential term become effectively zero, resulting in zero priority.
-    raw_fit_scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    Compute priority scores for bins in an online Bin Packing Problem (BPP).
 
-    # Create a boolean mask for bins that can accommodate the current item.
-    can_fit_mask = bins_remain_cap >= item
+    The heuristic favours bins that become tightly packed after placing the
+    item. It uses a logistic transform of the normalised slack, adaptive to the
+    current set of feasible bins, a large bonus for exact fits, deterministic
+    jitter for tie‑breaking, and an ε‑greedy exploration strategy with a decaying
+    ε.
 
-    # For bins that can fit, calculate their raw fit score.
-    # The score is calculated as (item - remaining_capacity).
-    # A perfect fit (remaining_capacity == item) yields a score of 0, which is the
-    # highest possible score in this formulation (indicating the tightest fit).
-    # Looser fits (larger remaining_capacity) yield more negative scores.
-    # Example: item=0.5
-    #   - Bin with capacity 0.5: score = 0.5 - 0.5 = 0.0 (perfect fit, highest score)
-    #   - Bin with capacity 0.7: score = 0.5 - 0.7 = -0.2 (tighter fit than 1.0)
-    #   - Bin with capacity 1.0: score = 0.5 - 1.0 = -0.5 (looser fit, lower score)
-    raw_fit_scores[can_fit_mask] = item - bins_remain_cap[can_fit_mask]
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array with the remaining capacity of each currently open bin.
+    step : int, optional
+        Number of items already processed; used to decay ε. Default is 0.
+    epsilon0 : float, optional
+        Initial exploration probability. Default is 0.20.
+    decay_rate : float, optional
+        Decay factor for ε (ε = ε₀ / (1 + decay_rate * step)). Default is 0.01.
+    alpha : float, optional
+        Steepness of the logistic curve. Larger values give a sharper transition.
+        Default is 10.0.
+    exact_bonus : float, optional
+        Bonus added to exact‑fit bins to guarantee their selection.
+        Default is 1e6.
+    tolerance : float, optional
+        Numerical tolerance for floating‑point comparisons.
+        Default is 1e-12.
+    random_state : int | np.random.Generator | None, optional
+        Seed or generator for the random numbers used in ε‑greedy exploration.
+        Default is None (uses NumPy's default RNG).
 
-    # Apply the exponential function to the raw scores.
-    # np.exp(-np.inf) correctly evaluates to 0.0, handling non-fitting bins.
-    exp_scores = np.exp(raw_fit_scores)
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin; infeasible bins have ``-np.inf``.
+    """
+    # Convert to a float64 NumPy array
+    caps = np.asarray(bins_remain_cap, dtype=np.float64)
 
-    # Calculate the sum of the exponential scores. This will be used for normalization.
-    sum_exp_scores = np.sum(exp_scores)
+    # Initialise priority vector with -inf for infeasible bins
+    priority = np.full_like(caps, -np.inf, dtype=np.float64)
 
-    # Compute the final priorities using softmax normalization.
-    if sum_exp_scores == 0:
-        # If sum_exp_scores is 0, it means no bin could fit the item (all raw_fit_scores were -np.inf).
-        # In this case, all priorities are 0, indicating no suitable bin was found.
-        priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    # Feasibility mask: bin must have enough free space (allow tolerance)
+    feasible = caps >= (item - tolerance)
+
+    if not feasible.any():
+        # No bin can accommodate the item
+        return priority
+
+    # Slack after placing the item (meaningful only for feasible bins)
+    slack = caps - item
+
+    # Exact‑fit detection (|slack| <= tolerance)
+    exact_fit = np.abs(slack) <= tolerance
+    priority[exact_fit] = exact_bonus
+
+    # Non‑exact feasible bins
+    non_exact = feasible & ~exact_fit
+
+    if non_exact.any():
+        # Representative capacity: largest remaining capacity among feasible bins
+        capacity_est = caps[feasible].max()
+        capacity_est = max(capacity_est, tolerance)  # avoid division by zero
+
+        # Normalised slack ∈ [0, 1] (0 = perfect fit, 1 = empty bin)
+        norm_slack = slack[non_exact] / capacity_est
+
+        # Fit quality: larger when slack is smaller
+        fit_quality = 1.0 - norm_slack  # 1 = perfect fit, 0 = empty bin
+
+        # Adaptive midpoint: median fit quality of current feasible set
+        median_fit = np.median(fit_quality)
+
+        # Logistic transform: tighter fits get scores > 0.5
+        logistic_arg = alpha * (fit_quality - median_fit)
+        logistic_score = 1.0 / (1.0 + np.exp(-logistic_arg))
+
+        # Deterministic jitter based on bin index to break ties
+        idx = np.where(non_exact)[0]
+        jitter = 1e-12 * (idx.astype(np.float64) / (len(caps) + 1.0))
+
+        priority[non_exact] = logistic_score + jitter
+
+    # ------------------------------------------------------------------
+    # ε‑greedy exploration (decaying ε)
+    # ------------------------------------------------------------------
+    epsilon = epsilon0 / (1.0 + decay_rate * step)
+
+    # Initialise RNG
+    if isinstance(random_state, np.random.Generator):
+        rng = random_state
     else:
-        # Normalize the exponential scores to obtain probabilities/priorities that sum to 1.
-        priorities = exp_scores / sum_exp_scores
+        rng = np.random.default_rng(random_state)
 
-    return priorities
+    if rng.random() < epsilon:
+        # Exploration: assign uniform random scores to feasible non‑exact bins
+        rand_vals = rng.random(non_exact.sum())
+        priority[non_exact] = rand_vals
+        # Preserve exact‑fit bonus
+        priority[exact_fit] = exact_bonus
+
+    return priority

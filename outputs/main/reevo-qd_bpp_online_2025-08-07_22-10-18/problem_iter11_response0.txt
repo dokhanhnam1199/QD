@@ -1,0 +1,114 @@
+```python
+import numpy as np
+
+# ----------------------------------------------------------------------
+# Global state (persisted across calls) – minimal adaptive information.
+# ----------------------------------------------------------------------
+_call_counter: int = 0               # Number of items processed so far
+_ema_item_size: float = 0.0          # Exponential moving average of item size
+_ema_alpha: float = 0.2              # EMA smoothing factor (0 < α ≤ 1)
+
+# Decaying epsilon‑greedy exploration parameters
+_EPSILON0: float = 0.15              # Initial exploration probability
+_MIN_EPSILON: float = 0.02           # Minimum exploration probability
+_DECAY_RATE: float = 5e-4           # Exponential decay rate for epsilon
+
+# Small constant to avoid division‑by‑zero
+_EPS: float = 1e-12
+
+# Random number generator (single instance for reproducibility)
+_rng = np.random.default_rng()
+
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Return a priority score for each bin in an online priority scheme.
+
+    The score is high for bins that can accommodate the item with little
+    leftover space. Exact fits receive infinite priority. A decaying
+    epsilon‑greedy exploration occasionally selects a random feasible bin.
+    Scores for feasible non‑exact bins are derived from a sigmoid of the
+    leftover space scaled by the median absolute deviation (MAD) of the
+    leftover distribution.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item (must be non‑negative).
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the currently open bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (higher = more preferred). Infeasible bins receive
+        ``-np.inf``.
+    """
+    global _call_counter, _ema_item_size
+
+    # ------------------------------------------------------------------
+    # 1) Normalise input and update simple online statistics.
+    # ------------------------------------------------------------------
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+    n_bins = bins_remain_cap.shape[0]
+
+    _call_counter += 1
+    if _call_counter == 1:
+        _ema_item_size = item
+    else:
+        _ema_item_size = _ema_alpha * item + (1.0 - _ema_alpha) * _ema_item_size
+
+    # ------------------------------------------------------------------
+    # 2) Compute decaying epsilon for exploration.
+    # ------------------------------------------------------------------
+    epsilon = max(_MIN_EPSILON, _EPSILON0 * np.exp(-_DECAY_RATE * _call_counter))
+
+    # ------------------------------------------------------------------
+    # 3) Exploration: with probability epsilon choose a random feasible bin.
+    # ------------------------------------------------------------------
+    if _rng.random() < epsilon:
+        feasible = bins_remain_cap >= item - _EPS
+        random_scores = _rng.random(n_bins)
+        return np.where(feasible, random_scores, -np.inf)
+
+    # ------------------------------------------------------------------
+    # 4) Deterministic scoring.
+    # ------------------------------------------------------------------
+    waste = bins_remain_cap - item                # Positive = leftover space
+    feasible_mask = waste >= -_EPS                # Allow tiny negative tolerance
+
+    # Initialise all priorities to -inf (infeasible by default).
+    priorities = np.full(n_bins, -np.inf, dtype=float)
+
+    # Exact‑fit detection – give them infinite priority.
+    atol = 1e-9
+    exact_fit_mask = np.isclose(waste, 0.0, atol=atol) & feasible_mask
+    priorities[exact_fit_mask] = np.inf
+
+    # Non‑exact but feasible bins.
+    non_exact_mask = feasible_mask & ~exact_fit_mask
+    if np.any(non_exact_mask):
+        leftover = waste[non_exact_mask]                     # Strictly positive
+        # Median of leftover values.
+        median_val = np.median(leftover)
+        # Median absolute deviation (MAD) for scaling.
+        mad = np.median(np.abs(leftover - median_val))
+        scale = max(mad, _EPS)                               # Avoid zero scale
+
+        # Sigmoid score that decreases with increasing leftover.
+        #   score = 1 / (1 + exp((leftover - median) / scale))
+        # Clip exponent to keep numeric stability.
+        z = (leftover - median_val) / scale
+        z = np.clip(z, -50, 50)                              # Prevent overflow
+        scores = 1.0 / (1.0 + np.exp(z))
+
+        # Assign scores to the appropriate bins.
+        priorities[non_exact_mask] = scores
+
+    # ------------------------------------------------------------------
+    # 5) Deterministic tie‑breaker – tiny per‑bin jitter based on index.
+    # ------------------------------------------------------------------
+    jitter = np.arange(n_bins, dtype=float) * 1e-12
+    priorities = priorities + jitter
+
+    return priorities
+```

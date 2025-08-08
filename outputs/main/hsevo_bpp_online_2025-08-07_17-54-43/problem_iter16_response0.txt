@@ -1,0 +1,49 @@
+import numpy as np
+
+def priority_v2(item: float,
+                bins_remain_cap: np.ndarray,
+                tiny: float = 0.0007848497650477602,
+                boost_factor: float = 1.3967578901660225,
+                max_boost: float = 7.106616957581014,
+                eps_factor: float = 0.23908247190719145,
+                tie_break_boost: float = 0.07221130143884012) -> np.ndarray:
+    """Best‑fit scoring with inverse‑slack boost and adaptive ε‑greedy tie‑breaker.
+
+    Parameters
+    ----------
+    item : float
+        Size of the item to pack.
+    bins_remain_cap : np.ndarray
+        Remaining capacities of the bins.
+    tiny : float, optional
+        Small constant to avoid division by zero in the boost term.
+    boost_factor : float, optional
+        Multiplicative factor for the inverse‑slack boost.
+    max_boost : float, optional
+        Upper bound for the boost term.
+    eps_factor : float, optional
+        Scaling factor for the adaptive epsilon‑greedy exploration probability.
+    tie_break_boost : float, optional
+        Small deterministic boost added to a randomly chosen feasible bin
+        when the epsilon‑greedy condition is triggered.
+    """
+    n = bins_remain_cap.size
+    feasible = bins_remain_cap >= item
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    if not np.any(feasible):
+        return scores
+    slack = bins_remain_cap - item
+    base = -slack[feasible]
+
+    # Compute inverse‑slack boost
+    boost = boost_factor / (slack[feasible] + tiny)
+    boost = np.minimum(boost, max_boost)
+    scores[feasible] = base + boost
+
+    # Adaptive epsilon‑greedy tie‑breaker
+    eps = eps_factor * (1 - np.count_nonzero(feasible) / n)
+    if np.random.rand() < eps:
+        idx = np.random.choice(np.flatnonzero(feasible))
+        scores[idx] += tie_break_boost
+
+    return scores

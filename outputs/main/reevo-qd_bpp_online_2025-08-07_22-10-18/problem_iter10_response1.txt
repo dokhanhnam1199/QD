@@ -1,0 +1,113 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Adaptive epsilon‑greedy priority function for online Bin Packing.
+
+    Returns a priority score for each bin (higher = more desirable). Infeasible
+    bins receive ``-np.inf``. The scoring combines:
+      * Exponential decay of the exploration probability (epsilon‑greedy);
+      * A weighted leftover term (best‑fit style);
+      * A usage bias that favors bins already partially filled;
+      * A penalty for bins that would become too tight relative to the
+        predicted next‑item size (estimated via an exponential moving average).
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the currently open bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin.
+    """
+    # ------------------------------------------------------------------
+    # Static state (initialized once)
+    # ------------------------------------------------------------------
+    if not hasattr(priority_v2, "initialized"):
+        # Exploration parameters
+        priority_v2.epsilon0 = 0.2          # initial exploration probability
+        priority_v2.min_epsilon = 0.01     # lower bound for epsilon
+        priority_v2.decay_rate = 0.001    # exponential decay rate
+
+        # EMA for predicting the size of the next item
+        priority_v2.alpha = 0.2            # smoothing factor (0 < alpha <= 1)
+        priority_v2.ema_item = None        # will hold the EMA after first item
+
+        # Counters
+        priority_v2.item_count = 0
+
+        # Scoring weights
+        priority_v2.leftover_weight = 1.0   # weight for the leftover term
+        priority_v2.usage_weight = 0.2     # bias for already used bins
+        priority_v2.penalty_factor = 2.0   # strength of the tight‑bin penalty
+
+        # Random generator for exploration
+        priority_v2.rng = np.random.default_rng()
+
+        priority_v2.initialized = True
+
+    # ------------------------------------------------------------------
+    # Per‑item updates
+    # ------------------------------------------------------------------
+    priority_v2.item_count += 1
+
+    # Update EMA of item size (prediction of next‑item size)
+    if priority_v2.ema_item is None:
+        priority_v2.ema_item = item
+    else:
+        priority_v2.ema_item = (priority_v2.alpha * item +
+                               (1 - priority_v2.alpha) * priority_v2.ema_item)
+
+    # Compute decayed epsilon
+    epsilon = max(priority_v2.min_epsilon,
+                  priority_v2.epsilon0 *
+                  np.exp(-priority_v2.decay_rate * priority_v2.item_count))
+
+    # Feasibility mask (bins that can accommodate the item)
+    feasible = bins_remain_cap >= item
+
+    # ------------------------------------------------------------------
+    # Exploration: pick a random feasible bin with probability epsilon
+    # ------------------------------------------------------------------
+    if priority_v2.rng.random() < epsilon:
+        rand_scores = priority_v2.rng.random(bins_remain_cap.shape[0])
+        # Infeasible bins must never be selected
+        rand_scores[~feasible] = -np.inf
+        return rand_scores
+
+    # ------------------------------------------------------------------
+    # Exploitation: compute a deterministic priority for each bin
+    # ------------------------------------------------------------------
+    leftover = bins_remain_cap - item
+    feasible = leftover >= 0  # recompute for clarity
+
+    # 1) Weighted leftover (best‑fit): smaller leftover → higher score
+    base_score = -priority_v2.leftover_weight * leftover
+
+    # 2) Usage bias: encourage packing into bins that already contain items
+    if bins_remain_cap.size > 0:
+        total_capacity = bins_remain_cap.max()   # all bins share the same capacity
+        if total_capacity > 0:
+            fill_ratio = (total_capacity - bins_remain_cap) / total_capacity
+        else:
+            fill_ratio = np.zeros_like(bins_remain_cap)
+    else:
+        fill_ratio = np.zeros_like(bins_remain_cap)
+    usage_bonus = priority_v2.usage_weight * fill_ratio
+
+    # 3) Penalty for creating a bin that is too tight for the predicted next item
+    tight_mask = feasible & (leftover < priority_v2.ema_item)
+    penalty = np.zeros_like(bins_remain_cap)
+    penalty[tight_mask] = (priority_v2.penalty_factor *
+                           (priority_v2.ema_item - leftover[tight_mask]))
+
+    # Combine all components
+    scores = base_score + usage_bonus - penalty
+    scores[~feasible] = -np.inf if hasattr(np, 'inf') else -np.inf  # ensure infeasible bins are worst
+
+    return scores
+```

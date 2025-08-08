@@ -1,0 +1,71 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute a priority score for each bin in an online Bin Packing setting.
+
+    The priority favours bins that will be most tightly filled after inserting
+    the item (i.e., minimal remaining slack).  It also penalises empty bins
+    (opening a new bin) to encourage reuse of already opened bins.  The
+    importance of minimizing slack is scaled with the relative size of the
+    item, so larger items give more weight to slack reduction.  Infeasible
+    bins receive a priority of -inf, ensuring they are never selected.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of the remaining capacity of each bin. All bins are assumed
+        to have the same nominal capacity.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (higher is better).  The bin with the
+        highest score should be chosen for the item.
+    """
+    # Ensure a NumPy array (in case a list is passed)
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+
+    # Edge case: no bins present
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=float)
+
+    # Nominal bin capacity – assumed constant across all bins.
+    # Using the maximum remaining capacity is safe because an empty bin
+    # has the full capacity.
+    capacity = bins_remain_cap.max()
+
+    # Compute slack (remaining capacity after placing the item)
+    slack = bins_remain_cap - item
+
+    # Feasibility mask: only bins that can accommodate the item
+    feasible = slack >= 0
+
+    # Weight factor: larger items increase the importance of minimizing slack.
+    # weight ∈ [1, 2] because item ≤ capacity.
+    weight = 1.0 + (item / capacity)
+
+    # Base priority: negative weighted slack (higher for smaller slack)
+    # Start with -inf for all bins and fill feasible ones.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Compute raw priority for feasible bins
+    raw_priority = -slack[feasible] * weight
+
+    # Penalise empty bins (i.e., bins that have not been used yet)
+    # Empty bins are identified by having full remaining capacity.
+    empty_bins = (bins_remain_cap == capacity) & feasible
+    # Penalty magnitude – a fraction of the bin capacity.
+    penalty_factor = capacity * 0.5  # Adjust as needed; larger → stronger penalty
+
+    # Apply penalty to empty bins
+    raw_priority -= penalty_factor * empty_bins[feasible]
+
+    # Store computed priorities back into the full array
+    priorities[feasible] = raw_priority
+
+    return priorities
+```

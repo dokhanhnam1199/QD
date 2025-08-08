@@ -1,0 +1,82 @@
+```python
+import numpy as np
+
+_rng = np.random.default_rng()
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive priority for online Bin Packing.
+
+    Combines:
+      • Logistic slack score (prefers small leftover)
+      • Item-to-capacity ratio (encourages tight fits)
+      • Local‑search penalty that discourages creating a new large bin
+      • Tiny random noise for tie‑breaking
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of the remaining capacity of each open bin.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin.  Infeasible bins receive ``-inf``.
+    """
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=float)
+
+    slack = bins_remain_cap - item
+    feasible = slack >= 0.0
+
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    if not feasible.any():
+        return priorities
+
+    slack_feas = slack[feasible]
+    cap_feas = bins_remain_cap[feasible]
+
+    # Logistic slack score (smaller slack → higher score)
+    median_slack = np.median(slack_feas)
+    slack_range = slack_feas.max() - slack_feas.min()
+    if slack_range < 1e-12:
+        slack_range = 1e-12
+    alpha = 8.0 / slack_range
+    logistic_scores = 1.0 / (1.0 + np.exp(alpha * (slack_feas - median_slack)))
+
+    # Ratio score (tighter fit)
+    eps = 1e-12
+    ratio = item / (cap_feas + eps)
+    blended_scores = logistic_scores * ratio
+
+    # Local‑search penalty: discourage creating a new large bin
+    max_rem = bins_remain_cap.max()
+    if max_rem > 0.0:
+        sorted_cap = np.sort(bins_remain_cap)
+        second_max = sorted_cap[-2] if len(sorted_cap) >= 2 else sorted_cap[-1]
+        global_max_mask = bins_remain_cap == max_rem
+
+        max_remaining_other = np.where(
+            global_max_mask[feasible], second_max, max_rem
+        )
+        max_slack_after = np.maximum(max_remaining_other, slack_feas)
+        local_scores = 1.0 / (1.0 + max_slack_after / max_rem)
+    else:
+        local_scores = np.ones_like(blended_scores)
+
+    # Combine signals
+    w1, w2 = 0.6, 0.4
+    combined_scores = w1 * blended_scores + w2 * local_scores
+
+    # Tiny random tie‑breaker
+    noise = _rng.random(len(combined_scores)) * 1e-6
+    final_scores = combined_scores + noise
+
+    priorities[feasible] = final_scores
+    return priorities
+```

@@ -1,0 +1,87 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Sigmoid Fit Score priority for online Bin Packing.
+
+    For each currently open bin we compute a priority that rewards:
+      * a tight fit (item occupies a large fraction of the free space), and
+      * a small amount of waste left after the item is placed.
+
+    The two criteria are transformed by logistic (sigmoid) functions and
+    combined multiplicatively.  Bins that cannot accommodate the item receive
+    ``-np.inf`` so they will never be chosen.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item (0 < item ≤ bin capacity).
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities for each open bin.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores (higher is better) with the same shape as
+        ``bins_remain_cap``.  Infeasible bins are assigned ``-np.inf``.
+    """
+    # Ensure we are working with floats.
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # Edge case: no bins are currently open.
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=np.float64)
+
+    # Initialise all priorities to the worst possible value.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=np.float64)
+
+    # Feasibility mask: bins with enough space for the item.
+    feasible = bins_remain_cap >= item
+    if not np.any(feasible):
+        return priorities  # nothing fits; all remain -inf.
+
+    # ----------------------------------------------------------------------
+    # 1) Fit‑ratio component – how much of the free space the item would use.
+    #    ratio = item / remaining_capacity ∈ (0, 1].
+    # ----------------------------------------------------------------------
+    fit_ratio = np.empty_like(bins_remain_cap, dtype=np.float64)
+    np.divide(item, bins_remain_cap, out=fit_ratio, where=feasible)
+    fit_ratio[~feasible] = 0.0  # value irrelevant for infeasible bins.
+
+    # Sigmoid parameters for the fit‑ratio.
+    alpha_fit = 15.0          # steepness of the transition.
+    target_fit = 0.85         # ratio where score = 0.5 (≈85 % fill is neutral).
+
+    fit_score = 1.0 / (1.0 + np.exp(-alpha_fit * (fit_ratio - target_fit)))
+
+    # ----------------------------------------------------------------------
+    # 2) Waste component – encourage small leftover space after placement.
+    # ----------------------------------------------------------------------
+    # Estimate the true bin capacity.  If an empty bin exists,
+    # the maximum remaining capacity equals the true capacity.
+    eps = 1e-12
+    est_capacity = float(np.max(bins_remain_cap)) if bins_remain_cap.size else 1.0
+    est_capacity = max(est_capacity, eps)
+
+    waste = bins_remain_cap - item                     # may be negative for infeasibles.
+    waste_norm = np.clip(waste / est_capacity, 0.0, 1.0)  # normalised waste ∈ [0,1].
+
+    # Sigmoid parameters for the waste.
+    alpha_waste = 12.0
+    waste_target = 0.05       # waste ≤ 5 % of capacity yields score > 0.5.
+
+    waste_score = 1.0 / (1.0 + np.exp(alpha_waste * (waste_norm - waste_target)))
+
+    # ----------------------------------------------------------------------
+    # 3) Combine the two signals.
+    # ----------------------------------------------------------------------
+    # Multiplicative combination heavily penalises a bin that fails either
+    # criterion while rewarding bins that are good on both.
+    combined_score = fit_score * waste_score
+
+    # Assign scores only to feasible bins.
+    priorities[feasible] = combined_score[feasible]
+
+    return priorities
+```

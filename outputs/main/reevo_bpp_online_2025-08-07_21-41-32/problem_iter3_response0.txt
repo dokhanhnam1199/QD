@@ -1,0 +1,119 @@
+```python
+import numpy as np
+from typing import Optional
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    bin_ages: Optional[np.ndarray] = None,
+    temperature: float = 1.0,
+    lookahead_items: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """
+    Compute a priority score for each bin in an online bin‑packing setting.
+
+    The heuristic blends an exact‑fit bias with a weighted worst‑fit component,
+    optionally incorporates look‑ahead information, bin age, and a temperature
+    parameter for exploration/exploitation control.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities for each bin.
+    bin_ages : np.ndarray or None, optional
+        1‑D array (same length as bins_remain_cap) indicating the age of each bin
+        (e.g., number of items already placed). Older bins receive a small boost
+        to encourage closing them.
+    temperature : float, optional
+        Controls the softness of the selection. Lower values make the algorithm
+        greedier (higher scores dominate). Must be > 0.
+    lookahead_items : np.ndarray or None, optional
+        Array of sizes of upcoming items. A bin that can still accommodate many
+        look‑ahead items receives a boost.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (higher is better). Infeasible bins receive -inf.
+    """
+    # ------------------------------------------------------------------
+    # 1. Prepare inputs and guard against pathological values
+    # ------------------------------------------------------------------
+    eps = 1e-12                     # tiny epsilon to avoid division by zero
+    temperature = max(temperature, eps)
+
+    caps = np.asarray(bins_remain_cap, dtype=float).copy()
+    n_bins = caps.size
+
+    # Initialise all priorities to -inf (infeasible by default)
+    priorities = np.full(n_bins, -np.inf, dtype=float)
+
+    # Feasibility mask
+    feasible = caps >= item
+    if not np.any(feasible):
+        return priorities  # nothing fits
+
+    # ------------------------------------------------------------------
+    # 2. Core exact‑fit / worst‑fit scores
+    # ------------------------------------------------------------------
+    slack = caps - item                     # remaining space after placement
+    slack_feas = slack[feasible]
+
+    # Exact‑fit component: larger when slack is tiny
+    exact_fit = 1.0 / (slack_feas + eps)    # 1/(waste+eps)
+
+    # Worst‑fit component: larger when slack is large (normalized)
+    max_cap = np.max(caps) + eps
+    worst_fit = slack_feas / max_cap        # in [0,1]
+
+    # Blend the two with configurable weights
+    w_exact = 0.6
+    w_worst = 0.4
+    core_score = w_exact * exact_fit + w_worst * worst_fit
+
+    # ------------------------------------------------------------------
+    # 3. Optional look‑ahead boost
+    # ------------------------------------------------------------------
+    if lookahead_items is not None and lookahead_items.size > 0:
+        # Count how many future items could still fit after placing the current one
+        lookahead = np.asarray(lookahead_items, dtype=float)
+        # Broadcast: (n_feasible, n_lookahead) -> bool matrix
+        fits = lookahead[None, :] <= slack_feas[:, None]
+        # Fraction of look‑ahead items that fit each bin
+        lookahead_frac = fits.mean(axis=1)      # in [0,1]
+        lookahead_weight = 0.3
+        core_score *= (1.0 + lookahead_weight * lookahead_frac)
+
+    # ------------------------------------------------------------------
+    # 4. Optional bin‑age boost
+    # ------------------------------------------------------------------
+    if bin_ages is not None:
+        ages = np.asarray(bin_ages, dtype=float)
+        if ages.shape != caps.shape:
+            raise ValueError("bin_ages must have the same shape as bins_remain_cap")
+        # Normalise ages to [0,1]
+        age_norm = ages / (np.max(ages) + eps)
+        age_weight = 0.2
+        age_factor = 1.0 + age_weight * age_norm
+        # Apply only to feasible bins
+        core_score *= age_factor[feasible]
+
+    # ------------------------------------------------------------------
+    # 5. Temperature‑scaled softmax (or exponential) for exploration
+    # ------------------------------------------------------------------
+    # Using exponential scaling; higher temperature smooths differences
+    exp_score = np.exp(core_score / temperature)
+
+    # ------------------------------------------------------------------
+    # 6. Tiny random tie‑breaker for numerical stability
+    # ------------------------------------------------------------------
+    tie_eps = 1e-8
+    exp_score += np.random.rand(exp_score.size) * tie_eps
+
+    # Fill the priority array
+    priorities[feasible] = exp_score
+
+    return priorities
+```

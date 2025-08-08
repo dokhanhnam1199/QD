@@ -1,0 +1,55 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute smooth bin priorities for online Bin Packing using a sigmoid
+    fit‑score.  Bins that leave very little slack after inserting the
+    item receive the highest scores.  The steepness of the sigmoid is
+    adapted online based on the typical relative slack of the feasible
+    bins, giving more emphasis to tight fits when bins are relatively
+    full.
+
+    Parameters
+    ----------
+    item : float
+        Size of the item to be inserted.
+    bins_remain_cap : np.ndarray
+        1‑D array of the remaining capacity of each bin.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores; the bin with the largest score is chosen.
+        Bins that cannot accommodate the item receive ``-np.inf``.
+    """
+    bins = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # Identify bins that can fit the item
+    fits = bins >= item
+
+    if not np.any(fits):
+        # No feasible bin
+        return np.full(bins.shape, -np.inf)
+
+    # Slack left after placing the item
+    slack = bins - item
+
+    # Relative slack (0 for perfect fit, ≤1 otherwise)
+    rel_slack = np.zeros_like(bins)
+    rel_slack[fits] = slack[fits] / bins[fits]
+
+    # Adapt the steepness parameter (alpha) based on typical slack
+    median_rel = np.median(rel_slack[fits])
+    # Base steepness: 5.0; scale so alpha ∈ [5, 10] depending on median_rel.
+    alpha = 5.0 * (2.0 - median_rel)
+
+    # Sigmoid fit‑score: 0.5 when rel_slack==0, decreasing as slack grows
+    scores = np.full(bins.shape, -np.inf)
+    scores[fits] = 1.0 / (1.0 + np.exp(alpha * rel_slack[fits]))
+    # Scale to [0, 1] so perfect fit yields 1.0
+    scores[fits] *= 2.0
+    np.clip(scores, 0.0, 1.0, out=scores)
+
+    return scores
+```

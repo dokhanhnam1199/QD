@@ -1,0 +1,57 @@
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    bin_capacity: float = 2.1100862943782164,
+    ratio_weight: float = 0.4048961071442938,
+    jitter_scale: float = 0.005210669896430173,
+    epsilon_base: float = 0.21914742907477153,
+    boost_factor: float = 4.298491159800518,
+    max_boost: float = 4.554771291646378,
+    slack_epsilon: float = 0.0009700969853234489,
+    slack_atol: float = 0.0006192313746952168,
+    zero_slack_bonus: float = 0.44415734581274124,
+    near_full_threshold: float = 0.24089582937327758,
+    near_full_bonus: float = 1.019082982205823,
+    epsilon_greedy_bonus: float = 0.5140329134890409,
+) -> np.ndarray:
+    """
+    Best‑fit with capped boost, near‑full bonuses, ratio penalty, jitter, adaptive ε‑greedy.
+    All tunable constants are exposed as parameters.
+    """
+    valid = bins_remain_cap >= item
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    if not np.any(valid):
+        return priorities
+
+    slack = bins_remain_cap[valid] - item
+    base = -slack
+
+    # Boost computation (capped)
+    boost = np.minimum(boost_factor / (slack + slack_epsilon), max_boost)
+    base += boost
+
+    # Exact‑zero slack bonus
+    base += np.isclose(slack, 0.0, atol=slack_atol) * zero_slack_bonus
+
+    # Near‑full (almost‑full) bonus
+    base += (slack <= near_full_threshold * bins_remain_cap[valid]) * near_full_bonus
+
+    # Ratio penalty (larger bins penalized)
+    base -= ratio_weight * (bins_remain_cap[valid] / bin_capacity)
+
+    # Jitter to break ties
+    base += (np.random.rand(valid.sum()) - 0.5) * jitter_scale
+
+    priorities[valid] = base
+
+    feasible = valid.sum()
+    epsilon = epsilon_base * (1 - feasible / bins_remain_cap.size)
+
+    # ε‑greedy random boost
+    if feasible and np.random.rand() < epsilon:
+        idx = np.random.choice(np.flatnonzero(valid))
+        priorities[idx] += epsilon_greedy_bonus
+
+    return priorities

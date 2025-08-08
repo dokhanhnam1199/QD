@@ -1,0 +1,83 @@
+```python
+import numpy as np
+
+# Global random generator (single instance to avoid reseeding)
+_rng = np.random.default_rng()
+
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Hybrid random‑softmax priority for online Bin Packing.
+
+    This heuristic blends an exponential decay on the post‑placement waste
+    (tight‑fit preference) with a random perturbation and an item‑size weight.
+    The decay rate λ adapts to the average waste of feasible bins, and the
+    score is further scaled by the fraction of the bin that the item will occupy.
+    Infeasible bins receive a priority of 0.  Scores are normalised to sum to 1
+    over feasible bins.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of each currently open bin.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (same shape as ``bins_remain_cap``).
+        The bin with the highest score should be selected for the item.
+    """
+    # Ensure a NumPy float array for vectorised operations
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Edge case: no bins exist
+    if caps.size == 0:
+        return np.empty_like(caps)
+
+    # ---------- 1. Feasibility ----------
+    feasible = caps >= item
+    if not np.any(feasible):
+        # No open bin can host the item – caller may open a new bin.
+        return np.zeros_like(caps)
+
+    # ---------- 2. Waste computation ----------
+    waste = caps - item  # waste >= 0 for feasible bins
+
+    # ---------- 3. Adaptive λ (based on mean waste) ----------
+    eps = 1e-12
+    mean_waste = waste[feasible].mean()
+    lam = 1.0 / (mean_waste + eps)
+
+    # ---------- 4. Base exponential decay (tight‑fit bias) ----------
+    raw = np.zeros_like(caps)
+    raw[feasible] = np.exp(-lam * waste[feasible])
+
+    # ---------- 5. Item‑size weighting ----------
+    # Prefer bins where the item occupies a larger fraction of the remaining capacity.
+    size_weight = np.zeros_like(caps)
+    size_weight[feasible] = item / caps[feasible]
+
+    # ---------- 6. Random perturbation ----------
+    # α controls the strength of randomness (0 → deterministic, 1 → highly stochastic).
+    alpha = 0.3
+    rand_factor = np.ones_like(caps)
+    num_feasible = feasible.sum()
+    if num_feasible:
+        rand_factor[feasible] = 1.0 + alpha * _rng.random(num_feasible)
+
+    # ---------- 7. Combine components ----------
+    scores = raw * size_weight * rand_factor
+    scores[~feasible] = 0.0  # enforce zero for infeasible bins
+
+    # ---------- 8. Normalisation ----------
+    total = scores.sum()
+    if total > 0.0:
+        priorities = scores / total
+    else:
+        # Fallback: uniform distribution over feasible bins
+        priorities = np.where(feasible, 1.0 / num_feasible, 0.0)
+
+    return priorities
+```

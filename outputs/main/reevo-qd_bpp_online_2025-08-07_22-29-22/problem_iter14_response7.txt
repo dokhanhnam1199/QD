@@ -1,0 +1,99 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Priority function for online bin packing.
+
+    Returns a priority score for each bin; higher scores are more desirable.
+    - Exact fits receive +inf priority.
+    - Feasible bins are scored by exp(-slack / λ), where slack = remaining capacity - item,
+      and λ is an exponential moving average (EMA) of recent slack values.
+    - Brand‑new bins (with maximal remaining capacity) are penalised.
+    - Lower‑index (older) bins win ties via a tiny deterministic subtraction.
+    - A minuscule random jitter breaks rare ties.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of existing bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (same shape as bins_remain_cap). Infeasible bins have -inf.
+    """
+    # Ensure a NumPy array of floats
+    bins_remain_cap = np.asarray(bins_remain_cap, dtype=float)
+
+    # No bins -> empty priority vector
+    if bins_remain_cap.size == 0:
+        return np.array([], dtype=float)
+
+    # Compute slack (remaining capacity after placing the item)
+    slack = bins_remain_cap - item
+
+    # Masks for classification
+    eps = 1e-12
+    invalid_mask = slack < -eps                # cannot fit
+    exact_fit_mask = np.abs(slack) <= eps      # perfect fit
+    valid_mask = ~(invalid_mask | exact_fit_mask)
+
+    # ---------------------------------------------------------------
+    # EMA of recent slack (λ parameter)
+    # ---------------------------------------------------------------
+    EMA_ALPHA = 0.1
+    epsilon_lambda = 1e-6
+
+    if np.any(valid_mask):
+        median_slack = np.median(slack[valid_mask])
+    else:
+        median_slack = 0.0
+
+    if not hasattr(priority_v2, "ema_slack"):
+        priority_v2.ema_slack = median_slack
+    else:
+        priority_v2.ema_slack = (1 - EMA_ALPHA) * priority_v2.ema_slack + EMA_ALPHA * median_slack
+
+    lam = priority_v2.ema_slack + epsilon_lambda
+
+    # ---------------------------------------------------------------
+    # Base priority assignment
+    # ---------------------------------------------------------------
+    priority = np.empty_like(bins_remain_cap, dtype=float)
+    priority[invalid_mask] = -np.inf
+    priority[exact_fit_mask] = np.inf
+    # Exponential slack score for feasible bins
+    priority[valid_mask] = np.exp(-slack[valid_mask] / lam)
+
+    # ---------------------------------------------------------------
+    # Penalise brand‑new bins (max remaining capacity)
+    # ---------------------------------------------------------------
+    max_remaining = np.max(bins_remain_cap)
+    brand_new_mask = (bins_remain_cap == max_remaining) & ~exact_fit_mask
+    penalty = 0.01
+    # Apply penalty only to finite priorities
+    finite_mask = np.isfinite(priority[brand_new_mask])
+    priority[brand_new_mask] = np.where(
+        finite_mask,
+        priority[brand_new_mask] - penalty,
+        priority[brand_new_mask]
+    )
+
+    # ---------------------------------------------------------------
+    # Deterministic tie‑breaker (older bins first)
+    # ---------------------------------------------------------------
+    tie_break_epsilon = 1e-9
+    indices = np.arange(bins_remain_cap.size, dtype=float)
+    priority -= indices * tie_break_epsilon
+
+    # ---------------------------------------------------------------
+    # Tiny random jitter to break rare ties
+    # ---------------------------------------------------------------
+    jitter_scale = 1e-10
+    priority += np.random.normal(loc=0.0, scale=jitter_scale, size=priority.shape)
+
+    return priority
+```

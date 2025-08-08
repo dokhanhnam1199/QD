@@ -1,0 +1,74 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute a smooth, capacity‑aware priority for each bin in an online
+    bin‑packing scenario.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        Remaining capacity of every open bin.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin.  The bin with the highest score will
+        be chosen.  Bins that cannot accommodate the item receive
+        :data:`-np.inf`.
+    """
+    # Ensure consistent numeric type
+    rem = bins_remain_cap.astype(float, copy=False)
+
+    # Identify bins that can fit the item
+    fit_mask = rem >= item
+    priorities = np.full_like(rem, -np.inf, dtype=float)
+
+    if not np.any(fit_mask):
+        # No bin can accept the item – the caller should open a new bin.
+        return priorities
+
+    # ------------------------------------------------------------------
+    # 1. Compute waste after placing the item
+    # ------------------------------------------------------------------
+    diff = rem[fit_mask] - item           # leftover capacity after placement
+    waste_ratio = diff / rem[fit_mask]   # fraction of the bin that will stay unused
+    fit_score = 1.0 - waste_ratio        # higher is better (less waste)
+
+    # ------------------------------------------------------------------
+    # 2. Logistic (sigmoid) transformation – steeper for sensitive fit
+    # ------------------------------------------------------------------
+    # Steepness is calibrated to give a rapid transition around a 50 %
+    # fit ratio while still being smooth.
+    k = 10.0
+    sigmoid = 1.0 / (1.0 + np.exp(-k * (fit_score - 0.5)))
+
+    # ------------------------------------------------------------------
+    # 3. Heavy penalty for waste – multiply by squared fit_score
+    # ------------------------------------------------------------------
+    # Squaring amplifies the penalty for bins that leave a lot of unused
+    # space while keeping the mapping smooth.
+    penalty_factor = fit_score ** 2
+    score = sigmoid * penalty_factor
+
+    # ------------------------------------------------------------------
+    # 4. Adaptive exploration probability
+    # ------------------------------------------------------------------
+    # Exploration is more valuable when the average waste is high
+    # (i.e., the bins that can fit are still far from optimal).
+    avg_waste = np.mean(waste_ratio)
+    # Base epsilon of 0.1, increased linearly with avg_waste, capped at 0.3
+    eps = min(0.3, max(0.05, 0.1 + 0.2 * avg_waste))
+
+    rng = np.random.default_rng()
+    if rng.random() < eps:
+        # Random exploration – all bins get a uniform score.
+        return rng.random(rem.shape[0])
+
+    # Assign computed scores to the fitting bins
+    priorities[fit_mask] = score
+    return priorities
+```

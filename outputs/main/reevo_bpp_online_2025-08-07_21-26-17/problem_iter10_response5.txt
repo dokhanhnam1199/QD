@@ -1,0 +1,199 @@
+```python
+import numpy as np
+from typing import Optional
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    *,
+    capacity: Optional[float] = None,
+    epsilon: float = 0.05,
+    noise_scale: float = 1e-4,
+    fit_alpha: float = 12.0,
+    fit_target: float = 0.80,
+    waste_alpha: float = 12.0,
+    waste_target: float = 0.07,
+    usage_alpha: float = 10.0,
+    usage_target: float = 0.40,
+    weight_fit: float = 1.0,
+    weight_waste: float = 1.0,
+    weight_usage: float = 1.0,
+    temperature: Optional[float] = None,
+    rng: Optional[np.random.Generator] = None,
+) -> np.ndarray:
+    """
+    Compute a priority score for each open bin in an online bin‑packing setting.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item (must be positive).
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the currently open bins.
+    capacity : float | None, optional
+        Fixed bin capacity. If ``None`` the maximum remaining capacity among
+        the current bins is used as an estimate.
+    epsilon : float, default 0.05
+        Probability of ε‑greedy random exploration. When ``epsilon``>0 the
+        final scores are blended with uniform random scores.
+    noise_scale : float, default 1e-4
+        Uniform noise magnitude added to the raw scores. The noise is
+        damped by ``(1 - fit_ratio)`` so that bins that already fit well
+        are perturbed less.
+    fit_alpha, fit_target : float, default 12.0, 0.80
+        Sigmoid steepness and centre for the *fit‑ratio* component
+        (``item / remaining_capacity``).
+    waste_alpha, waste_target : float, default 12.0, 0.07
+        Sigmoid steepness and centre for the *waste* component
+        (``remaining_capacity - item`` normalised by ``capacity``).  Smaller
+        waste is preferred.
+    usage_alpha, usage_target : float, default 10.0, 0.40
+        Sigmoid steepness and centre for the *usage* component
+        (how full the bin already is).
+    weight_fit, weight_waste, weight_usage : float, default 1.0
+        Relative importance of the three components. The weights are
+        normalised internally.
+    temperature : float | None, optional
+        If provided, the final scores are transformed into a probability
+        distribution using a temperature‑scaled softmax. ``temperature`` must
+        be positive.
+    rng : np.random.Generator | None, optional
+        Random number generator for reproducibility.  If ``None`` a fresh
+        default generator is created.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin.  Feasible bins receive a finite value
+        (or a probability when ``temperature`` is set); infeasible bins
+        receive ``-np.inf``.
+    """
+    # ------------------------------------------------------------------
+    # RNG
+    # ------------------------------------------------------------------
+    if rng is None:
+        rng = np.random.default_rng()
+
+    # ------------------------------------------------------------------
+    # Input validation & conversion
+    # ------------------------------------------------------------------
+    bins = np.asarray(bins_remain_cap, dtype=np.float64).ravel()
+    if bins.ndim != 1:
+        raise ValueError("bins_remain_cap must be a one‑dimensional array")
+    if item <= 0.0:
+        raise ValueError("item size must be positive")
+    if not (0.0 <= epsilon <= 1.0):
+        raise ValueError("epsilon must be in [0, 1]")
+    if noise_scale < 0.0:
+        raise ValueError("noise_scale must be non‑negative")
+    if temperature is not None and temperature <= 0.0:
+        raise ValueError("temperature must be positive when provided")
+
+    # Early exit for empty input
+    if bins.size == 0:
+        return np.array([], dtype=np.float64)
+
+    # ------------------------------------------------------------------
+    # Feasibility mask
+    # ------------------------------------------------------------------
+    feasible = bins >= item
+    if not np.any(feasible):
+        # No bin can accommodate the item
+        return np.full_like(bins, -np.inf, dtype=np.float64)
+
+    # ------------------------------------------------------------------
+    # Capacity handling
+    # ------------------------------------------------------------------
+    if capacity is None:
+        # Use the maximum remaining capacity seen so far as a proxy.
+        # This works for the classic BPP where all bins have the same
+        # nominal capacity.
+        cap_est = float(bins.max())
+        capacity = cap_est if cap_est > 0.0 else 1.0
+    else:
+        if capacity <= 0.0:
+            raise ValueError("capacity must be positive")
+
+    # ------------------------------------------------------------------
+    # Component 1 – Fit ratio (item / remaining capacity)
+    # ------------------------------------------------------------------
+    fit_ratio = np.zeros_like(bins, dtype=np.float64)
+    np.divide(item, bins, out=fit_ratio, where=feasible)
+    np.clip(fit_ratio, 0.0, 1.0, out=fit_ratio)
+    # Sigmoid: high score when fit_ratio is close to target (i.e. tight fit)
+    fit_score = 1.0 / (1.0 + np.exp(-fit_alpha * (fit_ratio - fit_target)))
+    fit_score[~feasible] = 0.0
+
+    # ------------------------------------------------------------------
+    # Component 2 – Waste (remaining capacity after placement)
+    # ------------------------------------------------------------------
+    waste = bins - item                     # non‑negative for feasible bins
+    waste_norm = waste / capacity           # normalised waste ∈ [0, 1]
+    np.clip(waste_norm, 0.0, 1.0, out=waste_norm)
+    # Prefer small waste: sigmoid decreasing with waste_norm
+    waste_score = 1.0 / (1.0 + np.exp(waste_alpha * (waste_norm - waste_target)))
+    waste_score[~feasible] = 0.0
+
+    # ------------------------------------------------------------------
+    # Component 3 – Usage (how full the bin already is)
+    # ------------------------------------------------------------------
+    usage_fraction = (capacity - bins) / capacity
+    np.clip(usage_fraction, 0.0, 1.0, out=usage_fraction)
+    usage_score = 1.0 / (1.0 + np.exp(-usage_alpha * (usage_fraction - usage_target)))
+    usage_score[~feasible] = 0.0
+
+    # ------------------------------------------------------------------
+    # Combine components using weighted sum (weights are normalised)
+    # ------------------------------------------------------------------
+    total_weight = weight_fit + weight_waste + weight_usage
+    if total_weight == 0.0:
+        raise ValueError("At least one of the component weights must be positive")
+    w_f = weight_fit / total_weight
+    w_w = weight_waste / total_weight
+    w_u = weight_usage / total_weight
+
+    base_score = w_f * fit_score + w_w * waste_score + w_u * usage_score
+
+    # ------------------------------------------------------------------
+    # Add exploration noise scaled by (1 - fit_ratio)
+    # ------------------------------------------------------------------
+    if noise_scale > 0.0:
+        noise = rng.uniform(-noise_scale, noise_scale, size=bins.shape)
+        noise = noise * (1.0 - fit_ratio) * feasible   # damp for good fits
+        base_score = base_score + noise
+
+    # ------------------------------------------------------------------
+    # ε‑greedy mixing: blend with uniform random scores
+    # ------------------------------------------------------------------
+    if epsilon > 0.0:
+        random_scores = rng.random(size=bins.shape)
+        random_scores[~feasible] = 0.0
+        base_score = (1.0 - epsilon) * base_score + epsilon * random_scores
+
+    # ------------------------------------------------------------------
+    # Mark infeasible bins explicitly
+    # ------------------------------------------------------------------
+    priorities = np.full_like(bins, -np.inf, dtype=np.float64)
+    priorities[feasible] = base_score[feasible]
+
+    # ------------------------------------------------------------------
+    # Optional temperature‑scaled softmax → probability distribution
+    # ------------------------------------------------------------------
+    if temperature is not None:
+        # Compute softmax only over feasible bins
+        feasible_scores = priorities[feasible]
+        max_score = feasible_scores.max()
+        exp_vals = np.exp((feasible_scores - max_score) / temperature)
+        probs = exp_vals / exp_vals.sum()
+        # Fill output array
+        priorities = np.full_like(bins, -np.inf, dtype=np.float64)
+        priorities[feasible] = probs
+
+    # ------------------------------------------------------------------
+    # Tiny deterministic tie‑breaker (optional but useful)
+    # ------------------------------------------------------------------
+    if priorities.size > 0:
+        priorities = priorities + np.arange(priorities.size, dtype=np.float64) * 1e-12
+
+    return priorities
+```

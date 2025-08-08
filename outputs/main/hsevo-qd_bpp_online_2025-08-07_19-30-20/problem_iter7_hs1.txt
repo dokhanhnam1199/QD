@@ -1,0 +1,55 @@
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    capacity_factor: float = 1.141707171442931,
+    temperature: float = 10.847291425644656,
+    sum_exp_epsilon: float = 4.6888901500647783e-07,
+) -> np.ndarray:
+    """
+    Compute priority scores for bins based on remaining capacity.
+
+    Parameters
+    ----------
+    item : float
+        Size of the item to be placed.
+    bins_remain_cap : np.ndarray
+        Array of remaining capacities for each bin.
+    capacity_factor : float, default 1.0
+        Multiplicative factor applied to `item` when checking capacity.
+        A value >1 makes the capacity check stricter; <1 makes it looser.
+    temperature : float, default 1.0
+        Temperature parameter controlling the softness of the exponential
+        weighting. Lower values produce sharper preferences.
+    sum_exp_epsilon : float, default 0.0
+        Small threshold to treat the sum of exponentials as zero,
+        avoiding division by zero.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores that sum to 1 for feasible bins, otherwise zeros.
+    """
+    # Determine which bins can accommodate the item (with optional factor)
+    mask = bins_remain_cap >= item * capacity_factor
+    if not np.any(mask):
+        return np.zeros_like(bins_remain_cap, dtype=float)
+
+    residual = bins_remain_cap - item
+    # Initialise raw scores with -inf for infeasible bins
+    raw = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    # Apply weighted residual (softmax numerator)
+    raw[mask] = -residual[mask] / temperature
+
+    # Stabilize exponentiation by subtracting max
+    max_raw = np.max(raw[mask])
+    exp_raw = np.exp(raw - max_raw)
+    sum_exp = np.sum(exp_raw)
+
+    # Guard against division by zero (or near‑zero) sums
+    if sum_exp <= sum_exp_epsilon:
+        return np.zeros_like(bins_remain_cap, dtype=float)
+
+    priorities = exp_raw / sum_exp
+    return priorities

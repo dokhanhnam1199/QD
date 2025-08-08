@@ -1,0 +1,69 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute a normalized priority score for each bin in an online Bin Packing
+    scenario.
+
+    The priority reflects the *Best‑Fit* rule: a bin that leaves the smallest
+    remaining capacity after accommodating the item receives the highest
+    priority.  The score is normalised to the range [0, 1] for the feasible
+    bins, and infeasible bins receive ``-np.inf`` so they are never chosen.
+    A tiny tie‑breaker favours lower‑index bins when priorities are equal.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array containing the remaining capacity of each existing bin.
+
+    Returns
+    -------
+    np.ndarray
+        1‑D array of the same shape as ``bins_remain_cap`` containing the
+        priority score for each bin (higher means more preferred).
+    """
+    # Ensure a floating‑point array for safe arithmetic
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Remaining space if the item were to be added
+    leftover = caps - item
+    feasible = leftover >= 0
+
+    # Compute leftover ratio safely (avoid division by zero)
+    leftover_ratio = np.empty_like(caps)
+    if np.any(feasible):
+        valid = feasible & (caps > 0)
+        leftover_ratio[valid] = leftover[valid] / caps[valid]
+
+        zero_cap = feasible & (caps == 0)
+        # When capacity is zero and item fits (i.e., item==0), the ratio is 0
+        leftover_ratio[zero_cap] = 0.0
+
+    # Raw priority: negative leftover ratio (higher when leftover is smaller)
+    raw_priority = np.full_like(caps, -np.inf, dtype=float)
+    if np.any(feasible):
+        raw_priority[feasible] = -leftover_ratio[feasible]
+
+    # Normalise feasible priorities to [0, 1], keep infeasible as -inf
+    if np.any(feasible):
+        min_f = np.min(raw_priority[feasible])
+        max_f = np.max(raw_priority[feasible])
+        norm_range = max_f - min_f
+        if norm_range > 0:
+            norm_priority = (raw_priority - min_f) / norm_range
+        else:
+            # All feasible priorities are equal → keep them all 0
+            norm_priority = raw_priority - min_f
+    else:
+        norm_priority = raw_priority
+
+    # Tie‑breaker: slightly favour lower‑index bins
+    epsilon = 1e-9
+    tie_breaker = -epsilon * np.arange(len(norm_priority))
+    priorities = norm_priority + tie_breaker
+
+    return priorities
+```

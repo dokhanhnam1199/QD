@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Hybrid best‑fit priority: negative slack, capped boost, near‑full bonus, ratio penalty, deterministic tie‑break, occasional ε‑greedy exploration."""
+    # Identify bins that can accommodate the item
+    valid = bins_remain_cap >= item
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    if not np.any(valid):
+        return priorities
+
+    # Slack (unused space) after placing the item
+    slack = bins_remain_cap[valid] - item
+    # Base: prefer smallest slack (best‑fit)
+    base = -slack
+
+    # Capped boost inversely proportional to slack
+    boost_factor, max_boost, tiny = 0.5, 3.0, 1e-6
+    boost = np.minimum(boost_factor / (slack + tiny), max_boost)
+    base += boost
+
+    # Bonus for exact fit
+    base += np.isclose(slack, 0.0, atol=1e-9) * 1.0
+
+    # Near‑full bonus (slack ≤ 5 % of bin capacity)
+    bin_capacity = np.max(bins_remain_cap)  # assumes at least one empty bin exists
+    near_full_thr, near_full_bonus = 0.05, 0.5
+    base += (slack <= near_full_thr * bin_capacity) * near_full_bonus
+
+    # Ratio penalty to discourage using bins with large free space
+    ratio_weight = 0.2
+    base -= ratio_weight * (bins_remain_cap[valid] / bin_capacity)
+
+    # Deterministic jitter based on bin index for tie‑breaking
+    jitter_scale = 1e-4
+    idxs = np.flatnonzero(valid)
+    base += idxs * jitter_scale
+
+    priorities[valid] = base
+
+    # Adaptive ε‑greedy: occasionally boost a random feasible bin
+    epsilon_base = 0.1
+    feasible, total = valid.sum(), bins_remain_cap.size
+    epsilon = epsilon_base * (1 - feasible / total)
+    if feasible and np.random.rand() < epsilon:
+        rand_idx = np.random.choice(idxs)
+        priorities[rand_idx] += 0.5  # exploration bonus
+
+    return priorities
+```

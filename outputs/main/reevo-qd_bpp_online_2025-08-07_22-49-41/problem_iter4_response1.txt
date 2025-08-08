@@ -1,0 +1,134 @@
+```python
+import numpy as np
+
+# ----------------------------------------------------------------------
+# Global state for the adaptive components (bandit statistics and item stats)
+# ----------------------------------------------------------------------
+_bandit_attempts = {}   # maps bin index -> number of times the bin has been considered
+_item_sum = 0.0         # cumulative sum of item sizes seen so far
+_item_count = 0         # number of items processed so far
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute priority scores for bins in the online Bin Packing Problem (BPP).
+
+    The score blends several heuristics:
+      * Sigmoid fit score favouring tight fits,
+      * Slack penalty discouraging large unused space,
+      * Adaptive ε‑greedy exploration,
+      * Upper‑Confidence‑Bound (UCB) bonus (multi‑armed bandit style),
+      * Simple look‑ahead bonus based on the average item size observed.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the existing bins.
+
+    Returns
+    -------
+    np.ndarray
+        Array of priority scores (same shape as ``bins_remain_cap``).  Infeasible
+        bins receive ``-np.inf``.  The caller should select the bin with the
+        highest score.
+    """
+    global _bandit_attempts, _item_sum, _item_count
+
+    # ------------------------------------------------------------------
+    # Update global statistics (used for the look‑ahead component)
+    # ------------------------------------------------------------------
+    _item_sum += item
+    _item_count += 1
+    avg_item = _item_sum / max(_item_count, 1)
+
+    # ------------------------------------------------------------------
+    # Prepare data structures
+    # ------------------------------------------------------------------
+    bins = np.asarray(bins_remain_cap, dtype=np.float64)
+    n_bins = bins.shape[0]
+
+    # Initialise all priorities to -inf (infeasible)
+    priorities = np.full(n_bins, -np.inf, dtype=np.float64)
+
+    # Determine which bins can accommodate the item
+    fit_mask = bins >= item
+    if not np.any(fit_mask):
+        # No feasible bin – caller will need to open a new one
+        return priorities
+
+    # ------------------------------------------------------------------
+    # Adaptive ε‑greedy exploration
+    # ------------------------------------------------------------------
+    fit_ratio = np.sum(fit_mask) / n_bins            # proportion of feasible bins
+    base_eps = 0.20                                   # baseline exploration rate
+    min_eps = 0.01
+    max_eps = 0.50
+    epsilon = np.clip(base_eps * fit_ratio, min_eps, max_eps)
+
+    if np.random.rand() < epsilon:
+        # Pure exploration: assign random scores to feasible bins
+        rand_scores = np.random.rand(np.count_nonzero(fit_mask))
+        priorities[fit_mask] = rand_scores
+
+        # Record an attempt for each considered bin (used later for UCB)
+        for idx in np.where(fit_mask)[0]:
+            _bandit_attempts[idx] = _bandit_attempts.get(idx, 0) + 1
+        return priorities
+
+    # ------------------------------------------------------------------
+    # Exploitation components
+    # ------------------------------------------------------------------
+    # Slack that would remain after placing the item
+    residual = bins - item
+
+    # Relative slack (0 = perfect fit, 1 = completely empty)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        rel_residual = np.where(bins > 0, residual / bins, 0.0)
+
+    # Sigmoid fit score – tighter fits obtain higher values
+    alpha = 10.0
+    sigmoid_score = 1.0 / (1.0 + np.exp(alpha * rel_residual))
+
+    # Slack penalty – discourage leaving too much free space
+    target_slack_factor = 0.20                # aim to leave ≤20 % of the item size
+    target_slack = target_slack_factor * item
+    slack_excess = np.maximum(0.0, residual - target_slack)
+    slack_penalty_coeff = 0.5
+    slack_penalty = slack_penalty_coeff * (slack_excess / (bins + 1e-9))
+
+    # Base score after applying the slack penalty
+    base_score = sigmoid_score - slack_penalty
+    base_score = np.clip(base_score, 0.0, None)   # keep non‑negative
+
+    # ------------------------------------------------------------------
+    # Multi‑armed bandit (UCB) exploration bonus
+    # ------------------------------------------------------------------
+    # Number of times each bin index has been considered (default 0)
+    attempts_arr = np.array([_bandit_attempts.get(i, 0) for i in range(n_bins)], dtype=np.float64)
+    total_attempts = max(attempts_arr.sum(), 1.0)  # avoid zero for log
+
+    ucb_c = 1.0                                    # exploration coefficient
+    ucb_bonus = ucb_c * np.sqrt(np.log(total_attempts + 1.0) / (attempts_arr + 1.0))
+
+    # ------------------------------------------------------------------
+    # Simple look‑ahead bonus
+    # ------------------------------------------------------------------
+    # Reward bins that would still have room for another average‑size item
+    lookahead_weight = 0.30
+    lookahead_bonus = lookahead_weight * (residual >= avg_item).astype(np.float64)
+
+    # ------------------------------------------------------------------
+    # Combine all components into a final priority score
+    # ------------------------------------------------------------------
+    combined_score = base_score + ucb_bonus + lookahead_bonus
+
+    # Assign the combined scores to feasible bins only
+    priorities[fit_mask] = combined_score[fit_mask]
+
+    # Record an attempt for each feasible bin (used for future UCB calculations)
+    for idx in np.where(fit_mask)[0]:
+        _bandit_attempts[idx] = _bandit_attempts.get(idx, 0) + 1
+
+    return priorities
+```

@@ -1,0 +1,101 @@
+```python
+import numpy as np
+
+# Global random generator for reproducibility and tiny tie‑breaking noise
+_rng = np.random.default_rng()
+
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    base_temperature: float = 0.1,
+    min_temperature: float = 1e-4,
+    eps: float = 1e-12,
+) -> np.ndarray:
+    """Adaptive softmax priority for online Bin Packing.
+
+    Each feasible bin (remaining capacity ≥ item) receives a priority proportional
+    to how tightly the item would fit.  The softmax temperature is scaled by the
+    coefficient of variation of the slack values, making the selection more
+    greedy when slacks vary widely and more stochastic when they are similar.
+    Infeasible bins receive a priority of 0.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the current bins.
+    base_temperature : float, optional
+        Base temperature for the softmax (must be > 0). Default ``0.1``.
+    min_temperature : float, optional
+        Minimum temperature to avoid division by zero. Default ``1e-4``.
+    eps : float, optional
+        Small constant for numerical stability and tie‑breaking noise.
+        Default ``1e-12``.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin (zero for infeasible bins).  The scores sum
+        to 1 across all feasible bins (or 0 if none are feasible).
+    """
+    if base_temperature <= 0:
+        raise ValueError("base_temperature must be positive")
+
+    # Ensure a NumPy array of floats for arithmetic safety
+    caps = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # Initialise priority vector with zeros (infeasible bins stay zero)
+    priorities = np.zeros_like(caps, dtype=np.float64)
+
+    # Edge case: no bins at all
+    if caps.size == 0:
+        return priorities
+
+    # Identify feasible bins
+    feasible = caps >= item
+    if not np.any(feasible):
+        # No feasible bin – caller may open a new bin
+        return priorities
+
+    # Slack = unused capacity after placing the item (only for feasible bins)
+    slack = caps[feasible] - item  # non‑negative values
+
+    # --- Adaptive temperature based on slack variance -------------------------
+    slack_mean = np.mean(slack)
+    slack_std = np.std(slack)
+
+    # Coefficient of variation (std / mean) with stability term
+    cv = slack_std / (slack_mean + eps)
+
+    # Clamp CV to avoid extreme temperature values
+    cv_clamped = min(cv, 1.0)  # in [0, 1]
+
+    # Temperature grows with CV: more variance → softer (more stochastic) choice
+    temperature = max(min_temperature, base_temperature * (1.0 + cv_clamped))
+
+    # --- Softmax logits ---------------------------------------------------------
+    # Higher priority for tighter fits (smaller slack) → negative slack
+    logits = -slack / temperature
+
+    # Tiny random perturbation to break exact ties (negligible impact)
+    if eps > 0:
+        logits += _rng.uniform(-eps, eps, size=logits.shape)
+
+    # Numerically stable softmax
+    max_logit = np.max(logits)
+    exp_logits = np.exp(logits - max_logit)
+    sum_exp = np.sum(exp_logits)
+
+    if sum_exp > 0:
+        probs = exp_logits / sum_exp
+    else:
+        # Degenerate case: fall back to uniform distribution
+        probs = np.full_like(exp_logits, 1.0 / exp_logits.size)
+
+    # Fill the priority vector for feasible bins
+    priorities[feasible] = probs
+
+    return priorities
+```

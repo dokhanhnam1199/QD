@@ -1,0 +1,59 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Priority function for online Bin Packing.
+    Scores each feasible bin by a normalised inverse slack value,
+    prioritising exact‑fit bins. Infeasible bins receive -inf.
+    A tiny deterministic pseudo‑random noise per bin is added
+    to break ties in a reproducible way.
+    
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities for each bin.
+    
+    Returns
+    -------
+    np.ndarray
+        1‑D array of priority scores, one per bin.  The bin with the
+        highest priority will be chosen for the item.
+    """
+    # Ensure input is a float array
+    caps = np.asarray(bins_remain_cap, dtype=float)
+
+    # Compute slack and feasibility
+    slack = caps - item
+    feasible = slack >= 0
+
+    # Initialise priority array with -inf for infeasible bins
+    priorities = np.full_like(caps, -np.inf, dtype=float)
+
+    # If no feasible bins, return the array as is
+    if not np.any(feasible):
+        return priorities
+
+    # Inverse slack priority with small epsilon to avoid division by zero
+    eps = 1e-12
+    inv_slack = np.zeros_like(caps)
+    inv_slack[feasible] = 1.0 / (slack[feasible] + eps)
+
+    # Normalise to sum to 1 (only over feasible bins)
+    total = np.sum(inv_slack[feasible])
+    if total > 0:
+        inv_slack[feasible] /= total
+
+    # Add deterministic tiny noise per bin to break ties
+    bin_indices = np.arange(caps.size, dtype=np.int64)
+    # Create a simple pseudo‑random seed that mixes item size and bin index
+    noise_seed = (bin_indices + int(item * 1_000_000)) & 0xffffffff
+    noise = (noise_seed.astype(np.float64) / 2**32) * 1e-12
+
+    # Combine inverse slack and noise only for feasible bins
+    priorities[feasible] = inv_slack[feasible] + noise[feasible]
+
+    return priorities
+```

@@ -1,0 +1,127 @@
+```python
+import numpy as np
+
+# ----------------------------------------------------------------------
+# Global state (shared across calls)
+# ----------------------------------------------------------------------
+_rng = np.random.default_rng()               # RNG for optional tiny noise
+_alpha_ema = 0.1                               # EMA smoothing factor
+_epsilon_factor = 0.05                         # Fraction of std for exact‑fit tolerance
+_exact_fit_offset = 1e9                        # Large offset to guarantee exact fits win
+
+# EMA statistics for item sizes
+_ema_mean = 0.0
+_ema_sq = 0.0
+_item_count = 0
+
+def _update_item_stats(item: float) -> None:
+    """Update exponential moving averages of the item size."""
+    global _ema_mean, _ema_sq, _item_count
+    _item_count += 1
+    _ema_mean = (1 - _alpha_ema) * _ema_mean + _alpha_ema * item
+    _ema_sq   = (1 - _alpha_ema) * _ema_sq   + _alpha_ema * (item * item)
+
+def _current_std() -> float:
+    """Return the current estimated standard deviation of seen items."""
+    var = _ema_sq - _ema_mean * _ema_mean
+    if var < 0.0:
+        var = 0.0
+    return np.sqrt(var)
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Adaptive priority for online bin packing.
+
+    Scoring principles
+    ------------------
+    1. Exact fits (within a tolerance derived from EMA std) receive a huge
+       offset, ensuring they are always preferred.
+    2. Among feasible non‑exact bins, a softmax over the negative slack
+       (remaining capacity after placement) is used.  The temperature is the
+       median slack of all feasible bins, making the scoring adaptive to the
+       current distribution of free space.
+    3. Brand‑new bins (still at full capacity) are penalised slightly to
+       encourage reuse of older bins.
+    4. Deterministic tie‑breaking: lower‑index bins receive a minuscule
+       boost (by subtracting a tiny epsilon * index).
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of each bin.
+
+    Returns
+    -------
+    np.ndarray
+        Priority values (same shape as ``bins_remain_cap``).  Infeasible bins
+        receive ``-np.inf``.
+    """
+    # ------------------------------------------------------------------
+    # 1. Update EMA statistics for the current item (used for tolerance)
+    # ------------------------------------------------------------------
+    _update_item_stats(item)
+
+    # Tolerance for exact‑fit detection (based on EMA std)
+    std = _current_std()
+    eps = max(1e-9, _epsilon_factor * std)
+
+    # ------------------------------------------------------------------
+    # 2. Compute slack (remaining capacity after placement)
+    # ------------------------------------------------------------------
+    slack = bins_remain_cap - item                     # may be negative
+    feasible = slack >= -eps                           # allow tiny negative due to eps
+
+    # Initialise all priorities to -inf (infeasible bins)
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    if not np.any(feasible):
+        # No bin can accommodate the item – caller may open a new bin
+        return priorities
+
+    # ------------------------------------------------------------------
+    # 3. Exact‑fit handling
+    # ------------------------------------------------------------------
+    exact_fit = feasible & (np.abs(slack) <= eps)
+    if np.any(exact_fit):
+        idx_exact = np.nonzero(exact_fit)[0].astype(float)
+        tiny_eps = 1e-12
+        priorities[exact_fit] = _exact_fit_offset - tiny_eps * idx_exact
+
+    # ------------------------------------------------------------------
+    # 4. Scoring of non‑exact feasible bins
+    # ------------------------------------------------------------------
+    non_exact = feasible & ~exact_fit
+    if np.any(non_exact):
+        # Base score: negative slack (smaller slack → larger score)
+        base_score = -slack[non_exact]
+
+        # Adaptive temperature: median slack among all feasible bins
+        median_slack = np.median(slack[feasible])
+        temperature = max(median_slack, 1e-6)        # avoid division by zero
+
+        # Softmax‑like transformation (larger for smaller slack)
+        exp_arg = base_score / temperature
+        exp_arg = np.clip(exp_arg, -700, 700)        # protect against overflow
+        soft_scores = np.exp(exp_arg)
+
+        priorities[non_exact] = soft_scores
+
+        # --------------------------------------------------------------
+        # 4a. Penalise brand‑new bins (still at full capacity)
+        # --------------------------------------------------------------
+        bin_capacity_est = np.max(bins_remain_cap)
+        new_bin_mask = np.isclose(bins_remain_cap, bin_capacity_est, atol=1e-9) & non_exact
+        if np.any(new_bin_mask):
+            penalty = 0.001   # 0.1 % reduction
+            priorities[new_bin_mask] *= (1.0 - penalty)
+
+        # --------------------------------------------------------------
+        # 4b. Deterministic tie‑breaker (lower index gets a tiny boost)
+        # --------------------------------------------------------------
+        idx_non_exact = np.nonzero(non_exact)[0].astype(float)
+        tie_eps = 1e-12
+        priorities[non_exact] -= tie_eps * idx_non_exact
+
+    return priorities
+```

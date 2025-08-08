@@ -1,0 +1,67 @@
+```python
+import numpy as np
+
+# Global, reproducible RNG for tie‑breaking
+_rng = np.random.default_rng(12345)
+
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Compute a priority score for each bin in an online Bin Packing setting.
+
+    The score favours bins with the smallest remaining slack after placing the
+    item.  It uses a normalized inverse‑slack weighting, adds a tiny
+    reproducible random perturbation for stochastic tie‑breaking, and applies a
+    minimal deterministic index‑based penalty to guarantee a total ordering.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        1‑D array of remaining capacities of the current bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores (same length as ``bins_remain_cap``).  Infeasible bins
+        (capacity < item) receive ``-np.inf``; the bin with the highest score
+        should be selected for the item.
+    """
+    caps = np.asarray(bins_remain_cap, dtype=float)
+    n = caps.size
+
+    # Initialise all scores as infeasible
+    priorities = np.full(n, -np.inf, dtype=float)
+    if n == 0:
+        return priorities
+
+    slack = caps - item
+    feasible = slack >= 0
+    if not np.any(feasible):
+        return priorities
+
+    # Constant epsilon to avoid division by zero
+    eps = 1e-12
+    slack_feas = slack[feasible]
+
+    # Inverse slack (larger for tighter fits)
+    inv_slack = 1.0 / (slack_feas + eps)
+
+    # Normalise to keep scores bounded in [0, 1]
+    max_inv = inv_slack.max()
+    inv_norm = inv_slack / max_inv if max_inv > 0 else inv_slack
+
+    # Small reproducible random perturbation for stochastic tie‑breaking
+    rand_noise = _rng.random(inv_norm.shape) * 1e-9
+
+    # Deterministic tiny penalty based on bin index to resolve any remaining ties
+    idx = np.nonzero(feasible)[0].astype(float)
+    idx_penalty = idx * 1e-12
+
+    # Final scores for feasible bins
+    scores = inv_norm + rand_noise - idx_penalty
+    priorities[feasible] = scores
+
+    return priorities
+```

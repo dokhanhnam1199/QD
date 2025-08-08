@@ -1,0 +1,37 @@
+```python
+import numpy as np
+
+_item_avg = None
+_item_avg_count = 0
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Best‑fit priority: inverse leftover with tightness, variance‑scaled jitter, adaptive to item avg, and index bias."""
+    n = bins_remain_cap.size
+    priority = np.full(n, -np.inf, dtype=float)
+    if n == 0:
+        return priority
+    remaining = bins_remain_cap - item
+    feasible = remaining >= 0
+    if not np.any(feasible):
+        return priority
+    global _item_avg, _item_avg_count
+    if _item_avg is None:
+        _item_avg = item
+        _item_avg_count = 1
+    else:
+        _item_avg += (item - _item_avg) / (_item_avg_count + 1)
+        _item_avg_count += 1
+    eps = 1e-12
+    rem = remaining[feasible]
+    base = 1.0 / (rem + eps)
+    tight = item / (item + rem + eps)
+    base *= tight
+    var_rem = np.var(rem) if rem.size > 1 else 0.0
+    factor = abs(item - _item_avg) / (_item_avg + eps)
+    jitter_scale = item * 0.005 * (1.0 + np.sqrt(var_rem)) * (1.0 + factor)
+    rng = np.random.default_rng()
+    jitter = (rng.random(rem.size) - 0.5) * jitter_scale
+    idx_bias = np.arange(n)[feasible] * 1e-6
+    priority[feasible] = base + jitter + idx_bias
+    return priority
+```

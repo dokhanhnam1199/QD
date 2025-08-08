@@ -1,0 +1,130 @@
+```python
+def priority_v2(
+    item: float,
+    bins_remain_cap,
+    *,
+    tolerance: float = 1e-12,
+    alpha: float = 12.0,
+    mid_point: float = 0.5,
+    epsilon: float = 0.1,
+    exact_bonus: float = 1e6,
+    random_state=None,
+):
+    """
+    Priority function for the online Bin Packing Problem (BPP).
+
+    For each open bin this function returns a scalar score; the bin with the
+    highest score should receive the incoming *item*.  The scoring scheme is
+    fully vectorised and deterministic given a ``random_state``.
+
+    Scoring rules
+    -------------
+    1. **Feasibility** – bins that cannot accommodate the item receive ``-inf``.
+    2. **Exact‑fit bonus** – bins where the item exactly (within ``tolerance``)
+       matches the remaining capacity obtain a large constant ``exact_bonus``.
+    3. **Fit‑tightness** – for the remaining feasible bins the *fill ratio*
+       ``item / capacity`` is transformed by a logistic function; tighter fits
+       (higher fill ratios) obtain larger scores.
+    4.  **Exploration** – with probability ``epsilon`` the scores of feasible
+       non‑exact bins are replaced by uniform random numbers (ε‑greedy).
+    5. **Jitter** – a tiny random jitter (≈1e‑9) is added to break ties
+       deterministically.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : array‑like
+        Remaining capacities of all currently open bins.
+    tolerance : float, optional
+        Numerical tolerance for feasibility and exact‑fit detection.
+    alpha : float, optional
+        Steepness of the logistic curve; larger values increase sensitivity.
+    mid_point : float, optional
+        Mid‑point of the logistic curve; a fill ratio equal to this yields
+        a logistic output of 0.5.
+    epsilon : float, optional
+        Exploration probability (ε‑greedy).  When ``rng.random() < epsilon``
+        the scores of feasible non‑exact bins are replaced by random values.
+    exact_bonus : float, optional
+        Large constant added to exact‑fit bins to guarantee they dominate.
+    random_state : int, np.random.Generator, or None, optional
+        Seed or generator for reproducible randomness.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores for each bin; infeasible bins receive ``-np.inf``.
+    """
+    import numpy as np
+
+    # ------------------------------------------------------------------
+    # 0) Normalise input & initialise RNG
+    # ------------------------------------------------------------------
+    caps = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    if isinstance(random_state, np.random.Generator):
+        rng = random_state
+    else:
+        rng = np.random.default_rng(random_state)
+
+    # ------------------------------------------------------------------
+    # 1) Feasibility mask – a bin must have enough free space.
+    # ------------------------------------------------------------------
+    feasible = caps >= (item - tolerance)
+
+    # Initialise all priorities to -inf (infeasible bins are never chosen)
+    priority = np.full_like(caps, -np.inf, dtype=np.float64)
+
+    # Early exit if nothing fits
+    if not feasible.any():
+        return priority
+
+    # ------------------------------------------------------------------
+    # 2) Slack after placing the item (only meaningful for feasible bins)
+    # ------------------------------------------------------------------
+    slack = caps - item  # may be negative for infeasible bins; ignored later
+
+    # ------------------------------------------------------------------
+    # 3) Exact‑fit detection (within tolerance)
+    (exact_fit)
+    # ------------------------------------------------------------------
+    exact_fit = np.abs(slack) <= tolerance
+    priority[exact_fit] = exact_bonus
+
+    # ------------------------------------------------------------------
+    # 4) Logistic scoring for feasible, non‑exact bins
+    # ------------------------------------------------------------------
+    non_exact = feasible & ~exact_fit
+    if non_exact.any():
+        caps_nx = caps[non_exact]
+        slack_nx = slack[non_exact]
+
+        # Avoid division by zero (should not happen for feasible bins)
+        caps_nx = np.maximum(caps_nx, tolerance)
+
+        # Fill proportion = item / capacity = 1 - slack / capacity
+        fill_ratio = 1.0 - slack_nx / caps_nx  # ∈ [0, 1]
+
+        # Logistic transformation: higher fill → higher score
+        z = alpha * (fill_ratio - mid_point)
+        # Clip to safe range for exp to avoid overflow
+        z = np.clip(z, -700, 700)
+        logistic_score = 1.0 / (1.0 + np.exp(-z))
+
+        # Tiny jitter for deterministic tie‑breaking
+        jitter = rng.uniform(0.0, 1e-9, size=logistic = 1e-9, size=logistic_score.shape)
+        priority[non_exact] = logistic_score + jitter
+
+        # ------------------------------------------------------------------
+        # 5) ε‑greedy exploration (replace scores of feasible non‑exact bins)
+        # ------------------------------------------------------------------
+        if rng.random() < epsilon:
+            # Draw uniform random scores in [0, 1) for each feasible non‑exact bin
+            rand_scores = rng.random(non_exact.sum())
+            priority[non_exact] = rand_scores
+            # Preserve the exact‑fit bonus (ensures exact fits still dominate)
+            priority[exact_fit] = exact_bonus
+
+    return priority
+```

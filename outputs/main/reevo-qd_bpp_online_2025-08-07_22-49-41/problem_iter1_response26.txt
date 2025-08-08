@@ -1,0 +1,87 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Sigmoid Fit Score priority for online Bin Packing.
+
+    For each currently open bin we compute a smooth priority that favours
+    *tight* fits (i.e., small remaining slack after placing the item).  The
+    raw slack is transformed by a logistic (sigmoid) function, producing a
+    value in ``[0, 1]`` – higher values indicate a more attractive bin.
+    Bins that cannot accommodate the item receive a priority of ``0``.
+
+    Parameters
+    ----------
+    item : float
+        Size of the incoming item.
+    bins_remain_cap : np.ndarray
+        Remaining capacities of the open bins.
+
+    Returns
+    -------
+    np.ndarray
+        Priority scores, one per bin. The bin with the highest score should be
+        selected for the item.
+    """
+    # Convert to a NumPy array for vectorised work.
+    caps = np.asarray(bins_remain_cap, dtype=np.float64)
+
+    # ------------------------------------------------------------------
+    # 1) Feasibility mask – a bin must have enough free space.
+    # ------------------------------------------------------------------
+    feasible = caps >= item
+
+    #  (Will be overwritten with actual priorities later.)
+    priority = np.zeros_like(caps, dtype=np.float64)
+
+    if not feasible.any():
+        # No bin can accept the item – return all zeros.
+        return priority
+
+    # ------------------------------------------------------------------
+    # 2) Compute slack (remaining capacity after placing the item) for
+    #    feasible bins only.
+    # ------------------------------------------------------------------
+    slack = np.empty_like(caps)
+    slack[:] = np.nan
+    slack[feasible] = caps[feasible] - item
+
+    # ------------------------------------------------------------------
+    # 3) Estimate the (fixed) bin capacity.
+    #    All bins share the same total capacity C; the current maximum
+    #    remaining capacity is a safe estimator for C.
+    # ------------------------------------------------------------------
+    capacity_est = caps.max() if caps.size > 0 else 1.0
+    capacity_est = max(capacity_est, 1e-12)      # protect against division by zero
+
+    # ------------------------------------------------------------------
+    # 4) Normalise the slack to [0, 1] (0 = perfect fit, 1 = empty bin).
+    # ------------------------------------------------------------------
+    norm_slack = slack / capacity_est
+
+    # ------------------------------------------------------------------
+    # 5) Compute a “fit score” that is large when slack is small.
+    #    fit_score = 1 - norm_slack ∈ [0, 1]  (1 = perfect fit).
+    # ------------------------------------------------------------------
+    fit_score = 1.0 - norm_slack
+
+    # ------------------------------------------------------------------
+    # 6) Apply a sigmoid to the fit score.
+    #
+    #    priority = 1 / (1 + exp(-α·(fit_score - mid_point)))
+    #
+    #    * α  – steepness (larger ⇒ sharper distinction between tight
+    #            and loose fits).
+    #    * mid_point – sigmoid centre (fit_score at which priority = 0.5).
+    # ------------------------------------------------------------------
+    alpha = 12.0        # controls how aggressively we prefer tight fits
+    mid_point = 0.5    # centre of the logistic curve
+
+    sigmoid_arg = alpha * (fit_score - mid_point)
+    priority[feasible] = 1.0 / (1.0 + np.exp(-sigmoid_arg))
+
+    # ------------------------------------------------------------------
+    # 7) Infeasible bins keep priority 0 (already set at initialisation).
+    # ------------------------------------------------------------------
+    return priority
+```
