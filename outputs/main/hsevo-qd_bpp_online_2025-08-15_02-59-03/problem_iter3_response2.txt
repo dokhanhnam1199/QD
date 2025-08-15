@@ -1,0 +1,65 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using a
+    modified Best Fit strategy that also considers the "tightness" of the fit
+    and the potential for future packing.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=np.float64)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+    
+    # Calculate the remaining capacity after placing the item
+    remaining_after_fit = suitable_bins_remain_cap - item
+    
+    # Heuristic 1: Prioritize bins where the item fits snugly (minimizing waste in this bin)
+    # We use a value that is inversely proportional to the remaining capacity after fitting.
+    # Add a small epsilon to avoid division by zero if remaining_after_fit is 0.
+    snug_fit_scores = 1.0 / (remaining_after_fit + 1e-9)
+
+    # Heuristic 2: Prioritize bins that will have more remaining capacity AFTER the item is placed.
+    # This can be useful if we anticipate packing larger items later and want to reserve
+    # larger bins, or if we want to keep bins with moderate remaining capacity.
+    # Let's give a slight bonus to bins that will have a medium amount of remaining capacity.
+    # A simple way is to give a higher score to bins whose remaining capacity is closer to the median.
+    # Or, a simpler approach: prioritize bins that leave a "good amount" of space, but not too much.
+    # Let's try to penalize bins that become nearly empty or still very large.
+    # We can use a Gaussian-like function centered around a 'desirable' remaining capacity.
+    # For simplicity here, let's consider leaving a moderate amount of space as good.
+    # We can map remaining_after_fit to a score where middle values are higher.
+    # A simple approach: score = 1 - (x - target)^2 / range^2.
+    # Let's assume a target remaining capacity is around half of the bin's original capacity,
+    # but this is complex as we don't know original capacity.
+    # A simpler heuristic: prioritize bins that leave a moderate amount of space,
+    # e.g., not too close to 0 and not too close to the original capacity.
+    # Let's consider bins that leave remaining capacity between 10% and 50% of the *item size* as moderately good.
+    # This is a bit ad-hoc but aims to keep bins that are neither too full nor too empty for the current item.
+    moderate_space_scores = np.zeros_like(suitable_bins_remain_cap)
+    lower_bound = item * 0.1
+    upper_bound = item * 0.5
+    
+    valid_moderate_mask = (remaining_after_fit >= lower_bound) & (remaining_after_fit <= upper_bound)
+    moderate_space_scores[valid_moderate_mask] = 1.0
+    
+    # Combine scores: A weighted sum or a simple addition might work.
+    # Let's try a weighted sum. The snug fit is often the primary goal in BPP.
+    # We can add the moderate space score as a secondary factor.
+    combined_scores = snug_fit_scores + 0.2 * moderate_space_scores # Weighting snug fit more
+
+    # Normalize scores to be between 0 and 1 (optional, but good for consistent priority interpretation)
+    if np.max(combined_scores) > 0:
+        normalized_scores = combined_scores / np.max(combined_scores)
+    else:
+        normalized_scores = combined_scores
+
+    # Assign priorities to the original array
+    priorities[suitable_bins_mask] = normalized_scores
+
+    return priorities
+```

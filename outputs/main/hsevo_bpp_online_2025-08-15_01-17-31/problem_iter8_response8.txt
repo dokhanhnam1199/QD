@@ -1,0 +1,65 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with a dynamic penalty for remaining capacity relative to item size.
+    Prioritizes tight fits, penalizing bins that will be left excessively empty
+    in proportion to the item being packed.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+    
+    if not np.any(can_fit_mask):
+        return priorities # No bin can fit the item
+    
+    # Filter for bins that can fit the item
+    valid_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    
+    # --- Best Fit component ---
+    # Score is inversely proportional to the remaining gap after placing the item.
+    # Higher score for smaller gaps (tighter fits).
+    # Adding epsilon to prevent division by zero.
+    epsilon = 1e-9
+    best_fit_scores = 1.0 / (valid_bins_remain_cap - item + epsilon)
+    
+    # --- Dynamic Penalty component ---
+    # Penalize bins where the remaining capacity after fitting is large relative to the item.
+    # This encourages filling bins more effectively.
+    # The penalty is designed to be less aggressive when the item is small.
+    # We use a term that increases with the ratio (remaining_capacity_after_fit / item).
+    # `remaining_capacity_after_fit` is `valid_bins_remain_cap - item`.
+    # A penalty factor is applied to control its strength.
+    penalty_factor = 0.3 # Tunable parameter for penalty strength
+    
+    # Calculate the penalty: proportional to the ratio of 'slack' to item size.
+    # Use a small epsilon in the denominator to avoid division by zero if item is 0.
+    # Also, cap the penalty to avoid extreme values if `valid_bins_remain_cap - item` is vastly larger than `item`.
+    # This is similar to Heuristic 13/14's approach of using a capacity ratio.
+    slack = valid_bins_remain_cap - item
+    penalty_ratio = slack / (item + epsilon)
+    
+    # Apply a penalty that grows with the penalty_ratio.
+    # We can use a form similar to Heuristic 13/14's exp(-ratio) but inverted and scaled,
+    # or a simpler proportional penalty. Let's try a penalty that increases with slack/item ratio.
+    # A simple linear penalty on the ratio: `penalty_factor * penalty_ratio`
+    # This means if `slack = item`, penalty is `penalty_factor`. If `slack = 2*item`, penalty is `2*penalty_factor`.
+    # This is similar to what Heuristic 14 and 15 explore, but let's directly use `1.0 / (1.0 + penalty_factor * penalty_ratio)`
+    # as a multiplier that reduces the best_fit_score for bins with high slack-to-item ratio.
+    # Alternatively, subtracting a scaled penalty: `best_fit_scores - penalty_factor * penalty_ratio`
+    # Let's try the subtractive approach with a linear penalty on the ratio.
+    
+    # Combine Best Fit score with the penalty.
+    # The combined score is the Best Fit score minus a penalty proportional to the
+    # ratio of (remaining capacity after fitting) to (item size).
+    # This prioritizes tight fits and discourages leaving large proportional gaps.
+    combined_priorities = best_fit_scores - penalty_factor * penalty_ratio
+    
+    # Assign the calculated priorities back to the original bin indices
+    original_indices = np.where(can_fit_mask)[0]
+    priorities[original_indices] = combined_priorities
+
+    return priorities
+```

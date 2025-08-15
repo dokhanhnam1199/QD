@@ -1,0 +1,52 @@
+**Analysis:**
+
+Comparing Heuristic 1 and Heuristic 3 (identical):
+*   **Commonality:** Both prioritize exact fits with a score of 1.0. For non-exact fits, they calculate `remaining_after_fit / (eligible_bins_remain_cap + epsilon)` which represents normalized slack. They then use `1.0 - normalized_remaining_capacity` and scale it to `0.5 + best_fit_scores * 0.49`.
+*   **Difference:** No functional difference found.
+
+Comparing Heuristic 2, 4, 5, 7 and Heuristic 14, 15:
+*   **Commonality (2, 4, 5, 7):** These heuristics prioritize exact fits with a very high score (`1e6`). For non-exact fits, they calculate slack, then `best_fit_scores = -slack`. They then apply a penalty `slack_penalty_factor * relative_slack` where `relative_slack = slack / (item + epsilon)`. The combined score is `best_fit_scores - slack_penalty_factor * relative_slack`. The penalty factor is 0.1. They initialize priorities to -1.0.
+*   **Commonality (14, 15):** These heuristics prioritize exact fits with a very high score (`1e9`). For non-exact fits, they aim to minimize remaining capacity (`-remaining_after_fit`) and use `-initial_remaining_capacity` as a tie-breaker, scaled by a large factor (`1e6`) to ensure Best Fit dominates. They initialize priorities to -1.0.
+*   **Difference:** Heuristics 2, 4, 5, 7 introduce a *penalty* for large relative slack, actively *reducing* the score for bins that would remain too empty. Heuristics 14, 15 use the initial bin capacity as a *tie-breaker* for bins with similar Best Fit scores, favoring bins that were already fuller. Heuristic 14/15 have a higher exact fit score and a larger scale for their secondary criterion.
+
+Comparing Heuristic 1, 3, 8, 9, 11, 16, 17, 18, 19, 20:
+*   **Commonality:** These heuristics prioritize exact fits (score 1.0 or similar high value). For non-exact fits, they use a "normalized slack" approach, typically calculating `(remaining_capacity - item) / original_capacity`. They then transform this to create a priority score, often scaling it to a range below the exact fit score (e.g., `[0.5, 0.99]`).
+*   **Heuristic 1/3:** `0.5 + 0.49 * (1.0 - normalized_remaining_capacity)`.
+*   **Heuristic 8/9/11:** Identical to 1/3.
+*   **Heuristic 16/19/20:** Identical to 1/3/8/9/11. The implementation details of `normalized_slack` are slightly different, but the core logic of scaling `(1.0 - normalized_slack)` to `[0.5, 0.99]` is the same.
+*   **Heuristic 17/18:** Identical to 16/19/20.
+*   **Difference:** The primary difference lies in the *exact implementation* of "normalized slack" (e.g., `remaining_after_fit / original_capacity` vs. `remaining_after_fit / (original_capacity + epsilon)`) and the scaling range. Heuristic 1/3/8/9/11/16/17/18/19/20 are functionally very similar, using a scaled inverse normalized slack.
+
+Comparing Heuristic 10 and Heuristic 12/13:
+*   **Commonality:** Both aim to balance "tight fits" with spreading items. They initialize priorities to -1.0 for non-fitting bins.
+*   **Heuristic 10:** Uses a combined score: `tight_fit_score * 0.7 + normalized_slack * 0.3`. `tight_fit_score` is `1.0 / (remaining_capacities_if_fit + epsilon)` (prioritizing small remainder) and `normalized_slack` is `eligible_capacities / np.max(eligible_capacities)` (favoring larger remaining capacity). This attempts to balance minimal remainder with more spread.
+*   **Heuristic 12/13:** Prioritizes minimal remaining capacity by using `1.0 / (remaining_capacities_if_fit + epsilon)`. This is a "pure" Best Fit approach based on absolute remaining capacity.
+*   **Difference:** Heuristic 10 explicitly tries to incorporate a "soft worst fit" or spreading mechanism by adding a term proportional to the *original* capacity (normalized), whereas 12/13 focuses solely on minimizing the *remaining* capacity after fitting.
+
+Comparing Heuristic 6 with others:
+*   **Heuristic 6:** Uses configurable parameters for `exact_fit_priority`, `non_exact_fit_min_priority`, `non_exact_fit_max_priority`. It calculates normalized slack similarly to Heuristics 1/3/8/9/11/16/17/18/19/20, and then scales `1.0 - normalized_slack` to the range defined by `non_exact_fit_min_priority` and `non_exact_fit_max_priority`. It explicitly clips scores to be less than `exact_fit_priority`.
+*   **Difference:** The key difference is the explicit use of *tuned parameters* to define the priority ranges, rather than hardcoded values like 1.0 and `[0.5, 0.99]`. This suggests an approach that might have been optimized or parameterized.
+
+**Ranking Justification:**
+
+*   **Best (1-3):** Heuristics 1, 3, 8, 9, 11, 16, 17, 18, 19, 20 are very similar and represent a strong baseline. They prioritize exact fits and then use a well-defined scaled inverse normalized slack. This approach is robust and provides good differentiation. Heuristic 6 is also in this top tier, essentially offering the same logic but with tunable parameters, which is a good design choice. The exact ranking among these is subtle, but they represent the most refined common strategy.
+*   **Mid-Tier (4-5):** Heuristics 2, 4, 5, 7 introduce a penalty for large relative slack. This is a reasonable extension of Best Fit, aiming to avoid overly empty bins. However, it might be overly aggressive or sensitive to the `slack_penalty_factor`.
+*   **Mid-Tier (10):** Heuristic 10 attempts to balance Best Fit with a "soft worst fit" (spreading). This is an interesting idea but the implementation might be less direct than simply prioritizing minimal slack. The combination of inverse remaining capacity and normalized original capacity as scores could lead to unexpected behavior.
+*   **Mid-Tier (12-13):** Heuristics 12, 13 use `1.0 / (remaining_capacity_if_fit + epsilon)`. This is a strong Best Fit heuristic that clearly prioritizes minimal absolute remaining capacity. It's simpler than scaled normalized slack but might be less sensitive to the *proportion* of remaining space.
+*   **Lower-Mid Tier (14-15):** These use a very high exact fit score and a tie-breaker based on initial bin fullness. While prioritizing exact fits is good, the tie-breaker might be secondary to minimizing slack and could lead to less optimal packing if not carefully tuned.
+*   **Worst (None):** All heuristics attempt to address the problem by prioritizing exact fits and then considering some form of slack minimization or differentiation. There isn't a fundamentally flawed heuristic. The ranking is based on common effectiveness and robustness of the chosen strategy.
+
+**Final Ranking (Conceptual, based on observed strategies):**
+
+1.  Heuristic 1, 3, 8, 9, 11, 16, 17, 18, 19, 20 (Scaled Inverse Normalized Slack with clear hierarchy)
+2.  Heuristic 6 (Same as above but with tunable parameters)
+3.  Heuristic 12, 13 (Pure Best Fit on absolute remaining capacity)
+4.  Heuristic 2, 4, 5, 7 (Best Fit with slack penalty)
+5.  Heuristic 10 (Balanced Best Fit + Soft Worst Fit)
+6.  Heuristic 14, 15 (Exact Fit + Tie-breaker on initial fullness)
+
+*(Note: The provided list had duplicates, so the ranking groups similar ones. The original ordering in the prompt implies a ranking that we are trying to reconstruct by analyzing the strategies.)*
+
+**Experience:**
+
+Prioritize exact fits unequivocally. For non-exact fits, a scaled inverse normalized slack (favoring minimal residual capacity relative to original bin size) offers robust differentiation. Tunable parameters for priority ranges can improve adaptability. Avoid arbitrary penalties; focus on clear criteria.

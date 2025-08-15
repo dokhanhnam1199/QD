@@ -1,0 +1,79 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes exact fits, then bins with minimal excess capacity using a tiered scoring system.
+
+    This heuristic assigns the highest priority to exact fits and a graduated
+    priority to bins with smaller excess capacities, ensuring clear differentiation.
+    """
+    epsilon = 1e-9
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+    
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Calculate excess capacity for bins that can fit the item
+    excess_capacity = bins_remain_cap[can_fit_mask] - item
+    
+    # Assign highest priority (2.0) to exact fits
+    exact_fit_mask_local = (excess_capacity < epsilon)
+    priorities[can_fit_mask][exact_fit_mask_local] = 2.0
+
+    # For bins that don't fit exactly, calculate priority based on inverse excess capacity
+    close_fit_mask_local = ~exact_fit_mask_local
+    
+    if np.any(close_fit_mask_local):
+        eligible_excess_capacity = excess_capacity[close_fit_mask_local]
+        
+        # Score is inversely proportional to excess capacity, scaled to be less than 2.0.
+        # We use `1 / (1 + normalized_excess)` to get scores between 0 and 1.
+        # Normalization can be based on a common upper bound, like the item size itself,
+        # or a typical bin capacity if known. Here we use item size + a small constant for stability.
+        normalization_factor = item + epsilon
+        normalized_excess = eligible_excess_capacity / normalization_factor
+        
+        # Score for close fits: maps normalized_excess=0 to 1.0, and larger values approach 0.
+        # We want higher scores for smaller excess, so we use `1 / (1 + normalized_excess)`.
+        # To ensure these scores are lower than exact fits (2.0), we scale them to [0.5, 1.5].
+        # A simple scaling is `1.5 - 0.5 * normalized_excess`. Or using inverse:
+        scores_for_close_fits = 1.0 / (1.0 + normalized_excess)
+        
+        # Scale these scores to be in a range below 2.0, e.g., [0.5, 1.5]
+        # A robust way to ensure they are lower than 2.0 and still prioritize tighter fits:
+        # Scale inverse of excess capacity to a range like [0.5, 1.9].
+        # Max inverse excess for normalized excess=0 is 1.
+        # Min inverse excess for large normalized excess approaches 0.
+        
+        # Let's use a score that is inversely related to excess capacity, bounded.
+        # A good range could be [0.5, 1.9] for non-exact fits.
+        # Use `1 / (excess_capacity + epsilon)` and scale.
+        # Maximum possible excess capacity could be approximated by bin capacity - min item size.
+        # For simplicity, let's use `1 / (normalized_excess + epsilon)` and scale it.
+        
+        # The range of `1/(1+x)` is (0, 1].
+        # Let's map this to a desired range for non-exact fits, say [0.5, 1.9].
+        # Scale `1/(1+normalized_excess)`:
+        # min_score = 0.5, max_score = 1.9
+        # mapped_score = min_score + (max_score - min_score) * (value - min_value) / (max_value - min_value)
+        # Here value is `1/(1+normalized_excess)`. min_value is near 0 (for large excess), max_value is 1 (for excess=0).
+        
+        # A simpler approach is to directly use `1 / (excess_capacity + epsilon)` and then normalize
+        # this value relative to the maximum observed inverse excess capacity among close fits.
+        
+        max_inv_excess = np.max(1.0 / (eligible_excess_capacity + epsilon))
+        
+        # Scale scores for close fits to be in the range [0.5, 1.9]
+        # This ensures they are lower than exact fits (2.0) and prioritize tighter fits.
+        scores_for_close_fits = 0.5 + 1.4 * (1.0 / (eligible_excess_capacity + epsilon)) / (max_inv_excess + epsilon)
+        
+        # Ensure scores are not exactly 2.0
+        scores_for_close_fits = np.minimum(scores_for_close_fits, 1.999)
+        
+        priorities[can_fit_mask][close_fit_mask_local] = scores_for_close_fits
+        
+    return priorities
+```

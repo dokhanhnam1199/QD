@@ -1,0 +1,45 @@
+**Analysis:**
+
+*   **Comparing Heuristic 1 (Priority v2) vs. Heuristic 2 (Priority v2):**
+    *   Heuristic 1 attempts to normalize the "tightness" of the fit by calculating `(bins_remain_cap - item)`, finding min/max differences, and then normalizing. It then inverts this normalized score to give higher priority to tighter fits. It also adds a small boost (+ 0.1) to these scores to differentiate them from bins that cannot fit.
+    *   Heuristic 2 calculates `diffs = eligible_capacities - item`, finds the `min_diff`, and then assigns priority as `1.0 / (diffs - min_diff + 1e-9)`. This also aims to prioritize tighter fits by giving higher scores to smaller differences relative to the minimum difference.
+    *   **Observation:** Both heuristics aim to prioritize bins with less excess capacity. Heuristic 1's normalization is more complex, potentially more stable across different scales of differences, but might be overkill. Heuristic 2 is simpler and directly emphasizes the bins closest to the minimum excess.
+
+*   **Comparing Heuristic 3 (Exact Fit First) vs. Heuristic 4 (Priority v2):**
+    *   Heuristic 3 explicitly prioritizes bins that *exactly* fit (`bins_remain_cap == item`) with a score of `1.0`. If no exact fit exists, it falls back to prioritizing bins with the least remaining capacity that *can* fit, using an inverse of the excess capacity, normalized.
+    *   Heuristic 4 is identical to Heuristic 2, focusing solely on inverse difference from minimum excess capacity for all fitting bins, without an explicit "exact fit" priority level.
+    *   **Observation:** Heuristic 3 provides a distinct, higher priority for exact fits, which is a common and effective strategy in bin packing. Heuristic 4 treats exact fits the same as other close fits, potentially overlooking the benefit of perfect utilization.
+
+*   **Comparing Heuristic 5 (Inverse Distance) vs. Heuristic 8 (Loop-based Inverse Distance):**
+    *   Heuristic 5 calculates `space_after_placement = bins_remain_cap - item`, assigns `1 / (space_after_placement + epsilon)` for fitting bins, and `-np.inf` for non-fitting bins. This directly favors bins with minimal positive `space_after_placement`.
+    *   Heuristic 8 uses a loop to iterate through bins, achieving the same logic: `1.0 / (bins_remain_cap[i] - item + 1e-9)` for fitting bins, `0.0` otherwise.
+    *   **Observation:** Heuristic 5 is more concise and leverages NumPy's vectorized operations, making it more efficient and Pythonic than the explicit loop in Heuristic 8. Both implement the same core "inverse distance" or "best fit" logic.
+
+*   **Comparing Heuristic 9 (Exact Fit + Scaled Inverse Distance) vs. Heuristic 14 (Exact Fit + Scaled Inverse Difference):**
+    *   Heuristic 9 assigns `1.0` for exact fits. For non-exact fits, it calculates `inverse_distance_scores = 1.0 / (space_after_placement + epsilon)`, normalizes these scores to a range of `[0.5, 0.99]`, ensuring they are lower than exact fits.
+    *   Heuristic 14 assigns `2.0` for exact fits (even higher priority). For non-exact fits, it calculates `space_after_placement`, normalizes it (`1.0 - normalized_diff`), and adds `0.1`, resulting in scores between `0.1` and `1.1` (before considering the `2.0` for exact fits). The scaling is different: Heuristic 9 scales the inverse of the difference, while Heuristic 14 scales the normalized difference itself (then inverts).
+    *   **Observation:** Both combine exact fits with a "best fit" approach. Heuristic 14's use of `2.0` for exact fits creates a clearer hierarchy. Its normalization `1.0 - normalized_diff + 0.1` aims to prioritize smaller differences. Heuristic 9's approach of scaling inverse distance to `[0.5, 0.99]` is also a reasonable way to create a distinct priority band for close fits.
+
+*   **Comparing Heuristic 16/17/18 (Sigmoid Fit Score) vs. Heuristic 19 (Exact Fit + Best Fit):**
+    *   Heuristics 16-18 use a sigmoid function applied to `item / available_caps` with a threshold (`0.7`) and steepness (`10.0`). This aims to favor bins where the item takes up a significant portion of the remaining capacity, but not necessarily the absolute tightest fit. It penalizes bins that are too large.
+    *   Heuristic 19 prioritizes exact fits (`1.0`), then uses normalized inverse of space after placement for non-exact fits, scaled to `[0, 0.9]`. This focuses on minimal excess space for non-exact fits.
+    *   **Observation:** The sigmoid approach (16-18) is more complex and might be trying to find a balance point, not just the absolute closest fit. The prioritization based on `item / available_caps` is an interesting way to avoid bins that are *too* large. Heuristic 19 is a more direct combination of exact and best fit.
+
+*   **Comparing Heuristic 2 (Inverse Distance) vs. Heuristic 8 (Loop-based Inverse Distance):**
+    *   Heuristic 2: `priorities[eligible_bins] = 1.0 / (diffs - min_diff + 1e-9)`
+    *   Heuristic 8: `priorities[i] = 1.0 / (bins_remain_cap[i] - item + 1e-9)`
+    *   **Observation:** Heuristic 2 is superior because it normalizes the inverse distance relative to the minimum difference. This prevents bins with extremely large capacities (but still fitting) from getting disproportionately high scores simply because their raw difference `(capacity - item)` is large, even if it's closer to the minimum difference than others. Heuristic 8's scores can be highly skewed by large capacities.
+
+*   **Comparing Heuristic 1 (Normalized Tight Fit) vs. Heuristic 2 (Inverse Difference from Min Diff):**
+    *   Heuristic 1 attempts to normalize the `(capacity - item)` difference to a `[0, 1]` range and then applies `1.0 - normalized_tight_fit`. It also adds `0.1` and a base `1.0` for fitting bins.
+    *   Heuristic 2 uses `1.0 / (diffs - min_diff + 1e-9)`.
+    *   **Observation:** Heuristic 2 is simpler and more direct in prioritizing the *smallest* differences relative to the minimum difference. Heuristic 1's normalization is more involved and the additive `0.1` seems less principled than a multiplicative scaling or direct inverse.
+
+*   **Overall:** Heuristics that explicitly prioritize exact fits (like 3, 9, 14, 19, 20) generally perform better because perfect utilization is a strong objective. Among those that focus on "best fit" (minimal excess capacity), prioritizing the inverse of the *difference from the minimum difference* (like Heuristic 2, 4) is more robust than simply taking the inverse of the difference (like Heuristic 8). Vectorized operations (like 1, 2, 5) are preferred over loops (like 8). Complex sigmoid functions (16-18) are less interpretable and may not offer clear advantages over simpler "best fit" or "exact fit" strategies without empirical validation.
+
+**Experience:**
+
+*   **Prioritize Exact Fits:** Implement distinct, high priority levels for bins that offer an exact fit.
+*   **Best Fit Robustness:** When using "best fit" (minimal excess capacity), normalize differences relative to the minimum difference to avoid bias from large capacities.
+*   **Vectorization:** Prefer vectorized NumPy operations over explicit loops for efficiency and readability.
+*   **Clarity:** Simpler, interpretable scoring functions tend to be more reliable and easier to tune. Avoid overly complex transformations unless clearly justified by performance gains.

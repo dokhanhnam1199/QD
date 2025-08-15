@@ -1,0 +1,247 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Normalized Slack First Fit Decreasing (NSFFD) inspired priority.
+
+    This strategy prioritizes bins based on how "tightly" an item fits.
+    It aims to minimize the "slack" (remaining capacity after placing the item)
+    in a normalized way. Bins that result in a smaller normalized slack
+    (i.e., a near-exact fit) are prioritized higher.
+
+    It also includes a secondary objective to prefer bins that are already
+    more full, as this can lead to better overall packing density.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of priority scores for each bin. Bins that cannot accommodate the item
+        receive a priority of -1. Higher scores indicate higher priority.
+    """
+    priorities = np.full_like(bins_remain_cap, -1.0)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    if np.any(can_fit_mask):
+        fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+        # Calculate the slack (remaining capacity after placing the item)
+        slack = fitting_bins_remain_cap - item
+
+        # Normalize slack. A good normalization factor is the bin's capacity *before* placing the item.
+        # This helps in comparing slack across bins of different initial fill levels.
+        # Avoid division by zero if a bin was exactly full initially (though this case is handled by can_fit_mask)
+        # Or if the remaining capacity is 0.
+        # We use the original remaining capacity as the denominator for normalization.
+        # If original remaining capacity is 0, it means the bin is already full, which is handled by can_fit_mask
+        # as item must be > 0 to be packed.
+        normalized_slack = slack / fitting_bins_remain_cap
+
+        # To prioritize "almost full" bins, we want minimal normalized slack.
+        # Therefore, we invert the normalized slack or use a negative relationship.
+        # A higher priority should be given to bins with smaller normalized_slack.
+        # We can achieve this by maximizing `-normalized_slack`.
+
+        # Secondary objective: Prefer bins that are already more full.
+        # This can be approximated by the original remaining capacity (higher is better).
+        # To combine, we can use a weighted sum or additive approach.
+        # Let's use a form like: -normalized_slack + factor * (original_capacity)
+        # Or, to prioritize minimal slack more, we can use:
+        # higher_priority for smaller slack.
+        # The core idea is to have a score that is higher for minimal slack.
+        # A simple inversion: 1 / (slack + epsilon) gives higher score for smaller slack.
+        # However, normalization is better.
+        # We want to maximize a score that is high when normalized_slack is low.
+        # A linear combination of the negative normalized slack and the inverse of
+        # the original capacity (to prefer fuller bins) or directly the original capacity
+        # could work.
+
+        # Let's prioritize minimal normalized slack primarily.
+        # The score could be -(normalized_slack). This is high when normalized_slack is small.
+        # To prefer fuller bins (higher original capacity), we can add it:
+        # score = -normalized_slack + C * fitting_bins_remain_cap
+        # However, a simpler approach is to rank by normalized slack and then by original capacity.
+
+        # A common approach for "best fit" like behavior with normalization is to
+        # maximize the negative of the normalized slack.
+        # To prefer fuller bins, we can add a term proportional to the original capacity.
+        # The 'slack' is `fitting_bins_remain_cap - item`.
+        # The normalized slack is `(fitting_bins_remain_cap - item) / fitting_bins_remain_cap`.
+        # We want to MINIMIZE normalized slack.
+        # So, we want to MAXIMIZE the NEGATIVE normalized slack.
+        # Let's also give a slight bonus for bins that are already fuller.
+        # A simple way is to add `fitting_bins_remain_cap` to the priority, as larger values are preferred.
+        # However, this could dominate the normalized slack.
+        # A common heuristic is to use the negative of the slack, as it directly targets "tight fit".
+
+        # Prioritize bins with minimal slack (closest to zero) after fitting.
+        # This implies maximizing -(slack).
+        # We can also consider the original `bins_remain_cap` as a secondary factor to
+        # slightly prefer bins that are already more filled.
+        # A simple additive approach: `priorities[can_fit_mask] = -(slack) + 0.1 * fitting_bins_remain_cap`
+        # This gives a higher priority to bins with less slack, and among those with similar slack,
+        # it favors bins that were initially fuller.
+        # The multiplier `0.1` is a tunable parameter. A smaller value means slack is more important.
+        # A larger value means original capacity is more important.
+
+        # Let's refine the slack-based priority.
+        # We want to MINIMIZE `slack = bins_remain_cap - item`.
+        # So, we want to MAXIMIZE `-slack`.
+        # A robust way is to use the negative of the slack, which makes smaller slacks yield higher scores.
+        # To normalize this and potentially use it in a weighted sum or rank-based approach:
+        # The "tightness" can be seen as `item / fitting_bins_remain_cap`. Higher ratio means tighter.
+        # However, we want minimal *remaining* capacity.
+        # The remaining capacity after fitting is `fitting_bins_remain_cap - item`.
+        # We want to minimize this value.
+
+        # Let's use the negative of the slack directly for clarity and effectiveness in prioritizing near-fits.
+        # A score of `-(slack)` will be higher for smaller `slack`.
+        # `priorities[can_fit_mask] = -(fitting_bins_remain_cap - item)`
+        # This is equivalent to `priorities[can_fit_mask] = item - fitting_bins_remain_cap`
+        # This makes bins where `fitting_bins_remain_cap` is closest to `item` have the highest score.
+
+        # To make it "normalized" as per hint, let's reconsider `normalized_slack`.
+        # `normalized_slack = slack / fitting_bins_remain_cap`
+        # We want to minimize `normalized_slack`.
+        # So, a higher priority score should correspond to lower `normalized_slack`.
+        # A simple way is `priorities[can_fit_mask] = -normalized_slack`.
+        # This prioritizes bins where the remaining capacity, as a fraction of its original capacity, is minimal.
+
+        # Adding a secondary criterion to prefer fuller bins:
+        # `priorities[can_fit_mask] = -normalized_slack + 0.1 * fitting_bins_remain_cap`
+        # This adds a bonus for bins that were initially more full.
+
+        # Let's consider a more direct "tight fit" metric.
+        # We want the bin where `fitting_bins_remain_cap - item` is minimal and non-negative.
+        # The "Best Fit" heuristic does this by selecting the bin with the minimum slack.
+        # Our priority function should reflect this.
+        # Maximizing `-(slack)` is equivalent to minimizing `slack`.
+
+        # Let's try a slightly different approach that emphasizes the *difference* directly.
+        # The difference is `fitting_bins_remain_cap - item`. We want this to be as close to 0 as possible.
+        # A score that is high for small positive differences.
+        # Consider `1 / (slack + 1)` or similar.
+
+        # Back to `normalized_slack`. It captures the idea of "how much space is left relative to what was available".
+        # Minimizing `normalized_slack` means that `item` takes up a larger proportion of the bin's remaining capacity.
+        # `priorities[can_fit_mask] = -normalized_slack`
+
+        # Let's consider the hint about differentiation and hierarchy.
+        # Exact fits (slack == 0) should be highest.
+        # Near fits with small slack should be next.
+        # Normalized slack captures this well.
+
+        # To ensure higher scores for better fits:
+        # We want to minimize `slack = fitting_bins_remain_cap - item`.
+        # The score should be inversely related to slack.
+        # Let's use the reciprocal of `slack + epsilon` for robustness and to rank smaller slacks higher.
+        # `priorities[can_fit_mask] = 1.0 / (slack + 1e-9)`
+
+        # Now, to incorporate the secondary preference for fuller bins.
+        # If two bins have the same slack (or normalized slack), prefer the one that was fuller.
+        # The original `fitting_bins_remain_cap` reflects this. Higher is better.
+        # We can combine these by ranking. Or by additive score.
+        # `score = (1.0 / (slack + 1e-9)) + C * fitting_bins_remain_cap`
+        # The constant C balances the two objectives.
+
+        # Let's simplify and align with the "almost full" idea from v1, but with normalization.
+        # The goal is to make the bin *as full as possible* after placing the item.
+        # This means minimizing `bins_remain_cap - item`.
+        # The original v1 used `-(bins_remain_cap - item)`, which is `item - bins_remain_cap`.
+        # This prioritizes bins where `bins_remain_cap` is closest to `item`.
+
+        # Let's propose a heuristic that combines "Best Fit" idea with a slight bias towards fuller bins.
+        # "Best Fit": minimize `slack = bins_remain_cap - item`.
+        # Score for this: `-slack`.
+        # Secondary: Maximize `bins_remain_cap`.
+        # Combined score: `-slack + alpha * bins_remain_cap`.
+        # This prioritizes small slack, and for equal slack, it prioritizes higher initial capacity.
+
+        # Let's use this structure:
+        # `-slack` is `item - fitting_bins_remain_cap`.
+        # Higher score for smaller slack.
+        # Let's scale `fitting_bins_remain_cap` to avoid it dominating.
+        # A normalized version of `fitting_bins_remain_cap` could be `fitting_bins_remain_cap / MAX_BIN_CAPACITY`.
+        # Assuming MAX_BIN_CAPACITY is some global constant or implicit.
+        # If we don't have MAX_BIN_CAPACITY, we can use the maximum available bin capacity as a reference.
+        # Or normalize relative to the *sum* of remaining capacities. This feels too dynamic.
+
+        # A pragmatic approach: prioritize by minimum slack.
+        # Among bins with minimal slack, use a secondary criterion.
+        # The hint mentions "normalized metrics" and "tunable parameters".
+
+        # Let's refine the `normalized_slack` approach:
+        # `normalized_slack = slack / fitting_bins_remain_cap`
+        # We want to MINIMIZE `normalized_slack`.
+        # A score that reflects this would be `1 / (normalized_slack + epsilon)`
+        # Or, to avoid large values: `-normalized_slack`.
+        # Let's stick with `-normalized_slack` as it intuitively increases as slack decreases.
+
+        # To add the "prefer fuller bins" secondary objective:
+        # We can use a composite score, but it's crucial to ensure the primary objective is met.
+        # A common practice is to rank by the primary objective and then use the secondary.
+        # Or, to create a combined score where the primary objective has a higher weight.
+
+        # Let's try to create a single score:
+        # We want to minimize `slack`. Smallest `slack` gets highest score.
+        # We also want to maximize `fitting_bins_remain_cap`. Largest `fitting_bins_remain_cap` gets highest score.
+        # A simple way to combine is: prioritize by `slack` ascending, then by `fitting_bins_remain_cap` descending.
+
+        # For a single score:
+        # Consider the "degree of fullness" after packing. We want this to be as high as possible.
+        # After packing, remaining capacity is `fitting_bins_remain_cap - item`.
+        # The fullness achieved is `1 - (fitting_bins_remain_cap - item) / MAX_BIN_CAPACITY`.
+        # Or simply, we want to minimize `fitting_bins_remain_cap - item`.
+
+        # Let's use the reciprocal of `slack + 1` for the primary objective,
+        # which gives higher scores to smaller slacks.
+        # Add a small term proportional to the original `fitting_bins_remain_cap` for the secondary.
+        # `priorities[can_fit_mask] = 1.0 / (slack + 1.0) + 0.01 * fitting_bins_remain_cap`
+        # The `0.01` is a tunable parameter to balance the two.
+        # This heuristic prefers bins that result in less leftover space, and among those,
+        # prefers bins that were initially more full.
+
+        # Let's test this structure.
+        # `slack = fitting_bins_remain_cap - item`
+        # `score = 1.0 / (slack + 1.0)`
+        # This directly scores based on how "tight" the fit is.
+        # If `slack = 0`, score is `1.0`. If `slack = 1`, score is `0.5`. If `slack = 2`, score is `0.33`.
+        # This ranks tighter fits higher.
+
+        # Now combine with fuller bins preference.
+        # If slack is the same, we prefer higher `fitting_bins_remain_cap`.
+        # `priorities[can_fit_mask] = 1.0 / (slack + 1.0) + C * fitting_bins_remain_cap`
+        # Let's pick C such that the secondary objective doesn't override the primary for small changes in slack.
+        # If slack changes by 0.1, the first term changes by approx `1/1.1 - 1/1.2 = 0.909 - 0.833 = 0.076`.
+        # If `fitting_bins_remain_cap` changes by 1, the second term changes by `C`.
+        # We want `0.076 >> C`. So `C` should be small, e.g., `0.01` or `0.001`.
+
+        # Let's refine the prompt's hint: "Design scoring mechanisms that clearly distinguish between exact fits and various degrees of near-fits using normalized metrics."
+        # `normalized_slack = slack / fitting_bins_remain_cap`
+        # Exact fit means `slack=0`, so `normalized_slack=0`.
+        # Near fits means `slack > 0` and small.
+        # Higher priority for smaller `normalized_slack`.
+        # Score = `-normalized_slack`
+        # Or `1 / (normalized_slack + epsilon)` for stronger differentiation.
+        # Let's use `1 / (normalized_slack + 1e-6)` for robustness.
+
+        epsilon = 1e-9 # Small value to avoid division by zero and ensure positive scores
+        
+        # Calculate slack for bins that can fit the item
+        slack_values = fitting_bins_remain_cap - item
+        
+        # Calculate normalized slack.
+        # For normalization, we use the bin's original remaining capacity.
+        # If a bin's remaining capacity is 0, it means it's already full.
+        # `can_fit_mask` already handles cases where `item` is greater than `fitting_bins_remain_cap`.
+        # If `fitting_bins_remain_cap` is 0, this implies `item` must be 0, which is not typical for BPP.
+        # So `fitting_bins_remain_cap` will be at least `item` and positive.
+        # In cases where `fitting_bins_remain_cap` is very small (but >= item),
+        # normalized slack could be close to 1.
+        
+        # We want to prioritize bins with minimal slack, particularly minimal *normalized* slack.
+        # A higher priority score should

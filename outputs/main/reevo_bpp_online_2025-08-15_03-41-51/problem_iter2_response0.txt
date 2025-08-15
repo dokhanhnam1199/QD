@@ -1,0 +1,88 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a Softmax-based Best Fit strategy.
+
+    This strategy aims to mimic the "Best Fit" heuristic within a softmax framework.
+    It prioritizes bins where placing the item results in the least remaining capacity
+    (i.e., the "tightest" fit). Bins that cannot accommodate the item receive zero priority.
+    The priorities are generated using a softmax function on desirability scores,
+    where a higher score indicates a better fit (less remaining capacity after packing).
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot fit the item will have a priority of 0.
+        For fitting bins, scores are derived from the resulting remaining capacity,
+        and transformed by softmax to represent probabilities or preferences.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    if np.any(can_fit_mask):
+        # Calculate the remaining capacity *after* placing the item for eligible bins
+        valid_bins_remain_cap = bins_remain_cap[can_fit_mask]
+        resulting_remain_cap = valid_bins_remain_cap - item
+
+        # Define a desirability score for each fitting bin.
+        # For "Best Fit", we want to minimize `resulting_remain_cap`.
+        # A higher desirability score should correspond to a lower `resulting_remain_cap`.
+        # We can use a score that is inversely proportional to `resulting_remain_cap`.
+        # To avoid division by zero and ensure positive scores, we can add a small constant
+        # or use a transformation like `1 / (slack + 1)`.
+        # A simple approach is to use `max_possible_slack - slack`, where `max_possible_slack`
+        # is the maximum possible remaining capacity among fitting bins.
+        # Or, more directly, we can use a desirability score that is higher when `resulting_remain_cap` is smaller.
+        # Let's use `-resulting_remain_cap` as a raw desirability, so smaller slack (closer to 0) is better.
+        # For softmax, we want scores that are generally positive for exponentiation.
+        # A good score is `1.0 / (resulting_remain_cap + 1.0)` which is high when `resulting_remain_cap` is small.
+
+        # Let's use a score that emphasizes bins with very little slack.
+        # A slightly larger slack should yield a significantly lower score.
+        # We can use an exponential decay, or a simple inverse relationship.
+        # `score = 1.0 / (resulting_remain_cap + epsilon)` where epsilon is a small positive number.
+        # Let's use `1.0 / (resulting_remain_cap + 1e-6)` to ensure stability and positive values.
+
+        desirability_scores = 1.0 / (resulting_remain_cap + 1e-6)
+
+        # Apply softmax to convert desirability scores into a probability-like distribution.
+        # A temperature parameter can control the "softness" of the distribution.
+        # A lower temperature makes the distribution sharper, favoring the best bins more.
+        # A higher temperature makes it flatter, giving more similar probabilities.
+        temperature = 1.0  # Tunable parameter
+
+        # Avoid numerical instability with very large desirability scores by clipping or normalizing first,
+        # or by using a stable softmax implementation if available.
+        # Here, we use `exp(score / temperature)`.
+
+        try:
+            exp_scores = np.exp(desirability_scores / temperature)
+            sum_exp_scores = np.sum(exp_scores)
+            if sum_exp_scores > 0:
+                softmax_probabilities = exp_scores / sum_exp_scores
+            else:
+                # If all desirability scores are extremely small (or negative if we didn't ensure positivity),
+                # softmax might result in zeros. Assign uniform probability in such edge cases.
+                softmax_probabilities = np.ones_like(desirability_scores) / len(desirability_scores)
+        except OverflowError:
+            # Handle potential overflow if desirability_scores are too large
+            # A common approach is to subtract the max score before exponentiation.
+            max_score = np.max(desirability_scores)
+            stable_scores = desirability_scores - max_score
+            exp_scores = np.exp(stable_scores / temperature)
+            sum_exp_scores = np.sum(exp_scores)
+            if sum_exp_scores > 0:
+                softmax_probabilities = exp_scores / sum_exp_scores
+            else:
+                softmax_probabilities = np.ones_like(desirability_scores) / len(desirability_scores)
+
+
+        # Place the calculated probabilities back into the original priorities array
+        priorities[can_fit_mask] = softmax_probabilities
+
+    return priorities
+```

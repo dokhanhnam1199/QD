@@ -1,0 +1,200 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    prioritizing tight fits with normalized features and tunable parameters.
+
+    This heuristic balances finding a tight fit (minimizing wasted space)
+    with maintaining some flexibility for future items. It uses a sigmoid
+    function to assign higher priorities to bins that are close to being full
+    but can still accommodate the item.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    # Tunable parameters
+    epsilon_explore = 0.1  # Probability of random exploration
+    steepness = 15.0  # Controls the steepness of the sigmoid for gap preference
+    ideal_gap_ratio = 0.1  # Target ratio of remaining_capacity / bin_capacity for optimal fit
+
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate relevant features for fitting bins
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    fitting_bins_indices = np.where(can_fit_mask)[0]
+
+    if len(fitting_bins_remain_cap) == 0:
+        return priorities  # No bin can fit the item
+
+    # Feature 1: Tightness of fit (how close is the remaining capacity to the item size)
+    # We want to minimize remaining_capacity - item.
+    # Normalize this difference by the item size to get a relative measure.
+    # Add a small epsilon to avoid division by zero if item is 0.
+    relative_waste = (fitting_bins_remain_cap - item) / (item + 1e-6)
+
+    # Feature 2: Current bin fill level (related to flexibility).
+    # We want bins that are relatively full but not too full.
+    # This can be approximated by how much space is left relative to the original bin capacity.
+    # Assuming bins have a maximum capacity, which we don't explicitly know here.
+    # A proxy could be the item size itself relative to the remaining capacity.
+    # Instead, let's focus on the "ideal gap" concept from reflection.
+    # If we don't know the original bin capacity, we can use the available remaining capacity
+    # as a reference, and aim for a certain portion of it to be left empty ideally.
+    # Let's normalize remaining capacity by the item size itself as a reference for "how full" it is.
+    # A higher value here means more space is available relative to the item.
+    # We want to penalize bins with too much space.
+    space_ratio = fitting_bins_remain_cap / (item + 1e-6)
+
+    # Combine features using a sigmoid function to prioritize bins with a specific "gap"
+    # A smaller `relative_waste` is good. A `space_ratio` closer to 1 (meaning remaining_cap is close to item) is good.
+    # The sigmoid will give higher scores to bins that are close to accommodating the item without much excess.
+
+    # Let's define a score based on how close the remaining capacity is to a target gap after packing.
+    # Target remaining capacity = item * (1 + ideal_gap_ratio)
+    target_remaining_cap = item * (1 + ideal_gap_ratio)
+    gap_deviation = np.abs(fitting_bins_remain_cap - target_remaining_cap)
+
+    # We want to minimize gap_deviation. Apply sigmoid to convert deviation to priority.
+    # Smaller deviation should lead to higher priority.
+    # Sigmoid: 1 / (1 + exp(-k * x)) - this gives high values for positive x.
+    # We want high values for small gap_deviation. So we use -gap_deviation.
+    # The steepness parameter controls how sensitive the priority is to the deviation.
+    # We also need to ensure that bins that are too small (deviation is large and negative) get low priority.
+    # Let's use a sigmoid that maps small positive deviations to high priorities, and larger deviations to lower priorities.
+
+    # A score that is high when `fitting_bins_remain_cap` is close to `target_remaining_cap`.
+    # We can use `target_remaining_cap - fitting_bins_remain_cap`.
+    # A value of 0 here is ideal.
+    diff_from_ideal = target_remaining_cap - fitting_bins_remain_cap
+
+    # Now apply sigmoid. We want large positive values of `diff_from_ideal` (meaning bin is too big)
+    # to map to low priorities, and values close to 0 (ideal fit) to map to high priorities.
+    # Using `steepness * (-diff_from_ideal)` in sigmoid will achieve this.
+    # We also want to ensure that if `fitting_bins_remain_cap` is very small (less than item),
+    # `diff_from_ideal` would be positive and large, resulting in low sigmoid output. This is correct.
+    # However, `fitting_bins_remain_cap` are already filtered to be >= item, so `diff_from_ideal` will be <= 0.
+    # Let's rephrase: we want `fitting_bins_remain_cap` to be as close to `item` as possible,
+    # ideally leaving a small gap.
+    # Let's focus on `(fitting_bins_remain_cap - item)` as the actual waste.
+    # We want this waste to be small, around `item * ideal_gap_ratio`.
+    actual_waste = fitting_bins_remain_cap - item
+    ideal_waste = item * ideal_gap_ratio
+
+    # Measure deviation from ideal waste: `actual_waste - ideal_waste`
+    # We want this deviation to be close to 0.
+    deviation_from_ideal_waste = actual_waste - ideal_waste
+
+    # Use sigmoid: `1 / (1 + exp(-steepness * x))`
+    # If `deviation_from_ideal_waste` is small positive (actual_waste > ideal_waste),
+    # `steepness * x` is positive, sigmoid is > 0.5. High priority.
+    # If `deviation_from_ideal_waste` is small negative (actual_waste < ideal_waste),
+    # `steepness * x` is negative, sigmoid is < 0.5. Lower priority.
+    # If `deviation_from_ideal_waste` is large positive, sigmoid is close to 1.
+    # If `deviation_from_ideal_waste` is large negative, sigmoid is close to 0.
+    # This doesn't quite capture the "best fit" idea directly.
+
+    # Let's simplify: prioritize bins where `fitting_bins_remain_cap - item` is minimal.
+    # This is the "best fit" concept.
+    # To incorporate the "ideal gap", we can create a score that is higher when
+    # `fitting_bins_remain_cap` is between `item` and `item * (1 + ideal_gap_ratio)`.
+    # Or, more generally, a function that peaks around `item * (1 + ideal_gap_ratio)`.
+
+    # Let's create a score based on the `relative_waste` (waste / item).
+    # We want this ratio to be small, ideally `ideal_gap_ratio`.
+    # Score = sigmoid(steepness * (ideal_gap_ratio - relative_waste))
+    # If `relative_waste` is close to `ideal_gap_ratio`, `ideal_gap_ratio - relative_waste` is near 0, sigmoid is 0.5.
+    # If `relative_waste` is smaller than `ideal_gap_ratio` (tighter fit), `ideal_gap_ratio - relative_waste` is positive, sigmoid > 0.5. High priority.
+    # If `relative_waste` is larger than `ideal_gap_ratio` (looser fit), `ideal_gap_ratio - relative_waste` is negative, sigmoid < 0.5. Lower priority.
+    # This prioritizes tighter fits.
+
+    # Let's normalize the potential bins by their current remaining capacity for exploration.
+    # Bins with less remaining capacity might be more critical to fill.
+    # Exploration: random choice among fitting bins, with a bias towards bins that are less full (more flexible).
+    # Or, perhaps exploration should explore the "less optimal" fits to see if they lead to better overall packing.
+
+    # Let's stick to the reflection's idea of prioritizing tight fits.
+    # The sigmoid function `1 / (1 + exp(-steepness * (ideal_gap_ratio - normalized_waste)))` seems reasonable.
+
+    normalized_waste = (fitting_bins_remain_cap - item) / (np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else 1.0)
+    # Using max bin capacity is a guess, better to use a fixed large value or average if available.
+    # For now, let's use item size as a base for normalization if max_cap is not available.
+    # Let's use a more robust normalization for the "waste" aspect.
+    # Let's consider the "gap" which is `remaining_capacity - item`.
+    # We want this gap to be ideally `item * ideal_gap_ratio`.
+    # Let's define a score that peaks at this ideal gap.
+    # Score = exp(-steepness * (fitting_bins_remain_cap - item - ideal_waste)^2)
+    # This is a Gaussian-like score that peaks when `fitting_bins_remain_cap - item` is `ideal_waste`.
+    # This is closer to prioritizing a specific gap rather than just the tightest fit.
+
+    # Let's go back to the reflection: "Prioritize tight fits with normalized features. Tune sigmoid steepness and ideal gap for balance between immediate tightness and future flexibility."
+    # "Immediate tightness": prioritize bins with `remaining_cap - item` being small.
+    # "Future flexibility": avoid filling bins completely, so `remaining_cap - item` shouldn't be too small, or rather, `remaining_cap` should not be too close to `item`.
+
+    # Let's define the priority based on the remaining capacity itself, considering the item.
+    # Bins with `remaining_cap` close to `item` are tight fits.
+    # Bins with `remaining_cap` significantly larger than `item` offer flexibility.
+    # We want a sweet spot.
+
+    # Consider the "slack" or "wasted space" = `remaining_cap - item`.
+    # We want this slack to be small (tight fit) but not zero (future flexibility).
+    # Let's define a target slack `target_slack = item * ideal_gap_ratio`.
+    # The score should be high when `slack` is close to `target_slack`.
+    # Score = Gaussian(slack, mean=target_slack, std=item * (1-ideal_gap_ratio) / steepness)
+    # Or, simply use the sigmoid approach on the deviation from the target slack.
+
+    # Let's normalize the remaining capacity by the item size for better comparison across different item sizes.
+    # `normalized_remaining_cap = fitting_bins_remain_cap / item`
+    # We want `normalized_remaining_cap` to be close to `1 + ideal_gap_ratio`.
+    # Score = sigmoid(steepness * ( (1 + ideal_gap_ratio) - normalized_remaining_cap ))
+    # If `normalized_remaining_cap` is close to `1 + ideal_gap_ratio`, sigmoid output is ~0.5.
+    # If `normalized_remaining_cap` is smaller (tighter fit), argument is positive, sigmoid > 0.5 (higher priority).
+    # If `normalized_remaining_cap` is larger (looser fit), argument is negative, sigmoid < 0.5 (lower priority).
+
+    normalized_remaining_cap = fitting_bins_remain_cap / (item + 1e-6)
+    score_exploitation = 1 / (1 + np.exp(-steepness * ( (1 + ideal_gap_ratio) - normalized_remaining_cap )))
+
+    # Now incorporate exploration. With probability epsilon_explore, choose randomly.
+    # Otherwise, use the exploitation score.
+    # To avoid always picking the exact same bins during exploration, we can add a small random noise.
+    exploration_scores = np.random.rand(len(fitting_bins_remain_cap)) * 0.5 # Lower than max exploitation score (1.0)
+
+    # Combine exploitation and exploration using epsilon-greedy logic
+    # For each fitting bin, decide whether to explore or exploit.
+    use_exploration = np.random.rand(len(fitting_bins_remain_cap)) < epsilon_explore
+    priorities_for_fitting_bins = np.where(use_exploration,
+                                           exploration_scores,
+                                           score_exploitation)
+
+    # Assign these priorities to the original bins array
+    priorities[fitting_bins_indices] = priorities_for_fitting_bins
+
+    # Normalize priorities so that the highest is 1.0, unless no bins fit.
+    if np.max(priorities) > 0:
+        priorities = priorities / np.max(priorities)
+
+    # Add a small random noise to all priorities to break ties and add stochasticity
+    # This also helps with stabilization as mentioned in reflection.
+    # The noise should be small relative to the priority scale.
+    noise = np.random.rand(num_bins) * 0.1 # Small noise between 0 and 0.1
+    priorities = priorities + noise
+
+    # Final normalization after adding noise
+    if np.max(priorities) > 0:
+        priorities = priorities / np.max(priorities)
+    else:
+        # If all are zero or became zero after some operation (unlikely here)
+        # handle to avoid NaNs.
+        pass
+
+    return priorities
+```

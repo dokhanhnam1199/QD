@@ -1,0 +1,46 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes exact fits, then uses scaled inverse excess capacity for close fits.
+
+    This heuristic assigns the highest priority (2.0) to exact fits. For bins
+    that are not exact fits but can accommodate the item, it assigns a priority
+    based on the inverse of the normalized excess capacity, scaled to be less than 2.0.
+    """
+    epsilon = 1e-9
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+    
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Separate exact fits and close fits
+    excess_capacity = bins_remain_cap[can_fit_mask] - item
+    exact_fit_mask_local = (excess_capacity < epsilon)
+    close_fit_mask_local = ~exact_fit_mask_local
+    
+    # Assign highest priority to exact fits
+    priorities[can_fit_mask][exact_fit_mask_local] = 2.0
+    
+    # For close fits, calculate priority based on inverse normalized excess capacity
+    if np.any(close_fit_mask_local):
+        eligible_excess_capacity = excess_capacity[close_fit_mask_local]
+        
+        # Normalize excess capacity to a range that makes sense for inverse.
+        # A simple normalization could be by the item size itself or a constant.
+        # Let's normalize by the item size (if > 0) to represent relative waste.
+        # If item is 0, this normalization is not useful, but problem context usually implies item > 0.
+        normalized_excess = eligible_excess_capacity / (item + epsilon)
+        
+        # Calculate score as inverse of normalized excess capacity, scaled.
+        # We want scores less than 2.0.
+        # A simple mapping for scores in (0, 1.99] can be `1.99 / (1 + normalized_excess)`.
+        scores_for_close_fits = 1.99 / (1.0 + normalized_excess)
+        
+        priorities[can_fit_mask][close_fit_mask_local] = scores_for_close_fits
+        
+    return priorities
+```

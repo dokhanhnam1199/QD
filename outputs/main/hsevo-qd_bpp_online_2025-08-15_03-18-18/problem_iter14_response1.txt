@@ -1,0 +1,60 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with an adaptive diversification based on capacity variance and a bonus for near-perfect fits.
+    """
+    valid_bins_mask = bins_remain_cap >= item
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    if not np.any(valid_bins_mask):
+        return priorities
+
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+
+    # Base score: Best Fit - closer to zero remaining capacity is better.
+    bf_scores = -(valid_bins_remain_cap - item)
+
+    # Add a bonus for near-perfect fits (small remaining capacity)
+    # This encourages using bins that are almost full.
+    near_perfect_fit_bonus = -np.exp(-(valid_bins_remain_cap - item) / 0.1) # Exponential bonus for small gaps
+
+    # Adaptive Diversification Component: Based on variance of remaining capacities.
+    # If variance is low, bins are similar, favor larger remaining capacities (explore).
+    # If variance is high, bins are diverse, slightly penalize larger capacities (exploit good fits).
+    if len(valid_bins_remain_cap) > 1:
+        mean_cap = np.mean(valid_bins_remain_cap)
+        std_cap = np.std(valid_bins_remain_cap)
+        # Relative variance to normalize
+        relative_variance = (std_cap / mean_cap)**2 if mean_cap > 0 else 0
+        # Heuristic: if variance is low, add a positive term proportional to capacity
+        # if variance is high, add a negative term proportional to capacity
+        adaptive_div_scores = -relative_variance * valid_bins_remain_cap
+    else:
+        adaptive_div_scores = np.zeros_like(valid_bins_remain_cap)
+
+    # Combine components with tunable weights
+    w_bf = 1.0
+    w_near_perfect = 0.5
+    w_adapt_div = 0.7
+
+    combined_scores = w_bf * bf_scores + w_near_perfect * near_perfect_fit_bonus + w_adapt_div * adaptive_div_scores
+
+    # Apply Softmax for probabilistic selection, ensuring numerical stability
+    if combined_scores.size > 0:
+        shifted_scores = combined_scores - np.max(combined_scores)
+        exp_scores = np.exp(shifted_scores)
+        # Avoid division by zero if all exp_scores are zero (highly unlikely with shift)
+        sum_exp_scores = np.sum(exp_scores)
+        if sum_exp_scores > 0:
+            probabilities = exp_scores / sum_exp_scores
+        else:
+            probabilities = np.ones_like(exp_scores) / exp_scores.size # Uniform if all scores were -inf
+    else:
+        probabilities = np.array([])
+
+    priorities[valid_bins_mask] = probabilities
+
+    return priorities
+```

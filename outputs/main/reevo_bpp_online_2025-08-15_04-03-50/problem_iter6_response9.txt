@@ -1,0 +1,439 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined strategy that prioritizes tight fits, penalizes excessive capacity, and balances with robustness.
+
+    This heuristic aims to:
+    1. Prioritize bins with minimal remaining capacity after fitting the item (tightest fit).
+    2. Penalize bins that have a very large remaining capacity, even if they can fit the item,
+       to avoid wasting large free spaces on small items if better alternatives exist.
+    3. Introduce robustness by slightly favoring bins that are not extremely empty if multiple
+       tight fits are available, or by not overly penalizing slightly larger slack if the bin
+       capacity itself is moderate.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot fit the item will have a priority of 0.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Mask for bins that can accommodate the item.
+    fit_mask = bins_remain_cap >= item
+
+    if not np.any(fit_mask):
+        return priorities
+
+    fittable_capacities = bins_remain_cap[fit_mask]
+    slack = fittable_capacities - item
+
+    # Score component 1: Prioritize tightest fits.
+    # A simple way is to use the inverse of slack + 1.
+    # Score is 1 for slack=0, decreases as slack increases.
+    tight_fit_score = 1.0 / (1.0 + slack)
+
+    # Score component 2: Penalize excessive capacity.
+    # We want to reduce priority for bins with very large remaining capacity.
+    # A common approach is to use a function that decays with capacity.
+    # Using `1 / (1 + capacity)` can achieve this. Larger capacity -> smaller score.
+    # This encourages using bins that are already more utilized.
+    capacity_consideration_score = 1.0 / (1.0 + fittable_capacities)
+
+    # Combine scores multiplicatively. This way, if either score is low, the combined score is low.
+    # We want a high score if the fit is tight AND the capacity is not excessive.
+    combined_score = tight_fit_score * capacity_consideration_score
+
+    # Add a small boost to ensure that even if capacity_consideration_score is small,
+    # a perfect tight fit can still have a high overall priority.
+    # E.g., if capacity=100, item=1, slack=99. tight_fit=1/100. capacity_consideration=1/101.
+    # Combined = 1/10100. This is very low.
+    # Maybe a weighted sum is better for balancing.
+
+    # Let's reconsider the reflection: "prioritize tight fits, penalize excessive capacity, and balance with robustness."
+    # A tight fit means small slack. A penalty for excessive capacity means a low score for large remaining_capacity.
+    # Robustness might mean not being too sensitive to tiny variations, or favoring bins that are not *too* empty.
+
+    # Let's try a different combination:
+    # Prioritize small slack: `slack` itself, or `1/(1+slack)`.
+    # Penalize large capacity: `-fittable_capacities` or `1/(1+fittable_capacities)`.
+    # Let's use a weighted approach for clarity and tunability.
+    # Weight for tight fit: emphasize minimizing waste.
+    # Weight for capacity: deemphasize using huge bins for small items.
+
+    # Let's create a score for tightness and a score for "emptiness" (inverse capacity).
+    # Score_tightness: 1 if slack is 0, decreases for larger slack. `np.exp(-slack / scale_slack)` where scale_slack is small.
+    # Score_emptiness: 1 if capacity is very small, decreases for large capacity. `np.exp(-fittable_capacities / scale_capacity)` where scale_capacity is moderate.
+
+    # A simpler, common approach is to directly optimize for minimal slack, and break ties with maximal original capacity (Worst Fit heuristic) or minimal original capacity (Best Fit heuristic).
+    # Our reflection asks for tight fits (Best Fit-like) and penalty for excessive capacity (which means favoring smaller capacities), suggesting Best Fit with a cap on large bins.
+
+    # Let's try the following composite score:
+    # Priority = (1 - slack / BinCapacity) * (1 / (1 + slack))
+    # This is trying to normalize slack by capacity, which is tricky.
+
+    # Let's stick to the idea of minimizing slack primarily, and using capacity as a secondary factor.
+    # For robustness, perhaps we can slightly prefer slack that is small but not zero,
+    # if it comes from a moderate capacity bin, over a zero slack from a very large bin.
+
+    # Let's try a score that is high for small slack, and for bins that are not excessively large.
+    # Penalty for large slack: `np.exp(-slack / slack_scale)`
+    # Penalty for large capacity: `np.exp(-fittable_capacities / capacity_scale)`
+    # Combine them additively or multiplicatively.
+
+    # Alternative reflection interpretation:
+    # Tight fit: prefer bins where `fittable_capacities - item` is small.
+    # Penalize excessive capacity: if `fittable_capacities` is very large, reduce priority.
+    # Robustness: if there are multiple "good" options (e.g., similar small slack),
+    # maybe pick the one that leaves more room, or the one that is less full.
+
+    # Let's go with a score that is high for small slack and also for moderate original capacity.
+    # Score = (1 / (1 + slack)) * (1 / (1 + fittable_capacities))
+    # This is what `priority_v1` used. Let's refine the 'robustness' aspect.
+
+    # Robustness: If multiple bins offer the same minimal slack, which one to choose?
+    # The `(1 / (1 + fittable_capacities))` term already favors smaller capacities, which is a form of robustness.
+
+    # Let's introduce a slight penalty for *too tight* fits if the capacity is very large.
+    # For example, if slack is very small but capacity is huge.
+    # This means we want to avoid `slack` being very small *and* `fittable_capacities` being very large.
+    # This is implicitly handled by the multiplication: `(1/(1+slack)) * (1/(1+capacity))`.
+
+    # Consider the contribution:
+    # small slack: High `1/(1+slack)`
+    # small capacity: High `1/(1+capacity)`
+    # large slack: Low `1/(1+slack)`
+    # large capacity: Low `1/(1+capacity)`
+
+    # The product `tight_fit_score * capacity_consideration_score` naturally prioritizes bins that are
+    # both good fits and not excessively large.
+
+    # Let's add a component that slightly prefers bins that aren't nearly empty,
+    # for robustness (to avoid fragmenting space too much).
+    # This would mean favoring bins with higher `fittable_capacities` among those with similar slack.
+    # This contradicts the "penalize excessive capacity" slightly.
+
+    # Let's focus on the main reflection: "prioritize tight fits, penalize excessive capacity, and balance with robustness."
+    # `tight_fit_score` addresses the first point.
+    # `capacity_consideration_score` addresses the second point.
+    # The multiplication `tight_fit_score * capacity_consideration_score` balances these.
+
+    # For robustness, we might want to ensure that the priority doesn't drop too sharply.
+    # A simple scaling might be helpful.
+    # Let's normalize the scores before combining.
+    # `norm_tight_fit = (tight_fit_score - min(tight_fit_score)) / (max(tight_fit_score) - min(tight_fit_score))`
+
+    # Let's try a simplified approach that is robust and still effective.
+    # Focus on minimizing slack. If there are ties in slack, pick the one with less total capacity.
+    # This is essentially a Best Fit strategy with tie-breaking towards smaller bins.
+
+    # The existing `tight_fit_score` (1 / (1 + slack)) is excellent for prioritizing minimal slack.
+    # The `capacity_consideration_score` (1 / (1 + fittable_capacities)) penalizes large bins.
+    # The product is a good compromise.
+
+    # Let's consider a case:
+    # item = 1
+    # bins = [10, 11, 2, 3]
+    # fittable_capacities = [10, 11, 2, 3]
+    # slack = [9, 10, 1, 2]
+    # tight_fit_score = [1/10, 1/11, 1/2, 1/3] = [0.1, 0.0909, 0.5, 0.333]
+    # capacity_consideration_score = [1/11, 1/12, 1/3, 1/4] = [0.0909, 0.0833, 0.333, 0.25]
+    # Combined = [0.00909, 0.00757, 0.1665, 0.08325]
+    # This correctly prioritizes the bin with capacity 2 (slack 1), then capacity 3 (slack 2).
+    # The bins with capacity 10 and 11 (large slack) are penalized.
+
+    # What if capacities are [3, 4] and item is 3?
+    # fittable_capacities = [3, 4]
+    # slack = [0, 1]
+    # tight_fit_score = [1/1, 1/2] = [1, 0.5]
+    # capacity_consideration_score = [1/3, 1/4] = [0.333, 0.25]
+    # Combined = [0.333, 0.125]
+    # This prioritizes the bin with capacity 3 (perfect fit, smaller capacity) over bin with capacity 4 (tight fit, larger capacity).
+
+    # What if capacities are [100, 101] and item is 1?
+    # fittable_capacities = [100, 101]
+    # slack = [99, 100]
+    # tight_fit_score = [1/100, 1/101] = [0.01, 0.0099]
+    # capacity_consideration_score = [1/101, 1/102] = [0.0099, 0.0098]
+    # Combined = [0.000099, 0.000097]
+    # This prioritizes the bin with capacity 100, which is the "tighter" fit and also smaller capacity.
+
+    # Let's try to introduce a slight preference for slightly larger slack if the capacity is not excessive.
+    # This is a form of "robustness" by not making a bin *too* full.
+    # Example: item=2, bins=[4, 5].
+    # Cap=[4, 5], Slack=[2, 3]
+    # TFs=[1/3, 1/4] = [0.333, 0.25]
+    # CS=[1/5, 1/6] = [0.2, 0.166]
+    # Comb=[0.0666, 0.0416] -> Prefers bin 4.
+
+    # If we wanted to prefer bin 5 in this case (slightly more room), we'd need a different heuristic.
+    # Maybe add a small bonus to slack?
+    # `score = (1/(1+slack) + bonus_slack) * (1/(1+capacity))`
+    # `bonus_slack = slack * slack_bonus_factor`
+    # Let's try `slack_bonus_factor = 0.01`
+    # For bin 4: `(0.333 + 0.02) * 0.2 = 0.353 * 0.2 = 0.0706`
+    # For bin 5: `(0.25 + 0.03) * 0.166 = 0.28 * 0.166 = 0.0465`
+    # This now favors bin 4 even more.
+
+    # What if we use `slack` directly in the second term?
+    # `score = (1/(1+slack)) * (1/(1 + slack + capacity))` This doesn't seem right.
+
+    # Let's modify the capacity term to be less punishing for moderate capacities.
+    # Maybe the `capacity_consideration_score` should not decay as rapidly.
+    # Or, we can add a slight bonus for the "tighter" fit among those that are already "somewhat full".
+
+    # The prompt requests: "prioritize tight fits, penalize excessive capacity, and balance with robustness."
+    # The current combined score `tight_fit_score * capacity_consideration_score` does prioritize tight fits
+    # and penalizes excessive capacity. For robustness, it's somewhat balanced.
+
+    # Let's consider the "robustness" as not creating extremely full bins.
+    # This would mean slightly penalizing zero slack if the capacity is very small.
+    # E.g., item=2, bins=[2, 5].
+    # Cap=[2, 5], Slack=[0, 3]
+    # TFs=[1, 1/4]=[1, 0.25]
+    # CS=[1/3, 1/6]=[0.333, 0.166]
+    # Comb=[0.333, 0.0416] -> Prefers bin 2.
+
+    # If we want to prefer bin 5 for robustness, we'd need to slightly boost slack.
+    # Let's try `score = (1/(1+slack + epsilon)) * (1/(1+capacity))` with epsilon being small.
+    # Or, `score = (1/(1+slack)) * (1/(1+capacity) + epsilon_cap)`
+    # Or, `score = (1/(1+slack)) * exp(-capacity/scale)`
+
+    # Let's try a sigmoid for the slack that emphasizes small slack, and a separate term for capacity.
+    # Score = `sigmoid(k_tight * (slack_max - slack))` where slack_max is some upper bound for good fits.
+    # And `penalty_large_cap = sigmoid(k_large * (capacity_max - capacity))`
+
+    # A common practical heuristic for online BPP is First Fit Decreasing (FFD) or Best Fit Decreasing (BFD)
+    # for offline, but for online, First Fit (FF) or Best Fit (BF) are common.
+    # Best Fit aims for minimal slack.
+    # Our `1 / (1 + slack)` is a good approximation of BF's objective.
+    # The reflection adds "penalize excessive capacity".
+
+    # Let's consider a different formulation:
+    # Prioritize bins that leave minimum remaining capacity: `fittable_capacities - item`.
+    # Maximize `-(fittable_capacities - item)` = `item - fittable_capacities`.
+    # For robustness, perhaps add a term related to the original capacity, but not too heavily.
+    # Maximize `(item - fittable_capacities) + w * fittable_capacities` where w is small and positive.
+    # `(item - fittable_capacities) + w * fittable_capacities = item + (w-1) * fittable_capacities`.
+    # This means we want to minimize `fittable_capacities`.
+
+    # Let's go back to the original multiplicative idea but ensure it reflects the priorities clearly.
+    # Priority = `(fittable_capacities - item)` is what we want to minimize.
+    # So higher priority for smaller `slack`.
+    # `priority = 1 / (1 + slack)` is good.
+
+    # Penalize excessive capacity: if `fittable_capacities` is large, reduce priority.
+    # Combine: `priority = (1 / (1 + slack)) * (1 / (1 + fittable_capacities))`
+
+    # Robustness: If we have two bins with slack=0 and capacities=2 and 100.
+    # TF_scores = [1, 1]. CS_scores = [1/3, 1/101]. Comb = [1/3, 1/101]. Prefers bin 2.
+    # This seems reasonable.
+
+    # Let's consider "robustness" as: among bins that are good fits, pick one that is not too empty.
+    # This means if slack is similar, prefer larger capacity.
+    # If current score is `S = (1/(1+slack)) * (1/(1+capacity))`.
+    # For two bins with same slack, `s`:
+    # Bin A: Cap `c1`. Score `S_A = (1/(1+s)) * (1/(1+c1))`.
+    # Bin B: Cap `c2 > c1`. Score `S_B = (1/(1+s)) * (1/(1+c2))`.
+    # `S_A > S_B`. So it currently prefers smaller capacity.
+
+    # To prefer larger capacity for robustness (among similar slack fits), we need to modify the `capacity_consideration_score`.
+    # Instead of `1/(1+capacity)`, maybe use something that increases with capacity up to a point.
+    # Or, we can add a term based on capacity to the existing score.
+
+    # Let's reconsider the reflection: "prioritize tight fits, penalize excessive capacity, and balance with robustness."
+    # Tight fit: minimize `slack`.
+    # Penalize excessive capacity: if `capacity` is large, reduce priority.
+    # Balance with robustness: This could mean:
+    # 1. If many tight fits exist, choose the one that is not too full. (Favors larger capacity among tight fits)
+    # 2. If capacities are similar, slightly prefer larger slack to leave more room. (Favors larger slack)
+
+    # Let's try to incorporate preference for larger capacity among good fits.
+    # We can add a term to the score that is proportional to capacity.
+    # `score = (1 / (1 + slack)) * (1 / (1 + fittable_capacities)) + weight * fittable_capacities`
+    # Let's use a specific transformation for slack and capacity.
+    # Slack score: `exp(-slack / scale_slack)`
+    # Capacity score: `exp(capacity / scale_capacity)` - this is not good as it encourages very large bins.
+    # Capacity score: `log(1 + capacity)` - this increases with capacity, but slowly.
+
+    # Let's combine the inverse slack and the inverse capacity, and see if we can tune it for robustness.
+    # `score = (1.0 / (1.0 + slack)) * (1.0 / (1.0 + fittable_capacities))`
+    # This prioritizes tight fits and penalizes large bins. This is already a good balance.
+    # For further robustness, consider how to break ties between similar scores.
+
+    # Let's modify the `capacity_consideration_score` slightly. Instead of penalizing large capacities,
+    # let's just use their magnitude as a tie-breaker.
+    # The primary driver is still tight fit.
+    # If `slack` is small, `tight_fit_score` is high.
+    # If we have similar `tight_fit_score` (meaning similar small slack),
+    # we want to select the one with larger `fittable_capacities` for robustness (leaves more space).
+    # So, we want to *add* a term proportional to `fittable_capacities`.
+    # `score = (1.0 / (1.0 + slack)) + w * fittable_capacities`  (This might over-emphasize capacity)
+
+    # Let's try to amplify the effect of small slack and moderate capacities.
+    # Use a scaled inverse for slack: `1 / (1 + k_slack * slack)`
+    # Use a scaled inverse for capacity: `1 / (1 + k_capacity * fittable_capacities)`
+    # And combine them multiplicatively.
+
+    # Let's re-evaluate the prompt and reflection.
+    # "Prioritize tight fits": high score for small slack.
+    # "Penalize excessive capacity": low score for large capacity.
+    # "Balance with robustness": This is the tricky part. It could mean:
+    #   a) Among tight fits, prefer bins that aren't too full (favors larger capacity).
+    #   b) Avoid filling a bin too much if a slightly larger gap exists in a moderate bin.
+
+    # Consider a score: `1 / (1 + slack) + factor * (fittable_capacities / BinCapacity_Max)`
+    # This might be too complex.
+
+    # Let's try a simple modification of the `v1` score.
+    # `v1_score = (1.0 / (1.0 + slack)) * (1.0 / (1.0 + fittable_capacities))`
+    # This prioritizes small slack and small capacity.
+    # To favor robustness (larger capacity among tight fits), we want to increase the score for larger capacities.
+    # Let's consider `score = (1.0 / (1.0 + slack)) + w * fittable_capacities`
+    # Let `w` be small, e.g., `1e-3`.
+
+    # Example: item=2, bins=[3, 100]
+    # Cap=[3, 100], Slack=[1, 98]
+    # TF=[0.5, 0.0102]
+    # If `w=0.001`:
+    # Score for bin 3: `0.5 + 0.001 * 3 = 0.503`
+    # Score for bin 100: `0.0102 + 0.001 * 100 = 0.0102 + 0.1 = 0.1102`
+    # This still prefers bin 3, which is expected because the slack is much smaller.
+
+    # Example: item=50, bins=[55, 60]
+    # Cap=[55, 60], Slack=[5, 10]
+    # TF=[1/6, 1/11] = [0.166, 0.0909]
+    # If `w=0.001`:
+    # Score for bin 55: `0.166 + 0.001 * 55 = 0.166 + 0.055 = 0.221`
+    # Score for bin 60: `0.0909 + 0.001 * 60 = 0.0909 + 0.060 = 0.1509`
+    # This correctly prioritizes the bin with less slack (55).
+
+    # The additive approach seems to give more weight to the tight fit, and capacity is a tie-breaker.
+    # This aligns with prioritizing tight fits, penalizing excessive capacity (by giving lower base scores to larger capacities),
+    # and then balancing with robustness (favoring larger capacities among similarly fitting bins).
+
+    # Let's re-implement this additive approach.
+    # The "penalty for excessive capacity" is still handled by the base `1/(1+slack)`.
+    # The additive term `w * fittable_capacities` is for robustness (favoring less full bins among good fits).
+
+    # Consider the range of values. Slack can be large. Capacity can be large.
+    # `1/(1+slack)` can be small. `w * capacity` can be large if `w` is not chosen carefully.
+    # Example: item=1, bins=[1000, 1001]
+    # Cap=[1000, 1001], Slack=[999, 1000]
+    # TF=[1/1000, 1/1001] = [0.001, 0.000999]
+    # If `w=0.001`:
+    # Score bin 1000: `0.001 + 0.001 * 1000 = 0.001 + 1 = 1.001`
+    # Score bin 1001: `0.000999 + 0.001 * 1001 = 0.000999 + 1.001 = 1.001999`
+    # This favors bin 1001, which has larger capacity. This is consistent with robustness.
+
+    # Let's try to integrate the "penalize excessive capacity" more directly into the score,
+    # not just as a tie-breaker.
+    # Reflection: "prioritize tight fits, penalize excessive capacity, and balance with robustness."
+
+    # Let's try a weighted sum of a measure of tightness and a measure of capacity.
+    # Tightness measure: `1 - slack / max_possible_slack` or `exp(-slack / scale_s)`
+    # Capacity measure: `1 / (1 + capacity)` or `exp(-capacity / scale_c)`
+
+    # Consider score = `w1 * (1 / (1 + slack)) + w2 * (1 / (1 + fittable_capacities))`
+    # This is a linear combination. If `w1 > w2`, it prioritizes tight fits.
+    # If `w2` is also significant, it penalizes large capacities.
+
+    # For robustness, the interpretation could be to avoid bins that are *too* empty.
+    # This means we might slightly prefer larger slack if it comes from a moderate capacity.
+    # Or, if multiple tight fits exist, prefer the one with larger capacity.
+
+    # Let's use the additive approach but ensure the `w` is chosen well.
+    # The `1/(1+slack)` term is the primary driver for tight fits.
+    # The `w * fittable_capacities` term provides robustness by favoring larger bins among good fits.
+    # The "penalty for excessive capacity" is implicitly handled by the fact that if slack is large, `1/(1+slack)` is small.
+    # If capacity is also large, the additive term `w * capacity` might still make it competitive, which is not ideal for "penalizing excessive capacity".
+
+    # Let's go back to the multiplicative approach from v1 and adjust it for robustness.
+    # `score = (1.0 / (1.0 + slack)) * (1.0 / (1.0 + fittable_capacities))`
+    # This prioritizes (small slack AND small capacity).
+
+    # If robustness means preferring larger capacity among tight fits:
+    # We need the score to be higher for larger capacity if slack is similar and small.
+    # The current multiplicative score does the opposite.
+
+    # Let's try modifying the capacity term.
+    # `score = (1.0 / (1.0 + slack)) * (1.0 + k_capacity * fittable_capacities)`
+    # This would mean larger capacities are preferred.
+    # Example: item=50, bins=[55, 60]
+    # Cap=[55, 60], Slack=[5, 10]
+    # TF=[0.166, 0.0909]
+    # Let `k_capacity = 0.01`
+    # Score bin 55: `0.166 * (1 + 0.01*55) = 0.166 * (1.55) = 0.2573`
+    # Score bin 60: `0.0909 * (1 + 0.01*60) = 0.0909 * (1.60) = 0.14544`
+    # This now prioritizes bin 55.
+
+    # This seems to be the most promising approach for "prioritize tight fits, penalize excessive capacity, and balance with robustness (by favoring larger bins among good fits)".
+    # The `1/(1+slack)` term ensures tight fits get higher priority.
+    # The `(1 + k_capacity * fittable_capacities)` term boosts priority for larger bins, acting as a robustness factor and somewhat countering the "penalty for excessive capacity" if the fit is very tight.
+    # This formulation implicitly penalizes excessive capacity because a larger capacity with the *same* slack will have a lower `1/(1+slack)` term, and the additive `(1 + k_cap * cap)` term might not fully compensate if the slack difference is significant.
+
+    # Let's refine the capacity term. We want to penalize *excessive* capacity.
+    # So the term should increase with capacity but not too quickly.
+    # `log(1 + capacity)` or `capacity / scale` or `1 - exp(-capacity/scale)`
+
+    # A common heuristic is to consider slack relative to capacity: `slack / capacity`.
+    # Minimize this ratio. `1 / (1 + slack/capacity)`
+
+    # Let's stick to the additive combination for simplicity and clear interpretation of contributions.
+    # Score = `BaseScore_TightFit + Bonus_Robustness`
+    # BaseScore_TightFit: prioritize small slack. `1.0 / (1.0 + slack)`
+    # Bonus_Robustness: If slack is small, larger capacity is good. `w * fittable_capacities`
+
+    # Let's consider the 'penalty for excessive capacity' part.
+    # This means if capacity is large, the score should be low, *unless* the slack is very small.
+    # The additive score `(1/(1+slack)) + w*capacity` might not penalize large capacities enough.
+
+    # Let's try a normalized approach:
+    # Normalize slack: `norm_slack = slack / max(slack_values)`
+    # Normalize capacity: `norm_capacity = fittable_capacities / max(capacity_values)`
+    # Score = `w1 * (1 - norm_slack) + w2 * (1 - norm_capacity)`
+    # This prioritizes small slack and small capacity. Not ideal for robustness.
+
+    # Final strategy:
+    # 1. Primary goal: Minimize slack. Use `1.0 / (1.0 + slack)` as a base score.
+    # 2. Secondary goal for robustness: If slack is similar and small, prefer bins that are not too full (larger capacity).
+    # This means if slack is small, we want to *boost* the score for larger capacities.
+    # So, an additive boost seems appropriate: `score = (1.0 / (1.0 + slack)) + w * fittable_capacities`.
+    # The "penalty for excessive capacity" is handled by the primary goal: large slack means small `1/(1+slack)`,
+    # and if capacity is also large, the additive term might not compensate enough if the slack is truly excessive.
+
+    # Let's use `w = 0.005` as a starting point. This is a small constant.
+    # The score will primarily be driven by tight fits.
+    # If two bins have very similar small slacks, the one with larger capacity will get a slightly higher score.
+
+    # Let's ensure the score is non-negative. `1/(1+slack)` is always positive. `w*capacity` is positive.
+    # The priority scores are then positive. Normalization might be needed at the end, but the problem asks for raw scores.
+
+    # Parameters:
+    # `slack_scale`: Controls how quickly priority drops with slack.
+    # `capacity_boost_weight`: Controls how much larger capacities are favored among good fits.
+
+    slack_scale = 1.0  # Scale for slack (effectively influences sensitivity to slack)
+    capacity_boost_weight = 0.005  # Weight for boosting based on capacity
+
+    # Calculate priority based on tight fit (inverse of slack)
+    # Using `np.exp(-slack / slack_scale)` makes it more S-shaped,
+    # similar to sigmoid but directly from 1 to near 0.
+    # `1.0 / (1.0 + slack)` is also good and simpler. Let's use that.
+    tight_fit_priority = 1.0 / (1.0 + slack)
+
+    # Calculate robustness boost based on capacity
+    # This term favors larger capacities among bins with similar (small) slack.
+    robustness_boost = capacity_boost_weight * fittable_capacities
+
+    # Combine the scores. The boost is added to the tight fit priority.
+    # This means tight fits are primary, and capacity is a secondary factor for robustness.
+    # The "penalty for excessive capacity" is implicitly handled: if slack is large,
+    # `tight_fit_priority` is small, and the boost might not be enough to compensate for a very large capacity if it also implies large slack.
+    final_scores = tight_fit_priority + robustness_boost
+
+    priorities[fit_mask] = final_scores
+
+    return priorities
+```

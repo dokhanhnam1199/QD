@@ -1,0 +1,98 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with a dynamic penalty based on the item size relative to bin capacity,
+    but introduces adaptivity based on the distribution of remaining capacities.
+    It prioritizes bins that offer a good fit, while also considering the overall
+    "tightness" of the packing environment. Bins that leave a moderate amount of
+    space might be preferred if they are more numerous, promoting a more balanced packing.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+    
+    # Component 1: Best Fit (prioritize minimal remaining capacity after packing)
+    # We want to minimize `suitable_bins_remain_cap - item`.
+    # To convert to a maximization problem, we use the negative of this difference.
+    # Adding a small epsilon to avoid log(0) or division by zero if remaining_cap == item.
+    best_fit_score = 1.0 / (suitable_bins_remain_cap - item + 1e-9) # Using inverse for maximization
+
+    # Component 2: Adaptable "Slack Penalty"
+    # This component penalizes bins that have significantly more capacity than needed.
+    # However, the penalty is modulated by the overall "slack" in the system.
+    # If most bins have a lot of slack, a moderate slack is less penalized.
+    # If most bins are nearly full, leaving any significant slack is penalized more.
+    
+    # Calculate the excess capacity relative to the item size for suitable bins.
+    excess_capacity = suitable_bins_remain_cap - item
+    
+    # Calculate a "global slack factor". This is the average excess capacity across all *suitable* bins.
+    # If this is high, it means many bins have plenty of room, so individual slack is less of a concern.
+    # If this is low, it means bins are generally tight, so individual slack is more penalized.
+    if len(excess_capacity) > 0:
+        avg_excess_capacity = np.mean(excess_capacity)
+    else:
+        avg_excess_capacity = 0.0
+
+    # Create a penalty factor that is inversely related to the excess capacity.
+    # A low excess_capacity is good (high penalty_factor), a high excess_capacity is bad (low penalty_factor).
+    # We normalize the excess capacity by the average excess capacity to make it adaptive.
+    # If excess_capacity is much smaller than avg_excess_capacity, the ratio is small, penalty_factor is high.
+    # If excess_capacity is much larger than avg_excess_capacity, the ratio is large, penalty_factor is low.
+    # Add 1 to the denominator to avoid division by zero and ensure a base penalty.
+    
+    # Avoid division by zero for avg_excess_capacity if no suitable bins or all have exactly item size.
+    adaptive_slack_penalty_factor = 1.0 / ( (excess_capacity / (avg_excess_capacity + 1e-9)) + 0.5 )
+
+    # Component 3: Bin Uniformity Preference
+    # Prefer bins that are "closer" to the average remaining capacity among suitable bins.
+    # This encourages a more uniform distribution of remaining capacities, potentially
+    # leaving larger contiguous spaces in other bins for future large items.
+    # We penalize bins that deviate significantly from the average.
+    
+    # Calculate deviation from the mean remaining capacity of suitable bins.
+    deviation_from_mean = np.abs(suitable_bins_remain_cap - avg_excess_capacity - item) # deviation from item + avg_slack
+    
+    # Higher deviation is worse. We want to reward lower deviation.
+    # Use an inverse relationship to convert minimization of deviation into maximization.
+    # Add a small constant to the denominator to avoid division by zero.
+    uniformity_score = 1.0 / (deviation_from_mean + 1.0)
+
+    # Combine the components.
+    # We want to maximize best_fit_score.
+    # We want to maximize adaptive_slack_penalty_factor (i.e., minimize excess capacity relative to average).
+    # We want to maximize uniformity_score (i.e., minimize deviation from average).
+    # A multiplicative combination can work if components are designed as maximization proxies.
+    # The weights for each component can be tuned. Here, let's use equal weighting initially.
+    
+    # Let's try a combined score that is a weighted sum of log-transformed components to dampen large values and a product for synergy.
+    # Using log-transforms to bring scales closer.
+    
+    # Log-transform for better distribution and to handle orders of magnitude. Add epsilon for log(0).
+    log_best_fit = np.log(best_fit_score + 1e-9)
+    log_adaptive_slack = np.log(adaptive_slack_penalty_factor + 1e-9)
+    log_uniformity = np.log(uniformity_score + 1e-9)
+
+    # A combined heuristic that blends the direct "best fit" with the "adaptive slack" and "uniformity" preferences.
+    # The idea is to favor good fits, but also adapt to the overall state of bins and encourage balance.
+    # For example, if a bin offers a slightly worse fit but has a much better adaptive slack score and uniformity, it might be preferred.
+    
+    # Simple weighted sum might not capture complex interactions.
+    # Let's try a multiplicative combination of the positive components and a penalty for negative aspects.
+    # We want high `best_fit_score`, high `adaptive_slack_penalty_factor`, and high `uniformity_score`.
+    # So, a product seems appropriate.
+    
+    # Adding a small epsilon to the final result to ensure positive scores if any component is zero (though unlikely with current formulation).
+    final_priorities = log_best_fit + log_adaptive_slack + log_uniformity
+    
+    # Ensure we only update priorities for suitable bins.
+    priorities[suitable_bins_mask] = final_priorities
+
+    return priorities
+```

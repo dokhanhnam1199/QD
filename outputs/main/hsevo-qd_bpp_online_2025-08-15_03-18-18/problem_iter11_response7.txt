@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with a penalty for overly full bins and an explicit bonus for perfect fits.
+    Prioritizes bins that closely fit the item, penalizes those that become too full,
+    and gives a high reward for exact matches.
+    """
+    valid_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(valid_bins_mask):
+        return np.zeros_like(bins_remain_cap)
+
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+    rem_after_pack = valid_bins_remain_cap - item
+
+    # Best Fit component: prioritize smaller remaining capacity after packing.
+    # Higher score for smaller remaining capacity means a tighter fit.
+    best_fit_scores = -rem_after_pack
+
+    # Perfect Fit Bonus: significantly higher score for bins where remaining capacity is zero.
+    perfect_fit_bonus = np.zeros_like(best_fit_scores)
+    perfect_fit_threshold = 1e-9  # Tolerance for floating point comparison
+    is_perfect_fit = rem_after_pack < perfect_fit_threshold
+    perfect_fit_bonus[is_perfect_fit] = 10.0  # Large bonus for perfect fits
+
+    # Diversification Penalty: discourage bins that become *too* empty after packing (loose fits).
+    # This is a penalty that increases as `rem_after_pack` increases.
+    # We use a sigmoid function scaled to penalize looser fits more.
+    max_rem_after_pack = np.max(rem_after_pack) if rem_after_pack.size > 0 else 0
+    
+    diversification_penalty = np.zeros_like(best_fit_scores)
+    if max_rem_after_pack > 0:
+        # Scale remaining capacity to a range, e.g., [0, 1]
+        scaled_rem = rem_after_pack / max_rem_after_pack
+        # Apply a sigmoid to create a penalty that is 0 for tight fits and 1 for loose fits.
+        # We want to penalize loose fits, so we use exp(-x) to have penalty decrease with slack.
+        # A larger multiplier means a stronger penalty for slack.
+        penalty_multiplier = 5.0
+        diversification_penalty = 1.0 / (1.0 + np.exp(penalty_multiplier * (1.0 - scaled_rem)))
+
+    # Combine scores:
+    # Best Fit (negative value, lower is better) + Perfect Fit Bonus (positive) - Diversification Penalty (positive)
+    # We want to maximize this combined score.
+    combined_scores = best_fit_scores + perfect_fit_bonus - diversification_penalty * 2.0
+
+    # Apply Softmax to convert scores into a probability distribution
+    # Shift scores to avoid overflow/underflow in np.exp
+    if combined_scores.size > 0:
+        shifted_scores = combined_scores - np.max(combined_scores)
+        exp_scores = np.exp(shifted_scores)
+        probabilities = exp_scores / np.sum(exp_scores)
+    else:
+        probabilities = np.array([])
+
+    # Map probabilities back to the original bins array
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    priorities[valid_bins_mask] = probabilities
+
+    return priorities
+```

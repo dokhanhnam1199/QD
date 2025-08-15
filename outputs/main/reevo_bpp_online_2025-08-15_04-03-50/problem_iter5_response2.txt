@@ -1,0 +1,130 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined Almost Full Fit strategy.
+
+    This strategy prioritizes bins that have just enough capacity to fit the item,
+    aiming to minimize the remaining capacity after placing the item.
+    It balances the "tight fit" aspect with a consideration for overall bin fullness,
+    slightly favoring bins that are already somewhat full but can still accommodate the item,
+    while penalizing bins that are excessively large.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins where the item can fit.
+    fit_mask = bins_remain_cap >= item
+
+    # Calculate the slack (unused capacity) for bins that can fit the item.
+    slack = bins_remain_cap[fit_mask] - item
+
+    # The core idea is to prioritize bins with smaller slack (tighter fits).
+    # We use `1 / (1 + slack)` to give higher scores to smaller slack values.
+    # A slack of 0 (perfect fit) gets a priority of 1.0.
+    # A slack of 1 gets 0.5, etc.
+    # This part captures the "almost full fit".
+    tight_fit_score = 1.0 / (1.0 + slack)
+
+    # To balance this with robustness and avoid picking excessively large bins
+    # just because they might eventually fit something, we can also consider
+    # the absolute remaining capacity or its inverse.
+    # Let's introduce a factor that slightly favors bins that are already more full,
+    # but not to an extreme degree. A simple way is to use the inverse of the
+    # *original* remaining capacity for bins that fit.
+    # However, we want to combine this with the tight fit.
+    # Let's try a weighted sum or a multiplicative approach.
+
+    # A common heuristic is to prioritize bins that leave the least remaining space.
+    # This means we want to minimize `potential_remaining_cap = bins_remain_cap[fit_mask] - item`.
+    # So, a higher priority is associated with smaller `potential_remaining_cap`.
+    # Using `-potential_remaining_cap` as the base score would work.
+    # For example, if bins have remaining capacities [5, 4, 3, 2] and item is 3:
+    # Fits: [5, 4, 3]. Potential remaining: [2, 1, 0].
+    # Scores (-potential_remaining): [-2, -1, 0]. Max score is 0 for bin with capacity 3.
+
+    # Let's refine the "Almost Full Fit" to prioritize minimal slack.
+    # The previous version `1 / (1 + slack)` is good.
+    # To add robustness and avoid large empty bins, we can also penalize
+    # bins that have *very large* remaining capacity, even if the slack is small.
+    # A simple penalty could be `1 / (1 + bins_remain_cap[fit_mask])`.
+    # This gives higher scores to bins that are already less full.
+    # This seems counter to "almost full fit".
+
+    # The reflection suggests "slightly larger gaps for robustness".
+    # This might mean if there are multiple "tight fits" (small slack),
+    # pick the one that has a bit more capacity overall?
+    # Or, if an item doesn't fit tightly, consider bins that have a bit more room but are still reasonable.
+
+    # Let's stick to prioritizing the smallest non-negative slack.
+    # The `1 / (1 + slack)` approach already does this.
+    # To introduce "slightly larger gaps for robustness", perhaps we can add a small
+    # bonus for bins that are not *exactly* at slack=0, but close to it.
+    # Or, to avoid very large bins, we can cap the priority based on original capacity.
+
+    # Let's try a score that combines minimizing slack with not being excessively large.
+    # We can use `1 / (1 + slack)` as the primary score.
+    # To penalize very large bins, we could multiply by a factor related to `1 / bins_remain_cap[fit_mask]`.
+    # This would reduce the score for bins with larger initial capacity.
+    # For example: `priority = (1 / (1 + slack)) * (1 / (1 + bins_remain_cap[fit_mask]))`
+    # Let's test this:
+    # Bin A: remain=5, item=3 => slack=2. Score = (1/3) * (1/6) = 1/18
+    # Bin B: remain=4, item=3 => slack=1. Score = (1/2) * (1/5) = 1/10
+    # Bin C: remain=3, item=3 => slack=0. Score = (1/1) * (1/4) = 1/4
+    # This prioritizes perfect fits, then smaller slack, and then smaller original capacity.
+    # This seems like a reasonable heuristic reflecting the reflection.
+
+    # Avoid division by zero if original remaining capacity is 0 (though this shouldn't happen if item fits)
+    # and also for slack if it's very large. The `1 +` handles these.
+    original_capacity = bins_remain_cap[fit_mask]
+    robust_score = (1.0 / (1.0 + slack)) * (1.0 / (1.0 + original_capacity))
+
+    # Assign the calculated priorities to the bins that can fit the item.
+    priorities[fit_mask] = robust_score
+
+    # The reflection also mentions "avoid overly complex combinations".
+    # The current `robust_score` is a multiplicative combination, which is not overly complex.
+
+    # Let's consider the case where multiple bins offer the *same* minimal slack.
+    # For example, if item=2 and capacities are [5, 5, 6]. Slacks are [3, 3, 4].
+    # With `1/(1+slack)`, both 5s get 1/4.
+    # With `robust_score`, both 5s get (1/4)*(1/6) = 1/24. The 6 gets (1/5)*(1/7) = 1/35.
+    # In this scenario, the heuristic doesn't provide a strong tie-breaker between the two '5' bins.
+    # For online BPP, tie-breaking is often arbitrary or based on bin index.
+    # If we wanted to break ties by choosing the bin that becomes *more* full (smallest potential remaining capacity),
+    # we would add a penalty based on `potential_remaining_cap`.
+    # E.g., `robust_score - 0.01 * potential_remaining_cap`.
+    # For example, if remaining capacities were [5, 5, 6] and item = 2.
+    # Bins with capacity 5: slack=3, potential_remaining=3. `1/(1+3)` = 0.25.
+    # Bin with capacity 6: slack=4, potential_remaining=4. `1/(1+4)` = 0.20.
+    # If we want to prefer smaller potential remaining capacity among those with same slack,
+    # we could add a term.
+    # Let's try prioritizing smaller *original* capacity for bins with same slack, as it might preserve larger bins for larger items.
+    # The `robust_score` already does this implicitly via `1 / (1 + original_capacity)`.
+
+    # Let's refine the "slightly larger gaps for robustness". This might imply that
+    # if there are bins with *very* small slack (e.g., slack < epsilon), we might
+    # want to prefer slightly larger slack values that are still small, if they come from bins
+    # that are not too full. This sounds complex.
+
+    # A simpler interpretation: the "Almost Full Fit" should prioritize bins that result in the smallest possible positive remaining capacity.
+    # Our `1 / (1 + slack)` does exactly this. The added `* (1 / (1 + original_capacity))` term
+    # serves as the "balance" and robustness against overly large bins.
+
+    # Let's consider another possibility for robustness: if multiple bins have the minimum slack,
+    # perhaps we should pick the one that is currently "most full" to encourage denser packing.
+    # This would mean prioritizing bins with smaller `bins_remain_cap` among those with minimal slack.
+    # Our `robust_score` already implicitly favors smaller `bins_remain_cap`.
+
+    # Final decision: The `robust_score` implementation seems to capture the essence of prioritizing tight fits
+    # while adding a preference for less voluminous bins, thus providing a form of robustness.
+    # It's a balance between minimizing slack and not picking extremely large bins.
+
+    return priorities
+```

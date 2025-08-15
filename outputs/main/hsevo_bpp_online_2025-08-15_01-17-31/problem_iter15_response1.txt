@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if np.any(suitable_bins_mask):
+        suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+        
+        # Objective 1: Tightness of fit (minimize remaining capacity)
+        fit_tightness = suitable_bins_cap - item
+        
+        # Objective 2: Bin fullness (maximize utilization of the bin that gets the item)
+        # Using the inverse of the remaining capacity after packing. A smaller remaining capacity means higher fullness.
+        bin_fullness = 1.0 / (suitable_bins_cap - item + 1e-9) # Add epsilon for numerical stability
+        
+        # Normalize objectives to a common scale (e.g., [0, 1])
+        # Avoid division by zero if all suitable bins have the same remaining capacity
+        if np.ptp(fit_tightness) > 1e-9:
+            normalized_fit_tightness = (fit_tightness - np.min(fit_tightness)) / np.ptp(fit_tightness)
+        else:
+            normalized_fit_tightness = np.zeros_like(fit_tightness)
+            
+        if np.ptp(bin_fullness) > 1e-9:
+            normalized_bin_fullness = (bin_fullness - np.min(bin_fullness)) / np.ptp(bin_fullness)
+        else:
+            normalized_bin_fullness = np.zeros_like(bin_fullness)
+        
+        # Combine objectives with adaptive weights.
+        # For simplicity, we'll use static weights here, but in a more advanced
+        # scenario, these weights could be learned or adapted based on the problem instance.
+        # A common strategy is to favor tighter fits initially, then consider fullness.
+        # Let's give a slight preference to tighter fits.
+        weight_tightness = 0.6
+        weight_fullness = 0.4
+        
+        composite_score = (weight_tightness * normalized_fit_tightness) + (weight_fullness * normalized_bin_fullness)
+        
+        # Assign high priority to bins that achieve the best composite score
+        max_score = np.max(composite_score)
+        best_bins_mask_in_suitable = (composite_score == max_score)
+        
+        # Map back to original bin indices
+        original_indices_suitable = np.where(suitable_bins_mask)[0]
+        best_original_indices = original_indices_suitable[best_bins_mask_in_suitable]
+        
+        for idx in best_original_indices:
+            priorities[idx] = 1.0
+            
+    return priorities
+```

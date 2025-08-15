@@ -1,0 +1,53 @@
+[Prior reflection]
+Prioritize tight fits and fuller bins. Penalize large gaps gently. Balance efficiency with robustness through simple, tunable scoring, avoiding overly complex penalties. The "Almost Full Fit" strategy prioritizes bins that will be "almost full" after packing. This means bins with the smallest remaining capacity after placing the item. A simple approach is to use the negative of the remaining capacity as a priority score. However, to achieve a more nuanced "almost full" feeling, we want to favor bins where the slack (`bins_remain_cap - item`) is small and non-negative. A score that increases as slack decreases (especially for small positive slacks) is desirable. We can achieve this by using an inverse relationship with slack, ensuring that bins with very little remaining space after fitting are prioritized.
+
+[Code]
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined Almost Full Fit strategy.
+
+    This strategy prioritizes bins that have just enough capacity to fit the item,
+    with a preference for bins that will have less remaining capacity (smaller slack)
+    after the item is added. It aims to fill bins more tightly.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins where the item can fit.
+    fit_mask = bins_remain_cap >= item
+
+    # Calculate the slack for bins that can fit the item.
+    # Slack is the remaining capacity after placing the item.
+    slack = bins_remain_cap[fit_mask] - item
+
+    # Assign priority. We want to prioritize bins with smaller slack.
+    # A common way to do this is to use an inverse function of slack.
+    # Using 1.0 / (1.0 + slack) gives higher priority to smaller slack values.
+    # A slack of 0 (perfect fit) gets priority 1.0.
+    # A slack of 1 gets priority 0.5.
+    # A slack of 10 gets priority 1/11 (approx 0.09).
+    # This ensures that bins that become "more full" (less slack) are preferred.
+    # We add a small constant in the denominator to prevent division by zero
+    # and to ensure the priority is always positive and bounded.
+    priorities[fit_mask] = 1.0 / (1.0 + slack)
+
+    # Optional: A slight adjustment to further emphasize "almost full" by
+    # slightly boosting bins that are already quite full, even if the slack
+    # isn't the absolute smallest. This could be done by adding a term
+    # related to the original `bins_remain_cap` for fitting bins, but
+    # let's keep it simple and focused on slack for this version.
+    # For example, to slightly favor already fuller bins among those with similar small slacks:
+    # priorities[fit_mask] += (bins_remain_cap[fit_mask] / BIN_CAPACITY) * 0.1
+    # (where BIN_CAPACITY is known or estimated). But for now, let's stick to slack.
+
+    # To ensure that very large gaps are penalized gently, the inverse relationship
+    # with slack already achieves this: larger slacks result in exponentially smaller
+    # priorities.
+
+    return priorities
+```

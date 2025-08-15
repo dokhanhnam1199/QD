@@ -1,0 +1,54 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Exact Fit First with a normalized Best Fit strategy.
+    Prioritizes exact fits, then bins with the least excess capacity
+    relative to the minimum possible excess among fitting bins.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Identify bins that can fit the current item
+    can_fit_mask = bins_remain_cap >= item
+    eligible_bins_cap = bins_remain_cap[can_fit_mask]
+    
+    if eligible_bins_cap.size == 0:
+        return priorities
+
+    # Identify exact fits among eligible bins
+    exact_fit_mask_eligible = (eligible_bins_cap == item)
+    
+    # Assign highest priority to exact fits (e.g., 1.0)
+    if np.any(exact_fit_mask_eligible):
+        priorities[can_fit_mask][exact_fit_mask_eligible] = 1.0
+        
+    # Calculate priorities for non-exact fits
+    non_exact_fit_indices_in_eligible = np.where(~exact_fit_mask_eligible)[0]
+    
+    if non_exact_fit_indices_in_eligible.size > 0:
+        non_exact_bins_cap = eligible_bins_cap[non_exact_fit_indices_in_eligible]
+        
+        # Calculate excess capacity for non-exact fits
+        excess_capacities = non_exact_bins_cap - item
+        
+        # Find the minimum excess capacity among these non-exact fits
+        min_excess_capacity = np.min(excess_capacities)
+        
+        # Calculate normalized scores: smaller excess capacity relative to min gets higher score
+        # Add epsilon for numerical stability and to avoid division by zero
+        normalized_scores = 1.0 / (excess_capacities - min_excess_capacity + 1e-9)
+        
+        # Scale these scores to a lower range (e.g., 0.1 to 0.9) to maintain exact fit precedence
+        max_normalized_score = np.max(normalized_scores)
+        if max_normalized_score > 0:
+            scaled_scores = 0.9 * (normalized_scores / max_normalized_score) + 0.1
+        else:
+            # If all non-exact fits have the same excess capacity, assign a mid-range score
+            scaled_scores = np.full_like(normalized_scores, 0.5)
+
+        # Place scaled scores into the priorities array for non-exact fits
+        priorities[can_fit_mask][non_exact_fit_indices_in_eligible] = scaled_scores
+
+    return priorities
+```

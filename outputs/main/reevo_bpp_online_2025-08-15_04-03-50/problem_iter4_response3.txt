@@ -1,0 +1,60 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined Best Fit strategy.
+
+    This strategy prioritizes bins that leave minimal remaining capacity after packing
+    the current item, similar to Best Fit. However, it also incorporates a penalty for
+    bins that have a very large remaining capacity, as these might be better saved
+    for larger future items, thus encouraging better overall packing.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority. Bins that cannot fit the item
+        will have a priority of 0.
+    """
+    # Mask for bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Initialize priorities to 0
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # For bins that can fit the item, calculate the remaining capacity after placing the item
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    remaining_after_placement = fitting_bins_remain_cap - item
+
+    # Best Fit component: Prioritize bins with minimal remaining capacity.
+    # We use the inverse of (1 + remaining_capacity) to give higher scores to smaller remaining capacities.
+    best_fit_scores = 1.0 / (1.0 + remaining_after_placement)
+
+    # Penalty for bins with very large remaining capacity:
+    # If a bin has significantly more capacity than needed (e.g., more than twice the item size),
+    # it might be better to save it for a larger item. We can penalize these bins.
+    # Let's define a threshold, e.g., capacity > 2 * item
+    large_capacity_penalty_factor = 0.5  # Adjust this factor to control the penalty
+    large_capacity_bins_mask = fitting_bins_remain_cap > 2 * item
+    penalty = np.ones_like(remaining_after_placement)
+    penalty[large_capacity_bins_mask] = large_capacity_penalty_factor
+
+    # Combine Best Fit score with the penalty
+    # We multiply the best_fit_scores by the penalty. Bins with large capacity will have their scores reduced.
+    combined_scores = best_fit_scores * penalty
+
+    # Assign the combined scores to the priorities array
+    priorities[can_fit_mask] = combined_scores
+
+    # Optional: Normalize priorities to sum to 1 for probabilistic selection.
+    # This is useful if the priority scores are to be used directly in a sampling mechanism.
+    # If the highest score should always be chosen, normalization is not strictly necessary.
+    fittable_scores_sum = np.sum(priorities[can_fit_mask])
+    if fittable_scores_sum > 0:
+        priorities[can_fit_mask] /= fittable_scores_sum
+
+    return priorities
+```

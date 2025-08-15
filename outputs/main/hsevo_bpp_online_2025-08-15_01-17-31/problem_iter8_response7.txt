@@ -1,0 +1,95 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines normalized Best Fit with a smooth, exponential penalty for large gaps,
+    prioritizing tight fits and penalizing excessive waste more gracefully.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if np.any(suitable_bins_mask):
+        suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+        
+        # Best Fit component: Minimize remaining capacity after packing.
+        # Smaller difference means higher score.
+        best_fit_diff = suitable_bins_cap - item
+        
+        # Normalize Best Fit scores to [0, 1], where 1 is the best fit (smallest diff).
+        # Add epsilon to avoid division by zero if all suitable bins have the same remaining space.
+        epsilon = 1e-9
+        if np.max(best_fit_diff) > np.min(best_fit_diff):
+            best_fit_scores = 1.0 - (best_fit_diff - np.min(best_fit_diff)) / (np.max(best_fit_diff) - np.min(best_fit_diff) + epsilon)
+        else:
+            best_fit_scores = np.ones_like(best_fit_diff) # All fits are equally "best"
+
+        # Penalty component: Exponential penalty for large remaining capacities (Heuristic 13-16 inspiration).
+        # Penalizes bins where remaining capacity is significantly larger than the item.
+        # A higher ratio (remaining_cap / item) leads to a higher penalty score.
+        # We want to *reduce* the priority for large gaps, so we use this penalty as a subtractive term.
+        # The exponential function provides a smooth transition.
+        capacity_ratio = suitable_bins_cap / item
+        # Penalty grows smoothly as capacity_ratio increases beyond a certain point (e.g., 1.5).
+        # Using exp(-k * (ratio - threshold)) makes it decrease as ratio increases, so we use exp(k * (ratio - threshold)) or similar form.
+        # Let's use a penalty that *increases* with the ratio and subtract it.
+        # Penalty should be low for small ratios and higher for large ratios.
+        # A simple increasing function: log(ratio) or ratio itself.
+        # A more calibrated approach: using exp to make it more sensitive to larger gaps.
+        # Let's try a penalty that is 0 for ratio <= 1 and grows.
+        # We want to *subtract* this penalty from best_fit_scores.
+        # So penalty should be low for good fits and high for bad fits.
+        # A simple penalty: max(0, capacity_ratio - 1.5) * weight
+        # Let's try a smooth penalty: exp( (suitable_bins_cap - item) / item ) - 1.0, scaled.
+        # A penalty inspired by Heuristic 13-16: exp(-penalty_steepness * (ratio - threshold))
+        # This means penalty is high when ratio < threshold and low when ratio > threshold.
+        # We want to penalize *large* remaining capacities, so the penalty should be high when `suitable_bins_cap - item` is large.
+        # Let's reverse the logic of 13-16 and use a penalty that *increases* with remaining capacity.
+        # Penalty: 1.0 / (1.0 + exp(-steepness * (suitable_bins_cap - item))) scaled.
+        # A simpler approach inspired by 4th and 7th: subtract a value proportional to the gap.
+        # Let's try a normalized gap: (suitable_bins_cap - item) / max_bin_capacity or similar.
+        # The 'Analyze & experience' suggests that multiplicative penalties (like in v0) and smooth exponential penalties (like in 13-16) are good.
+        # Let's combine a normalized best fit with a penalty that *decreases* the score if the gap is large.
+        # Penalty strength should increase with the excess capacity.
+        # Penalty = f(excess_capacity / item_size)
+        # Let's use a penalty inspired by 13-16: `1.0 / (1.0 + np.exp(-penalty_steepness * (suitable_bins_cap - item)))`
+        # This penalty is high for small `suitable_bins_cap - item` and low for large ones.
+        # We want to *reduce* the score if `suitable_bins_cap - item` is large.
+        # So we subtract a penalty that *increases* with the gap.
+        # Penalty = k * (suitable_bins_cap - item)
+        # Let's try a smoothed penalty: `np.log1p(suitable_bins_cap - item)` (inspired by 11th/12th) and normalize it.
+        
+        # Let's combine normalized best-fit with a penalty that decreases the score if the remaining capacity is "too much" relative to the item size.
+        # Use a penalty term that is high when `suitable_bins_cap - item` is large, and subtract it.
+        # Penalty function: a scaled version of the excess capacity, perhaps using a log scale for smoothness.
+        # Penalty increases with `suitable_bins_cap - item`.
+        excess_capacity = suitable_bins_cap - item
+        
+        # Use a log-based penalty for smoothness, similar to Heuristics 11/12, but ensure it penalizes *large* gaps.
+        # Penalty should be small for small gaps and large for large gaps.
+        # We will subtract this penalty. So we want a function that grows with excess_capacity.
+        # Add epsilon for log(0).
+        log_penalty_raw = np.log1p(excess_capacity) 
+        
+        # Normalize the penalty to avoid overly aggressive subtraction.
+        # Scale it relative to the maximum possible log penalty (or a reasonable upper bound).
+        # A simple normalization: divide by max log penalty across suitable bins.
+        if np.max(log_penalty_raw) > epsilon:
+            normalized_penalty = log_penalty_raw / np.max(log_penalty_raw)
+        else:
+            normalized_penalty = np.zeros_like(log_penalty_raw)
+
+        # Combine: Best Fit score minus the normalized penalty.
+        # This means: high best_fit_score is good, high normalized_penalty (large excess capacity) is bad.
+        combined_priorities = best_fit_scores - normalized_penalty
+        
+        # Ensure priorities don't go below zero (optional, but good practice for scores)
+        combined_priorities = np.maximum(combined_priorities, 0)
+
+        # Assign the calculated priorities to the original indices
+        original_indices = np.where(suitable_bins_mask)[0]
+        priorities[original_indices] = combined_priorities
+        
+    return priorities
+```

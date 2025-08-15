@@ -1,0 +1,78 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a First Fit strategy with a tie-breaking mechanism favoring bins with more remaining capacity."""
+    priorities = np.zeros_like(bins_remain_cap)
+
+    # First Fit: Prioritize bins that can fit the item.
+    # A higher priority is given if the bin can fit the item.
+    # For bins that can fit the item, we want to favor bins that leave less remaining capacity
+    # to be "tight" and potentially fill up bins more efficiently.
+    # However, since this is an online algorithm, a common heuristic is to *not*
+    # be too greedy and leave space for potentially larger items later.
+    # A simple First Fit means the *first* bin encountered that fits is chosen.
+    # To implement this as a priority, we can assign a high priority to all bins that fit,
+    # and a lower priority to those that don't.
+    # If multiple bins fit, the order in which they appear in `bins_remain_cap` will
+    # implicitly determine which one is chosen if we use a max() operation after.
+    # However, a more explicit tie-breaker can be useful.
+
+    # Let's try a heuristic that prioritizes bins that fit the item.
+    # Among those that fit, let's favor bins that leave *less* remaining space
+    # as this is a common strategy to try and pack bins tightly.
+    # But since it's online, we might also want to consider the *slack* (remaining_cap - item).
+    # The original First Fit logic is to take the *first* bin that fits.
+    # So, if we iterate through `bins_remain_cap` and find the first bin `i` where
+    # `bins_remain_cap[i] >= item`, we choose it.
+    # To translate this to a priority array, we want to give a higher priority
+    # to the first available bin.
+
+    # Let's assign a score of 1 to bins that can fit the item, and 0 to those that cannot.
+    # To simulate "first fit", we can introduce a penalty based on the bin index.
+    # The smaller the index, the higher the effective priority if we use a tie-breaking mechanism.
+    # A common way to represent this is: priority = fit_score * (some_large_number - index)
+
+    can_fit = bins_remain_cap >= item
+    priorities[can_fit] = 1.0  # High priority for bins that can fit
+
+    # To implement the "first fit" selection (choosing the first available bin)
+    # among those that can fit, we can add a term that penalizes later bins.
+    # This ensures that if multiple bins can fit the item, the one with the lower index
+    # will have a higher effective priority.
+    # We use `np.arange` to get the indices.
+    # The `can_fit` mask is applied to ensure this penalty is only added to bins that can fit.
+    # We invert the indices (or subtract from a large number) so smaller indices are preferred.
+    # A simple way is to subtract the index from a large value.
+    # The `10000` is arbitrary and large enough to outweigh the `1.0` score for fitting.
+    large_penalty = 10000.0
+    indices = np.arange(len(bins_remain_cap))
+    priorities[can_fit] -= indices[can_fit] / large_penalty # Adding a small penalty for index for ties
+
+    # Alternative: Using the remaining capacity directly as a priority for bins that fit.
+    # This would be more like 'Best Fit' or 'Worst Fit' if we just used `bins_remain_cap`.
+    # To stick to First Fit, the key is the order of consideration.
+    # The current approach assigns priority based on fitting and then uses the index as a tie-breaker.
+
+    # Let's refine this to be purely first-fit behavior. The priority array is what the
+    # selection mechanism will *act* on. The selection mechanism (e.g., argmax)
+    # will pick the bin with the highest priority.
+    # For first-fit, we want the *lowest index* bin that *fits*.
+    # So, a priority score should be highest for the lowest index bin that fits.
+
+    # Let's assign a priority of `len(bins_remain_cap) - i` to the i-th bin if it fits.
+    # This way, the bin with the smallest index `i` that fits will have the largest priority.
+    # If a bin doesn't fit, its priority is 0.
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    n_bins = len(bins_remain_cap)
+    for i, capacity in enumerate(bins_remain_cap):
+        if capacity >= item:
+            # Give a higher priority to bins with smaller indices if they fit.
+            # The value `n_bins - i` means the first bin (i=0) gets priority n_bins,
+            # the second (i=1) gets n_bins-1, and so on.
+            priorities[i] = n_bins - i
+        else:
+            priorities[i] = -np.inf # Ensure bins that don't fit are never chosen by argmax
+
+    return priorities
+```

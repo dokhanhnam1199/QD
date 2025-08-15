@@ -1,0 +1,67 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, epsilon: float = 1.810876904503842e-07, exact_fit_priority_score: float = 1656242546.5803304, weight_most_full: float = 0.042232538015783305, weight_tightest_fit: float = 0.3660023393469257) -> np.ndarray:
+    """Prioritizes exact fits, then uses a weighted sum of 'most full' and 'tightest fit'.
+
+    This heuristic aims for efficient packing by strongly favoring exact fits,
+    and otherwise balancing the preference for bins that are already nearly full
+    with the preference for minimizing leftover space after packing.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins that can accommodate the item
+    fitting_indices = np.where(bins_remain_cap >= item - epsilon)[0]
+
+    if fitting_indices.size == 0:
+        return priorities # No bin can fit the item
+
+    suitable_bins_remain_cap = bins_remain_cap[fitting_indices]
+
+    # --- Heuristic Design Principles ---
+    # 1. Exact Fit: Give a very high priority to bins that fit the item perfectly
+    #    to avoid any waste in that specific bin. This is crucial for overall efficiency.
+    # 2. Most Full (Preference for less empty bins): Favor bins that are already
+    #    closer to capacity. This can help consolidate items and potentially open
+    #    fewer new bins. Modeled as 1 / (initial remaining capacity + epsilon).
+    # 3. Tightest Fit (Best Fit): After considering fullness, prioritize bins that
+    #    leave minimal remaining capacity after the item is packed. This minimizes
+    #    immediate waste. Modeled as - (remaining capacity - item).
+    # 4. Weighted Combination: Combine 'Most Full' and 'Tightest Fit' preferences
+    #    using weights to balance their contributions. A slightly higher weight
+    #    for 'Most Full' encourages denser packing across bins, while 'Tightest Fit'
+    #    ensures efficient use of the chosen bin.
+
+    # Calculate priorities for fitting bins
+    remaining_after_fit = suitable_bins_remain_cap - item
+
+    # Score for exact fits (very high positive value)
+    exact_fit_mask = np.abs(remaining_after_fit) < epsilon
+    exact_fit_priorities = np.full(fitting_indices.size, exact_fit_priority_score, dtype=float) # High score for exact fits
+
+    # Scores for non-exact fits
+    non_exact_indices_in_subset = np.where(~exact_fit_mask)[0]
+    if non_exact_indices_in_subset.size > 0:
+        non_exact_suitable_bins_remain_cap = suitable_bins_remain_cap[non_exact_indices_in_subset]
+        non_exact_remaining_after_fit = remaining_after_fit[non_exact_indices_in_subset]
+
+        # Preference for bins that are already "most full" (lower initial remaining capacity)
+        # Higher score for bins with less remaining capacity. Add epsilon for stability.
+        most_full_score = 1.0 / (non_exact_suitable_bins_remain_cap + epsilon)
+
+        # Preference for "tightest fit" (minimal remaining capacity after packing)
+        # Higher score for smaller remaining capacity after item is placed.
+        tightest_fit_score = -non_exact_remaining_after_fit
+
+        # Combine preferences: A weighted sum.
+        # Weight for 'most_full' (e.g., 0.7) encourages using bins that are already somewhat full.
+        # Weight for 'tightest_fit' (e.g., 0.3) refines the choice among those.
+        # These weights can be tuned. A higher weight on 'most_full' leans towards filling up bins.
+
+        combined_non_exact_priorities = (weight_most_full * most_full_score) + \
+                                        (weight_tightest_fit * tightest_fit_score)
+
+        # Assign priorities to the fitting bins
+        priorities[fitting_indices[exact_fit_mask]] = exact_fit_priorities[exact_fit_mask]
+        priorities[fitting_indices[non_exact_indices_in_subset]] = combined_non_exact_priorities
+
+    return priorities

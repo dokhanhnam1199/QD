@@ -1,0 +1,167 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    available_bins_mask = bins_remain_cap >= item
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    if np.any(available_bins_mask):
+        valid_bins_remain_cap = bins_remain_cap[available_bins_mask]
+        differences = valid_bins_remain_cap - item
+        
+        # Best Fit: prioritize bins that leave the smallest remaining capacity
+        # We want the smallest difference to have the highest priority
+        # Normalize by the remaining capacity itself to favor bins that are "more full" 
+        # relative to their remaining space. This encourages tighter packing.
+        
+        # A small difference is good. A small remaining capacity is also good in itself
+        # for best fit. Let's try to inverse the difference to get higher scores for smaller differences.
+        # We need to be careful about division by zero or very small numbers.
+        # A simple approach is to use the inverse of (1 + difference).
+        
+        inverse_differences = 1.0 / (1.0 + differences)
+        
+        # To break ties, or further refine, we could consider the *original* remaining capacity.
+        # Bins that are already quite full (small remaining_cap) might be good candidates if they fit.
+        # Let's add a term that favors smaller original remaining_cap.
+        # However, for "Best Fit", the primary goal is the smallest *resulting* gap.
+        # So the inverse_differences should be the dominant factor.
+        
+        # Let's normalize inverse_differences to avoid issues with very large or small values,
+        # although for a comparison of relative priorities, it might not be strictly necessary.
+        # However, a simple positive value will do.
+        
+        priorities[available_bins_mask] = inverse_differences
+        
+        # To ensure the "best fit" is selected: if multiple bins result in the same minimum difference,
+        # we could add a tie-breaker. For example, prefer the bin that was initially more full.
+        # Let's try to make the priority score higher for smaller original remaining capacities
+        # *among those that provide the best fit*.
+        # This means if diff1 = diff2 = min_diff, and cap1 < cap2, we want bin1 to have higher priority.
+        # This can be achieved by subtracting cap from the priority, or adding -cap.
+        # Since we already have inverse_differences, which is our main driver, let's refine it.
+        
+        # A different approach to best fit: sort the available bins by remaining capacity.
+        # The highest priority should be for the bin that is just large enough.
+        
+        # Let's re-evaluate: Best Fit means minimizing `bins_remain_cap - item`.
+        # So, `priorities` should be proportional to `- (bins_remain_cap - item)` for fitting bins.
+        # Or proportional to `item - bins_remain_cap` but with a negative sign for lower priority.
+        # Or directly proportional to `1 / (bins_remain_cap - item + epsilon)`.
+        
+        # Let's use `1 / (difference + 1)` as a good heuristic.
+        # `difference = bins_remain_cap - item`
+        # Higher priority for smaller difference means higher `1 / (difference + 1)`.
+        # This seems correct.
+        
+        # Consider the original remaining capacity as a secondary sorting criterion.
+        # If two bins have the same minimal difference, choose the one that was originally smaller (more full).
+        # So, for bins with the minimum difference, we want to penalize larger original remaining capacity.
+        # Let's assign a very high priority to the best fit, and slightly lower to others.
+        
+        min_diff = np.min(differences)
+        best_fit_mask = differences == min_diff
+        
+        # Assign base priority to all fitting bins
+        priorities[available_bins_mask] = 1.0 / (differences + 1.0)
+        
+        # Enhance priority for best-fit bins
+        priorities[available_bins_mask][best_fit_mask] *= 10.0 # Boost score for best fit
+
+        # Further tie-breaking: if multiple bins are best fits, prefer the one with the smallest original remaining capacity.
+        # This means if `differences[i] == differences[j] == min_diff`, and `bins_remain_cap[i] < bins_remain_cap[j]`,
+        # then bin `i` should have higher priority.
+        
+        # We can achieve this by subtracting the original remaining capacity (scaled appropriately)
+        # from the priority. Smaller original capacity should lead to a higher final score.
+        # Let's re-think the score. The primary score is `1 / (difference + 1)`.
+        # If differences are the same, we want higher priority for smaller `bins_remain_cap`.
+        # So, we can add `-bins_remain_cap` to the priority.
+        
+        priorities[available_bins_mask] = (1.0 / (differences + 1.0)) - (valid_bins_remain_cap / (np.sum(valid_bins_remain_cap) + 1e-6)) # Normalize and subtract
+        
+        # Ensure that the very best fits get the highest scores.
+        # The strategy is: minimize `bins_remain_cap - item`.
+        # This means we want `bins_remain_cap - item` to be as close to 0 as possible.
+        # Let `gap = bins_remain_cap - item`. We want to maximize `-gap`.
+        # To avoid negative numbers and allow for comparison, we can use a function like `exp(-gap)` or `1/(gap+1)`.
+        # `1/(gap+1)` gives higher values for smaller gaps.
+        
+        priorities = np.zeros_like(bins_remain_cap)
+        
+        fitting_bins_indices = np.where(bins_remain_cap >= item)[0]
+        
+        if len(fitting_bins_indices) > 0:
+            fitting_bins_remain_cap = bins_remain_cap[fitting_bins_indices]
+            gaps = fitting_bins_remain_cap - item
+            
+            # Calculate base priority: higher for smaller gaps
+            base_priorities = 1.0 / (gaps + 1.0)
+            
+            # Add a penalty for larger original remaining capacities to break ties
+            # The penalty should be such that a smaller original capacity results in a higher score
+            # when gaps are equal.
+            # A simple way is to subtract the original remaining capacity (normalized).
+            # Let's use the sum of fitting capacities for normalization.
+            sum_fitting_capacities = np.sum(fitting_bins_remain_cap)
+            tie_breaker = fitting_bins_remain_cap / (sum_fitting_capacities + 1e-6)
+            
+            # The score should prioritize small gaps. If gaps are the same, it should prioritize small remaining_cap.
+            # A function like `f(gap, remaining_cap)` where smaller gap is better, and for equal gaps, smaller remaining_cap is better.
+            # `Score = 1/(gap+1) - k * remaining_cap` where k is a small positive number.
+            # This would give higher scores to smaller gaps. If gaps are same, it gives higher scores to smaller remaining_cap.
+            
+            # Let's try maximizing `remaining_cap` for available bins and then using this to break ties.
+            # No, Best Fit is about minimizing the difference.
+            
+            # Revisit: the highest priority score goes to the bin that results in the smallest `bins_remain_cap - item`.
+            # Let's simply assign a score based on the inverse of the difference.
+            # `score = 1 / (bins_remain_cap - item + 1)` for fitting bins.
+            # If multiple bins have the same minimal difference, we want to prefer the one with the smaller `bins_remain_cap`.
+            
+            # Let's define a composite score:
+            # Primary objective: minimize `gap = bins_remain_cap - item`.
+            # Secondary objective (for ties): minimize `bins_remain_cap`.
+            
+            # We can achieve this by creating a pair `(gap, bins_remain_cap)` and sorting.
+            # For priorities, we want the opposite: higher score for smaller gap, and for same gap, higher score for smaller bins_remain_cap.
+            
+            # Let's try creating a composite score that reflects this.
+            # `priority = f(gap, bins_remain_cap)`
+            # Higher priority if `gap` is small. Higher priority if `bins_remain_cap` is small (when `gap` is the same).
+            
+            # We can create a large negative number for large gaps and large positive for small gaps.
+            # For ties, we can use the remaining capacity to penalize.
+            
+            # Let's construct a score: `score = M - gap - k * bins_remain_cap` where M is a large constant.
+            # Or simpler: `score = -gap - k * bins_remain_cap`.
+            # To make it work with maximization, let's use `1 / (gap + 1)` and a tie breaker.
+            
+            priorities = np.zeros_like(bins_remain_cap)
+            fitting_bins_indices = np.where(bins_remain_cap >= item)[0]
+            
+            if len(fitting_bins_indices) > 0:
+                fitting_bins_remain_cap = bins_remain_cap[fitting_bins_indices]
+                gaps = fitting_bins_remain_cap - item
+                
+                # Create a composite score. The primary factor is the gap.
+                # We want smaller gaps to have higher scores.
+                # For tie-breaking on the gap, we want smaller `bins_remain_cap` to have higher scores.
+                
+                # A simple way is to create a lexicographical sorting criterion: sort by (gap, bins_remain_cap).
+                # To convert this to a priority score for maximization, we can use:
+                # `priority = LargeNumber * (max_gap - gap) + (max_remaining_cap - bins_remain_cap)`
+                # This ensures that minimizing gap is prioritized, then minimizing remaining_cap.
+                
+                max_gap = np.max(gaps)
+                max_remaining_cap = np.max(fitting_bins_remain_cap)
+                
+                # Use a sufficiently large multiplier for the gap to dominate the tie-breaker.
+                # The multiplier should be larger than the maximum possible value of the tie-breaker.
+                # Let's use max_remaining_cap + 1.
+                multiplier = max_remaining_cap + 1.0
+                
+                composite_scores = multiplier * (max_gap - gaps) + (max_remaining_cap - fitting_bins_remain_cap)
+                
+                priorities[fitting_bins_indices] = composite_scores
+    
+    return priorities
+```

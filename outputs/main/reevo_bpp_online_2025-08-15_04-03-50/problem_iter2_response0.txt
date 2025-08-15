@@ -1,0 +1,249 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a strategy that prioritizes bins that have *just enough* space, and among those, favors fuller bins.
+
+    This strategy is a variation of Best Fit, aiming to minimize wasted space.
+    It prioritizes bins where `bins_remain_cap - item` is smallest and non-negative.
+    A secondary preference is given to bins that are fuller (have less remaining capacity)
+    among those that can fit the item.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority. Bins that cannot fit the item
+        will have a priority of 0.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Create a boolean mask for bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate the "slack" or "waste"
+    # This is the remaining capacity after placing the item.
+    slack = bins_remain_cap[can_fit_mask] - item
+
+    # To prioritize bins with the least slack (best fit), we can use the
+    # inverse of slack. A smaller slack should result in a higher priority.
+    # Add a small epsilon to avoid division by zero if slack is 0.
+    # Higher priority for smaller slack values.
+    # We can use `1.0 / (slack + epsilon)` or `-slack`.
+    # Using `-slack` directly favors bins with minimal non-negative slack.
+    # For example, slack of 0 gets priority 0, slack of 1 gets -1, slack of 5 gets -5.
+    # We want to maximize this value, so we use `-slack`.
+
+    # To incorporate the preference for fuller bins (which is implied by smaller
+    # `bins_remain_cap` among fitting bins), we can combine this with the slack.
+    # A simple approach is to subtract the original remaining capacity from the
+    # inverse slack, or simply use a combination.
+
+    # Let's prioritize bins with minimal slack.
+    # If slack is 0, priority should be highest.
+    # If slack is positive, priority should be lower.
+    # We can map slack to priority. A common mapping for "minimize X" to "maximize Y" is Y = -X or Y = 1/(1+X).
+    # Using `-slack` gives higher values for smaller slacks.
+    # We also want to prefer bins that were initially fuller (smaller bins_remain_cap).
+    # This means that among bins with the same slack, the one with the smaller original
+    # `bins_remain_cap` should be preferred.
+
+    # Let's consider the inverse of the remaining capacity as a secondary sorting key.
+    # A higher inverse remaining capacity (meaning lower original remaining capacity, i.e. fuller bin) is better.
+    # So, for fitting bins, we want to maximize: `priority = -slack + C * (1 / bins_remain_cap[can_fit_mask])`
+    # where C is a weighting factor. A simpler approach is to rank them based on slack first,
+    # and then remaining capacity.
+
+    # A common heuristic for Best Fit is to sort by remaining capacity and pick the first one.
+    # For priority, we want the bin with the smallest `bins_remain_cap - item` to have the highest score.
+    # This means `bins_remain_cap - item` should be minimized.
+    # So, we can use `- (bins_remain_cap - item)` as a primary score.
+    # To break ties, or to add a preference for fuller bins, we can add a term that
+    # is proportional to `1.0 / bins_remain_cap`.
+
+    # Let's try to prioritize based on minimal slack first.
+    # A bin with slack 0 is best.
+    # A bin with slack 1 is second best.
+    # ...
+    # For bins with the same slack, the one with less remaining capacity (fuller) is better.
+    # This implies we want to maximize `-(bins_remain_cap[i] - item)` and secondarily maximize `bins_remain_cap[i]`.
+
+    # A common approach for "best fit" is to aim for a score where smaller `bins_remain_cap - item` are better.
+    # So, we can use a score like `1.0 / (1.0 + (bins_remain_cap[can_fit_mask] - item))`.
+    # This gives a value between 0 and 1, with 1 for a perfect fit (slack=0).
+
+    # To add a preference for fuller bins among those with the same slack,
+    # we can add a secondary term that increases with decreasing `bins_remain_cap`.
+    # For example, `1.0 / (1.0 + slack)` could be the primary score.
+    # A secondary score could be `1.0 / bins_remain_cap`.
+    # Combined: `priority = 1.0 / (1.0 + slack) + weight * (1.0 / bins_remain_cap[can_fit_mask])`
+
+    # However, the reflection implies prioritizing fuller bins directly.
+    # A simple way to prioritize fuller bins is to use the inverse of their remaining capacity.
+    # `1.0 / bins_remain_cap[can_fit_mask]` gives higher scores to fuller bins.
+    # But this doesn't directly address the "just enough space" aspect of Best Fit.
+
+    # Let's refine the Best Fit idea: we want the smallest *positive* slack.
+    # So, `slack = bins_remain_cap[can_fit_mask] - item`.
+    # We want to minimize `slack`.
+    # For priority, we want to maximize a function of `slack`.
+    # A simple way is `priorities[can_fit_mask] = -slack`.
+    # This means slack 0 -> priority 0, slack 1 -> priority -1, slack 5 -> priority -5.
+    # Higher priority for smaller slack.
+
+    # Now, consider the "preference for fuller bins". This means that among bins
+    # with the same slack, we prefer the one that was more full to begin with.
+    # So if `bins_remain_cap[i] - item == bins_remain_cap[j] - item`, and
+    # `bins_remain_cap[i] < bins_remain_cap[j]`, then bin `i` is preferred.
+    # This implies that `bins_remain_cap[i]` itself should contribute to higher priority.
+
+    # We can combine these: maximize `-slack` and maximize `bins_remain_cap[can_fit_mask]`.
+    # A potential priority score could be: `priority = -(bins_remain_cap[can_fit_mask] - item) + alpha * bins_remain_cap[can_fit_mask]`
+    # where `alpha` is a small positive weight to ensure slack is primary.
+
+    # Let's try a simpler, more direct approach that captures both aspects.
+    # Prioritize bins with the smallest positive `slack`.
+    # Among those with the same slack, prioritize bins with the smallest `bins_remain_cap`.
+
+    # One way to achieve this is to use a composite score.
+    # The value `bins_remain_cap[can_fit_mask] - item` should be minimized.
+    # The value `bins_remain_cap[can_fit_mask]` should also be minimized (to favor fuller bins).
+    # We can create a composite key for sorting: `(slack, bins_remain_cap[can_fit_mask])`.
+    # For priority, we want to maximize this composite key, but in reverse.
+    # So, we want to maximize `(-slack, -bins_remain_cap[can_fit_mask])`.
+
+    # A direct mapping to a single priority score:
+    # We want to maximize `1.0 / (1.0 + slack)` for best fit.
+    # To favor fuller bins, we can add a term like `1.0 / bins_remain_cap`.
+    # Let's use a scaling factor to balance these two objectives.
+
+    # A common technique for multiple objectives is to scale and sum.
+    # Objective 1: Minimize slack (maximize 1 / (1 + slack))
+    # Objective 2: Minimize bins_remain_cap (maximize 1 / bins_remain_cap)
+
+    # Let's normalize the slack and remaining capacities first, or use a well-behaved function.
+    # Using `1.0 / (1.0 + slack)` maps slack [0, inf) to priority (1, 0].
+    # Using `1.0 / bins_remain_cap` maps remaining_cap [item, inf) to priority (1/item, 0).
+
+    # Let's combine them directly:
+    # Higher priority for smaller slack AND smaller remaining_capacity.
+    # We can use a lexicographical ordering effect by careful function design.
+    # `priorities[can_fit_mask] = 1.0 / (bins_remain_cap[can_fit_mask] - item + 1e-9) * (1.0 / bins_remain_cap[can_fit_mask] + 1e-9)`
+    # This might over-prioritize very small remaining capacities regardless of slack.
+
+    # A more robust approach for "just enough space" (Best Fit):
+    # Prioritize bins where `bins_remain_cap - item` is minimized.
+    # Let `score_bf = -(bins_remain_cap[can_fit_mask] - item)`. Maximize this.
+    # For tie-breaking (prefer fuller bins), we want to maximize `bins_remain_cap[can_fit_mask]`.
+    # So, we want to maximize `score_bf` and secondarily `bins_remain_cap`.
+    # This can be achieved by `priority = score_bf + alpha * bins_remain_cap`.
+    # A suitable `alpha` would be small enough that `score_bf` dominates for same slack.
+
+    # Let's use a large multiplier for the secondary criterion to make it effective.
+    # Consider the remaining capacities themselves.
+    # We want to pick the bin with minimum `bins_remain_cap` that fits the item.
+    # If multiple bins have the same minimum `bins_remain_cap` that fits, pick the one with the smallest slack.
+    # This is a subtle ordering.
+
+    # The reflection states: "prioritize fuller bins by inverting remaining capacity for better fit."
+    # This implies that if two bins can fit an item, the one that is *more full* is preferred.
+    # This sounds like a variation of First Fit Decreasing or Best Fit.
+    # "Better fit" usually means less waste.
+
+    # Let's reconsider the goal: "prioritize bins that have *just enough* space, and among those, favors fuller bins."
+    # "Just enough space" implies minimizing `bins_remain_cap - item`.
+    # "Favors fuller bins" implies minimizing `bins_remain_cap`.
+
+    # So we want to minimize two values:
+    # 1. `slack = bins_remain_cap[can_fit_mask] - item`
+    # 2. `bins_remain_cap[can_fit_mask]`
+
+    # To maximize priority, we want to maximize functions of these.
+    # Maximize `-slack` and maximize `-bins_remain_cap`.
+    # A common approach is to combine them, e.g., `priority = -slack - alpha * bins_remain_cap`.
+    # Or, more directly: `priority = -(slack + alpha * bins_remain_cap)`.
+    # Here, `slack` is minimized first, and then `bins_remain_cap` is minimized.
+
+    # Let's assign a score that is inversely proportional to slack, and then inversely proportional to remaining capacity.
+    # `score1 = 1.0 / (slack + epsilon)`
+    # `score2 = 1.0 / bins_remain_cap[can_fit_mask]`
+    # `priorities[can_fit_mask] = score1 + weight * score2`
+
+    # Let's try to make the slack minimization dominant.
+    # If slack is 0, priority should be high.
+    # If slack is 0 and bin_rem_cap is 5, priority is X.
+    # If slack is 0 and bin_rem_cap is 10, priority is Y, where Y < X.
+    # If slack is 1, priority should be lower than X and Y.
+
+    # Let's use a score that heavily penalizes slack, and then uses remaining capacity.
+    # `priorities[can_fit_mask] = 1.0 / (1.0 + slack) - alpha * bins_remain_cap[can_fit_mask]`
+    # This would prioritize smaller slack, but then penalize larger remaining capacities.
+    # This sounds correct for "just enough space" and then "fuller bins".
+
+    # Let's use a small `alpha` to ensure the slack is the primary driver.
+    # A common strategy is to use `1.0 / (1.0 + slack)` and `1.0 / bins_remain_cap`.
+    # Combining them: `priorities[can_fit_mask] = 1.0 / (1.0 + slack) + 0.1 * (1.0 / bins_remain_cap[can_fit_mask])`
+    # The `0.1` is an arbitrary weight.
+
+    # A simpler interpretation of "prioritize fuller bins by inverting remaining capacity" might be:
+    # For best fit, we want `bins_remain_cap - item` to be minimal.
+    # So, prioritize bins with `bins_remain_cap` closest to `item`.
+    # Let `diff = bins_remain_cap[can_fit_mask] - item`. We want to minimize `diff`.
+    # The priority should be high for small `diff`.
+    # So, `priority = 1.0 / (diff + epsilon)`. This is Best Fit.
+
+    # Now, "favors fuller bins". This means, if `diff` is the same for two bins,
+    # the one with smaller `bins_remain_cap` is preferred.
+    # This implies that `bins_remain_cap` itself should positively contribute to priority.
+    # So, we want to maximize `1.0 / (diff + epsilon)` AND maximize `bins_remain_cap`.
+    # This is counter-intuitive. If fuller bins are preferred, it means smaller `bins_remain_cap`.
+    # So, we want to maximize `1.0 / (diff + epsilon)` AND maximize `(1.0 / bins_remain_cap)`.
+
+    # Let's try a direct mapping:
+    # We want to minimize `bins_remain_cap - item`. Let this be `waste`.
+    # We want to minimize `bins_remain_cap`.
+    # So, the ideal bin has small `waste` and small `bins_remain_cap`.
+    # For priority, we want to maximize `1.0 / (waste + epsilon)` and `1.0 / bins_remain_cap`.
+
+    # Combining: `priorities[can_fit_mask] = (1.0 / (slack + 1e-9)) * (1.0 / bins_remain_cap[can_fit_mask] + 1e-9)`
+    # This might scale too aggressively.
+
+    # Let's stick to the idea of minimizing `slack` AND `bins_remain_cap`.
+    # Maximize `-slack` and maximize `-bins_remain_cap`.
+    # Priority = `-slack - alpha * bins_remain_cap`
+
+    # Let's assign priorities based on `-(slack)` and then `-bins_remain_cap`.
+    # `priorities[can_fit_mask] = -(slack + bins_remain_cap[can_fit_mask])`
+    # This prioritizes bins with smaller `slack + bins_remain_cap`.
+    # If slack is 0, and remaining_cap is 5, sum is 5. Priority -5.
+    # If slack is 0, and remaining_cap is 10, sum is 10. Priority -10.
+    # This favors fuller bins when slack is the same.
+
+    # However, the prompt for v1 was "preference for fuller bins" by inverting remaining capacity.
+    # This usually implies something like `1.0 / bins_remain_cap`.
+    # So, the reflection means the *priority* should be higher for fuller bins.
+
+    # Let's try a composite score that directly favors smaller `slack` AND smaller `bins_remain_cap`.
+    # We can make `slack` the primary factor, and `bins_remain_cap` the secondary.
+    #
+    # For Best Fit, we want to minimize `slack = bins_remain_cap - item`.
+    # So, prioritize by `1.0 / (slack + epsilon)`.
+    #
+    # For preferring fuller bins, we want to minimize `bins_remain_cap`.
+    # So, prioritize by `1.0 / bins_remain_cap`.
+    #
+    # Combining these:
+    # We want to maximize `f(slack, bins_remain_cap)` where `f` increases with `1/slack` and `1/bins_remain_cap`.
+    # A simple additive approach:
+    # `priorities[can_fit_mask] = (1.0 / (slack + 1e-9)) + (1.0 / bins_remain_cap[can_fit_mask] + 1e-9)`
+    # This gives higher priority to bins with small slack AND small remaining capacity.
+    # The `+ 1e-9` in the second term is to avoid division by zero if the bin capacity itself is 0 (though unlikely in BPP).
+    # The first term `1.0 / (slack + 1e-9)` ensures Best Fit logic (smaller slack is better).
+    # The second term `1.0 / bins_remain_cap[can_fit_mask]` adds the preference for fuller bins.
+
+    priorities[can_fit_mask] = (1.0 / (slack + 1e-9)) + (1.0 / (bins_remain_cap[can_fit_mask] + 1e-9))
+
+    return priorities
+```

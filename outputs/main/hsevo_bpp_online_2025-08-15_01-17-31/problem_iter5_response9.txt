@@ -1,0 +1,79 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines Best Fit with a penalty for bins that would remain excessively empty.
+
+    This heuristic favors bins with minimal remaining space after packing (Best Fit),
+    but also down-weights bins where the item would occupy a very small fraction
+    of the remaining capacity, promoting better overall bin utilization.
+    """
+    epsilon = 1e-9
+    
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+    
+    # --- Best Fit Component ---
+    # Calculate the remaining capacity in suitable bins after placing the item
+    remaining_after_fit = suitable_bins_cap - item
+    # Higher score for smaller remaining capacity (tighter fit)
+    best_fit_score = 1.0 / (remaining_after_fit + epsilon)
+
+    # --- Penalty for Excessively Empty Bins Component ---
+    # Define a threshold for what constitutes "excessively empty".
+    # This can be a fraction of the item size or a fraction of the bin's original capacity.
+    # Let's use a fraction of the *remaining capacity* of the bin. If the item fills
+    # less than a certain percentage of the *available space*, we penalize it.
+    # For instance, if remaining_after_fit is large compared to the item itself.
+    # A simple approach: penalize if remaining_after_fit is more than X times the item size.
+    # Let's use a threshold that is a fraction of the bin's capacity *before* fitting.
+    # This aims to prevent using a large bin for a small item if a tighter bin exists.
+    
+    # A more robust penalty: consider the ratio of item size to the bin's original capacity.
+    # If item_size / bin_original_capacity is very small, it suggests the bin is much larger than needed.
+    # However, we only have remaining capacity here. Let's consider the *slack* relative to the item size.
+    
+    # Penalty Factor: reduce priority if the remaining space is large relative to the item size.
+    # We want to penalize cases where `remaining_after_fit` is much larger than `item`.
+    # Let's consider the ratio `remaining_after_fit / item`. If this ratio is high, penalize.
+    # A threshold for this ratio, e.g., if remaining_after_fit > 2 * item.
+    
+    # Combine this with the original bin capacity. We want to penalize using a large bin for a small item.
+    # Let's use the *ratio of the item to the bin's remaining capacity*. If this is small, it means
+    # the bin is much larger than needed for the item.
+    # Consider the factor `item / suitable_bins_cap`. If this is small, penalize.
+    # To make it a multiplier for the best_fit_score, we want to multiply by a factor that is
+    # close to 1 when the ratio is good (i.e., item fills a good portion of the bin) and smaller
+    # when the ratio is poor.
+    
+    # Let's use the ratio: `item / (suitable_bins_cap + epsilon)`. This is high when the bin is full.
+    # This ratio is essentially `1 - normalized_remaining_capacity`.
+    # A simpler way to penalize "too empty" is to reduce the score if `remaining_after_fit` is large.
+    # Let's use a penalty that increases as `remaining_after_fit` increases.
+    # The "First Fit Decreasing" often performs well, suggesting that larger items first is good.
+    # For priority, we want to fill bins efficiently.
+    
+    # A heuristic from literature often considers the *waste*: `bins_remain_cap - item`.
+    # We want to minimize this waste (Best Fit).
+    # A secondary objective could be to avoid bins that become *very* lightly loaded.
+    # If `remaining_after_fit` is significantly larger than `item`, we can reduce priority.
+    
+    # Let's try: `priority = best_fit_score * (1.0 - C * (remaining_after_fit / (item + epsilon)))`
+    # where C is a constant to control the penalty strength.
+    # This penalizes bins where `remaining_after_fit` is large relative to `item`.
+    
+    penalty_strength = 0.3 # Controls how much we penalize under-filled bins
+    penalty_factor = np.maximum(0, 1.0 - penalty_strength * (remaining_after_fit / (item + epsilon)))
+    
+    combined_priorities = best_fit_score * penalty_factor
+
+    priorities[suitable_bins_mask] = combined_priorities
+    
+    return priorities
+```

@@ -1,0 +1,99 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a Best Fit strategy.
+
+    The priority is higher for bins that have just enough capacity to fit the item.
+    This encourages filling bins as much as possible before opening new ones.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Calculate the difference between remaining capacity and item size.
+    # This difference is what will be left in the bin after placing the item.
+    # We want this difference to be as small as possible (close to zero)
+    # but non-negative, indicating the item fits.
+    capacity_after_fit = bins_remain_cap - item
+
+    # We are interested in bins where the item fits. For bins where it doesn't fit
+    # (capacity_after_fit < 0), we assign a very low priority (0) so they are not chosen.
+    # For bins where it fits, we want to prioritize those that leave the least remaining space.
+    # A common way to express "least remaining space" is to use the reciprocal of the remaining space,
+    # or to penalize larger remaining spaces.
+
+    # A simple approach for Best Fit is to reward bins that have *just enough* space.
+    # We can achieve this by giving a higher priority to bins where `capacity_after_fit` is small and non-negative.
+    # Using the negative of the `capacity_after_fit` as priority (if it fits)
+    # will naturally make smaller remaining capacities result in higher (less negative) priorities.
+    # A large positive value indicates a good fit.
+    priorities = np.where(capacity_after_fit >= 0, capacity_after_fit, -np.inf)
+
+    # To make it more like a "priority score" where higher is better,
+    # and to differentiate between fitting and not fitting clearly,
+    # we can invert the logic or use a score that decreases with remaining capacity.
+    # Let's aim for a score where a perfect fit (0 remaining space) is the highest priority.
+
+    # If `capacity_after_fit` is 0, this is the best possible fit.
+    # If `capacity_after_fit` is positive, it's a fit but not perfect.
+    # If `capacity_after_fit` is negative, it doesn't fit.
+
+    # We can set a base high priority for fitting bins and then penalize them
+    # based on the leftover space.
+    # A common heuristic for "best fit" is to maximize the `remaining_capacity - item_size`
+    # if we consider it as maximizing the "waste", but in the context of priority
+    # we want to MINIMIZE waste.
+
+    # Let's redefine: Higher priority means a better fit. A better fit means less space left over.
+    # So, we want to minimize `bins_remain_cap - item`.
+    # If `bins_remain_cap - item` is small and non-negative, that's good.
+    # If `bins_remain_cap - item` is large and non-negative, that's less good.
+    # If `bins_remain_cap - item` is negative, it's not a fit.
+
+    # Option 1: Use negative of remaining space, scaled or shifted.
+    # High values for `capacity_after_fit` (i.e., large remaining space) should yield low priority.
+    # Low values for `capacity_after_fit` (i.e., small remaining space) should yield high priority.
+    # So, the priority can be `-(capacity_after_fit)` for fitting bins.
+
+    # Let's refine this:
+    # For bins where item fits (bins_remain_cap >= item):
+    #   Priority = - (bins_remain_cap - item)
+    # For bins where item doesn't fit:
+    #   Priority = -infinity (or a very small number)
+
+    priorities = np.full_like(bins_remain_cap, -np.inf)  # Initialize with very low priority
+
+    # Find indices of bins where the item fits
+    can_fit_indices = np.where(bins_remain_cap >= item)[0]
+
+    if len(can_fit_indices) > 0:
+        # Calculate the remaining capacity for those bins
+        remaining_capacities_for_fitting_bins = bins_remain_cap[can_fit_indices] - item
+
+        # For best fit, we want the smallest non-negative remaining capacity.
+        # A common heuristic is to assign a priority that is inversely related
+        # to the remaining space, or directly related to how "tight" the fit is.
+        # A simple approach is to use the negative of the remaining space.
+        # A perfect fit (0 remaining) gets the highest priority (-0 = 0).
+        # A larger remaining space (e.g., 5) gets a lower priority (-5).
+
+        priorities[can_fit_indices] = -remaining_capacities_for_fitting_bins
+
+    # We can also consider the scenario where a bin has *exactly* the item's size.
+    # This is the ideal "best fit". We want to boost its priority even further.
+    # We can achieve this by adding a small constant to bins with 0 remaining capacity.
+    perfect_fit_indices = np.where(bins_remain_cap == item)[0]
+    if len(perfect_fit_indices) > 0:
+        # Add a bonus for perfect fits to ensure they are prioritized if multiple bins offer it.
+        # This is a small modification to make the "best fit" even more pronounced.
+        # It ensures that if multiple bins offer a zero-waste fit, one of them is picked
+        # and among those, any further tie-breaking (like original index) would apply implicitly
+        # or can be added. Here, we just ensure they are unambiguously preferred.
+        priorities[perfect_fit_indices] += 1.0 # Add a small positive bonus
+
+    return priorities
+```

@@ -1,0 +1,47 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Exact Fit prioritization with a scaled inverse of remaining capacity for other fits.
+    This aims to prioritize perfect fits and then favor tighter fits among remaining options.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+    unsuitable_bins_mask = ~suitable_bins_mask
+
+    if np.any(suitable_bins_mask):
+        suitable_capacities = bins_remain_cap[suitable_bins_mask]
+        
+        # Prioritize exact fits with a high score
+        exact_fit_mask = (suitable_capacities == item)
+        exact_fit_indices = np.where(suitable_bins_mask)[0][exact_fit_mask]
+        priorities[exact_fit_indices] = 2.0 
+
+        # For non-exact fits, use scaled inverse of remaining capacity (like in Heuristic 18/19)
+        non_exact_fit_mask = ~exact_fit_mask
+        if np.any(non_exact_fit_mask):
+            non_exact_capacities = suitable_capacities[non_exact_fit_mask]
+            remaining_capacities = non_exact_capacities - item
+            
+            # Use inverse of remaining capacity for a "best fit" preference among non-exact fits
+            # Add a small epsilon to avoid division by zero and add a small base to ensure non-zero priority
+            inverted_priorities = 1.0 / (remaining_capacities + 1e-9)
+            
+            # Normalize these priorities to be less than the exact fit priority (e.g., < 2.0)
+            # Scale them to a range, e.g., 1.0 to 1.9, to differentiate from exact fits.
+            max_inv_priority = np.max(inverted_priorities) if np.any(inverted_priorities) else 1.0
+            if max_inv_priority > 0:
+                normalized_priorities = 1.0 + 0.9 * (inverted_priorities / max_inv_priority)
+            else:
+                normalized_priorities = np.full_like(inverted_priorities, 1.0)
+
+            non_exact_fit_indices = np.where(suitable_bins_mask)[0][non_exact_fit_mask]
+            priorities[non_exact_fit_indices] = normalized_priorities
+
+    # Penalize unsuitable bins with a very low score
+    if np.any(unsuitable_bins_mask):
+        priorities[unsuitable_bins_mask] = 1e-6
+
+    return priorities
+```

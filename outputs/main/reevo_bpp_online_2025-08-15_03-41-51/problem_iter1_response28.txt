@@ -1,0 +1,78 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Implements an epsilon-greedy priority function for online Bin Packing.
+    The function balances exploration (choosing a random bin) with
+    exploitation (choosing the best-fitting bin).
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    epsilon = 0.1  # Probability of exploring a random bin
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Calculate the 'best fit' priority for each bin
+    # Bins that can fit the item are prioritized.
+    # Among those that can fit, we prefer bins where the remaining capacity
+    # is closest to the item size (to minimize waste).
+    for i in range(num_bins):
+        if bins_remain_cap[i] >= item:
+            # A good heuristic is to maximize the "tightness" of the fit.
+            # This means minimizing bins_remain_cap[i] - item.
+            # However, since we are using this as a priority for selection,
+            # a larger value should mean higher priority. So, we can use
+            # a score inversely related to the remaining capacity after packing.
+            # A simple way is to use the inverse of the remaining capacity.
+            # Or, to encourage tighter fits, we can use the capacity minus item size,
+            # but inverted, so smaller (better) differences get higher scores.
+            # Let's use (bins_remain_cap[i] - item) as the "waste" and
+            # invert it (or subtract from a large number) to get a priority.
+            # Using a large constant minus waste ensures positive scores and
+            # higher priority for smaller waste.
+            waste = bins_remain_cap[i] - item
+            # We want smaller waste to have higher priority.
+            # If waste is 0, it's a perfect fit, highest priority.
+            # If waste is large, priority is low.
+            priorities[i] = 1.0 / (1.0 + waste) # This is a common approach for "best fit" score
+            # Alternative: priorities[i] = 1.0 / (bins_remain_cap[i] - item + 1e-9)
+
+    # Epsilon-greedy strategy
+    if np.random.rand() < epsilon:
+        # Explore: Assign a random, non-zero priority to all bins
+        # to give them a chance to be picked.
+        # For exploration, we want to avoid picking bins that cannot fit.
+        # So we still use the existing `priorities` as a base, but add
+        # a small random noise to all potentially viable bins.
+        # A simple exploration is to give a small uniform boost to all bins.
+        # Or, pick a random bin that can fit and assign it a high priority.
+        # Let's try assigning a slightly randomized priority to all bins that *can* fit.
+        explorable_indices = np.where(bins_remain_cap >= item)[0]
+        if len(explorable_indices) > 0:
+            random_boost = np.random.uniform(0.5, 1.5, size=len(explorable_indices))
+            priorities[explorable_indices] *= random_boost
+        else:
+            # If no bin can fit, we might still want to "explore" by just picking one,
+            # but in BPP, this means failing. So, we stick to prioritizing valid bins.
+            pass
+
+    # Normalize priorities to prevent extremely large or small values from dominating
+    # and to make the exploration/exploitation balance more robust.
+    # We only normalize the priorities of bins that can actually fit the item.
+    eligible_priorities = priorities[bins_remain_cap >= item]
+    if len(eligible_priorities) > 0 and np.max(eligible_priorities) > 0:
+        # Find the indices of bins that can fit the item
+        eligible_indices = np.where(bins_remain_cap >= item)[0]
+        # Normalize only the priorities of eligible bins
+        max_priority = np.max(priorities[eligible_indices])
+        if max_priority > 0:
+            priorities[eligible_indices] /= max_priority
+
+    return priorities
+```

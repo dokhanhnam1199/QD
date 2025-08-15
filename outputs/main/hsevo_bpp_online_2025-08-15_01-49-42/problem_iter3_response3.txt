@@ -1,0 +1,83 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive Best Fit priority function with capacity normalization.
+
+    This strategy aims to find the bin that minimizes the wasted space (slack)
+    after placing the item, normalized by the bin's original capacity.
+    This normalization helps in comparing bins of different sizes more effectively.
+    It prioritizes bins that are "best fit" in a relative sense.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of priority scores for each bin. Bins that cannot accommodate the item
+        receive a priority of -1. Higher scores indicate higher priority.
+    """
+    priorities = np.full_like(bins_remain_cap, -1.0)
+    
+    can_fit_mask = bins_remain_cap >= item
+    
+    if np.any(can_fit_mask):
+        eligible_bins_remain_cap = bins_remain_cap[can_fit_mask]
+        
+        # Calculate remaining capacity after placing the item for eligible bins
+        remaining_capacities_if_fit = eligible_bins_remain_cap - item
+        
+        # To prioritize the "best fit" (minimum remaining capacity), we want to maximize
+        # a value that is inversely related to the remaining capacity.
+        # A simple approach is to maximize the negative of the remaining capacity.
+        # To normalize, we can consider the slack relative to the bin's capacity *before* fitting.
+        # However, we only have remaining capacity. A proxy for "how full" the bin is
+        # would be related to how much capacity it *had* before this item, which is
+        # `bins_remain_cap[can_fit_mask]`.
+        # We want to prioritize bins that leave minimal slack, and among those,
+        # perhaps those that were already closer to full (i.e., had smaller remaining_cap).
+        
+        # A robust metric is to minimize the *relative* slack.
+        # Relative slack can be defined as (remaining_capacity_after_fit) / (original_capacity_before_fit).
+        # Since we don't have original capacity, we can use the current remaining capacity as a proxy for
+        # how "full" the bin is. Bins that are already very full (small bins_remain_cap)
+        # are more sensitive to new items.
+        
+        # Let's define priority as the negative of the remaining capacity after fitting,
+        # but then consider which bins were "more full" to begin with.
+        # A good heuristic is to prioritize bins that leave the smallest *absolute* remaining capacity.
+        # If there's a tie in absolute remaining capacity, consider the bin that was closer to full.
+        
+        # Maximize the negative of remaining capacity: higher value for smaller remaining capacity.
+        # This is similar to v1 but we can refine the scoring.
+        
+        # Let's try to maximize `-(remaining_capacity_if_fit)`.
+        # To introduce a preference for bins that were already somewhat full,
+        # we can add a term related to the original remaining capacity.
+        # For instance, we want to minimize `remaining_capacity_if_fit`, and among those,
+        # minimize `bins_remain_cap[can_fit_mask]`.
+        # So, we want to maximize `-(remaining_capacity_if_fit)` and then `-(bins_remain_cap[can_fit_mask])`.
+        
+        # Combine these: prioritize bins with small `remaining_capacities_if_fit`
+        # and among those, prioritize bins with small `bins_remain_cap[can_fit_mask]`.
+        # This can be achieved by maximizing a lexicographical comparison or a weighted sum.
+        
+        # A simple approach that captures "best fit" and prefers already fuller bins:
+        # Maximize `-(remaining_capacity_if_fit)`.
+        # To add the "already fuller" aspect, let's use a scoring function like:
+        # `-(remaining_capacity_if_fit) - epsilon * bins_remain_cap[can_fit_mask]`
+        # where epsilon is a small positive value. This ensures that if two bins
+        # have the same `remaining_capacity_if_fit`, the one that started with
+        # less remaining capacity (i.e., was fuller) gets a higher score.
+        
+        epsilon = 1e-6 # A small constant to break ties and favor fuller bins
+        
+        # Calculate scores: Higher scores for bins that leave less remaining capacity,
+        # and among those, for bins that were already more full.
+        scores = -(remaining_capacities_if_fit) - epsilon * eligible_bins_remain_cap
+        
+        priorities[can_fit_mask] = scores
+
+    return priorities
+```

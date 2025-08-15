@@ -1,0 +1,147 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Best Fit.
+
+    The Best Fit strategy prioritizes bins that have just enough capacity to
+    accommodate the item, aiming to minimize wasted space. It also favors
+    bins that are already quite full, as these are less likely to be usable
+    for future larger items.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Create a mask for bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Initialize priorities to a very low value for bins that cannot fit the item
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+
+    # For bins that can fit the item, calculate priority
+    # We want to prioritize bins with the smallest remaining capacity that still fits the item.
+    # This is achieved by maximizing the "negative difference" between the remaining capacity
+    # and the item size. A smaller positive difference (closer to zero) gives a higher priority.
+    #
+    # Additionally, we want to give a slight preference to bins that are already relatively full
+    # (i.e., have a smaller remaining capacity even before fitting the item).
+    # This can be incorporated by adding a term that is inversely proportional to
+    # the remaining capacity (but only for bins that can fit the item).
+    # A simple way to do this is to add a small value related to 1 / bins_remain_cap.
+    # To avoid division by zero, we can add a small epsilon or handle it.
+    # A more numerically stable approach is to use the negative of the capacity itself,
+    # as maximizing -capacity is equivalent to minimizing capacity.
+
+    # Calculate the difference if the item is placed in the bin
+    # A smaller difference is better for Best Fit
+    difference = bins_remain_cap - item
+
+    # The core of Best Fit is to find the bin with the minimum difference (closest fit).
+    # We can use the negative of this difference to create a maximization problem.
+    # We also add a small penalty inversely related to the bin's current capacity.
+    # This encourages using bins that are already somewhat full.
+    # Using `np.exp(-bins_remain_cap)` is one way to give higher priority to fuller bins.
+    # We add a small epsilon to `bins_remain_cap` before division to prevent potential
+    # division by zero, although in a real scenario, bins with zero capacity should
+    # already be excluded or handled.
+
+    # To combine the "closest fit" and "prefer fuller bins" objectives:
+    # The primary goal is the closest fit. The secondary goal is to use fuller bins.
+    # We can prioritize bins with the smallest `difference`. Maximizing `-difference` achieves this.
+    # To incorporate the "prefer fuller bins", we can add a term that is larger for smaller `bins_remain_cap`.
+    # `1 / (bins_remain_cap[can_fit_mask] + 1e-9)` would work, but it might be sensitive to scaling.
+    # A simpler heuristic that achieves a similar effect is to use the negative of the remaining capacity.
+    # Maximizing `-bins_remain_cap` is equivalent to minimizing `bins_remain_cap`.
+
+    # So, the priority can be a combination of `-difference` and `-bins_remain_cap`.
+    # We can weight them. Let's prioritize the closest fit (smallest difference) more heavily.
+    # Priority = -difference - weight * bins_remain_cap
+    # Maximizing this means minimizing difference and minimizing bins_remain_cap.
+
+    # A common heuristic for Best Fit is to simply prioritize based on the *smallest* remaining capacity
+    # that *can* fit the item. So we want to maximize the negative of the remaining capacity
+    # among those that fit.
+
+    # Let's refine:
+    # We want to select the bin `j` such that `bins_remain_cap[j] - item` is minimized,
+    # subject to `bins_remain_cap[j] >= item`.
+    # This means we want to maximize `- (bins_remain_cap[j] - item)` among the valid bins.
+
+    priorities[can_fit_mask] = -(bins_remain_cap[can_fit_mask] - item)
+
+    # To add the secondary heuristic of preferring fuller bins among the "best fits",
+    # we can consider bins with smaller remaining capacity first.
+    # If multiple bins offer the same "best fit" (same difference), the one
+    # that is already more full (smaller `bins_remain_cap`) should be preferred.
+    # We can achieve this by adding a term that is inversely related to `bins_remain_cap`
+    # to the priority. However, this can be tricky.
+
+    # A simpler interpretation of Best Fit often just prioritizes the minimum remaining capacity
+    # among the fitting bins.
+    # Let's assign a priority of `-bins_remain_cap[j]` for fitting bins, then selecting
+    # the maximum. This directly picks the fullest among the fitting bins.
+    # However, the prompt implies a "best fit" which is minimal waste, i.e., minimal `bins_remain_cap[j] - item`.
+
+    # Let's stick to the core Best Fit idea: minimize remaining capacity after placement.
+    # So we maximize `-(bins_remain_cap[j] - item)` for fitting bins.
+    # This implicitly favors fuller bins among those that can fit.
+
+    # Consider bins that can fit the item.
+    # The priority is how "tightly" the item fits. The tighter the fit (smaller remaining capacity),
+    # the higher the priority.
+    # So, priority should be high when `bins_remain_cap[j] - item` is small.
+    # Maximizing `-(bins_remain_cap[j] - item)` achieves this.
+
+    # If two bins have the same minimal waste, which one to prefer?
+    # The Best Fit strategy doesn't strictly define this. A common tie-breaker
+    # is to prefer the bin with the smaller overall capacity (i.e., the one that was
+    # already fuller before adding the item).
+    # We can incorporate this by adding a secondary term to the priority.
+    # Let's add a term proportional to `-bins_remain_cap[j]` (to prefer smaller capacities).
+
+    # A common way to implement this is:
+    # 1. Calculate the "fit score" for each bin: `fit_score = bins_remain_cap[j] - item`. We want to minimize this.
+    # 2. For bins where `fit_score >= 0`, we can assign a priority.
+    # To make it a maximization problem, we can use `-fit_score`.
+    # To incorporate the "prefer fuller bins" tie-breaker, we can subtract a small amount
+    # proportional to the bin's original capacity.
+
+    # Let's try a simple priority that directly encodes Best Fit's goal:
+    # For fitting bins, prioritize those where `bins_remain_cap` is minimized.
+    # So, we want to maximize `-bins_remain_cap[j]` among `bins_remain_cap[j] >= item`.
+    # This isn't strictly "best fit" in terms of minimal *waste*, but it's a common interpretation for online scenarios.
+
+    # Let's refine again for "Best Fit" in the sense of minimizing waste (`remaining_capacity - item`).
+    # The priority should be high for small `remaining_capacity - item`.
+    # So, the priority is `- (remaining_capacity - item)`.
+
+    # If there are multiple bins with the same minimum waste, how do we choose?
+    # The problem statement doesn't specify a tie-breaker. A good heuristic would be to pick
+    # the bin that is already most full (smallest `remaining_capacity` overall).
+    # This can be achieved by adding a term proportional to `-remaining_capacity`.
+
+    # Combined priority: `- (bins_remain_cap[j] - item) - epsilon * bins_remain_cap[j]`
+    # where epsilon is a small positive value.
+    # Maximizing this priority will prioritize minimal waste, and then prioritize smaller capacity bins.
+
+    # Using a small epsilon can be numerically tricky. A safer approach is to assign priorities
+    # in layers or use lexicographical sorting.
+    # For this function, let's prioritize the minimal difference.
+    # To favor fuller bins as a secondary criterion, we can make the priority more negative
+    # for larger remaining capacities.
+
+    # Priority = - (difference) - (some value that increases with bins_remain_cap)
+    # Let's use `- bins_remain_cap[j]` itself as the penalty.
+
+    priorities[can_fit_mask] = -(bins_remain_cap[can_fit_mask] - item) - bins_remain_cap[can_fit_mask]
+
+    # This heuristic prioritizes bins that have a small remaining capacity *after* adding the item
+    # (minimizing `bins_remain_cap - item`), and among those, it prioritizes bins that
+    # *started* with a smaller remaining capacity (`bins_remain_cap`).
+
+    return priorities
+```

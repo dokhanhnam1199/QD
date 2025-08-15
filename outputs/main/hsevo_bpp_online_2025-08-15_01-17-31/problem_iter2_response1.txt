@@ -1,0 +1,83 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins by combining Best Fit with adaptive scaling based on bin usage.
+
+    This heuristic favors bins that offer the tightest fit, similar to Best Fit,
+    but also slightly down-weights bins that are already heavily used to encourage
+    opening new bins when appropriate.
+    """
+    epsilon = 1e-6
+    
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+    
+    # Best Fit component: inverse of the gap
+    gaps = suitable_bins_cap - item
+    best_fit_score = 1.0 / (gaps + epsilon)
+
+    # Adaptive component: penalize bins that are already close to full (high usage)
+    # This is a simple heuristic: lower priority for bins with less remaining capacity *relative* to the total capacity.
+    # For simplicity, we'll use the inverse of the remaining capacity itself as a penalty,
+    # effectively favoring bins that have more "room" in general, even if they don't offer the tightest fit.
+    # However, to combine with Best Fit, we'll apply a *decreasing* function to this.
+    # A simple way is to multiply by a factor that decreases with remaining capacity.
+    # Let's use remaining capacity itself, normalized and then inverted to make larger remaining capacity *less* penalized.
+    
+    # Normalize remaining capacities to get a sense of usage level (0 to 1)
+    # Use a small epsilon in denominator to avoid division by zero if all suitable bins are empty (though unlikely here)
+    max_cap_for_scaling = np.max(suitable_bins_cap) if np.max(suitable_bins_cap) > 0 else 1.0
+    normalized_remain_cap = suitable_bins_cap / max_cap_for_scaling
+    
+    # We want to slightly reduce priority for bins with very *high* normalized remaining capacity (meaning they are less used)
+    # Conversely, we want to slightly *increase* priority for bins with lower normalized remaining capacity (more used).
+    # A simple scaling factor that increases with normalized remaining capacity (i.e., decreases with usage)
+    # could be (1 - normalized_remain_cap). We'll use this as a multiplier.
+    # This factor will be close to 1 for bins with low remaining capacity (high usage)
+    # and close to 0 for bins with high remaining capacity (low usage).
+    # We want the opposite: high usage should have *higher* priority for the adaptive part.
+    # So, let's use `normalized_remain_cap` directly as a factor, which means higher remaining capacity gets lower priority.
+    # To make it work with multiplication, we want high usage -> high priority.
+    # Let's try: priority = best_fit * (1 - normalized_remain_cap)
+    # This would mean bins with lots of remaining space get penalized.
+    # If we want to encourage using bins that are *more* full (but still fit the item), we'd want to multiply by something that
+    # is *higher* for more used bins.
+    # Let's try: priority = best_fit * (1.0 - normalized_remain_cap + epsilon)
+    # This still penalizes bins with lots of remaining capacity.
+    
+    # A better adaptive component might be to prioritize bins that have a reasonable amount of remaining capacity,
+    # but not too much. This could be a Gaussian-like function centered around some ideal remaining capacity.
+    # For this version, let's stick to a simpler idea: Combine best-fit with a preference for not-too-empty bins.
+    # We can multiply the best_fit score by a factor that encourages bins that are not nearly empty.
+    # Let's use the proportion of the item size to the remaining capacity, capped.
+    # `item / suitable_bins_cap` -> ratio of item size to bin's remaining capacity. High value means tight fit.
+    # Let's try: adaptive_factor = suitable_bins_cap / (suitable_bins_cap + item) -> ratio of remaining capacity to total occupied space.
+    # We want bins that are *more full*, so we want a higher factor for bins with *less* remaining capacity (but still fitting).
+    # Let's try: adaptive_factor = 1.0 - (suitable_bins_cap / max_cap_for_scaling)
+    # This gives higher scores to bins with less remaining capacity.
+    
+    adaptive_factor = (1.0 - normalized_remain_cap) + epsilon
+    
+    combined_priorities = best_fit_score * adaptive_factor
+
+    priorities[suitable_bins_mask] = combined_priorities
+
+    # Normalize priorities to be between 0 and 1 for stability, if needed by downstream logic.
+    # This step is optional and depends on how the priorities are used.
+    # if np.any(priorities[suitable_bins_mask]):
+    #     min_p = np.min(priorities[suitable_bins_mask])
+    #     max_p = np.max(priorities[suitable_bins_mask])
+    #     if max_p - min_p > epsilon:
+    #         priorities[suitable_bins_mask] = (priorities[suitable_bins_mask] - min_p) / (max_p - min_p)
+    #     else:
+    #         priorities[suitable_bins_mask] = 0.5 # All suitable bins have same priority
+
+    return priorities
+```

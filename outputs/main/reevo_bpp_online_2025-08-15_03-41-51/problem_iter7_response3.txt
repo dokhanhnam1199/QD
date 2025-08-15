@@ -1,0 +1,170 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using a
+    heuristic that prioritizes tight fits with normalized features.
+
+    The heuristic aims to balance immediate tightness with future flexibility by:
+    1. Prioritizing bins with a "near-perfect" fit (small remaining capacity after packing).
+    2. Introducing a slight penalty for bins that become nearly empty after packing,
+       to encourage leaving slightly more space for future larger items.
+    3. Normalizing features to ensure consistent behavior across different item sizes and bin capacities.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bins can fit the item, return all zeros
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # --- Heuristic Calculation ---
+
+    # Calculate the remaining capacity after packing the item for bins that can fit it
+    remaining_after_packing = bins_remain_cap[can_fit_mask] - item
+
+    # Define parameters for the priority function
+    # Steepness of the sigmoid-like function, controlling how quickly priority drops
+    # as the gap increases. Higher values mean tighter fits are more strongly preferred.
+    steepness = 10.0
+    # The ideal remaining capacity. Bins closer to this ideal will get higher priority.
+    ideal_gap = 0.05  # A small positive gap to avoid packing too tightly
+
+    # Calculate a score based on closeness to the ideal gap.
+    # We want to penalize large gaps and very small (negative) gaps (which shouldn't happen due to can_fit_mask).
+    # A sigmoid-like function can be useful here to bound scores and provide a smooth transition.
+    # Let's use a modified version of a logistic function, centered around `ideal_gap`.
+    # The score will be high when `remaining_after_packing` is close to `ideal_gap`.
+
+    # Normalize `remaining_after_packing` for a more robust sigmoid application.
+    # We can normalize relative to the maximum possible remaining capacity (original bin capacity)
+    # or relative to the range of remaining capacities of fitting bins.
+    # For simplicity and to capture the "tightness" aspect, let's normalize by the item size,
+    # or relative to a plausible range of remaining capacities.
+    # A simple normalization could be by the item size or by the bin capacity.
+    # Let's normalize the remaining capacity relative to a common scale, e.g., the item size itself,
+    # or a fraction of the total bin capacity if that was available.
+    # Let's try normalizing the *difference* (remaining_after_packing) by the item size.
+    # This scales the "tightness" relative to the item's size.
+
+    # Handle cases where item size might be zero or very small to avoid division by zero.
+    # If item is 0, remaining_after_packing is just bins_remain_cap[can_fit_mask].
+    # Let's use a small epsilon or the max remaining capacity as a divisor if item is 0.
+    normalizing_factor = np.maximum(item, 1e-6) # Avoid division by zero
+
+    normalized_remaining = remaining_after_packing / normalizing_factor
+
+    # Calculate scores using a sigmoid-like function that peaks around `ideal_gap / normalizing_factor`
+    # score = 1 / (1 + exp(steepness * (x - center)))
+    # We want a peak at `ideal_gap`, so let's transform `normalized_remaining`.
+    # A simple approach: prioritize smaller `remaining_after_packing`.
+    # Let's use a Gaussian-like function centered on `ideal_gap` or a similar approach.
+
+    # Alternative approach: score = exp(-steepness * (remaining_after_packing - ideal_gap)^2)
+    # This gives a Gaussian peak. The larger the `steepness`, the narrower the peak.
+    # We need to ensure the peak is appropriately scaled.
+
+    # Let's try a simple transformation: prioritize smaller remaining capacity, but with a penalty for being too small.
+    # Higher priority for `remaining_after_packing` close to `ideal_gap`.
+    # score = exp(-steepness * (remaining_after_packing - ideal_gap)**2)
+    # We need to be careful with the scale of `remaining_after_packing`.
+    # Normalizing by item size:
+    # score = exp(-steepness * (normalized_remaining - ideal_gap/normalizing_factor)**2)
+
+    # Let's refine the idea of "tight fit" vs. "future flexibility".
+    # Tight fit: `remaining_after_packing` is small.
+    # Future flexibility: `remaining_after_packing` is not *too* small, to accommodate larger items.
+    # A U-shaped preference curve for `remaining_after_packing` could work.
+    # Prioritize `remaining_after_packing` near `ideal_gap`.
+
+    # Let's use a function that penalizes deviations from `ideal_gap`.
+    # Penalty = abs(remaining_after_packing - ideal_gap)
+    # We want to minimize this penalty. So, priority is inversely related.
+    # priority_component = 1 / (1 + steepness * abs(remaining_after_packing - ideal_gap))
+    # This gives a peak at `ideal_gap`.
+
+    # Let's scale the `ideal_gap` relative to the item size to be more general.
+    # relative_ideal_gap = ideal_gap / item # This is problematic if item is small.
+    # Better: use a fixed ideal gap and scale the remaining capacity by bin capacity or a typical item size.
+    # Assuming bin capacity is implicitly known or can be estimated. For now, let's stick to relative to item size.
+
+    # Revisit the reflection: "Prioritize tight fits with normalized features."
+    # "Tune sigmoid steepness and ideal gap for balance between immediate tightness and future flexibility."
+    # "Stabilize scores for robust bin packing."
+
+    # Normalized features:
+    # Let's consider the "waste" as `remaining_after_packing`.
+    # We want to minimize waste, but not to zero.
+    # A function that maps waste to priority:
+    # Higher priority for `waste` close to `ideal_gap`.
+
+    # Let's define the priority for a fitting bin as a function of `remaining_after_packing`.
+    # `f(waste)`.
+    # `f(waste)` should be maximal at `waste = ideal_gap`.
+    # `f(waste)` should decrease as `waste` moves away from `ideal_gap` in either direction.
+    # `steepness` controls how fast it decreases.
+
+    # Example function: Gaussian kernel: `exp(-steepness * (waste - ideal_gap)^2)`
+    # Let's use `ideal_gap = 0.05` (5% of bin capacity, if we knew it) or
+    # `ideal_gap` related to the item size.
+    # If `ideal_gap` is a fraction of the *item size*: `ideal_gap_item = 0.1 * item`.
+    # Then we want `remaining_after_packing` to be around `ideal_gap_item`.
+    # The difference `remaining_after_packing - ideal_gap_item`.
+    # Let's try this:
+
+    ideal_relative_waste = 0.10  # Ideal waste as a fraction of the item size
+    current_relative_waste = remaining_after_packing / np.maximum(item, 1e-6)
+    deviation_from_ideal = current_relative_waste - ideal_relative_waste
+
+    # Use a Gaussian-like function for priority: higher for deviations closer to zero.
+    # steepness controls how sensitive the priority is to deviations.
+    # Let's scale steepness to be effective for typical deviations.
+    # If `deviation_from_ideal` is around 0.5, we want the score to drop significantly.
+    # exp(-steepness * deviation^2)
+    # If deviation is 0.5, exp(-steepness * 0.25). For this to be ~0.1, steepness ~ 9.
+    # Let's try steepness = 8.0.
+
+    priority_scores_fitting = np.exp(-steepness * (deviation_from_ideal**2))
+
+    # Apply a small random perturbation to break ties and add exploration-like behavior
+    # within the exploitation. This helps stabilize scores by making them unique.
+    # We add a small noise term. The range of `priority_scores_fitting` is [0, 1].
+    # Adding noise scaled by a fraction of this range is good.
+    noise_scale = 0.05
+    random_noise = np.random.normal(0, noise_scale, size=priority_scores_fitting.shape)
+    stabilized_scores = priority_scores_fitting + random_noise
+
+    # Clip scores to be within a reasonable range [0, 1] to prevent negative priorities from noise.
+    stabilized_scores = np.clip(stabilized_scores, 0.0, 1.0)
+
+    # Assign these scores to the bins that can fit the item
+    priorities[can_fit_mask] = stabilized_scores
+
+    # Ensure bins that cannot fit have zero priority
+    priorities[~can_fit_mask] = 0.0
+
+    # Normalize priorities to be in the range [0, 1] for consistent interpretation.
+    # This also makes the "best" bin have a score of 1.0.
+    max_priority = np.max(priorities)
+    if max_priority > 0:
+        priorities = priorities / max_priority
+    else:
+        # If all priorities are zero (e.g., item too large for all bins),
+        # this case should have been caught by `not np.any(can_fit_mask)`.
+        # But as a fallback, ensure we return zeros.
+        priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    return priorities
+```

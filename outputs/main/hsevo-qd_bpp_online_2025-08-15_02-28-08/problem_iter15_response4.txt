@@ -1,0 +1,98 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    epsilon = 1e-9
+    priorities = np.zeros_like(bins_remain_cap)
+    can_fit_mask = bins_remain_cap >= item
+    
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    diff = fitting_bins_remain_cap - item
+    
+    # Prioritize exact fits: assign a very high score
+    exact_fit_mask = diff < epsilon
+    
+    # For bins that are not exact fits but can fit the item, calculate a score.
+    # We want to favor bins with less remaining capacity (tighter fits).
+    # Score = item / remaining_capacity. This is equivalent to item / (item + diff).
+    # This score is close to 1 for tight fits and decreases as diff increases.
+    # This is better than 1/diff as it is bounded and more interpretable.
+    
+    # Let's use a scoring system that combines exact fit preference with a scaled closeness metric.
+    
+    # Score 1: Very high score for exact fits.
+    # Score 2: For non-exact fits, score is proportional to `1 / (1 + normalized_excess_capacity)`.
+    # Normalized excess capacity = (remaining_capacity - item) / item
+    # So, score is proportional to `item / (item + remaining_capacity - item)` = `item / remaining_capacity`.
+    
+    # Let's refine:
+    # Exact fits get a base high score.
+    # Near fits get a score that decays with increasing 'diff'.
+    # We can use `item / (item + diff)` as a base for non-exact fits.
+    
+    # Let's use a function that prioritizes small positive `diff` more strongly.
+    # Consider the ratio `item / bins_remain_cap`. We want this ratio to be close to 1.
+    # Score = `1 / abs(item / bins_remain_cap - 1 + epsilon)` which simplifies to `bins_remain_cap / abs(bins_remain_cap - item + epsilon)`.
+    # This is what `priority_v1` calculation was very close to, `bins_remain_cap / (diff + epsilon)`.
+    
+    # Let's try a score that emphasizes the "waste" or "slack" left in the bin.
+    # Slack = remaining_capacity - item. We want minimal slack.
+    # A good score could be inversely proportional to `slack` (i.e., `1/slack`),
+    # but we need to also consider the absolute amount of space.
+    
+    # Alternative: Prioritize based on how much of the bin's *current remaining capacity* is used.
+    # Score = item / bins_remain_cap. This prioritizes bins where the item takes up a larger fraction.
+    # This is good for tight fits.
+    
+    # Let's combine:
+    # 1. Exact fits get a very high score.
+    # 2. For other fitting bins, prioritize by `item / bins_remain_cap`.
+    
+    scores_for_fitting_bins = np.zeros_like(fitting_bins_remain_cap)
+    
+    # Assign a base high score for exact fits.
+    exact_fit_scores = 1e6 # A large number to indicate exact fit
+    
+    # For non-exact fits, calculate a score based on the ratio of item size to remaining capacity.
+    # This favors bins where the item utilizes a larger portion of the remaining space.
+    non_exact_fit_scores = item / (fitting_bins_remain_cap + epsilon)
+    
+    # Apply exact fit score to those bins that are exact fits
+    scores_for_fitting_bins[exact_fit_mask] = exact_fit_scores
+    
+    # For bins that are not exact fits, use the ratio score, but ensure it's lower than exact fit score.
+    # We can scale `non_exact_fit_scores` so they are significantly less than `exact_fit_scores` but still ranked correctly.
+    # Let's use `1000 * (item / fitting_bins_remain_cap)` for non-exact fits.
+    
+    # Let's try a simpler, more direct approach that is still effective:
+    # Prioritize bins with minimal positive difference (`diff`).
+    # The function `f(x) = 1 / (x + epsilon)` already does this.
+    # To make it *more* sensitive to small differences, we can use a steeper curve.
+    # For example, `f(x) = 1 / (sqrt(x) + epsilon)` or `f(x) = 1 / (log(x+1) + epsilon)`.
+    # Or, we can make the score higher for smaller `diff` using a power: `1 / (diff^p + epsilon)` where p > 1.
+    # Let's use p=2 for `diff`, so `1 / (diff^2 + epsilon)`. This will heavily favor tight fits.
+    
+    # Let's implement this: `1 / (diff^2 + epsilon)` for bins that fit.
+    
+    # Re-calculating diff for all fitting bins
+    diff = bins_remain_cap[can_fit_mask] - item
+    
+    # Calculate priority: 1 / (squared_difference + epsilon)
+    # This strongly rewards bins with very small positive differences.
+    priorities[can_fit_mask] = 1.0 / (diff**2 + epsilon)
+    
+    # Optional: Add a small secondary score for bins that are "close" but not tight.
+    # This might be redundant if the squared difference already provides good discrimination.
+    # Let's consider making it `1 / (diff + epsilon)` and then adding a bonus for "tightness".
+    
+    # Final attempt at a robust heuristic:
+    # 1. Bins that can fit are candidates.
+    # 2. For these, we want minimal `diff = bins_remain_cap - item`.
+    # 3. A score like `1 / (diff + epsilon)` is good.
+    # 4. To make it more sensitive to *very* small `diff`, we can modify it.
+    # Consider `score = (item + diff) / (diff + epsilon)` which is `bins_remain_cap / (diff + epsilon)`.
+    # This prioritizes `bins_remain_cap` that are just slightly larger than `item`.
+    
+    # Let's try `bins_remain_cap / (diff + epsilon)`
+    priorities[can_fit_mask] = fitting_bins_remain_cap / (diff + epsilon)
+    
+    return priorities
+```

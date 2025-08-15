@@ -1,0 +1,177 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    epsilon = 1e-9
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    can_fit_mask = bins_remain_cap >= item
+    
+    if np.any(can_fit_mask):
+        diff = bins_remain_cap[can_fit_mask] - item
+        
+        # Score: Prioritize bins where the remaining capacity is closest to the item size.
+        # The score is calculated as: remaining_capacity / (remaining_capacity - item + epsilon)
+        # This can be rewritten as: (item + diff) / (diff + epsilon)
+        # This function is maximized when `diff` is minimized (i.e., a tight fit).
+        # For very tight fits (diff close to 0), the score becomes very high.
+        # For larger diffs, the score approaches 1.
+        # This prioritizes bins that are "just enough" to fit the item.
+        
+        scores = bins_remain_cap[can_fit_mask] / (diff + epsilon)
+        
+        # A small adjustment to slightly penalize bins that are excessively large if a tight fit exists.
+        # This could be a multiplicative factor or an additive one, but to keep it simple and effective,
+        # let's rely on the primary score's behavior. The current score already implicitly favors smaller available space
+        # when it's just enough.
+        
+        # For bins where the item fits, we want to maximize the ratio `bins_remain_cap / (bins_remain_cap - item)`.
+        # This is equivalent to `(item + diff) / (diff)`.
+        # Let's normalize `diff` by `item` to make the score less dependent on absolute scales.
+        # `normalized_diff = diff / item`
+        # Score = `(item + normalized_diff * item) / (normalized_diff * item + epsilon)`
+        # Score = `(1 + normalized_diff) / (normalized_diff + epsilon / item)`
+        # This makes the score proportional to `1 / normalized_diff` for small `normalized_diff`.
+        
+        # Let's refine the score to focus on the 'goodness' of the fit relative to the item size.
+        # We want bins where `bins_remain_cap` is just slightly larger than `item`.
+        # Consider `bins_remain_cap / item`. We want this ratio to be close to 1.
+        # A score like `1 / abs(bins_remain_cap / item - 1 + epsilon)` is good.
+        # This simplifies to `item / abs(bins_remain_cap - item + epsilon)`.
+        # For bins that fit (`bins_remain_cap >= item`), this is `item / (bins_remain_cap - item + epsilon)`.
+        # This is very similar to `bins_remain_cap / (bins_remain_cap - item + epsilon)` but normalized by item size.
+        
+        # Let's try to create a score that peaks at `diff = 0` and decreases.
+        # A simple approach is to use `1 / (diff + epsilon)`.
+        # To amplify the preference for *very* tight fits, we can use `1 / (diff^2 + epsilon)` or `exp(-k * diff)`.
+        
+        # Let's try a score that is high for tight fits and moderately high for larger fits,
+        # without completely favoring large bins unless no tight fits exist.
+        
+        # A more robust approach:
+        # Prioritize bins with minimal positive difference (`diff`).
+        # Then, among bins with similar small differences, pick the one with less remaining capacity.
+        
+        # Let's score bins based on `1 / (diff + epsilon)`. This gives higher scores to smaller `diff`.
+        # To differentiate further, consider the actual remaining capacity.
+        # If `diff` is small, `bins_remain_cap` is close to `item`.
+        # If `diff` is large, `bins_remain_cap` is much larger than `item`.
+        
+        # Let's try to combine "tightness" and "utilization".
+        # A good bin is one that fits tightly.
+        # Score = `1 / (diff + epsilon)` is a good start.
+        
+        # To make it more sensitive to *tight* fits and less sensitive to *very large* capacities,
+        # let's use `item / (diff + epsilon)`. This scales the priority by the item size.
+        # This is equivalent to `item / (bins_remain_cap - item + epsilon)`.
+        
+        # If item = 5, bins = [6, 10, 20]
+        # diff = [1, 5, 15]
+        #
+        # Current (v1) `1/(diff+eps)`: [1, 0.2, 0.06] -> Bin with 6 remaining cap wins.
+        # Proposed `item/(diff+eps)`: [5, 1, 0.33] -> Bin with 6 remaining cap wins.
+        
+        # What if we want to penalize bins that are too large?
+        # For example, if `bins_remain_cap` is more than `2 * item`.
+        
+        # Let's try a score that rewards bins that are "just enough" and penalizes bins that are "too much".
+        # Score = `1 / (diff + epsilon)` gives highest score for smallest `diff`.
+        # We can add a factor that decreases as `bins_remain_cap` increases beyond `item`.
+        
+        # Let's try `score = (1 / (diff + epsilon)) * (item / (bins_remain_cap + epsilon))`
+        # This combines the inverse difference with a factor that reduces score for larger remaining capacities.
+        
+        # If item = 5, bins = [6, 10, 20]
+        # diff = [1, 5, 15]
+        # v1: [1, 0.2, 0.06]
+        #
+        # New score:
+        # Bin 1 (rem=6, diff=1): (1/1) * (5/6) = 0.83
+        # Bin 2 (rem=10, diff=5): (1/5) * (5/10) = 0.1 * 0.5 = 0.05
+        # Bin 3 (rem=20, diff=15): (1/15) * (5/20) = 0.066 * 0.25 = 0.0165
+        
+        # This seems to penalize larger bins too aggressively, making it similar to First Fit Decreasing if items are sorted.
+        
+        # Let's go back to the idea of prioritizing tight fits, but ensure that if there are multiple tight fits,
+        # we prefer the one that leaves less residual space.
+        
+        # Consider a score that is a function of `diff` and `bins_remain_cap`.
+        # A common approach is to use `(bins_remain_cap - item)` as the primary criterion for tightness.
+        # We want to minimize `bins_remain_cap - item`.
+        
+        # Let's try a score that is higher for smaller `diff`, and among equal `diff`s, it doesn't matter much.
+        # The key is to make the score sensitive to small positive `diff`.
+        
+        # A score like `1 / (diff + epsilon)` is already good.
+        # To make it "better", we need to ensure it generalizes well.
+        
+        # Let's try to use the reciprocal of the "waste" if the item fits perfectly, or a scaled waste.
+        # For a tight fit, `bins_remain_cap` is close to `item`.
+        # Consider `score = bins_remain_cap / (bins_remain_cap - item + epsilon)`.
+        # This was explored before and seemed to amplify tight fits.
+        
+        # Let's try to make the score more focused on the *proportion* of remaining capacity used.
+        # For a bin to be ideal, `item / bins_remain_cap` should be close to 1.
+        # Score = `1 / abs(item / bins_remain_cap - 1 + epsilon)`
+        # Score = `bins_remain_cap / abs(bins_remain_cap - item + epsilon)`
+        # This is `bins_remain_cap / (diff + epsilon)` for bins that fit.
+        
+        # Let's consider a two-stage approach:
+        # 1. Favor bins with `diff` within a small range (e.g., `0 <= diff < threshold`).
+        # 2. Within that range, pick the bin with minimum `diff`.
+        # 3. If no bin is in that range, pick the bin with the minimum `diff` overall.
+        
+        # This can be encoded into a single score.
+        # Let's use a score that is very high for tight fits, and moderately high for larger fits.
+        
+        # A score that is proportional to `1 / (diff + epsilon)` is good for prioritizing tight fits.
+        # To make it "better", we can scale it by a factor that is less sensitive to extremely large capacities.
+        
+        # Let's try `score = (1 + item) / (diff + epsilon)`
+        # If item = 5, bins = [6, 10, 20]
+        # diff = [1, 5, 15]
+        #
+        # v1 `1/(diff+eps)`: [1, 0.2, 0.06]
+        # Proposed `(1+item)/(diff+eps)`:
+        # Bin 1 (rem=6, diff=1): (1+5) / 1 = 6
+        # Bin 2 (rem=10, diff=5): (1+5) / 5 = 1.2
+        # Bin 3 (rem=20, diff=15): (1+5) / 15 = 0.4
+        
+        # This seems to amplify the preference for tight fits even more strongly than `item / (diff + epsilon)`.
+        # It's essentially prioritizing bins with smaller `diff` and giving them a boost proportional to `item + 1`.
+        # This can be interpreted as: "how much value does this bin's remaining space offer for fitting this item tightly?"
+        
+        # Let's use `(bins_remain_cap + 1) / (diff + epsilon)`. This is slightly different.
+        # If item = 5, bins = [6, 10, 20]
+        # diff = [1, 5, 15]
+        #
+        # Proposed `(bins_remain_cap + 1) / (diff + epsilon)`:
+        # Bin 1 (rem=6, diff=1): (6+1) / 1 = 7
+        # Bin 2 (rem=10, diff=5): (10+1) / 5 = 11 / 5 = 2.2
+        # Bin 3 (rem=20, diff=15): (20+1) / 15 = 21 / 15 = 1.4
+        
+        # This score favors bins that are *closer* to the item size AND have *more* remaining capacity if the difference is the same.
+        # This is not ideal. We want to prioritize tight fits.
+        
+        # Let's stick to prioritizing tight fits. The score `bins_remain_cap / (diff + epsilon)` is a good candidate.
+        # It means we prefer bins where `bins_remain_cap / item` is close to 1.
+        # `bins_remain_cap / (bins_remain_cap - item + epsilon)`
+        # This is `(item + diff) / (diff + epsilon)`
+        
+        # Consider the goal: minimize the number of bins.
+        # This is achieved by packing items as tightly as possible.
+        # So, prioritize bins where `bins_remain_cap - item` is minimized and non-negative.
+        
+        # Let's consider a score that combines the 'tightness' `1/(diff + epsilon)` with a penalty for 'over-filling' if the bin is much larger.
+        # The score `bins_remain_cap / (diff + epsilon)` already tends to favor smaller remaining capacities if the difference is the same.
+        
+        # Final approach: Prioritize bins with the smallest positive difference.
+        # To make this robust, normalize the difference by the item size.
+        # Score = `1 / (diff / item + epsilon)` if `item > 0`.
+        # Score = `item / (diff + epsilon)` for `item > 0`.
+        # This emphasizes tight fits relative to the item's size.
+        
+        scores = item / (diff + epsilon)
+        
+        priorities[can_fit_mask] = scores
+    
+    return priorities
+```

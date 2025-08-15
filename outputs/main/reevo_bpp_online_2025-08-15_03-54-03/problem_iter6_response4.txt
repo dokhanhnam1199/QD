@@ -1,0 +1,153 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority using a strategy that favors bins with minimal positive residuals.
+
+    This heuristic prioritizes bins where the remaining capacity after placing the item
+    is as close to zero as possible, but still strictly positive. This aims to fill bins
+    more tightly. Bins where the item does not fit, or where the remaining capacity
+    after placement would be exactly zero, will have the lowest priority.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    # Initialize priorities to a very low value. Bins that cannot fit the item
+    # or result in zero remaining capacity will get this lowest priority.
+    priorities = np.full_like(bins_remain_cap, -float('inf'))
+
+    # Calculate the remaining capacity if the item were placed in each bin.
+    residuals = bins_remain_cap - item
+
+    # Identify bins where the item can fit and leaves a strictly positive residual.
+    # We use `residuals > epsilon` to avoid zero residual, encouraging a small gap.
+    epsilon = 1e-9
+    can_fit_positive_residual_mask = residuals > epsilon
+
+    # For bins that can fit and leave a positive residual, the priority is inversely
+    # proportional to the positive residual. A smaller positive residual means a tighter fit.
+    # Using `1.0 / residuals` for these bins.
+    priorities[can_fit_positive_residual_mask] = 1.0 / residuals[can_fit_positive_residual_mask]
+
+    # Consider bins where the item fits exactly (residual is zero).
+    # These are good fits, but less ideal than leaving a small positive gap.
+    # We can assign them a slightly lower priority than the best fits.
+    # If `residuals == 0`, `1.0 / residuals` would be infinity, which is not desired.
+    # Let's assign a high but finite priority.
+    fits_exactly_mask = np.isclose(residuals, 0)
+    # Assign a priority that is high but lower than the best possible positive residual case
+    # For instance, use a very large number, but smaller than `1.0 / epsilon`.
+    # Or, simply a slightly lower value than the maximum achievable from positive residuals.
+    # A simple approach is to use a fixed high value, or a value derived from the 'best' positive residual.
+    # For simplicity and to ensure they are considered but not preferred over tiny gaps,
+    # let's assign a value that's still high. A slightly smaller reciprocal could work if we knew the minimum positive residual.
+    # A common strategy is to use a large constant if the problem structure doesn't give a natural scaling.
+    # Let's make it a very high priority, but clearly distinguishable.
+    # The current `1.0 / residuals` will produce values that can be very large.
+    # If we want to prioritize exact fits slightly lower than tightest fits, we could do:
+    # max_possible_priority = 1.0 / epsilon # theoretical max if residuals are tiny positive
+    # priorities[fits_exactly_mask] = max_possible_priority * 0.99 # or some large constant.
+    # For this specific reflection, we are focusing on minimal *positive* residuals.
+    # Bins that fit exactly (residual=0) are still good fits and should have high priority,
+    # but the prompt implies prioritizing *positive* residuals.
+    # Let's stick to the reflection's emphasis: minimal *positive* residuals.
+    # Bins that fit exactly are less prioritized than those with minimal *positive* slack.
+
+    # Update: The reflection is about favoring minimal *positive* residuals.
+    # This means bins with `residual > 0` are preferred, and among those, the smallest `residual` is best.
+    # Bins with `residual == 0` are not explicitly prioritized by the reflection's wording.
+    # If we *must* prioritize minimal positive residuals, bins with residual=0 are not part of that.
+    # However, in practice, an exact fit is often very desirable.
+    # Let's adjust the priority to reflect the "minimal positive residual" focus precisely.
+    # The original `1.0 / residuals` for `residuals > epsilon` already does this.
+    # We can assign a moderate priority to exact fits to differentiate them.
+
+    # Let's re-evaluate the goal: "prioritizes bins where the remaining capacity after placing the item
+    # is as close to zero as possible, but still strictly positive."
+    # This means `residual > 0` and `residual` is minimized.
+    # The `1.0 / residuals` where `residuals > epsilon` handles this.
+    # What about `residuals == 0`? The reflection implies they are less preferred than minimal *positive* ones.
+    # So, our current setup where they get `-inf` is consistent with *only* prioritizing strictly positive residuals.
+    # If an exact fit is desired, a different heuristic might be better.
+    # Given the reflection, let's keep the distinction clear.
+
+    # A common practical approach is to give exact fits a very high priority too.
+    # For clarity based on the reflection:
+    # - Bins with residual > epsilon: priority = 1.0 / residual
+    # - Bins with residual == 0: priority = moderate_high_value
+    # - Bins with residual < 0: priority = -inf
+
+    # Let's assign a slightly lower priority to exact fits than the best possible positive residual fit.
+    # The smallest positive residual would yield a priority close to 1/epsilon.
+    # We can assign a value like 1.0 / (epsilon * 2) or a large constant.
+    # For simplicity, let's use a value that's still high but bounded.
+    # The logic is that a tiny positive gap is slightly preferred over no gap.
+    # However, a pragmatic BPP solver would often consider exact fits excellent.
+
+    # For the purpose of implementing the reflection strictly:
+    # "prioritizes bins where the remaining capacity ... is as close to zero as possible, but still strictly positive."
+    # This means bins with residual=0 are not candidates for the "best" priority according to this specific phrasing.
+    # Let's refine: If `residuals > epsilon`, score is `1.0 / residuals`.
+    # If `residuals == 0`, score is `some_value_less_than_min(1.0 / residuals[residuals > epsilon])`
+    # If `residuals < 0`, score is `-inf`.
+
+    # Let's refine the scoring for exact fits to be high, but less than ideal positive residuals.
+    # The best score from `1.0/residuals` will be for the smallest `residuals > epsilon`.
+    # Let's assign a score for exact fits that is high but bounded, and lower than any `1.0/positive_residual`.
+    # For example, if epsilon=1e-9, the max theoretical priority is 1e9.
+    # We can assign exact fits a priority like 1e8.
+    
+    # Resetting priorities for a cleaner approach focused on the reflection:
+    priorities = np.full_like(bins_remain_cap, -float('inf')) # All bins start with lowest priority
+
+    residuals = bins_remain_cap - item
+
+    # Mask for bins that can fit the item and leave a strictly positive residual
+    epsilon = 1e-9
+    mask_positive_residual = residuals > epsilon
+
+    # Calculate priorities for bins with strictly positive residuals
+    # Higher priority for smaller positive residuals
+    priorities[mask_positive_residual] = 1.0 / residuals[mask_positive_residual]
+
+    # Mask for bins where the item fits exactly
+    mask_exact_fit = np.isclose(residuals, 0)
+    
+    # Assign a high priority to exact fits, but lower than the best possible positive residual fits.
+    # The maximum priority from the positive residual case would be around 1/epsilon.
+    # So, assign a value significantly less than 1/epsilon but still high.
+    # A practical value could be related to the maximum possible number of bins or a large constant.
+    # For example, if there are N bins, a priority of N or N*2 is usually sufficient to rank well.
+    # Let's use a large constant that's clearly less than 1/epsilon.
+    # For instance, if epsilon is 1e-9, 1/epsilon is 1e9. Let's use 1e8.
+    # This ensures they are ranked above bins with larger positive residuals.
+    # If no bins have positive residuals, then exact fits will be the top priority.
+    if np.any(mask_exact_fit):
+        # If there are positive residuals, this value should be less than the minimum 1/positive_residual.
+        # If there are no positive residuals, this value should be the highest.
+        # A safe bet is a large number that's reliably less than 1/epsilon.
+        # Let's use a scaled value based on the number of bins as a heuristic for magnitude.
+        # Or simply a large constant.
+        
+        # Let's consider the distribution of 1/residuals. The minimum of `1.0 / residuals[mask_positive_residual]`
+        # gives the priority of the "worst" positive residual fit.
+        # Any priority for exact fit should ideally be related to this scale.
+        # If `mask_positive_residual` is empty, then exact fits are the best.
+        # If `mask_positive_residual` is not empty, then we want exact_fit_priority < min(1.0 / residuals[mask_positive_residual]).
+        
+        # A robust way: calculate all `1.0 / residuals` for `residuals > 0`.
+        # Then, assign exact fits a priority that is just below the minimum of these.
+        
+        if np.any(mask_positive_residual):
+            min_positive_residual_priority = np.min(priorities[mask_positive_residual])
+            priorities[mask_exact_fit] = min_positive_residual_priority * 0.9 # Slightly less priority than the best positive residual
+        else:
+            # If no positive residuals exist, exact fits are the best possible.
+            # Assign a very high priority.
+            priorities[mask_exact_fit] = 1e12 # A very large number
+
+    return priorities
+```

@@ -1,0 +1,345 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using a refined Best Fit strategy
+    that also considers the "fullness" of the bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    # Mask for bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(suitable_bins_mask):
+        return priorities # No suitable bins
+
+    # Calculate remaining capacity after placing the item in suitable bins
+    remaining_capacities_after_fit = bins_remain_cap[suitable_bins_mask] - item
+
+    # Find the minimum remaining capacity among suitable bins
+    min_remaining_capacity = np.min(remaining_capacities_after_fit)
+
+    # Identify bins that achieve the best fit
+    best_fit_bins_mask = suitable_bins_mask & (bins_remain_cap - item == min_remaining_capacity)
+
+    # For bins that are a "best fit", assign a higher priority.
+    # Among best fit bins, prioritize those that become "fuller" (i.e., have less remaining capacity *before* fitting)
+    # This encourages using bins that are already quite full, potentially leaving larger gaps in less full bins for future larger items.
+    
+    # Get remaining capacities of only the best fit bins
+    best_fit_bin_capacities = bins_remain_cap[best_fit_bins_mask]
+
+    if np.any(best_fit_bins_mask):
+        # Calculate how full each best fit bin is *before* adding the item
+        # A higher "fullness" value means the bin had less remaining capacity initially
+        # We want to prioritize bins that were already more full (less remaining capacity)
+        
+        # To avoid division by zero if a bin has 0 capacity (though unlikely in BPP context with positive item sizes)
+        # and to ensure we prioritize bins that are *most* full, we can use a negative of the remaining capacity
+        # or a value inversely related to remaining capacity. A simple approach is to use the
+        # remaining capacity itself: smaller remaining capacity means more full.
+        
+        # Assign priorities: higher priority for bins that are "best fit" AND were more full initially.
+        # We can achieve this by assigning a score based on the inverse of their remaining capacity (before fitting).
+        # A simple approach: use the remaining capacity before fitting as a secondary sorting key.
+        # Lower remaining capacity before fitting = higher priority among best fit bins.
+        
+        # We can create a scoring system:
+        # Priority = 1.0 (for best fit) + some bonus for being more full.
+        # A simple bonus: add a value inversely proportional to the initial remaining capacity.
+        # To make it simple and directly comparable, we can assign a rank or a scaled value.
+        
+        # Let's try a simpler approach:
+        # Best Fit bins get a base priority.
+        # Among Best Fit bins, we can sort them by their *original* remaining capacity (ascending).
+        # The one with the smallest original remaining capacity (most full) gets the highest score.
+
+        # Get the indices of the best fit bins
+        best_fit_indices = np.where(best_fit_bins_mask)[0]
+        
+        # Get the original remaining capacities of these best fit bins
+        original_best_fit_caps = bins_remain_cap[best_fit_indices]
+        
+        # Sort these indices based on their original remaining capacities (ascending)
+        sorted_best_fit_indices = best_fit_indices[np.argsort(original_best_fit_caps)]
+        
+        # Assign priorities: highest for the most full best fit bin, decreasing for others.
+        # We can assign decreasing priority values.
+        num_best_fit = len(sorted_best_fit_indices)
+        for i, bin_idx in enumerate(sorted_best_fit_indices):
+            # Assign a priority score that is higher for more full bins.
+            # A simple way is to assign a score based on rank, e.g., num_best_fit - i
+            # Or use a value that reflects the 'emptiness' of the bin after fitting.
+            # For simplicity, let's just give them distinct high priorities.
+            # The highest priority (e.g., 1.0) goes to the most full best-fit bin.
+            # Subsequent best-fit bins get slightly lower, but still high, priorities.
+            
+            # A simple strategy:
+            # Assign a base score for being a best fit, and a bonus for being more full.
+            # Let's re-evaluate: the goal is to select *one* bin.
+            # So, we need a single highest priority value.
+            
+            # Let's refine the best fit criterion:
+            # If there are multiple "best fit" bins (same minimum remaining capacity),
+            # choose the one that had the least remaining capacity *before* fitting.
+            
+            # We already identified best_fit_bins_mask.
+            # Now, among these, find the ones with the minimum *original* remaining capacity.
+            
+            original_remaining_for_best_fit = bins_remain_cap[best_fit_bins_mask]
+            min_original_capacity_among_best_fit = np.min(original_remaining_for_best_fit)
+            
+            most_full_best_fit_mask = best_fit_bins_mask & (bins_remain_cap == min_original_capacity_among_best_fit)
+            
+            # Assign the highest priority to these "most full best fit" bins.
+            priorities[most_full_best_fit_mask] = 1.0
+            
+            # Optionally, give a slightly lower priority to other best fit bins (if any)
+            # to ensure the "most full" ones are preferred if there's a tie in remaining capacity after fit.
+            # However, the problem states "the bin with the highest priority score will be selected".
+            # So, if multiple bins have the highest score, the selection might be arbitrary or based on
+            # original index. To avoid ambiguity, we can ensure only one max priority exists.
+
+            # Let's stick to the simpler idea: maximize the probability of filling a bin as much as possible
+            # with the current item, among the best fit options.
+
+            # The current `best_fit_bins_mask` correctly identifies bins that minimize remaining capacity.
+            # If there are multiple such bins, we need a tie-breaker.
+            # The tie-breaker is: choose the bin that was *closest* to being full initially among these best-fit bins.
+            
+            # Let's re-calculate the indices to assign unique priorities if needed for clarity,
+            # but the problem asks for a score, and any highest score will do.
+            
+            # The current logic `priorities[best_fit_bins_mask] = 1.0` already assigns the highest priority to all best-fit bins.
+            # If we want to break ties explicitly, we need a secondary criterion.
+            
+            # Refined tie-breaking: among bins that result in `min_remaining_capacity`, select the one
+            # that had the smallest `bins_remain_cap` value *before* placing the item.
+            
+            # So, we need to find the minimum of `bins_remain_cap[best_fit_bins_mask]`.
+            
+            # Example:
+            # item = 3
+            # bins_remain_cap = [5, 5, 8, 10]
+            # suitable_bins_mask = [T, T, T, T]
+            # remaining_capacities_after_fit = [2, 2, 5, 7]
+            # min_remaining_capacity = 2
+            # best_fit_bins_mask = [T, T, F, F] (bins with initial capacity 5)
+            # original_remaining_for_best_fit = [5, 5]
+            # min_original_capacity_among_best_fit = 5
+            # most_full_best_fit_mask = [T, T, F, F]
+            # priorities[most_full_best_fit_mask] = 1.0
+            # This is still the same as the original best fit if capacities are identical.
+
+            # What if we want to prioritize bins that, after fitting, leave a *very small* remaining gap?
+            # This is already captured by the best fit.
+            
+            # Consider the "First Fit Decreasing" intuition: larger items first.
+            # In an online setting, we don't know future items.
+            # The advice: "Focus on intuitive, rule-based strategies. Define a clear, prioritized sequence of simple objectives."
+
+            # Let's try a multi-objective approach represented by a single score:
+            # Objective 1: Minimize remaining capacity after fit (Best Fit).
+            # Objective 2: Maximize initial fullness (minimize initial remaining capacity) among best fit.
+            
+            # The current `priorities[best_fit_bins_mask] = 1.0` already captures Best Fit.
+            # If there's a tie in Best Fit (multiple bins result in `min_remaining_capacity`),
+            # we need to break it. The prompt suggests "explicit penalties, logical hierarchy".
+            
+            # Let's assign priorities such that the "most full" among best-fit bins gets the absolute highest.
+            # If there's only one best-fit bin, it gets the highest score.
+            # If there are multiple best-fit bins, we need to differentiate them.
+
+            # A clearer way to implement the tie-breaker:
+            
+            # 1. Find all bins that can fit the item.
+            # 2. Calculate the remaining capacity after fitting for each suitable bin.
+            # 3. Find the minimum of these remaining capacities. This is the 'best fit' target.
+            # 4. Identify all bins that achieve this minimum remaining capacity (these are the 'best fit' bins).
+            # 5. Among these 'best fit' bins, find the one with the minimum *original* remaining capacity. This is the 'most full best fit' bin.
+            # 6. Assign the highest priority score to this 'most full best fit' bin.
+            # 7. Assign a slightly lower, but still high, priority score to other 'best fit' bins if they exist.
+            # 8. Assign lower scores to bins that are suitable but not best fit.
+            
+            # Let's refine the scores to be distinct if needed for selection.
+            
+            # A common heuristic is "Best Fit Decreasing" but in online, we don't have 'decreasing'.
+            # "Best Fit" is the base. "Worst Fit" is another option.
+            # "First Fit" is also common.
+
+            # Consider the advice: "Explicitly addressing constraints and undesirable states through penalties makes the heuristic's behavior predictable."
+            # What's undesirable? Having bins with very small remaining capacities that can't fit much.
+            # So, we want to avoid creating too many "almost full" bins unless necessary.
+            
+            # Let's try to create a scoring mechanism that inherently ranks.
+            
+            # For each suitable bin, we can assign a score.
+            # Score = (high value) if it's a best fit.
+            # Secondary criterion: if it's a best fit, add a bonus if its original capacity was small.
+            
+            # Let's try to assign scores directly:
+            
+            # For suitable bins:
+            # Calculate remaining capacity after fit: `rem_cap_after = bins_remain_cap[suitable_bins_mask] - item`
+            # Calculate original remaining capacity: `orig_rem_cap = bins_remain_cap[suitable_bins_mask]`
+            
+            # We want to prioritize bins where `rem_cap_after` is minimized.
+            # Then, among those with minimum `rem_cap_after`, we want to prioritize bins where `orig_rem_cap` is minimized.
+            
+            # Let's create a composite score.
+            # A simple way to combine two objectives:
+            # Score = - (remaining capacity after fit) + epsilon * (-original remaining capacity)
+            # Using negative values because we want to maximize the score.
+            # epsilon should be small enough not to dominate the primary criterion.
+            
+            # Let's simplify again. The core of Best Fit is minimizing `bins_remain_cap - item`.
+            # The "better" version should likely enhance this or add a meaningful secondary criterion.
+            
+            # The hint "Logical Hierarchy":
+            # Priority 1: Bin must be suitable (capacity >= item).
+            # Priority 2: Bin should minimize `capacity - item`. (Best Fit)
+            # Priority 3 (Tie-breaker): Among bins satisfying P2, choose the one with minimum `capacity`. (Most full initially)
+            
+            # Let's implement this directly.
+            
+            # Calculate the remaining capacity *after* placing the item in suitable bins.
+            # `remaining_capacities_after_fit` calculated above is correct.
+            
+            # Find the minimum remaining capacity that can be achieved.
+            min_remaining_capacity = np.min(remaining_capacities_after_fit)
+            
+            # Identify the bins that achieve this minimum remaining capacity (Best Fit candidates).
+            best_fit_candidates_mask = suitable_bins_mask & (bins_remain_cap - item == min_remaining_capacity)
+            
+            # Now, among these candidates, find the ones with the minimum *original* remaining capacity.
+            candidate_original_caps = bins_remain_cap[best_fit_candidates_mask]
+            
+            if np.any(best_fit_candidates_mask):
+                min_original_capacity_among_best_fit = np.min(candidate_original_caps)
+                
+                # Identify the final set of bins that are both best fit and most full among best fits.
+                most_full_best_fit_mask = best_fit_candidates_mask & (bins_remain_cap == min_original_capacity_among_best_fit)
+                
+                # Assign the highest priority to these bins.
+                priorities[most_full_best_fit_mask] = 1.0
+                
+                # Optionally, assign a slightly lower priority to other best fit bins that are not the *most* full.
+                # This ensures a clear winner if there are ties in both criteria.
+                # However, if the selection mechanism just picks *any* bin with the max score, then the above is sufficient.
+                # For robustness, let's ensure a clear ranking.
+                
+                # We can assign scores like 1.0, 0.9, 0.8...
+                # Assign highest priority (e.g., 1.0) to the most full best fit bins.
+                # Assign a slightly lower priority (e.g., 0.9) to other best fit bins.
+                
+                # Let's re-evaluate the output: "returns a priority score for each bin".
+                # The bin with the highest score is selected.
+                # So, if we assign 1.0 to multiple bins, it's fine if the selection logic handles it.
+                
+                # The current approach:
+                # `priorities[most_full_best_fit_mask] = 1.0`
+                # This assigns 1.0 to all bins that are best fit AND have the minimum original capacity among best fits.
+                
+                # What if we want to break ties among `most_full_best_fit_mask` further?
+                # The problem is unlikely to require such fine-grained distinctions if the selection is just "pick highest".
+                
+                # Let's consider the "simplicity" and "interpretability" advice.
+                # The current approach is essentially "Best Fit, with a tie-breaker favouring fuller bins".
+                # This is quite interpretable.
+                
+                # The most straightforward way to implement the tie-breaker is to sort the candidate bins
+                # and assign ranks or scores.
+                
+                # Let's stick with assigning the highest score (1.0) to the best-fit bins that are also the most full.
+                # If multiple bins satisfy this, they all get 1.0.
+                
+                # Let's reconsider the score generation. Instead of binary 0/1, let's use graded scores.
+                # This might allow for more nuanced behavior if the selection process can use these grades.
+                
+                # For suitable bins:
+                # Score for bin `i`:
+                # If `bins_remain_cap[i] - item` is minimized: primary score.
+                # Among those that minimize `bins_remain_cap[i] - item`:
+                #   Score component for original capacity: `bins_remain_cap[i]` (smaller is better)
+                
+                # Let's try to create a single scalar score that captures this preference.
+                # We can map the objectives to a numerical range.
+                
+                # Maximize `-(bins_remain_cap[i] - item)` (equivalent to minimizing `bins_remain_cap[i] - item`)
+                # Then, maximize `-bins_remain_cap[i]` (equivalent to minimizing `bins_remain_cap[i]`)
+                
+                # Let's create a scoring array for suitable bins.
+                scores_for_suitable = np.zeros_like(bins_remain_cap[suitable_bins_mask], dtype=float)
+                
+                # Calculate remaining capacity after fit for suitable bins
+                rem_cap_after_fit = bins_remain_cap[suitable_bins_mask] - item
+                
+                # Calculate original remaining capacity for suitable bins
+                orig_rem_cap = bins_remain_cap[suitable_bins_mask]
+                
+                # Create a score that prioritizes minimizing rem_cap_after_fit, then minimizing orig_rem_cap.
+                # A common technique is to use a weighted sum or a lexicographical approach.
+                # Lexicographical approach: first sort by rem_cap_after_fit (ascending), then by orig_rem_cap (ascending).
+                
+                # Let's create pairs `(rem_cap_after_fit, orig_rem_cap)` and sort them.
+                # The bin corresponding to the first pair in the sorted list is the most preferred.
+                
+                # We need to return a priority for *each* bin.
+                # The scores should reflect the desirability. Higher score = more desirable.
+                
+                # Let's assign a value to each suitable bin.
+                # A good score would reflect how "good" this choice is.
+                # "Good" means: leaves a small gap, AND the bin wasn't too empty to begin with.
+                
+                # Score = (some large value) - (remaining capacity after fit) - (penalty for original emptiness)
+                
+                # Let's use the "most full best fit" idea but assign distinct scores to rank them.
+                
+                # For bins that are best fit (minimum remaining capacity after fit):
+                # These get a base high score.
+                # Let's call this base score `BF_SCORE`.
+                
+                # For bins that are also the most full among best fits:
+                # These get `BF_SCORE + TIE_BREAKER_BONUS`.
+                
+                # All other suitable bins get lower scores.
+                
+                # Let's try a simpler grading:
+                # 1.0: For bins that are both best fit AND most full among best fits.
+                # 0.9: For bins that are best fit but not the most full among best fits.
+                # 0.5: For bins that are suitable but not best fit.
+                # 0.0: For bins that are not suitable.
+                
+                # This seems interpretable and follows the hierarchy.
+                
+                # Step 1: Assign 0.0 to all bins. (Already done by initialization)
+                # Step 2: Assign 0.5 to all suitable bins.
+                priorities[suitable_bins_mask] = 0.5
+                
+                # Step 3: Identify best fit candidates and assign higher priority.
+                # `best_fit_candidates_mask` already computed correctly.
+                
+                # Step 4: Identify the most full among these candidates.
+                # `most_full_best_fit_mask` already computed correctly.
+                
+                # Step 5: Assign highest priority to `most_full_best_fit_mask`.
+                priorities[most_full_best_fit_mask] = 1.0
+                
+                # Step 6: Assign intermediate priority to other best fit candidates.
+                # These are bins in `best_fit_candidates_mask` but not in `most_full_best_fit_mask`.
+                other_best_fit_mask = best_fit_candidates_mask & ~most_full_best_fit_mask
+                priorities[other_best_fit_mask] = 0.9
+                
+                return priorities
+            else:
+                # This case should not be reached if np.any(suitable_bins_mask) is true,
+                # as best_fit_candidates_mask would be populated if suitable bins exist.
+                # However, if somehow no best fit candidates are found (e.g., float precision issues, though unlikely here),
+                # then all suitable bins get the intermediate score.
+                priorities[suitable_bins_mask] = 0.5 # Fallback
+                return priorities
+
+    return priorities # No suitable bins found or handled
+
+```

@@ -1,0 +1,59 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin, favoring tighter fits smoothly.
+
+    This heuristic prioritizes bins that can accommodate the item, and among those,
+    it favors bins that will have the smallest remaining capacity after packing.
+    This is a variation of the "Best Fit" strategy, but uses a smooth, graduated
+    priority based on the *gap* between the bin's remaining capacity and the item size.
+
+    Specifically, for bins where `bins_remain_cap >= item`:
+    - The priority is determined by the remaining capacity *after* packing (`bins_remain_cap - item`).
+    - Smaller positive gaps (tighter fits) receive higher priority.
+    - Larger gaps receive lower priority.
+    - Bins that cannot fit the item receive a priority of 0.
+
+    The priority score is calculated as:
+    `score = exp(-scale_factor * (bins_remain_cap - item))`
+    for valid bins. The negative exponential function ensures that as the
+    remaining capacity after packing decreases (i.e., the fit gets tighter),
+    the priority score increases smoothly.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Define a small epsilon to avoid issues with near-zero gaps and ensure positive values for exp.
+    epsilon = 1e-9
+    
+    # Scale factor to control the steepness of the exponential decay.
+    # A higher value makes the priority drop off more quickly as the gap increases.
+    # Tune this value based on empirical performance.
+    scale_factor = 1.0
+
+    # Identify bins that have enough remaining capacity to fit the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the residual capacity after packing for bins that can fit the item.
+    fitting_bins_residual_cap = bins_remain_cap[can_fit_mask] - item
+
+    # Assign priorities using a negative exponential function on the residual capacity.
+    # This provides a smooth, graduated priority:
+    # - As residual capacity approaches 0 (tight fit), exp(-scale_factor * 0) = 1 (highest priority).
+    # - As residual capacity increases (loose fit), exp(-scale_factor * large_value) approaches 0 (low priority).
+    # We add epsilon to the residual capacity before exponentiation to avoid exp(0) precisely,
+    # and to ensure that bins with exactly zero residual capacity (perfect fits) get a score of 1.
+    # However, simply using the residual capacity directly is more aligned with the goal.
+    # The exponential function itself handles the smooth decay.
+    priorities[can_fit_mask] = np.exp(-scale_factor * fitting_bins_residual_cap)
+
+    return priorities
+```

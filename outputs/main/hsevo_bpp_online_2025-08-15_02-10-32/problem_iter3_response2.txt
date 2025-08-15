@@ -1,0 +1,79 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with a dynamic penalty based on the item size relative to bin capacity.
+    Prioritizes bins that offer a "near-perfect" fit without excessive leftover space,
+    dynamically adjusting the penalty based on how "tight" the fit is.
+    This aims for better space utilization by being more sensitive to the actual item size.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+    
+    # "Best Fit" component: Prioritize bins with minimum remaining capacity after packing.
+    # We use the negative of the remaining capacity to transform minimization into maximization.
+    # Add a small epsilon to ensure no division by zero or log(0) if remaining_cap == item.
+    # Using log to compress the range and emphasize smaller differences.
+    best_fit_score = -np.log(suitable_bins_remain_cap - item + 1e-9)
+    
+    # Dynamic Penalty component: Penalize bins with significantly more capacity than needed.
+    # The penalty is higher when the "excess capacity" (remaining_cap - item) is large
+    # relative to the item's size. This makes the penalty scale with the item's magnitude.
+    
+    # Calculate the "tightness ratio": (item_size) / (remaining_capacity_after_packing)
+    # A higher ratio means a tighter fit.
+    tightness_ratio = item / (suitable_bins_remain_cap - item + 1e-9)
+    
+    # Calculate a penalty that is higher for bins with a lower tightness ratio (more excess capacity relative to item size)
+    # We want to penalize bins where (suitable_bins_remain_cap - item) is large compared to 'item'.
+    # Using a sigmoid-like function (inverse of a scaled ratio) to dampen extreme values and provide a smoother penalty.
+    # The scaling factor (e.g., 1.0) can be tuned.
+    
+    # Higher penalty for lower tightness_ratio. Invert and add 1 to avoid division by zero and ensure positive penalty.
+    # A larger suitable_bins_remain_cap relative to 'item' leads to a smaller tightness_ratio,
+    # which after inversion and addition, results in a larger penalty.
+    # We want to *subtract* this penalty from the best_fit_score, so a higher penalty means a lower final score.
+    penalty_component = 1.0 / (tightness_ratio + 0.5) # Add 0.5 to avoid issues with very tight fits.
+    
+    # Combine the scores. We want to maximize `best_fit_score` and minimize `penalty_component`.
+    # A simple subtraction works if interpreted as score = bf_score - penalty.
+    # Alternatively, we can multiply if penalties were designed as multipliers.
+    # Here, we aim for a higher combined score. Since `best_fit_score` is already a maximization proxy,
+    # and `penalty_component` is something we want to minimize (i.e., a higher penalty is bad),
+    # we subtract the penalty.
+    
+    # To make it a maximization problem directly, we can express it as:
+    # Score = best_fit_score - penalty_component
+    # or, if we want to penalize the penalty:
+    # Score = best_fit_score * (1 / (penalty_component + epsilon)) which is equivalent to
+    # Score = best_fit_score * tightness_ratio (approximately)
+    # Let's use a multiplicative approach where a higher `penalty_component` reduces the score.
+    # A simple way to combine: maximize `best_fit_score` and maximize `1 / (penalty_component + epsilon)`
+    # This means maximizing `best_fit_score * (tightness_ratio)`.
+    
+    # Let's refine the penalty: Penalize bins where `remaining_cap - item` is large relative to `item`.
+    # Consider `excess_ratio = (remaining_cap - item) / item`. We want to penalize high `excess_ratio`.
+    # Penalty_score = 1 / (excess_ratio + 1).
+    # This is similar to the tightness ratio logic but framed differently.
+    
+    excess_ratio = (suitable_bins_remain_cap - item) / (item + 1e-9)
+    # A bin with exact fit has excess_ratio = 0. A bin with large excess has large excess_ratio.
+    # We want to penalize large excess_ratio. So, a good penalty multiplier would be 1 / (excess_ratio + C).
+    # The smaller the `1 / (excess_ratio + C)`, the worse the bin.
+    # So, we want to maximize `best_fit_score` and maximize `1 / (excess_ratio + C)`.
+    # Thus, we can multiply them.
+    
+    penalty_multiplier = 1.0 / (excess_ratio + 0.2) # Add 0.2 to ensure it's not too aggressive.
+    
+    # Final priority is the product of the best-fit score proxy and the penalty multiplier.
+    # Higher best_fit_score is good. Higher penalty_multiplier is good (means low excess ratio).
+    priorities[suitable_bins_mask] = best_fit_score * penalty_multiplier
+    
+    return priorities
+```

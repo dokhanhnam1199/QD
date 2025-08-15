@@ -1,0 +1,580 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin.
+    This heuristic aims to fill bins more evenly while still prioritizing fitting.
+    It assigns higher priority to bins that are "closer" to being full after
+    packing the item, but not so close that they become unusable for smaller items.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    # Calculate the remaining capacity after placing the item
+    remaining_after_fit = bins_remain_cap[suitable_bins_mask] - item
+
+    # We want to prioritize bins that leave a "good" amount of space.
+    # Too little space is bad (might not fit other items), too much is also less ideal
+    # as it suggests the bin is not being efficiently used relative to others.
+    # A common strategy is to aim for a moderate remaining capacity.
+    # Let's consider the *inverse* of the remaining capacity as a measure of fullness.
+    # However, we need to avoid division by zero if a bin becomes exactly full.
+    # We also want to penalize bins that become *too* full (leaving very little space).
+
+    # To avoid division by zero and to handle bins that become full, we can add a small epsilon
+    # or use a strategy that caps the "fullness" contribution.
+    # Let's try a strategy that rewards bins that are mostly filled but not completely,
+    # and disincentivizes bins that remain largely empty.
+
+    # Option 1: Prioritize bins that leave a small, non-zero remaining capacity (closest to Best Fit)
+    # This is similar to Best Fit, but let's refine the scoring.
+    # We can score based on how "tight" the fit is, but not perfectly tight.
+    # A penalty for being too empty.
+
+    # Let's define a "desirability" score for the remaining capacity.
+    # A bin that leaves capacity `c` could be scored.
+    # We want to avoid `c` being too large or too small (near zero).
+
+    # A simple approach: maximize `remaining_after_fit` but with a penalty if it's too close to zero.
+    # Or, minimize `remaining_after_fit` (Best Fit), but add a small bonus for bins
+    # that have a substantial amount of space *before* fitting the item.
+
+    # Let's try to incentivize bins that are relatively full *before* placing the item,
+    # among the suitable bins. This aims to consolidate items.
+    # Among suitable bins, we can score them by their original remaining capacity,
+    # but perhaps inversely. Or, score by how much space is *left* after fitting,
+    # favoring smaller remaining space but with a floor to avoid over-filling.
+
+    # Let's try a "Worst Fit Decreasing"-like idea but for online.
+    # Prioritize bins that are "least full" among those that can fit the item.
+    # This is similar to First Fit, but instead of picking the first, we pick the one
+    # that has the most space *remaining* after fitting. This might leave more options
+    # for subsequent items. This is more like "Worst Fit".
+
+    # Let's refine Best Fit. Best Fit minimizes `bins_remain_cap - item`.
+    # What if we introduce a secondary criterion?
+    # Consider the variance of remaining capacities. We want to reduce variance.
+    # Or, we want to keep remaining capacities distributed.
+
+    # Let's focus on the *impact* on the bin's remaining capacity.
+    # We want to fill bins as much as possible, but not to the point where
+    # the bin becomes unusable for future small items.
+    # A bin with remaining capacity `R` becomes `R - item`.
+    # If `R - item` is very small, the bin is "almost full".
+    # If `R - item` is large, the bin is "not very full".
+
+    # Heuristic idea: Prioritize bins that are already relatively full (good candidates for Best Fit)
+    # BUT, also consider that leaving *some* reasonable space is good.
+    # So, we want bins that are "almost full" but not "too empty".
+
+    # Let's try scoring based on the "tightness of fit" but with a bias against leaving
+    # *very* little space.
+    # For a suitable bin `i` with remaining capacity `R_i`:
+    # The remaining capacity after fitting is `R_i - item`.
+    # If `R_i - item` is close to 0, it's a good fit (BF).
+    # If `R_i - item` is large, it's a "waste" of space in that bin.
+
+    # Consider a score that is high when `R_i - item` is small, but not zero.
+    # Let's use `1 / (R_i - item + epsilon)` where epsilon is small, to reward small remaining capacity.
+    # However, this can be unstable if `R_i - item` is tiny.
+    # A better approach might be to invert the "gap" and penalize bins that leave too much gap.
+
+    # Let's try a "Best Fit with a bias towards not leaving too little space".
+    # The difference `bins_remain_cap[suitable_bins_mask] - item`
+    # We want to minimize this difference.
+    # Let `diffs = bins_remain_cap[suitable_bins_mask] - item`.
+    # We want to pick the bin with the minimum `diff`.
+
+    # To "think outside the box" and improve upon Best Fit:
+    # Best Fit aims to minimize `R - item`. This can lead to many bins with small remaining capacities.
+    # A more robust approach might be to keep capacities more uniform, or to avoid
+    # creating too many "nearly full" bins.
+
+    # Let's consider a heuristic that aims to leave a moderate amount of space,
+    # effectively trying to keep bins from becoming "too full" too quickly,
+    # while still ensuring the item fits.
+
+    # Consider the "gap" `bins_remain_cap[suitable_bins_mask] - item`.
+    # We want this gap to be small, but not necessarily minimal.
+    # Let's assign a priority that is high for small gaps, but decreases as the gap gets very small.
+
+    # We can use a function like `exp(-k * gap)` or a piecewise function.
+    # A simpler approach: penalize bins that have a very small remaining capacity *after* fitting.
+    # For example, if `R_i - item < threshold`, reduce its priority.
+
+    # Let's try a heuristic that aims for a compromise:
+    # 1. Prioritize bins that can fit the item.
+    # 2. Among those, prioritize bins that leave a reasonably small remaining capacity,
+    #    but penalize those that leave extremely little space.
+
+    # Calculate the remaining capacities after placing the item for suitable bins.
+    remaining_capacities_after_fit = bins_remain_cap[suitable_bins_mask] - item
+
+    # A potential heuristic: assign priority based on the inverse of the remaining capacity,
+    # but cap it to avoid extreme values for very tight fits.
+    # Also, add a small penalty if the remaining capacity is very small, to discourage
+    # bins that are *too* full.
+
+    # Let's try this: the priority is inversely proportional to the remaining capacity,
+    # but we want to avoid bins that become *too* full.
+    # We can define a "desirability" of the remaining capacity.
+    # A bin that leaves `c` capacity is "good" if `c` is small but not zero.
+
+    # Consider the remaining capacity `r_after = bins_remain_cap[suitable_bins_mask] - item`.
+    # We want to maximize `f(r_after)` where `f` is a function that is high for small `r_after`.
+    # Let's use a function that is high for `r_after` in a "sweet spot".
+
+    # A robust approach could be to penalize bins that become "too full" (e.g., `r_after < threshold`).
+    # And still prioritize the smallest `r_after` otherwise.
+
+    # Let's try to balance Best Fit with avoiding "too full" bins.
+    # Best Fit would assign a high priority to the bin with minimum `remaining_capacities_after_fit`.
+    # Let's modify this.
+
+    # For suitable bins, calculate the remaining capacity after fitting.
+    # `remaining_after_fit = bins_remain_cap[suitable_bins_mask] - item`
+    # We want to pick the bin that minimizes `remaining_after_fit`.
+
+    # To improve: consider how "full" the bin was *before* placing the item.
+    # If a bin was already very full, fitting an item might not be ideal if it leaves very little space.
+    # If a bin was mostly empty, fitting an item might not be ideal if it leaves a lot of space.
+
+    # Let's try a heuristic that:
+    # 1. Prioritizes bins that can fit the item.
+    # 2. Among suitable bins, it prioritizes those that result in a smaller remaining capacity,
+    #    but with a penalty if this remaining capacity is excessively small (e.g., less than 10% of bin capacity).
+    #    This is to avoid creating many bins that are almost full and might not fit subsequent small items.
+
+    # Let's assume a default bin capacity (e.g., 1.0, if not provided).
+    # For this problem, the bin capacity is implicitly defined by the maximum possible item size
+    # or by a global parameter. Assuming a unit capacity for normalization if needed,
+    # but the problem states fixed-size bins, so the `bins_remain_cap` already reflects this.
+
+    # Let's re-evaluate the objective: "smallest number of bins".
+    # This means we want to pack items as tightly as possible. Best Fit is generally good for this.
+    # The "outside the box" improvement could be about *robustness* or *avoiding bad states*.
+
+    # Consider the "waste" generated by a choice. Waste is `bins_remain_cap[i] - item` for the chosen bin.
+    # Best Fit minimizes this waste for the chosen bin.
+
+    # What if we want to keep the remaining capacities of all bins "spread out" or "balanced"?
+    # This could involve considering the variance of `bins_remain_cap`.
+
+    # Let's try a hybrid approach:
+    # 1. Primary goal: fit the item (mask `suitable_bins_mask`).
+    # 2. Secondary goal: minimize the remaining capacity *after* fitting (`r_after`).
+    # 3. Tertiary goal (tie-breaker or refinement): Avoid bins that were already very full *before* fitting,
+    #    if they result in a very tight fit. Or, prefer bins that were less full but still provide a good fit.
+
+    # Let's consider the "gap" for suitable bins: `gaps = bins_remain_cap[suitable_bins_mask] - item`.
+    # Best Fit selects the bin with minimum `gaps`.
+    # To improve: We might want to avoid bins where `gaps` is *too* small.
+    # Let's define a penalty for small gaps.
+
+    # Priority for suitable bins can be defined as:
+    # `priority = (max_possible_gap - current_gap) + penalty_for_very_small_gap`
+    # Where `max_possible_gap` ensures larger gaps get lower scores.
+    # A simple inverse relation: `1 / (gap + epsilon)`.
+
+    # Let's try `priority = 1 / (remaining_capacities_after_fit + epsilon)` for small values.
+    # This rewards smaller remaining capacities.
+    # But we need to penalize if `remaining_capacities_after_fit` is too close to zero.
+
+    # Consider the following score:
+    # For a suitable bin `i`, let `r_after = bins_remain_cap[i] - item`.
+    # Score_i = `1 / (r_after + epsilon)`  # Encourages small `r_after`
+    # We want to avoid cases where `r_after` is very small.
+    # So, if `r_after < some_threshold`, we can reduce its score.
+
+    # Let's try a score that is monotonically decreasing with `remaining_capacities_after_fit`,
+    # but with an added component that penalizes very small remaining capacities.
+    # Score = `f(r_after)`. We want `f` to be high for small `r_after`.
+    # Let's try `f(r) = 1/(r + alpha) - beta * exp(-gamma * r)`
+    # where alpha, beta, gamma are tuning parameters.
+    # `1/(r + alpha)` rewards small `r`.
+    # `-beta * exp(-gamma * r)` penalizes small `r` as `exp(-gamma * r)` is large for small `r`.
+
+    # A simpler, more interpretable approach:
+    # For suitable bins, calculate `remaining_after_fit`.
+    # We want to minimize `remaining_after_fit`.
+    # Let's assign priority based on the "tightness" of the fit, but with a twist.
+    # High priority for bins that fit tightly, but a slight reduction in priority
+    # if the bin becomes *too* full.
+
+    # For suitable bins, the remaining capacities are `remaining_capacities_after_fit`.
+    # Let's compute priorities as `1 / (remaining_capacities_after_fit + epsilon)`.
+    # This naturally favors smaller remaining capacities.
+    # Now, how to penalize "too full"?
+    # We can reduce the priority if `remaining_capacities_after_fit` is below a certain threshold.
+    # Threshold could be a small fraction of the bin capacity (e.g., 0.1).
+
+    # Let's try `priority = 1.0 / (remaining_capacities_after_fit + 1e-9)`
+    # and then apply a penalty if `remaining_capacities_after_fit` is too small.
+    # Penalty function: if `remaining_capacities_after_fit < penalty_threshold`, reduce priority.
+
+    # Let's simplify: assign priority based on the *inverse* of the remaining capacity *after* fitting,
+    # effectively favoring bins that become "more full". This is Best Fit.
+    # To improve "outside the box", we can consider the *original* remaining capacity.
+    # If two bins offer the same `remaining_after_fit`, which one should be preferred?
+    # Perhaps the one that was originally less full, to keep more options open?
+    # Or perhaps the one that was originally *more* full, to consolidate better?
+
+    # Let's try to keep the distribution of remaining capacities more even.
+    # This means avoiding too many bins with very small remaining capacities.
+
+    # Heuristic:
+    # 1. Identify suitable bins.
+    # 2. For each suitable bin, calculate the remaining capacity after fitting.
+    # 3. Assign priority: a higher score for smaller remaining capacity, but
+    #    introduce a damping or penalty for very small remaining capacities.
+
+    # Let's use the score: `score = 1 / (remaining_capacities_after_fit + epsilon)`
+    # This is similar to Best Fit.
+    # To be "outside the box" and potentially better:
+    # Consider the "waste" `w = bins_remain_cap[i] - item`.
+    # We want to minimize `w`.
+    # What if we prioritize bins that have a "good" remaining capacity `w`?
+    # A "good" `w` is small, but not zero.
+
+    # Let's try a strategy that encourages bins to be filled "similarly".
+    # Among suitable bins, calculate `remaining_after_fit`.
+    # We want small `remaining_after_fit`.
+    # Let's assign a priority that is high for small `remaining_after_fit`.
+    # `priority = 1.0 / (remaining_after_fit + epsilon)`
+
+    # To be "better than current version" (Best Fit), we need to think about
+    # why Best Fit might not be optimal in all online scenarios.
+    # BF can create many bins with very small remaining capacities, making it hard
+    # to fit subsequent small items.
+
+    # Consider a heuristic that prefers bins that are "almost full", but not "too empty" after fitting.
+    # Let `r_after = bins_remain_cap[suitable_bins_mask] - item`.
+    # We want to pick the bin with minimum `r_after`.
+    # To avoid bins that become too full, we can penalize small `r_after` values.
+    # Let's use a score that decreases with `r_after`, but caps the maximum priority.
+    # `score = max(0, 1.0 - k * r_after)` where `k` is a scaling factor.
+    # This would favor smaller `r_after`, but linearly.
+
+    # Let's try a score that is inversely proportional to the remaining capacity,
+    # but with a slight boost for bins that were more full to begin with (as a tie-breaker
+    # for Best Fit, or as a primary driver if they lead to similar remaining capacities).
+
+    # Let's go with a refined Best Fit:
+    # For suitable bins:
+    # `remaining_after_fit = bins_remain_cap[suitable_bins_mask] - item`
+    # We want to minimize `remaining_after_fit`.
+    # Let's assign priorities that are higher for smaller `remaining_after_fit`.
+    # To avoid "too full" bins, we can cap the priority or introduce a penalty.
+
+    # A simple approach: score based on the inverse of the remaining capacity,
+    # but limit the score to avoid extreme values.
+    # `score = 1.0 / (remaining_capacities_after_fit + epsilon)`
+    # If `remaining_capacities_after_fit` is very small, this score becomes large.
+    # Let's cap the score to prevent over-emphasis on extremely tight fits.
+    # `capped_score = min(score, max_priority_value)`
+
+    # Or, a more direct approach to penalize "too full" bins:
+    # Let `r_after = remaining_capacities_after_fit`.
+    # Score = `r_after` (to minimize)
+    # But if `r_after < threshold`, then `score = threshold + penalty_factor * (threshold - r_after)`
+    # This makes very small `r_after` worse than `threshold`.
+
+    # Let's try a heuristic that encourages a more uniform distribution of remaining capacities,
+    # by slightly disincentivizing the absolute best fit if it leaves very little space.
+
+    # Calculate remaining capacities for suitable bins.
+    remaining_after_fit = bins_remain_cap[suitable_bins_mask] - item
+
+    # We want to pick the bin with the minimum `remaining_after_fit`.
+    # To avoid bins becoming too full, we can penalize very small values.
+    # Let's assign priority inversely proportional to `remaining_after_fit`, but with a cap
+    # on how "good" a fit can be.
+
+    # Let's consider the "opportunity cost" of leaving space.
+    # A bin that leaves `c` capacity has `c` space "wasted" or "available".
+    # We want to minimize `c`.
+
+    # Consider a score that is high for small `c`.
+    # Let `score = 1.0 / (remaining_after_fit + epsilon)`
+    # This is essentially Best Fit.
+
+    # To be "better", let's consider a small penalty for the absolute best fit if it's *too* good.
+    # Suppose the smallest remaining capacity is `min_rem`.
+    # If `min_rem < very_small_threshold`, we want to slightly reduce its priority.
+    # We can do this by adding a small value to the `min_rem` before taking the inverse.
+
+    # Let's define a "sweet spot" for remaining capacity.
+    # For example, if bin capacity is C, maybe remaining capacity between 0.2C and 0.5C is ideal.
+    # This is hard to do without knowing bin capacity.
+
+    # Let's focus on the relative remaining capacity.
+    # `relative_remaining = remaining_after_fit / bins_remain_cap[suitable_bins_mask]`
+    # This is not good if `bins_remain_cap[suitable_bins_mask]` is small.
+
+    # Let's refine Best Fit: prioritize minimum `remaining_after_fit`.
+    # As a tie-breaker or secondary criterion, consider the original remaining capacity.
+    # If two bins result in the same `remaining_after_fit`, which one to choose?
+    # Option A: Choose the one that was originally more full. (Consolidation)
+    # Option B: Choose the one that was originally less full. (Keeps more options open)
+
+    # Let's try Option A for tie-breaking: If `remaining_after_fit` are equal,
+    # prefer the bin that had a larger original `bins_remain_cap`.
+
+    # To implement this:
+    # Calculate `remaining_after_fit`.
+    # Find the minimum `remaining_after_fit`.
+    # Identify all bins that achieve this minimum.
+    # Among these, select the one with the maximum original `bins_remain_cap`.
+
+    # This is still essentially Best Fit with a deterministic tie-breaker.
+    # To be "outside the box" and potentially "better", we need a more fundamental change.
+
+    # Let's consider the impact on *all* bins.
+    # BF greedily optimizes for one bin. What if we consider the overall "state" of the bins?
+    # This is moving towards metaheuristics, which is likely too complex for a simple priority function.
+
+    # Let's stick to refining the selection criteria for a single item.
+    # Heuristic idea:
+    # The item needs to fit (`bins_remain_cap >= item`).
+    # We want to find a bin `i` such that `bins_remain_cap[i] - item` is minimized (Best Fit).
+    # Improvement: Avoid bins that become "too full".
+    # Define "too full" as having `bins_remain_cap[i] - item < threshold`.
+    # If `bins_remain_cap[i] - item` is very small, reduce its priority.
+
+    # Let's quantify this:
+    # For suitable bins, calculate `r_after = bins_remain_cap[suitable_bins_mask] - item`.
+    # If `r_after` is small, it's good (BF).
+    # If `r_after` is *very* small, it might be bad.
+    # Let `priority = 1.0 / (r_after + epsilon)` as a base score (favors small `r_after`).
+    # Add a penalty if `r_after` is too small.
+    # Penalty can be `max(0, 1 - r_after / penalty_threshold)`.
+    # So, `total_priority = (1.0 / (r_after + epsilon)) * max(1.0, 1 - r_after / penalty_threshold)`.
+    # This seems complex.
+
+    # Simpler approach:
+    # Calculate `remaining_after_fit` for suitable bins.
+    # We want to minimize `remaining_after_fit`.
+    # Consider the "gap" `g = remaining_after_fit`.
+    # We assign priority based on `g`. Higher priority for smaller `g`.
+    # Let's cap the priority to avoid extremely good fits dominating.
+    # `priority = min(BIG_NUMBER, 1.0 / (g + epsilon))`
+
+    # The "outside the box" aspect might be to consider the *original* capacity as well.
+    # If `bins_remain_cap[i]` is large, and `bins_remain_cap[i] - item` is also relatively large,
+    # this is a "wasteful" fit.
+    # If `bins_remain_cap[i]` is small, and `bins_remain_cap[i] - item` is very small, this is a "good" fit.
+
+    # Let's try a score that is inversely proportional to the "wasted space" but also penalizes
+    # bins that were already very full if the fit is tight.
+
+    # Consider the following score for suitable bins:
+    # `score = (bins_remain_cap[suitable_bins_mask] - item)`. We want to minimize this.
+    # Let's transform this into a priority.
+    # Priority = `1.0 / (bins_remain_cap[suitable_bins_mask] - item + epsilon)`
+    # This is Best Fit.
+
+    # To improve:
+    # Let's consider the original capacity.
+    # `original_cap = bins_remain_cap[suitable_bins_mask]`
+    # `remaining_after_fit = original_cap - item`
+    # We want small `remaining_after_fit`.
+    # Let's try to balance minimizing `remaining_after_fit` with not making bins *too* full.
+
+    # Heuristic:
+    # For suitable bins, calculate `r_after = bins_remain_cap[suitable_bins_mask] - item`.
+    # Assign priority as `1.0 / (r_after + epsilon)`.
+    # Now, slightly reduce the priority for bins where `r_after` is very small.
+    # If `r_after < penalty_threshold`: `priority -= penalty_amount`.
+
+    # A more elegant way to penalize small `r_after`:
+    # Let `score = 1.0 / (r_after + epsilon)`.
+    # Let's try to invert this logic.
+    # The "badness" of a bin is `r_after`. We want small `r_after`.
+    # If `r_after` is very small, it's "extra bad" or "extra good" depending on perspective.
+    # Let's treat "very small" `r_after` as slightly less desirable than "small but not tiny".
+
+    # Let's try a score that is high for small `r_after`, but this score saturates.
+    # `priority = min(MAX_PRIORITY, 1.0 / (r_after + epsilon))`
+    # This effectively makes all very tight fits equally good.
+
+    # Consider a different approach:
+    # The goal is to minimize the number of bins.
+    # Best Fit tries to minimize the gap for the current item.
+    # What if we prioritize bins that have a "good amount of space remaining" after fitting?
+    # This is the opposite of Best Fit. This is like Worst Fit.
+    # Worst Fit selects the bin with the largest remaining capacity.
+    # This might leave larger gaps, potentially fitting future items better.
+
+    # Let's try a heuristic that is a compromise between Best Fit and Worst Fit.
+    # Consider the remaining capacities after fitting: `remaining_after_fit`.
+    # Let the smallest be `min_r` and the largest be `max_r`.
+    # BF picks bin with `min_r`. WF picks bin with `max_r`.
+    # We could pick a bin with `r_after` that is close to the median of `remaining_after_fit`.
+    # Or pick a bin that minimizes `(r_after - median_r)^2`.
+
+    # Let's try a simpler modification of Best Fit to make it "outside the box".
+    # Best Fit: minimize `bins_remain_cap - item`.
+    # Let `gap = bins_remain_cap[suitable_bins_mask] - item`.
+    # We want to minimize `gap`.
+    # Let's prioritize bins where `gap` is small, but not zero.
+    # We can assign priority based on `1.0 / (gap + epsilon)`.
+
+    # To be "better":
+    # Consider the "slack" in the bin.
+    # High slack: `bins_remain_cap[i]` is large.
+    # Low slack: `bins_remain_cap[i]` is small.
+
+    # Heuristic: Prioritize bins that, after fitting the item, leave a moderate amount of remaining capacity.
+    # This means we don't want the remaining capacity to be too small, nor too large.
+    # For suitable bins, calculate `r_after = bins_remain_cap[suitable_bins_mask] - item`.
+    # We want `r_after` to be in a "sweet spot".
+    # Let's assign priority based on `1 / (r_after + epsilon)`, but penalize extremely small `r_after`.
+
+    # Let's define a function `f(r_after)` that is high for small `r_after`,
+    # but decreases if `r_after` gets extremely small.
+    # For example, `f(r) = 1.0 / (r + epsilon)`.
+    # Now, penalize small `r`.
+    # `penalty = max(0, 1.0 - r_after / penalty_threshold)`
+    # `priority = (1.0 / (r_after + epsilon)) * penalty`
+    # This is problematic because the penalty reduces the priority. We want to REWARD small `r_after`.
+
+    # Let's try to make the priority function smooth and peaked for a small, non-zero remaining capacity.
+    # `priority = exp(-k * r_after)`. This is minimized at infinity, maximized at 0.
+    # Let's try `priority = exp(-k * r_after)`.
+    # To penalize very small `r_after`, we need a function that has a peak at some `r_after > 0`.
+    # For example, `priority = r_after * exp(-k * r_after)`.
+    # This function peaks when `1 - k * r_after = 0`, so `r_after = 1/k`.
+    # This prioritizes bins that leave `1/k` remaining capacity.
+
+    # Let's try this approach: Prioritize bins that leave a remaining capacity that is
+    # small, but not excessively small.
+    # For each suitable bin, calculate `r_after = bins_remain_cap[suitable_bins_mask] - item`.
+    # We want to maximize `score = r_after * exp(-k * r_after)`.
+    # A smaller `k` will favor larger remaining capacities. A larger `k` will favor smaller.
+    # Let's choose `k` such that the peak is at a small, non-zero value.
+
+    # This is a form of "Balanced Fit" or trying to keep capacities distributed.
+    # Let's test this.
+    # Example: items [0.3, 0.3, 0.3, 0.3], bin capacity 1.0.
+    # BF:
+    # Item 0.3: Bin 1 [0.7]. Priority: 1/(0.7) = 1.42
+    # Item 0.3: Bin 1 [0.4]. Priority: 1/(0.4) = 2.5
+    # Item 0.3: Bin 1 [0.1]. Priority: 1/(0.1) = 10
+    # Item 0.3: Bin 2 [0.7]. Priority: 1/(0.7) = 1.42
+    # Total: 2 bins.
+
+    # Proposed heuristic: `score = r_after * exp(-k * r_after)`.
+    # Let's pick `k = 5.0` (arbitrary, tuneable). Peak at `r_after = 1/5 = 0.2`.
+    # Item 0.3:
+    # Bin 1 (cap 1.0): Suitable. `r_after = 0.7`. Score = `0.7 * exp(-5 * 0.7) = 0.7 * exp(-3.5) approx 0.02`.
+    # Bin 2 (cap 1.0): Suitable. `r_after = 0.7`. Score = `0.7 * exp(-5 * 0.7) approx 0.02`.
+    # Bin 3 (cap 1.0): Suitable. `r_after = 0.7`. Score = `0.7 * exp(-5 * 0.7) approx 0.02`.
+    # Bin 4 (cap 1.0): Suitable. `r_after = 0.7`. Score = `0.7 * exp(-5 * 0.7) approx 0.02`.
+    # All scores are equal. Let's say we pick the first one.
+    # Bin 1: [0.7] -> [0.4]
+
+    # Item 0.3:
+    # Bin 1 (cap 0.4): Suitable. `r_after = 0.1`. Score = `0.1 * exp(-5 * 0.1) = 0.1 * exp(-0.5) approx 0.06`.
+    # Bin 2 (cap 1.0): Suitable. `r_after = 0.7`. Score = `0.02`.
+    # Bin 3 (cap 1.0): Suitable. `r_after = 0.7`. Score = `0.02`.
+    # Bin 4 (cap 1.0): Suitable. `r_after = 0.7`. Score = `0.02`.
+    # Bin 1 has highest score.
+    # Bin 1: [0.4] -> [0.1]
+
+    # Item 0.3:
+    # Bin 1 (cap 0.1): NOT SUITABLE.
+    # Bin 2 (cap 1.0): Suitable. `r_after = 0.7`. Score = `0.02`.
+    # Bin 3 (cap 1.0): Suitable. `r_after = 0.7`. Score = `0.02`.
+    # Bin 4 (cap 1.0): Suitable. `r_after = 0.7`. Score = `0.02`.
+    # All scores equal. Pick Bin 2.
+    # Bin 2: [1.0] -> [0.7]
+
+    # Item 0.3:
+    # Bin 1 (cap 0.1): NOT SUITABLE.
+    # Bin 2 (cap 0.7): Suitable. `r_after = 0.4`. Score = `0.4 * exp(-5 * 0.4) = 0.4 * exp(-2) approx 0.054`.
+    # Bin 3 (cap 1.0): Suitable. `r_after = 0.7`. Score = `0.02`.
+    # Bin 4 (cap 1.0): Suitable. `r_after = 0.7`. Score = `0.02`.
+    # Bin 2 has highest score.
+    # Bin 2: [0.7] -> [0.4]
+    # Total: 2 bins.
+
+    # This heuristic `r_after * exp(-k * r_after)` seems to achieve a similar result for this simple case,
+    # but its behavior might differ for more complex item sizes.
+    # It aims to avoid leaving *too* little space.
+
+    # Let's implement this as `priority_v2`.
+    # We need to choose a value for `k`. This `k` tunes how aggressively we penalize small remaining capacities.
+    # A larger `k` means we penalize small `r_after` more heavily, thus favoring larger `r_after` (closer to WF).
+    # A smaller `k` means we penalize small `r_after` less, thus favoring smaller `r_after` (closer to BF).
+    # For "outside the box" and potentially "better", let's choose a `k` that is not too extreme.
+    # The peak is at `1/k`. If `k=5`, peak at 0.2. If `k=2`, peak at 0.5.
+    # Let's try `k=3.0`. Peak at `r_after = 1/3 approx 0.33`.
+    # This suggests we want to leave around 33% of bin capacity.
+
+    # The priorities should be non-negative. `r_after` is non-negative. `exp(-k * r_after)` is positive.
+    # So the scores are positive.
+
+    # Calculate the remaining capacities after placing the item for suitable bins.
+    remaining_after_fit = bins_remain_cap[suitable_bins_mask] - item
+
+    # Parameter for the heuristic: k controls the peak of the score function.
+    # A higher k means we prefer smaller remaining capacities more strongly.
+    # Let's set k to a value that aims to avoid extremely tight fits but still
+    # encourages filling. k=3.0 aims for a peak around 0.33 remaining capacity.
+    k = 3.0
+    epsilon = 1e-9  # To avoid division by zero if using inverse
+
+    # Calculate scores using the formula: score = r_after * exp(-k * r_after)
+    # This score function is maximized when r_after = 1/k.
+    # For r_after close to 0, score is close to 0.
+    # For r_after large, score decreases exponentially.
+    # This prioritizes bins that leave a moderate amount of space.
+    scores = remaining_after_fit * np.exp(-k * remaining_after_fit)
+
+    # We want to maximize this score.
+    # So, the priorities should be these scores.
+    priorities[suitable_bins_mask] = scores
+
+    # A simple interpretation of this heuristic:
+    # It's a compromise. It doesn't strictly minimize the remaining capacity (like BF),
+    # nor does it maximize it (like WF). It tries to find a middle ground.
+    # The goal is to avoid creating too many "nearly full" bins, which can happen with BF.
+    # By peaking at `1/k`, it suggests a preference for leaving a certain amount of space.
+    # This might lead to better packing overall by keeping more options open.
+
+    # Let's refine the score slightly. What if remaining_after_fit is zero?
+    # score = 0 * exp(0) = 0. This is fine.
+    # What if remaining_after_fit is very small, say 1e-5.
+    # score = 1e-5 * exp(-k * 1e-5) approx 1e-5. Very low priority.
+    # This is desirable, as we want to avoid making bins *too* full.
+
+    # So, this heuristic `r_after * exp(-k * r_after)` prioritizes bins
+    # that leave a moderate amount of space after fitting the item.
+    # This is a deviation from Best Fit, aiming for better overall bin utilization by avoiding
+    # the creation of too many bins with very little remaining capacity.
+
+    # Final check on the logic:
+    # Input: item, bins_remain_cap
+    # Output: priorities array
+
+    # 1. Identify bins that can fit the item (`suitable_bins_mask`).
+    # 2. For these suitable bins, calculate the remaining capacity after fitting (`remaining_after_fit`).
+    # 3. Calculate a score for each of these `remaining_after_fit` values.
+    #    The score function `f(r) = r * exp(-k*r)` is used, where `k` is a parameter.
+    #    This function peaks at `r = 1/k`.
+    # 4. Assign these scores as priorities to the corresponding suitable bins.
+    # 5. Unsuitable bins retain their initial priority of 0.
+
+    # This heuristic attempts to balance filling bins tightly with leaving enough space for future items.
+    # It deviates from pure Best Fit by not always picking the bin with the absolute minimum remaining capacity,
+    # especially if that minimum is very close to zero.
+
+    # The choice of `k` is crucial and would typically be determined by empirical testing.
+    # For the purpose of this exercise, `k=3.0` is chosen as a reasonable starting point.
+
+    return priorities
+```

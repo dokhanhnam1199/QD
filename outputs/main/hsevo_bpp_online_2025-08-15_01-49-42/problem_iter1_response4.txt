@@ -1,0 +1,61 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Exact Fit First heuristic priority function.
+    Prioritizes bins that can exactly fit the item.
+    Among those that can exactly fit, it prioritizes the one that leaves the least remaining capacity.
+    If no bin can exactly fit, it prioritizes the bin that leaves the least positive remaining capacity after placing the item (Best Fit).
+    If no bin can fit the item, all priorities will be zero.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+
+    # Identify bins that can exactly fit the item
+    exact_fit_indices = np.where(bins_remain_cap == item)[0]
+
+    if len(exact_fit_indices) > 0:
+        # Among exact fits, pick the one that leaves least residual capacity (which is 0 in this case)
+        # This is an arbitrary choice as all exact fits result in 0 residual.
+        # We'll just give them the highest priority.
+        priorities[exact_fit_indices] = 1.0
+    else:
+        # If no exact fit, use a Best Fit approach
+        # Find bins where the item can fit
+        fit_indices = np.where(bins_remain_cap >= item)[0]
+
+        if len(fit_indices) > 0:
+            # Calculate remaining capacity for bins that can fit the item
+            residual_capacities = bins_remain_cap[fit_indices] - item
+
+            # Assign priorities based on smallest residual capacity (Best Fit)
+            # We want to prioritize smaller residuals, so we can invert them or subtract from a max value
+            # A simple way is to assign a higher score to smaller residuals.
+            # Let's use a scale that makes smaller residuals higher priority.
+            # Max possible residual is related to bin capacity, but we don't know that.
+            # Let's use inverse of residual + a small epsilon to avoid division by zero if residual is 0.
+            # However, since we handled exact fit, residual will be > 0 here.
+            # Let's assign priority such that smaller positive residual gets higher priority.
+            # A linear mapping could work: priority = MaxPossibleResidual - Residual.
+            # Since we don't know MaxPossibleResidual, let's try a large number minus the residual.
+            # Or simply, we can assign priorities inversely proportional to residual capacity.
+            # To make it a "priority score" that's higher for better fits:
+            # Consider a value inversely proportional to the *excess* capacity above the item.
+            # Let's use a score such that 1 / (residual + epsilon) or similar.
+            # A simpler approach for 'best fit' in a priority system:
+            # Maximize -(residual capacity)
+            # So, we want the bin where residual_capacity is minimized.
+            # We can map this to a positive priority score.
+            # For example, map the minimum residual to the highest score.
+
+            # Let's define a scaling factor or a base priority for fitting.
+            # Give a base priority for fitting, then enhance it for better fit.
+            base_priority = 0.5
+            fit_priorities = base_priority + (1 - base_priority) * (1 - residual_capacities / np.max(residual_capacities + 1e-9))
+            # Adding 1e-9 to denominator to avoid division by zero if all residuals are identical and maximal.
+            # The term (1 - residual_capacities / np.max(residual_capacities + 1e-9))
+            # will range from 0 (for max residual) to near 1 (for min residual).
+            # So, fit_priorities will range from 0.5 to 1.0.
+
+            priorities[fit_indices] = fit_priorities
+
+    return priorities
+```

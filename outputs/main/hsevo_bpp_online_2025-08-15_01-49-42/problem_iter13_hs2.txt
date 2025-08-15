@@ -1,0 +1,62 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, exact_fit_priority: float = 0.9324487824320978, non_exact_fit_min_priority: float = 0.5289466755097969, non_exact_fit_max_priority: float = 0.881497460133019, epsilon: float = 3.194939114299821e-09) -> np.ndarray:
+    """
+    Combines exact fit priority with scaled inverse normalized slack for non-exact fits.
+    Prioritizes exact fits, then bins with minimal normalized slack to promote balanced packing.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array representing the remaining capacity of each bin.
+        exact_fit_priority: The priority assigned to bins that are an exact fit.
+        non_exact_fit_min_priority: The minimum priority assigned to non-exact fits.
+        non_exact_fit_max_priority: The maximum priority assigned to non-exact fits.
+        epsilon: A small value for numerical stability in normalization.
+
+    Returns:
+        A numpy array representing the priority for each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Mask for bins that can potentially fit the item
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Identify bins that are an exact fit
+    exact_fit_mask = np.isclose(bins_remain_cap, item)
+    
+    # Assign highest priority to exact fits
+    priorities[exact_fit_mask] = exact_fit_priority
+    
+    # Consider bins that can fit the item but are not exact fits
+    non_exact_fit_mask = can_fit_mask & ~exact_fit_mask
+    non_exact_indices = np.where(non_exact_fit_mask)[0]
+    
+    if len(non_exact_indices) > 0:
+        # Calculate remaining capacity after fitting the item
+        remaining_after_fit = bins_remain_cap[non_exact_indices] - item
+        current_capacities = bins_remain_cap[non_exact_indices]
+        
+        # Calculate normalized slack: (remaining_capacity_after_fit) / (current_bin_capacity)
+        # Smaller normalized slack is better. Add epsilon for numerical stability.
+        normalized_slack = remaining_after_fit / (current_capacities + epsilon)
+        
+        # Assign priorities: higher score for smaller normalized slack.
+        # Use 1.0 - normalized_slack to map smaller slack to higher scores.
+        # Scale these scores to be less than exact_fit_priority, ensuring exact fits are always preferred.
+        # The range [non_exact_fit_min_priority, non_exact_fit_max_priority] effectively differentiates good fits.
+        best_fit_scores = 1.0 - normalized_slack
+        
+        # Clamp scores to ensure they fall within the desired range and are always less than exact_fit_priority
+        # The scaling factor (non_exact_fit_max_priority - non_exact_fit_min_priority) controls the spread of priorities
+        # The offset non_exact_fit_min_priority shifts the range
+        scaled_best_fit_priorities = non_exact_fit_min_priority + np.clip(best_fit_scores, 0.0, 1.0) * (non_exact_fit_max_priority - non_exact_fit_min_priority)
+        
+        # Ensure scaled priorities are strictly less than exact_fit_priority if exact_fit_priority is 1.0
+        if exact_fit_priority == 1.0:
+             scaled_best_fit_priorities = np.clip(scaled_best_fit_priorities, non_exact_fit_min_priority, non_exact_fit_max_priority)
+        else:
+             scaled_best_fit_priorities = np.clip(scaled_best_fit_priorities, non_exact_fit_min_priority, min(non_exact_fit_max_priority, exact_fit_priority - 1e-6)) # ensure less than exact_fit_priority
+        
+        priorities[non_exact_indices] = scaled_best_fit_priorities
+        
+    return priorities

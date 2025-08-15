@@ -1,0 +1,153 @@
+[Prior reflection]
+The current `priority_v1` function uses an epsilon-greedy approach, which is a reinforcement learning strategy. For a direct priority function in the context of heuristics, it might be more appropriate to directly define the priority based on bin properties without explicit exploration probability.
+
+The reflection suggests prioritizing bins with minimal remaining capacity (tightest fits), using smooth ranking functions like sigmoid, and considering a small bonus for larger remaining capacities.
+
+Let's design a new priority function, `priority_v2`, that directly implements these ideas:
+
+1.  **Tightest Fit Component:** Bins with remaining capacity `r` that is just enough to fit the item (`r >= item`) should have a high priority. The "best fit" (smallest `r - item`) should be prioritized.
+2.  **Smooth Ranking:** Instead of binary high/low priority, we can use a function that smoothly maps remaining capacity to a priority score. A sigmoid function centered around `item` capacity could work.
+3.  **Flexibility Bonus:** A small bonus for bins with significantly larger remaining capacities can be added to encourage leaving space for potentially larger future items, balancing immediate "best fit" with future "flexibility".
+
+**Plan for `priority_v2`:**
+
+*   **Input:** `item` (float), `bins_remain_cap` (np.ndarray).
+*   **Output:** `priorities` (np.ndarray).
+
+*   **Step 1: Identify Valid Bins:** Create a mask for bins where `bins_remain_cap >= item`.
+*   **Step 2: Calculate Base Priority (Tightest Fit):** For valid bins, calculate a priority based on how close their remaining capacity is to the item size. A common heuristic is `1 / (remaining_capacity - item + epsilon)` where epsilon is a small value to avoid division by zero. Alternatively, use a sigmoid-like function that peaks when `remaining_capacity - item` is small. Let's use `1 / (remaining_capacity - item + 1)` to keep values positive and bounded without needing a strict sigmoid initially, as it's simpler and often effective.
+*   **Step 3: Add Flexibility Bonus:** For bins with significantly *larger* remaining capacity, we might want to give them a small boost. This is counter-intuitive to "tightest fit" but aligns with the reflection's suggestion of balancing. A simple way is to add a small value proportional to `(remaining_capacity - item)`. However, this could favor very empty bins too much. A better approach might be to give a small bonus if `remaining_capacity` is "large" (e.g., greater than average or a fixed threshold). Let's try a gentle bonus for bins with remaining capacity greater than `item * 1.5` or similar. A simpler interpretation of the reflection might be to favor bins that are *not too full* but still fit, to keep some wiggle room. Let's re-interpret the "bonus for larger remaining capacities" as a slight *reduction* in priority for the absolute tightest fits, making slightly looser fits competitive.
+    *   Revisiting the reflection: "Consider a small bonus for larger remaining capacities to balance immediate tightness with future flexibility." This means if a bin has *much more* space than needed, it might be slightly more attractive than one that *just* fits, if the latter is too tight.
+
+*   **Revised Plan for `priority_v2`:**
+    1.  **Filter:** Identify bins that can fit the item (`bins_remain_cap >= item`). For bins that cannot fit, priority is 0.
+    2.  **Tightness Score:** For fitting bins, calculate a score that favors smaller `remaining_capacity - item`. Let's use `1.0 / (bins_remain_cap[valid_mask] - item + 1.0)`. This gives higher scores to tighter fits.
+    3.  **Flexibility Score:** Introduce a bonus for bins that have significantly more remaining capacity than just fitting the item. This could be a small additive term. Let's say if `bins_remain_cap > item * 2`, add a small bonus. A smooth way to do this is with a sigmoid-like function that *increases* with remaining capacity after a certain point. For simplicity, let's add a small constant if `bins_remain_cap` is significantly larger than `item`. Example: `flex_bonus = 0.1` if `bins_remain_cap > item * 1.5` else `0.0`.
+    4.  **Combine:** Total priority = Tightness Score + Flexibility Bonus.
+    5.  **Normalization:** Normalize the final priorities.
+
+Let's refine the "flexibility bonus" aspect. The reflection mentions "balancing immediate tightness with future flexibility." This suggests that while tight fits are good, bins that are *too* tight might leave no room for future items. Thus, a bin that fits the item well but leaves some reasonable space might be preferable over one that leaves almost no space.
+
+**Revised Plan `priority_v2` (Focus on smooth ranking and balancing):**
+
+1.  **Filter:** Identify bins that can fit the item (`bins_remain_cap >= item`). Priority is 0 for others.
+2.  **Smooth Fit Score:** For fitting bins, use a function that maps `remaining_capacity` to a priority. A sigmoid-like function that peaks when `remaining_capacity` is slightly larger than `item` might be good.
+    *   Consider the value `x = bins_remain_cap - item`. We want high priority when `x` is small, but not necessarily zero. A Gaussian-like function centered slightly above 0, or a smoothed inverse could work.
+    *   Let's try a function like `exp(- (bins_remain_cap - item - C)^2 / (2 * sigma^2))`, where `C` is a small buffer (e.g., 1 unit of capacity) and `sigma` controls the width. This would prioritize bins with remaining capacity around `item + C`.
+    *   Alternatively, a simpler approach: prioritize bins based on `1 / (bins_remain_cap - item + 1)` for tightness, and add a small bonus for "flexibility".
+
+Let's try this combination:
+Priority = `weight_tightness * (1 / (bins_remain_cap - item + 1)) + weight_flexibility * (bins_remain_cap / BIN_SIZE)`
+Where `BIN_SIZE` is the capacity of a full bin. The second term encourages using bins that are not overly full.
+
+Let's simplify this. The reflection mentions "minimal remaining capacity (tightest fits)" and "small bonus for larger remaining capacities".
+This implies a score that increases with tightness up to a point, then possibly decreases or plateaus.
+
+**Final Strategy for `priority_v2`:**
+1.  Identify bins that can fit the item. Set priority to 0 for others.
+2.  For fitting bins, calculate priority based on `remaining_capacity`.
+    *   **Tightness Component:** A score that is high when `remaining_capacity` is close to `item`. Let's use `1.0 / (bins_remain_cap[valid_mask] - item + 1.0)`.
+    *   **Flexibility Component:** A score that is high when `bins_remain_cap` is "moderately large". This balances not being too tight, but not being too empty either. A sigmoid function could model this. Let's use a Gaussian-like function centered around a capacity slightly larger than `item`. E.g., `exp(-((bins_remain_cap[valid_mask] - TARGET_CAPACITY) / SIGMA)**2)`, where `TARGET_CAPACITY` is maybe `item * 1.5` and `SIGMA` controls the spread.
+
+Let's combine these smoothly.
+The priority should be high for bins where `r` is slightly larger than `item`.
+Consider `f(r) = exp(- (r - (item + buffer))^2 / (2 * sigma^2))` where `buffer` is a small positive value (e.g., 1) and `sigma` controls sensitivity. This peaks at `item + buffer`.
+This naturally balances tightness and flexibility. A bin that is *just* large enough might get a slightly lower score than one that fits comfortably.
+
+Let's define `priority_v2` using this approach. We'll need a fixed `BIN_CAPACITY` to normalize the 'flexibility' aspect if we want to use relative remaining capacity. Let's assume a `BIN_CAPACITY` is implicitly known or can be passed. For now, let's base it on the item size.
+
+**Refined Strategy:**
+1.  Identify bins that can fit the item. Priority is 0 for others.
+2.  For fitting bins, calculate priority using a function that favors `r` slightly larger than `item`. A Gaussian-like kernel centered at `item + C` (where `C` is a small constant, e.g., 1) seems appropriate.
+    `priority = exp(-((r - (item + C)) / sigma)^2)`
+    Here, `r` is `bins_remain_cap`.
+
+Let's try this. We need to choose `C` and `sigma`.
+`C`: A small buffer, e.g., 1.0. This means we slightly prefer bins with capacity `item + 1` over bins with capacity `item`.
+`sigma`: Controls how sensitive the priority is to the difference. A smaller `sigma` makes the peak sharper. Let's try `sigma = 2.0`.
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority for adding an item to each bin, prioritizing
+    bins with remaining capacity that is slightly larger than the item size.
+
+    This heuristic balances the 'best fit' (tightest fit) with 'flexibility'
+    by favoring bins that have a comfortable amount of space left after packing.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Apply priority function only to bins that can fit the item
+    if np.any(can_fit_mask):
+        fitting_capacities = bins_remain_cap[can_fit_mask]
+
+        # Parameters for the Gaussian-like priority function
+        # C: a small buffer, meaning we prefer bins with capacity item + C
+        # sigma: controls the 'spread' or sensitivity of the preference.
+        # A smaller sigma means the priority drops off more quickly as capacity deviates from item + C.
+        buffer = 1.0  # Prefer bins with remaining capacity item + 1.0
+        sigma = 2.0   # Sensitivity parameter
+
+        # Calculate the difference from the ideal capacity (item + buffer)
+        # We use a smooth function like a Gaussian kernel.
+        # The function peaks when remaining_capacity == item + buffer.
+        # It penalizes capacities that are too small (already handled by can_fit_mask)
+        # and capacities that are very large (less focused fit).
+        differences = fitting_capacities - (item + buffer)
+        
+        # Calculate priority using a Gaussian-like function
+        # The form exp(-(x^2)/(2*sigma^2)) peaks at x=0.
+        # We want to peak when fitting_capacities - (item + buffer) = 0
+        # So, x = fitting_capacities - (item + buffer)
+        gaussian_priority = np.exp(-(differences**2) / (2 * sigma**2))
+        
+        # Assign these priorities to the bins that can fit the item
+        priorities[can_fit_mask] = gaussian_priority
+
+        # Optional: Add a small 'tightness' bonus for bins that are very close fits
+        # This can be seen as a slight leaning towards 'best fit' from the peak.
+        # We can add a term that is inversely proportional to (r - item + epsilon)
+        # Let's add a small value for the tightest fits.
+        # Calculate tightness score: 1 / (remaining_capacity - item + 1)
+        tightness_scores = 1.0 / (fitting_capacities - item + 1.0)
+        
+        # Combine the Gaussian priority with a scaled tightness score.
+        # We need to scale tightness_scores so they don't overwhelm gaussian_priority.
+        # Let's scale them by a small factor, e.g., 0.1.
+        # The goal is to slightly boost the very tight fits without dominating.
+        
+        # Normalize tightness scores relative to themselves to avoid huge values
+        if np.max(tightness_scores) > 0:
+            scaled_tightness = 0.1 * (tightness_scores / np.max(tightness_scores))
+            priorities[can_fit_mask] += scaled_tightness
+        
+        # Ensure priorities are not negative (though gaussian_priority is always non-negative)
+        priorities = np.maximum(priorities, 0.0)
+
+        # Normalize priorities to be between 0 and 1 for consistency
+        max_priority = np.max(priorities)
+        if max_priority > 0:
+            priorities = priorities / max_priority
+        else:
+            # If all priorities are 0 (e.g., no bins fit and can_fit_mask was empty),
+            # this case should ideally not be reached if can_fit_mask is handled correctly.
+            # But as a fallback, ensure it's a zero array.
+            priorities = np.zeros_like(bins_remain_cap, dtype=float)
+            
+    return priorities
+
+```

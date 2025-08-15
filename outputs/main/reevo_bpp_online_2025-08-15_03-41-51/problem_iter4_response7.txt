@@ -1,0 +1,94 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin, prioritizing tight fits.
+
+    This version focuses on a "best fit" strategy by assigning higher priorities to
+    bins that leave minimal remaining capacity after the item is packed. The
+    remaining capacity after packing is calculated as `bin_capacity - item`.
+    To prioritize bins with smaller remaining capacities (tighter fits), we invert
+    this difference. A sigmoid function is applied to the inverted difference to
+    create a smooth priority score, ensuring that bins with slightly larger leftover
+    space still receive some priority, but significantly less than the tightest fits.
+    This approach aims to greedily fill bins as much as possible.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        # No bin can fit the item, return all zeros
+        return priorities
+
+    valid_bins_cap = bins_remain_cap[can_fit_mask]
+    valid_bins_indices = np.where(can_fit_mask)[0]
+
+    # Calculate the leftover capacity for bins that can fit the item.
+    # We want to minimize `leftover_capacity = valid_bins_cap - item`.
+    # To transform this into a priority score where *higher* is better for *tighter* fits,
+    # we want to give higher scores to *smaller* `leftover_capacity`.
+    # A good way to do this is to use the negative of the leftover capacity,
+    # or an inverse of `leftover_capacity + epsilon`.
+
+    # Let's use a sigmoid transformation of the negative leftover capacity.
+    # The function `sigmoid(k * (item - valid_bins_cap))` works well:
+    # - When `valid_bins_cap` is just slightly larger than `item`, `item - valid_bins_cap` is small negative.
+    #   Sigmoid of small negative is close to 0.5.
+    # - When `valid_bins_cap` is much larger than `item`, `item - valid_bins_cap` is large negative.
+    #   Sigmoid of large negative is close to 0.
+    # - When `valid_bins_cap` is exactly `item`, `item - valid_bins_cap` is 0. Sigmoid(0) is 0.5.
+    # This isn't quite right. We want high priority for small `valid_bins_cap - item`.
+
+    # Let's re-evaluate: we want to maximize `1 / (1 + (valid_bins_cap - item))`
+    # or equivalently, maximize `sigmoid(k * -(valid_bins_cap - item))`.
+    # Let `diff = valid_bins_cap - item`. We want to maximize `1 / (1 + diff)`.
+    # This can be unstable if `diff` is large.
+    # Let's use `sigmoid(k * (item - valid_bins_cap))`.
+    # If `valid_bins_cap` is slightly larger than `item`, `item - valid_bins_cap` is a small negative number.
+    # `sigmoid(k * small_negative)` -> close to 0.5.
+    # If `valid_bins_cap` is much larger than `item`, `item - valid_bins_cap` is a large negative number.
+    # `sigmoid(k * large_negative)` -> close to 0.
+    # If `valid_bins_cap` is equal to `item`, `item - valid_bins_cap` is 0.
+    # `sigmoid(k * 0)` -> 0.5.
+    # This still doesn't perfectly capture "highest priority for tightest fit".
+
+    # Let's directly map the "cost" of fitting, which is `valid_bins_cap - item`.
+    # We want to penalize larger costs. A simple approach is to use the negative of the cost,
+    # and then apply an exponential function (like softmax) to get probabilities.
+    # Higher priority for smaller `valid_bins_cap - item`.
+    # Let the "score" be `-(valid_bins_cap - item)`.
+    # `score = item - valid_bins_cap`
+
+    scores = item - valid_bins_cap
+
+    # To ensure numerical stability with the exponential function, subtract the maximum score.
+    # This shifts all scores so the maximum is 0, preventing overflow when exponentiating.
+    if len(scores) > 0:
+        max_score = np.max(scores)
+        exp_scores = np.exp(scores - max_score)
+
+        # Normalize scores to sum to 1 (like a probability distribution)
+        sum_exp_scores = np.sum(exp_scores)
+
+        if sum_exp_scores > 1e-9:  # Avoid division by zero or near-zero
+            priorities[can_fit_mask] = exp_scores / sum_exp_scores
+        else:
+            # If all exponential scores are effectively zero (e.g., all scores are very negative),
+            # distribute the priority equally among the fitting bins.
+            num_fitting_bins = np.sum(can_fit_mask)
+            if num_fitting_bins > 0:
+                priorities[can_fit_mask] = 1.0 / num_fitting_bins
+    else:
+        # This case should not be reached if np.any(can_fit_mask) is true,
+        # but as a fallback.
+        pass
+
+    return priorities
+```

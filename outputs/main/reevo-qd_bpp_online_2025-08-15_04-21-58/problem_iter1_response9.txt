@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Softmax-Based Fit.
+
+    This strategy assigns higher priority to bins that can fit the item and have
+    less remaining capacity after fitting. The idea is to utilize bins more fully
+    when possible.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Calculate the remaining capacity if the item were placed in each bin
+    potential_remaining_cap = bins_remain_cap - item
+
+    # We want to prioritize bins where the remaining capacity is small (good fit)
+    # and the item actually fits. If an item doesn't fit, its priority should be 0.
+    # A simple way to achieve this is to use the negative of the potential remaining capacity
+    # for bins that can fit the item.
+
+    # Create a mask for bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the scores: for bins that can fit, use -potential_remaining_cap.
+    # For bins that cannot fit, the score will be 0.
+    # We use negative remaining capacity because higher values in softmax are preferred,
+    # and we want smaller remaining capacity to be preferred.
+    scores = np.zeros_like(bins_remain_cap, dtype=float)
+    scores[can_fit_mask] = -potential_remaining_cap[can_fit_mask]
+
+    # Apply the Softmax function to convert scores into probabilities/priorities
+    # Adding a small epsilon to the maximum score to avoid numerical instability
+    # if all scores are the same (e.g., all -inf or all some value).
+    # If all items can't fit, all scores will be 0, which softmax handles fine.
+    # If some items can fit and others cannot, the softmax will correctly
+    # assign higher probabilities to bins that can fit the item.
+    max_score = np.max(scores)
+    exp_scores = np.exp(scores - max_score) # Subtract max for numerical stability
+
+    # Normalize to get priorities (sum of priorities is 1)
+    priorities = exp_scores / np.sum(exp_scores)
+
+    # Handle the case where no bin can fit the item. In this scenario, all scores
+    # were 0, exp_scores will be an array of 1s, and the sum will be len(bins).
+    # The resulting priorities will be 1/len(bins) for all. This might be acceptable,
+    # or you might want a specific handling for this. For now, we let it be.
+    # If you want a specific behavior (e.g., return all zeros if no bin fits),
+    # you could add: if not np.any(can_fit_mask): return np.zeros_like(bins_remain_cap)
+
+    return priorities
+```

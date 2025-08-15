@@ -1,0 +1,241 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritized Bins using Scaled Remaining Capacity and Slack Minimization.
+
+    This strategy aims to provide more differentiated scores by considering
+    both how "full" a bin becomes and how much slack is left. It also
+    introduces a scaling factor to adjust the emphasis on minimizing slack.
+
+    The priority is calculated as:
+    priority = (1 - scaled_remaining_capacity) * weight_slack - scaled_slack * (1 - weight_slack)
+
+    Where:
+    - scaled_remaining_capacity: The remaining capacity after fitting, scaled
+                                  to a [0, 1] range relative to the bin capacity (assumed 1.0 for simplicity).
+                                  A smaller remaining capacity (closer to 0) gets a higher score here.
+    - scaled_slack: The amount of space left in the bin if the item doesn't fit perfectly,
+                   scaled to a [0, 1] range. This term is mainly to penalize bins that are "too large".
+                   A smaller slack (closer to 0) gets a lower score here.
+    - weight_slack: A hyperparameter (between 0 and 1) to balance the importance of
+                    minimizing slack vs. maximizing the "fullness" of the bin.
+
+    For bins that can fit the item:
+    - If remaining capacity is 0, it gets the highest priority.
+    - Otherwise, we want to minimize remaining capacity.
+
+    The logic:
+    1. Identify bins that can fit the item.
+    2. For these bins, calculate the remaining capacity after placing the item.
+    3. For bins that CANNOT fit, assign a very low priority (-1).
+    4. For bins that CAN fit:
+       - We want to prioritize bins that result in a smaller remaining capacity.
+       - A simple way to get differentiated scores is to use the negative of the remaining capacity.
+       - To make these scores more comparable across different potential remaining capacities,
+         we can normalize them.
+       - However, a direct inverse might not be ideal. A better approach is to create a score
+         that is high when remaining capacity is low.
+
+    Revised Approach:
+    We will aim to create a score that is high for bins that are "nearly full"
+    after the item is placed.
+    The priority will be based on how much the *remaining capacity changes* towards zero.
+    A bin that goes from `c` capacity to `c - item` is prioritized if `c - item` is small.
+
+    Let's define priority as a function that is maximized when `bins_remain_cap - item` is minimized.
+    A simple monotonic transformation that achieves this is to use `- (bins_remain_cap - item)`.
+    To make scores more distinct and robust, we can consider a scaled version or a score that
+    rewards bins that are *just* large enough.
+
+    New Strategy: Maximize (1 / (remaining_capacity_after_fit + epsilon)) or minimize remaining_capacity_after_fit.
+    We will prioritize bins that result in the *smallest positive remaining capacity*.
+
+    Let's use a score that rewards bins that are "just right" or slightly larger.
+    A bin that is exactly the right size (remaining capacity = 0) should be highly prioritized.
+    Bins that are much larger should be less prioritized than those that are a good fit.
+
+    Priority = -(remaining_capacity_after_fit)
+    To make scores more distinct and avoid very small negative numbers dominating,
+    we can scale them. Or, more simply, we can add a large constant to make them positive
+    and then use the negative of the remaining capacity.
+
+    Let's try a score that emphasizes bins that leave a small, but positive, remainder.
+    The ideal scenario is a bin that leaves 0 remainder.
+    A bin that leaves a very large remainder is less ideal.
+
+    Consider priority = - (bins_remain_cap[can_fit_mask] - item)
+    This means smaller remaining capacity is better (higher score).
+
+    To differentiate more, we can introduce a penalty for very large remaining capacities.
+    A simple way is to use a function that is steep near 0 remaining capacity and less steep for larger capacities.
+    e.g., `- log(remaining_capacity + epsilon)` or `- remaining_capacity`.
+
+    Let's refine `priority_v1` by making the scores more distinct for bins that leave small remainders.
+    Instead of just `-remaining_capacity`, we can use `1 / (remaining_capacity + epsilon)` which
+    gives higher scores to smaller remaining capacities, and the difference between scores
+    is more pronounced.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of priority scores for each bin. Bins that cannot accommodate the item
+        receive a priority of -1. Higher scores indicate higher priority.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf) # Use -inf for bins that cannot fit
+
+    can_fit_mask = bins_remain_cap >= item
+
+    if np.any(can_fit_mask):
+        # Calculate remaining capacities for bins that can fit the item
+        remaining_capacities_if_fit = bins_remain_cap[can_fit_mask] - item
+
+        # Strategy: Prioritize bins that leave a small, non-negative remaining capacity.
+        # We want to maximize the score as the remaining capacity approaches 0.
+        # A good function for this is 1 / (remaining_capacity + epsilon).
+        # However, to make scores more distinct, we can use a function that is
+        # sensitive to the magnitude of the remaining capacity.
+        # Let's use a score that is highest for zero remaining capacity and decreases
+        # as remaining capacity increases.
+        # A simple function that achieves this is to assign a score inversely
+        # proportional to the remaining capacity, ensuring a small positive value for the denominator.
+        # A larger value indicates a better fit.
+
+        # We want to maximize `f(remaining_capacity)` where `f(0)` is max and `f(large)` is min.
+        # Options:
+        # 1. `1 / (remaining_capacity + epsilon)`: High scores for small remainders.
+        # 2. `-remaining_capacity`: Also prioritizes small remainders.
+        # 3. `K - remaining_capacity`: Shifts scores but maintains order.
+
+        # To differentiate better, let's consider bins that are *just* large enough.
+        # A bin that is perfectly sized (remaining capacity = 0) is ideal.
+        # Bins that are slightly larger are good. Bins that are much larger are less ideal.
+
+        # Let's use a score that rewards bins that leave minimal capacity,
+        # but also penalizes bins that leave a lot of capacity.
+        # Consider the inverse of the remaining capacity.
+        # To avoid division by zero and create distinct scores, use 1 / (remaining_capacity + epsilon)
+        epsilon = 1e-9
+        scores = 1.0 / (remaining_capacities_if_fit + epsilon)
+
+        # We can also add a term to penalize large remaining capacities more severely.
+        # For example, we could subtract a scaled version of the remaining capacity.
+        # Let's aim for a score that is highest for remaining capacity of 0 and decreases.
+        # A simple linear decrease is `-remaining_capacity`.
+        # A non-linear decrease could be `-log(remaining_capacity + epsilon)`.
+
+        # Let's stick with the inverse relationship, which is good for "almost full".
+        # To make scores more "differentiated", consider the difference in priorities.
+        # If we have remaining capacities of 0.1 and 0.2, the scores are 10 and 5. Difference is 5.
+        # If we have remaining capacities of 0.01 and 0.02, the scores are 100 and 50. Difference is 50.
+        # This inherently provides differentiation.
+
+        # We can also add a small bonus for bins that are closer to a perfect fit.
+        # Let's use a scaled version of the inverse remaining capacity.
+        # A scaled version of 1 / (remaining_capacity + epsilon) could be:
+        # (1 / (remaining_capacity + epsilon)) * max_possible_score / (1 / epsilon)
+        # This normalizes the scores to be within a certain range.
+
+        # A simpler, more robust approach to differentiation:
+        # Use the negative of the remaining capacity, but shift it so that
+        # perfect fits get the highest scores.
+        # Let's assign a maximum score to a perfect fit and decrease from there.
+        # Max score = 0 (for remaining capacity of 0)
+        # Score = - remaining_capacity
+
+        # To make scores more distinct, especially when many bins have small remainders:
+        # Use `log` scaling or inverse scaling.
+        # `log(1 / (remaining_capacity + epsilon))` or `-log(remaining_capacity + epsilon)`
+        # This makes differences at small values more pronounced.
+
+        # Let's use `-remaining_capacity` as the base, as it directly addresses minimizing slack.
+        # To differentiate, we can add a factor that scales based on how small the remaining capacity is.
+        # Or, more simply, ensure that values are not too close.
+
+        # Let's try the `priority_v1` logic but ensure the values are sufficiently spread.
+        # `priority_v1` uses `-(bins_remain_cap[can_fit_mask] - item)`.
+        # This means smaller remaining capacities lead to higher (less negative) scores.
+        # Example:
+        # Bin A: rem_cap = 0.1, item = 0.9. rem_cap_after = 0.0. Score = 0.
+        # Bin B: rem_cap = 0.2, item = 0.9. rem_cap_after = 0.1. Score = -0.1.
+        # Bin C: rem_cap = 0.3, item = 0.9. rem_cap_after = 0.2. Score = -0.2.
+        # Bin D: rem_cap = 1.0, item = 0.1. rem_cap_after = 0.9. Score = -0.9.
+
+        # This is quite good. The differentiation is there.
+        # To make scores even more distinct for very small remainders, we can use:
+        # `log(1 / (remaining_capacity_after_fit + epsilon))` which is `-log(remaining_capacity_after_fit + epsilon)`
+        # For rem_cap = 0.0, -log(epsilon) is a large positive number.
+        # For rem_cap = 0.1, -log(0.1) approx 2.3
+        # For rem_cap = 0.2, -log(0.2) approx 1.6
+
+        # This seems like a good way to differentiate. Let's use this.
+        # We are maximizing `-log(remaining_capacity_after_fit + epsilon)`.
+
+        # To ensure scores are positive and distinguishable, let's normalize them or
+        # ensure a baseline.
+        # Let's map the best case (remaining_capacity = 0) to a high positive score.
+        # Maximize: `100 - log(remaining_capacity_after_fit + epsilon)`
+        # If remaining_capacity_after_fit is 0, score is `100 - log(epsilon)` (large positive)
+        # If remaining_capacity_after_fit is small, score is slightly less.
+        # If remaining_capacity_after_fit is larger, score is smaller.
+
+        # Consider the range of `remaining_capacity_after_fit`. It's between 0 and `max(bins_remain_cap) - item`.
+        # Let's try a score that is high for 0 remainder and decreases as remainder increases.
+        # A simple linear score: `C - remaining_capacity_after_fit`.
+        # To differentiate, we need a non-linear function.
+
+        # Let's use `1.0 / (remaining_capacity_after_fit + epsilon)` as it's intuitive for "best fit".
+        # To ensure differentiation, we can scale this.
+        # If we have many bins with very small remainders, the scores will be very large and close.
+        # We want scores that clearly separate good fits from mediocre ones.
+
+        # Consider a score that combines "how full" with "how much slack".
+        # Priority = w1 * (1 / (remaining_capacity_after_fit + epsilon)) + w2 * (-remaining_capacity_after_fit)
+        # Where w1 and w2 control the emphasis.
+
+        # Let's go with a score that is designed to be high for small, positive remaining capacities.
+        # A simple way to achieve good differentiation is to use an inverse relationship.
+        # `1 / (remaining_capacity_after_fit + epsilon)` is a good candidate.
+        # To make the values more manageable and perhaps better distributed, we can
+        # scale it.
+
+        # Let's consider the "value" of a bin. A bin that leaves 0 space is perfect.
+        # A bin that leaves a tiny bit of space is almost perfect.
+        # A bin that leaves a lot of space is less ideal.
+
+        # We want to maximize `f(remaining_capacity)` where `f` is decreasing.
+        # Let's map the range of `remaining_capacity_after_fit` to a score range.
+        # Let `min_rem = 0` and `max_rem = max(bins_remain_cap[can_fit_mask]) - item`.
+        # We want to map `[min_rem, max_rem]` to `[score_max, score_min]`.
+
+        # Let's use a score that emphasizes bins that are "just right".
+        # Score = 1 / (remaining_capacity_after_fit + epsilon)
+        # Example:
+        # rem_cap = [0.0, 0.05, 0.1, 0.5, 1.0]
+        # scores = [1e9, 20, 10, 2, 1] (using epsilon=1e-9)
+        # This provides differentiation.
+
+        # To make it even more robust and perhaps include other factors if needed later,
+        # consider a weighted combination.
+        # For now, let's stick to improving the "almost full" heuristic.
+
+        # What if we scale the inverse based on the *original* remaining capacity?
+        # This would give a higher absolute priority to bins that were already full.
+        # Score = (1 / (remaining_capacity_after_fit + epsilon)) * bins_remain_cap[can_fit_mask]
+
+        # Let's refine the `-log(remaining_capacity + epsilon)` approach.
+        # This provides strong differentiation for small remaining capacities.
+        # For robustness, we can add a large constant to make scores positive.
+        # `priority_score = 100.0 - np.log(remaining_capacities_if_fit + epsilon)`
+
+        # This ensures that bins with smaller remaining capacities get higher scores.
+        # The `log` function provides the desired differentiation.
+        # The `100.0` is an arbitrary offset to ensure positive scores.
+
+        priorities[can_fit_mask] = 100.0 - np.log(remaining_capacities_if_fit + epsilon)
+
+    return priorities
+```

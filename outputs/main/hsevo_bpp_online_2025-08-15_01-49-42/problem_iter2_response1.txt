@@ -1,0 +1,86 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines Best Fit and a scaled inverse for robust prioritization.
+
+    Prioritizes bins with minimal remaining capacity after packing (Best Fit)
+    and uses a scaled inverse for other eligible bins to differentiate.
+    """
+    eligible_bins_mask = bins_remain_cap >= item
+
+    if not np.any(eligible_bins_mask):
+        return np.zeros_like(bins_remain_cap)
+
+    eligible_bins_remain_cap = bins_remain_cap[eligible_bins_mask]
+
+    differences = eligible_bins_remain_cap - item
+
+    # Best Fit component: Prioritize bins with smallest remaining capacity
+    min_diff = np.min(differences)
+    best_fit_scores = -differences 
+
+    # Scaled inverse component: For other bins, use scaled inverse to differentiate
+    # Avoid division by zero or very small numbers by adding a small constant
+    # Normalize by a factor related to the maximum difference to keep scores in a reasonable range.
+    # Adding 1.0 to the denominator makes it less sensitive to small differences.
+    if np.max(differences) > 1e-9:
+        scaled_inverse_scores = 1.0 / (differences + 1.0 + 1e-9)
+    else:
+        scaled_inverse_scores = np.ones_like(differences)
+
+
+    # Combine scores: Give higher priority to best-fit bins, then use scaled inverse.
+    # A simple way to combine is to prioritize exact fits with a bonus,
+    # or use a weighted sum. Here we'll slightly favor best-fit bins.
+    # A simple approach: add a bonus to best-fit candidates.
+    # We can also use a threshold: if it's a "very good" fit, give it a high score.
+    
+    # Let's try to boost the best-fit bins slightly more.
+    # We can achieve this by using the best_fit_scores for the minimum difference bins,
+    # and scaled_inverse_scores for others.
+    
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    # Assign best_fit_scores to all eligible bins initially
+    priorities[eligible_bins_mask] = best_fit_scores
+    
+    # For bins that are not the absolute best fit, use scaled_inverse_scores
+    # This requires identifying bins that are NOT the best fit.
+    non_best_fit_mask = eligible_bins_mask.copy()
+    if len(differences) > 0:
+        min_diff_indices_in_eligible = np.where(differences == min_diff)[0]
+        # Convert indices back to original array indices
+        indices_to_exclude = np.where(eligible_bins_mask)[0][min_diff_indices_in_eligible]
+        non_best_fit_mask[indices_to_exclude] = False
+        
+        # Apply scaled inverse to non-best-fit eligible bins
+        priorities[non_best_fit_mask] = scaled_inverse_scores[np.where(non_best_fit_mask[eligible_bins_mask])[0]]
+
+    # Ensure that the bins that were originally the best fit still have their higher scores.
+    # If scaled_inverse_scores is higher than best_fit_scores for the best-fit bins,
+    # we might want to reconsider the combination strategy.
+    # A simpler combination: use the scaled_inverse_scores for all, but boost best-fit.
+    
+    # Let's simplify the combination logic:
+    # Use scaled inverse for all eligible bins, and add a bonus to the best fit bins.
+    
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    if np.max(differences) > 1e-9:
+        scaled_inverse_scores = 1.0 / (differences + 1.0 + 1e-9)
+    else:
+        scaled_inverse_scores = np.ones_like(differences)
+
+    priorities[eligible_bins_mask] = scaled_inverse_scores
+    
+    # Add a bonus to the best-fit bins to ensure they are strongly preferred.
+    # The bonus should be large enough to dominate the scaled inverse score.
+    bonus = 10.0 # Arbitrary bonus value
+    if len(differences) > 0:
+        min_diff_indices_in_eligible = np.where(differences == min_diff)[0]
+        indices_to_boost = np.where(eligible_bins_mask)[0][min_diff_indices_in_eligible]
+        priorities[indices_to_boost] += bonus
+
+    return priorities
+```

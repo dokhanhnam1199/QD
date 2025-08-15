@@ -1,0 +1,67 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Hybrid prioritization: Exact Fit + Normalized Slack.
+    Prioritizes exact fits, then uses normalized slack to differentiate others.
+    """
+    priorities = np.full_like(bins_remain_cap, -1.0)
+    
+    can_fit_mask = bins_remain_cap >= item
+    
+    if np.any(can_fit_mask):
+        available_bins_remain_cap = bins_remain_cap[can_fit_mask]
+        
+        # Score 1: Exact Fit (highest priority)
+        # A bin is an exact fit if remaining capacity equals item size.
+        exact_fit_mask = available_bins_remain_cap == item
+        priorities[can_fit_mask][exact_fit_mask] = 1.0
+        
+        # Score 2: Differentiated Slack for non-exact fits
+        # For bins that don't provide an exact fit, use normalized slack.
+        # Normalized slack = (remaining_cap - item) / bins_remain_cap.
+        # We want to minimize normalized slack, so we maximize its negative.
+        # To ensure these scores are lower than exact fits, we scale them.
+        non_exact_fit_mask = ~exact_fit_mask
+        
+        if np.any(non_exact_fit_mask):
+            non_exact_bins_remain_cap = available_bins_remain_cap[non_exact_fit_mask]
+            
+            # Calculate normalized slack: (remaining_cap - item) / initial_remaining_cap
+            # Higher score means less slack relative to bin size.
+            # We want to minimize slack, so prioritize bins with smaller slack.
+            # A lower slack value means the bin becomes 'more full' relative to its original capacity.
+            # To map this to higher priority, we can use:
+            # 1. A transformation that makes smaller slack values result in higher scores.
+            # 2. Scale these scores to be less than 1.0 (to ensure exact fits are always preferred).
+            
+            # Calculate slack: remaining_cap - item
+            slack = non_exact_bins_remain_cap - item
+            
+            # Normalize slack: slack / original_remaining_capacity
+            # Using initial remaining capacity of the subset of bins
+            # Add epsilon to avoid division by zero if a bin had 0 capacity initially (though covered by can_fit_mask, good practice)
+            epsilon = 1e-9
+            normalized_slack = slack / (non_exact_bins_remain_cap + epsilon)
+            
+            # Invert and scale: We want to maximize values for smaller normalized slack.
+            # A common range for non-exact fits is [0.5, 0.99].
+            # If normalized_slack is 0 (perfect fit, already handled by exact_fit_mask), it gets high score.
+            # If normalized_slack is close to 1 (item takes up almost no space), it gets low score.
+            # So, we can use 1 - normalized_slack to prioritize smaller normalized slack.
+            # Scale this to a range below 1.0, e.g., [0.5, 0.99].
+            # Let's use a linear mapping:
+            # normalized_slack = 0  -> score = 0.99
+            # normalized_slack = 1  -> score = 0.5
+            # score = m * (1 - normalized_slack) + c
+            # 0.99 = m * 1 + c
+            # 0.5 = m * 0 + c  => c = 0.5
+            # 0.99 = m + 0.5 => m = 0.49
+            # So, score = 0.49 * (1 - normalized_slack) + 0.5
+            
+            scaled_priority = 0.49 * (1.0 - normalized_slack) + 0.5
+            priorities[can_fit_mask][non_exact_fit_mask] = scaled_priority
+            
+    return priorities
+```

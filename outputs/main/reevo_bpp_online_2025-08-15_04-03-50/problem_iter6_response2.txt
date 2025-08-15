@@ -1,0 +1,63 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a smooth decay favoring tight fits.
+
+    This heuristic aims to favor bins with tight fits (small remaining capacity after packing)
+    while allowing for exploration of slightly larger gaps. It uses a function that
+    rewards small slack values but decreases smoothly, giving reasonable scores
+    to bins with moderate slack. This prevents prematurely filling bins that
+    might be only slightly larger than needed, thus keeping flexibility for future items.
+
+    The priority is calculated using a power-law inverse relationship with the slack
+    (remaining capacity minus item size). Specifically, it uses `1 / (1 + slack^p)`,
+    where `p` is a parameter controlling the steepness of the decay. A `p` value
+    less than 1 (e.g., 0.7) ensures that larger slacks are penalized less severely
+    than a simple inverse `1 / (1 + slack)`, promoting exploration.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot fit the item will have a priority of 0.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    fittable_bins_mask = bins_remain_cap >= item
+
+    if np.any(fittable_bins_mask):
+        fittable_bins_capacities = bins_remain_cap[fittable_bins_mask]
+
+        # Calculate slack: remaining capacity after fitting the item.
+        # We want slack to be as close to 0 as possible for tight fits.
+        slack = fittable_bins_capacities - item
+
+        # Parameter to control the decay rate of priority as slack increases.
+        # A value < 1.0 makes the function decay slower than 1/(1+slack),
+        # favoring slightly larger gaps more than a strict "Best Fit".
+        # p = 0.7 is chosen as a balance: favors tight fits (slack near 0) but
+        # gives good scores to moderately tight fits (slack up to ~1-2),
+        # promoting exploration of slightly larger gaps.
+        p_value = 0.7
+
+        # Calculate priority: 1 / (1 + slack^p)
+        # This function maps slack=0 to priority=1, and as slack increases,
+        # the priority decreases towards 0. The power `p` controls how quickly
+        # this decrease happens. A smaller `p` results in a slower decay,
+        # thus exploring larger gaps more effectively.
+        # We add a small epsilon to slack to avoid potential numerical issues
+        # if slack is extremely close to zero or zero itself, although `0**p` is 0 for p>0.
+        # A small additive term like `epsilon` (e.g., 1e-9) can ensure the denominator is never exactly 0
+        # and also slightly reduces the priority for the absolute tightest fit, promoting exploration.
+        epsilon = 1e-9
+        priorities[fittable_bins_mask] = 1.0 / (1.0 + (slack + epsilon)**p_value)
+
+        # Ensure priorities are within a valid range and handle potential NaNs (unlikely here)
+        priorities[fittable_bins_mask] = np.nan_to_num(priorities[fittable_bins_mask], nan=0.0, posinf=1.0, neginf=0.0)
+        
+    return priorities
+```

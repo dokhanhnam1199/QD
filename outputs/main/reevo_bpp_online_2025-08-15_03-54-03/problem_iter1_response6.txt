@@ -1,0 +1,355 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Sigmoid Fit Score strategy.
+
+    The Sigmoid Fit Score strategy prioritizes bins that are "almost full"
+    but can still accommodate the item. This aims to keep bins as full as possible
+    without causing immediate overflow.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # We only consider bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate a "fit score"
+    # A good score would be for bins that are nearly full, but not too full.
+    # We can use a sigmoid function to map the remaining capacity to a score.
+    # A smaller remaining capacity (closer to 'item') should have a higher score.
+    # Let's transform remaining capacity into a "wastefulness" metric: waste = bin_capacity - item_size
+    # So, bins_remain_cap - item are potential remaining capacities if the item fits.
+    # We want to maximize the likelihood of a good fit.
+    # A common approach for "almost full" is to look at the ratio of item size to remaining capacity,
+    # or conversely, remaining capacity to bin capacity (though bin capacity isn't given here, only remaining).
+    # A simpler heuristic is to consider the difference: `bins_remain_cap - item`.
+    # We want to prioritize bins where this difference is small (but non-negative).
+
+    # Let's normalize the potential remaining capacity after placing the item.
+    # A value close to 0 (but positive) is desirable.
+    # We can use the inverse of the potential remaining capacity.
+    # However, we must handle cases where potential remaining capacity is 0 or very small
+    # to avoid division by zero or extremely large numbers.
+
+    # A more robust approach using sigmoid:
+    # Consider the 'slack' or 'residual capacity' after placing the item: residual = bins_remain_cap - item
+    # We want to maximize the probability of fitting.
+    # Let's try to map `residual` to a score where smaller positive values get higher scores.
+    # The sigmoid function `1 / (1 + exp(-x))` maps values to (0, 1).
+    # If we use `-(residual)`, then `exp(-residual)` will be small for large residuals
+    # and large for small residuals.
+    # So, `1 / (1 + exp(-(residual)))` will be closer to 1 for small positive residuals and closer to 0 for large residuals.
+    # We want small positive residuals to have HIGH priority.
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Calculate the residual capacity if the item fits
+    residual_capacities = bins_remain_cap[can_fit_mask] - item
+
+    # We want to give higher priority to smaller *positive* residuals.
+    # A residual of 0 is ideal (perfect fit).
+    # A small positive residual is good.
+    # A large positive residual is less ideal.
+
+    # Using sigmoid:
+    # The sigmoid function typically maps values from -inf to +inf to (0, 1).
+    # If we want small positive residuals to have high priority, we can map them
+    # to positive values and then apply sigmoid.
+    # Let's consider the "efficiency" of the fit: `item / bins_remain_cap`
+    # This ratio is high for full bins and low for empty bins.
+    # We want to prioritize bins where this ratio is high (but the item must fit).
+
+    # Alternative Sigmoid approach:
+    # Let's consider `bins_remain_cap - item`. We want this value to be small and non-negative.
+    # We can transform `bins_remain_cap - item` into a variable `x` such that
+    # `sigmoid(x)` is high for small non-negative `bins_remain_cap - item`.
+    # Consider `y = -(bins_remain_cap - item)`. If `bins_remain_cap - item` is small positive, `y` is small negative.
+    # `sigmoid(y)` will be close to 0.5. Not what we want.
+
+    # Let's try a different mapping.
+    # The goal is to find bins that are "just right".
+    # Consider the gap: `gap = bins_remain_cap - item` for bins that can fit.
+    # We want to maximize priority for `gap` close to 0.
+    # Let's define a scoring function that peaks at gap = 0 and decreases as gap increases.
+    # We can use a sigmoid centered around 0, but inverted.
+    # `sigmoid(-x)` where x is the gap.
+    # `sigmoid(-(bins_remain_cap[can_fit_mask] - item))`
+
+    # Let `gap = bins_remain_cap - item`.
+    # We are interested in `gap >= 0`.
+    # Let `x = -(gap) = item - bins_remain_cap`.
+    # We want to maximize priority when `item - bins_remain_cap` is close to 0 (i.e., `bins_remain_cap` close to `item`).
+    # Consider `x = -(bins_remain_cap[can_fit_mask] - item) = item - bins_remain_cap[can_fit_mask]`
+    # If `bins_remain_cap = item`, `x = 0`, `sigmoid(0) = 0.5`.
+    # If `bins_remain_cap > item`, `x < 0`, `sigmoid(x)` is < 0.5.
+    # If `bins_remain_cap < item`, `x > 0`, `sigmoid(x)` is > 0.5. This is for items that don't fit.
+
+    # The standard "Sigmoid Fit" or "Best Fit Decreasing" often aims to fill bins as much as possible.
+    # For online BPP, "First Fit Decreasing" prioritizes the first bin that fits.
+    # "Best Fit" would prioritize the bin with the smallest remaining capacity that can still fit the item.
+
+    # Let's re-evaluate the "Sigmoid Fit Score" strategy for online BPP.
+    # The idea is to prioritize bins that are "almost full" but can still accept the item.
+    # This implies we want to minimize `bins_remain_cap - item` (for bins where it's >= 0).
+    # Let `residual = bins_remain_cap[can_fit_mask] - item`.
+    # We want to give higher priority as `residual` approaches 0.
+
+    # Let's try to map the `residual` to a score using sigmoid.
+    # We want a high score for small `residual` (close to 0) and lower scores for larger `residual`.
+    # Consider a transformation `y = -(residual)`.
+    # `sigmoid(y) = 1 / (1 + exp(-y)) = 1 / (1 + exp(-(residual)))`.
+    # If `residual = 0`, `exp(0) = 1`, `sigmoid = 0.5`.
+    # If `residual` is small positive, `-(residual)` is small negative, `exp(-(residual))` is slightly less than 1, `sigmoid` is slightly less than 0.5.
+    # If `residual` is large positive, `-(residual)` is large negative, `exp(-(residual))` is close to 0, `sigmoid` is close to 1.
+
+    # This sigmoid `1 / (1 + exp(-(bins_remain_cap - item)))` actually prioritizes bins with *larger* remaining capacity after fitting the item.
+    # This is counter-intuitive for "almost full".
+
+    # Let's try a sigmoid where smaller values of `residual` yield higher scores.
+    # Consider `sigmoid(-k * residual)` for some `k > 0`.
+    # If `residual = 0`, `sigmoid(0) = 0.5`.
+    # If `residual` is small positive, `-k * residual` is small negative, `sigmoid` is < 0.5.
+    # If `residual` is large positive, `-k * residual` is large negative, `sigmoid` is close to 0.
+    # This gives higher scores to bins with *smaller* remaining capacity after fitting (i.e., more full bins).
+
+    # Let's use `k = 1` for simplicity.
+    # Score for fitting bins: `sigmoid(-(bins_remain_cap[can_fit_mask] - item))`
+
+    # We need to scale the `residual` to make the sigmoid curve steeper or shallower.
+    # A common approach is to scale `bins_remain_cap - item` by some factor.
+    # Let's use the item size itself as a scaling factor. Or the median remaining capacity?
+    # For simplicity, let's use a fixed steepness factor, say `alpha`.
+
+    alpha = 10  # Steepness parameter for the sigmoid
+
+    # Calculate the negative of the residual for sigmoid input
+    # We want to map `bins_remain_cap - item` to `x` such that `sigmoid(f(x))` is high for small `x`.
+    # If we use `f(x) = -x`, then `sigmoid(-x)` has higher values for smaller `x`.
+    # So, let `x = bins_remain_cap[can_fit_mask] - item`.
+    # The scores will be `np.exp(-(alpha * x))`. No, that's not sigmoid.
+
+    # Let's use the form: `1 / (1 + exp(-k * (target - value)))`
+    # We want high priority when `bins_remain_cap - item` is close to 0.
+    # So, let `target = 0`. Let `value = bins_remain_cap - item`.
+    # Priority for fitting bins: `1 / (1 + exp(-alpha * (0 - (bins_remain_cap[can_fit_mask] - item))))`
+    # = `1 / (1 + exp(alpha * (bins_remain_cap[can_fit_mask] - item)))`
+
+    # Let's test this:
+    # If `bins_remain_cap - item = 0` (perfect fit): `1 / (1 + exp(0)) = 0.5`
+    # If `bins_remain_cap - item = small positive` (e.g., 0.1): `exp(0.1 * alpha)` is > 1. Denominator > 2. Score < 0.5.
+    # If `bins_remain_cap - item = large positive` (e.g., 1.0): `exp(1.0 * alpha)` is very large. Score close to 0.
+    # This means bins with larger remaining capacity *after* fitting get lower scores. This is good.
+
+    # If `bins_remain_cap - item = small negative` (item doesn't fit): We are masking this out.
+
+    # The problem is that the sigmoid output for the "best" case (residual = 0) is 0.5.
+    # We want the highest priority to be close to 1.
+    # This sigmoid form maps values to (0, 1).
+    # Maybe the interpretation of "Sigmoid Fit Score" implies mapping the *degree of fit* to a score.
+    # A good fit is when `bins_remain_cap` is `item` or slightly larger.
+    # The degree of "emptiness" after fitting is `bins_remain_cap - item`.
+    # We want to penalize large "emptiness".
+
+    # Consider mapping `bins_remain_cap` directly.
+    # Bins that can fit the item are those where `bins_remain_cap >= item`.
+    # Among these, we want those that are closest to `item`.
+    # This means we want to maximize `1 / (1 + exp(-alpha * (bins_remain_cap - item)))` for `bins_remain_cap >= item`.
+    # If `bins_remain_cap = item`, `exp(0) = 1`, score is 0.5.
+    # If `bins_remain_cap` is slightly larger than `item`, `exp(positive)` is > 1, score is < 0.5.
+    # If `bins_remain_cap` is much larger than `item`, `exp(much positive)` is very large, score is close to 0.
+
+    # This actually seems to prioritize bins with *less* remaining capacity after fitting,
+    # which is what "best fit" does. However, the peak is at 0.5, not 1.
+
+    # Let's try to shift and scale the sigmoid.
+    # We want a peak at `bins_remain_cap = item`.
+    # Let `x = bins_remain_cap[can_fit_mask] - item`.
+    # We want a function `f(x)` such that `f(0)` is high, `f(small_positive)` is slightly lower,
+    # and `f(large_positive)` is low.
+
+    # What if we consider the *ratio* of remaining capacity to bin capacity (if we knew it)?
+    # Since we don't know bin capacity, let's focus on the `item` and `bins_remain_cap`.
+
+    # Let's try a different formulation for sigmoid: `sigmoid(x) = 1 / (1 + exp(-x))`.
+    # We want to maximize `f(bins_remain_cap)`.
+    # For bins that can fit, `bins_remain_cap >= item`.
+    # Consider `value = item / bins_remain_cap[can_fit_mask]`. This is the fill ratio.
+    # We want to prioritize higher fill ratios.
+    # `sigmoid(k * (item / bins_remain_cap[can_fit_mask]))`
+    # If `bins_remain_cap = item`, ratio is 1. Sigmoid is `1 / (1 + exp(-k))`.
+    # If `bins_remain_cap` is slightly larger, ratio is slightly less than 1. Sigmoid is slightly less.
+    # If `bins_remain_cap` is much larger, ratio is close to 0. Sigmoid is close to 0.5.
+    # This prioritizes bins that are almost full (high fill ratio).
+
+    # Let's use this. We need to handle potential division by zero if `bins_remain_cap` is 0,
+    # but our `can_fit_mask` already filters for `bins_remain_cap >= item`.
+    # If `item > 0`, then `bins_remain_cap` will be > 0.
+    # If `item = 0`, then `bins_remain_cap` can be 0, but `0/0` is NaN.
+    # If `item = 0`, it fits in any bin, and has ratio 0.
+
+    fill_ratios = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Calculate fill ratio for bins that can fit the item
+    # Avoid division by zero for bins with remaining capacity 0, although our mask should prevent this if item > 0.
+    # If item is 0, then the fill ratio is 0 for any bin that can fit it (all bins).
+    positive_capacities_mask = bins_remain_cap > 0
+    can_fit_and_positive_cap_mask = can_fit_mask & positive_capacities_mask
+
+    # For bins that can fit and have positive capacity, calculate the fill ratio.
+    # fill_ratio = item / bins_remain_cap
+    fill_ratios[can_fit_and_positive_cap_mask] = item / bins_remain_cap[can_fit_and_positive_cap_mask]
+
+    # If item is 0, it fits everywhere. The fill ratio is effectively 0.
+    # Our `fill_ratios` is initialized to 0, so this is handled.
+
+    # Apply sigmoid to the fill ratio to get priority scores.
+    # Higher fill ratios should result in higher scores.
+    # Sigmoid function: `1 / (1 + exp(-k * x))` where x is the fill ratio.
+    # A larger k makes the transition steeper.
+    k = 15  # Steepness factor for the sigmoid. Higher means it's more sensitive to small changes in fill ratio.
+
+    # The fill ratio is between 0 and 1.
+    # `sigmoid(k * fill_ratio)`:
+    # If fill_ratio = 0, sigmoid = 0.5
+    # If fill_ratio = 1, sigmoid = 1 / (1 + exp(-k)) which is close to 1 for large k.
+    # This prioritizes bins with higher fill ratios.
+
+    # Let's ensure we don't get NaN or Inf if `bins_remain_cap` is exactly 0 and `item` is > 0.
+    # `can_fit_mask` ensures `bins_remain_cap >= item`.
+    # If `item > 0`, then `bins_remain_cap` must be > 0.
+    # So `bins_remain_cap[can_fit_mask]` will not be zero.
+
+    # We need to apply sigmoid to the `fill_ratios`.
+    # For bins that *cannot* fit the item, their priority should be 0.
+    # The `fill_ratios` are already 0 for these bins due to initialization and mask logic.
+
+    # Calculate the priority using sigmoid
+    # For bins where `can_fit_mask` is True, the `fill_ratios` have been calculated.
+    # For bins where `can_fit_mask` is False, `fill_ratios` remain 0.
+    # Applying sigmoid to 0 gives 0.5. This is not desired for bins that cannot fit.
+    # We need to apply sigmoid *only* to the bins that can fit.
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Calculate fill ratios only for bins that can fit
+    if np.any(can_fit_mask):
+        # Ensure we only divide by positive capacities if item > 0
+        # If item is 0, fill ratio is 0 for any bin it fits in.
+        if item > 0:
+            valid_capacities_for_fit = bins_remain_cap[can_fit_mask]
+            # We already ensured valid_capacities_for_fit >= item > 0.
+            # So division by zero is not an issue here.
+            current_fill_ratios = item / valid_capacities_for_fit
+        else: # item is 0
+            current_fill_ratios = np.zeros(np.sum(can_fit_mask)) # Fill ratio is 0 for zero-sized items.
+
+        # Apply sigmoid to the fill ratios.
+        # `sigmoid(k * current_fill_ratios)`
+        # This maps fill_ratio (0 to 1) to sigmoid values (0.5 to ~1).
+        # We want higher scores for higher fill ratios.
+        # Let's use `sigmoid(k * (current_fill_ratios - offset))` to shift the peak or make it more sensitive.
+        # If we want the peak at fill_ratio = 1 (i.e., best fit), we need the sigmoid input to be large positive at fill_ratio = 1.
+        # `k * fill_ratio` achieves this.
+
+        # `sigmoid(k * x)` where `x` is the fill ratio.
+        # To make the 'peak' at fill_ratio = 1 more pronounced and the drop-off steeper for lower fill ratios,
+        # we can simply use a large `k`.
+
+        # Let's use `alpha * (item / bins_remain_cap)` as input to sigmoid.
+        # This results in scores between `sigmoid(0)` (0.5) and `sigmoid(alpha)` (~1).
+        # A slightly different strategy is to prioritize bins with *least* remaining capacity that *can* fit the item.
+        # This is the "Best Fit" strategy. How to achieve this with sigmoid?
+
+        # Let's try a different approach using sigmoid to emphasize "almost full".
+        # Consider the gap: `gap = bins_remain_cap - item`. We want small, non-negative gaps to have high priority.
+        # Let `x = -(gap) = item - bins_remain_cap`.
+        # For bins that can fit, `gap >= 0`, so `x <= 0`.
+        # `sigmoid(k * x)`:
+        # If `gap = 0`, `x = 0`, `sigmoid(0) = 0.5`.
+        # If `gap` is small positive, `x` is small negative, `sigmoid` < 0.5.
+        # If `gap` is large positive, `x` is large negative, `sigmoid` close to 0.
+        # This prioritizes bins with *larger* gaps (less full bins), which is NOT what we want.
+
+        # Let's invert the sigmoid input.
+        # `sigmoid(-k * x)` where `x = bins_remain_cap - item`.
+        # `sigmoid(-k * (bins_remain_cap[can_fit_mask] - item))`
+        # If `bins_remain_cap - item = 0`: `sigmoid(0) = 0.5`.
+        # If `bins_remain_cap - item = small positive`: `sigmoid(-k * small_positive)` is < 0.5.
+        # If `bins_remain_cap - item = large positive`: `sigmoid(-k * large_positive)` is close to 0.
+        # This means bins with larger remaining capacity after fitting get lower scores. This IS what we want!
+        # The priority scores will be in the range (0, 1), with the highest score being 0.5 for a perfect fit.
+        # To get scores closer to 1 for perfect fits, we can modify the sigmoid or the input.
+
+        # Let's refine the input:
+        # `value = (bins_remain_cap[can_fit_mask] - item)`
+        # We want `value=0` to give the highest score.
+        # We can use `sigmoid(k * (1 - normalized_value))`
+        # Normalization is tricky.
+
+        # Let's go back to the fill ratio: `fill_ratio = item / bins_remain_cap` for bins that can fit.
+        # We want to prioritize `fill_ratio` close to 1.
+        # Let `x = fill_ratio`. We want `sigmoid(k * x)` to be high for high `x`.
+        # If `fill_ratio` is always <= 1, then `sigmoid(k * fill_ratio)` has its highest value at `fill_ratio = 1`.
+        # `sigmoid(k)` which is close to 1.
+        # For `fill_ratio = 0`, `sigmoid(0) = 0.5`.
+        # This mapping is good: 0.5 for bins that are empty-ish after fitting, ~1 for bins that are full.
+
+        # Re-implementing the fill ratio approach:
+        fill_ratios_for_fitting = np.zeros(np.sum(can_fit_mask))
+        
+        # Case: item size is 0
+        if item == 0:
+            # A zero-sized item fits into any bin. It doesn't consume capacity.
+            # The "fill ratio" could be considered 0 as it doesn't fill anything.
+            # Or, perhaps it makes bins that *can* fit the item have a score.
+            # If we use the current sigmoid, 0 fill ratio maps to 0.5 priority.
+            # So, any bin that can fit a zero item would get a priority of 0.5.
+            # This seems reasonable: a zero item can be placed in any bin with equal preference based on capacity.
+            # Let's proceed with the fill ratio calculation as if item > 0, and handle the item=0 case gracefully.
+            # If item is 0, `current_fill_ratios = 0 / bins_remain_cap` (if bin_remain_cap > 0).
+            # If bin_remain_cap is also 0, it's 0/0. But can_fit_mask requires `bins_remain_cap >= 0`.
+            # If item is 0, it fits in any bin.
+            # Let's define fill ratio for item=0 as 0.
+            fill_ratios_for_fitting = np.zeros(np.sum(can_fit_mask)) # fill ratio is 0
+        else:
+            # Item size > 0
+            bins_with_positive_capacity_that_fit = bins_remain_cap[can_fit_mask]
+            
+            # Filter for positive remaining capacities to avoid division by zero.
+            # Our `can_fit_mask` ensures `bins_remain_cap >= item`.
+            # If `item > 0`, then `bins_remain_cap` must be > 0 for `can_fit_mask` to be true.
+            # So, `bins_with_positive_capacity_that_fit` is guaranteed to be > 0.
+            
+            fill_ratios_for_fitting = item / bins_with_positive_capacity_that_fit
+
+        # Now apply sigmoid to these fill ratios.
+        # `k` controls the steepness. A higher `k` means the priority rapidly increases as fill ratio approaches 1.
+        # This strategy "Sigmoid Fit Score" aims to pack items into bins that are almost full.
+        # So, we want higher priority for higher fill ratios.
+        # `sigmoid(k * fill_ratio)`
+        # fill_ratio is between 0 and 1.
+        # sigmoid(0) = 0.5
+        # sigmoid(k) is close to 1 for k large.
+        # This provides scores in the range (0.5, ~1) for fitting bins.
+
+        k = 10.0 # Tuning parameter for sigmoid steepness. Adjust this for desired behavior.
+
+        # Ensure the input to sigmoid is within reasonable bounds to avoid overflow/underflow of exp.
+        # fill_ratios are between 0 and 1. k=10 is fine.
+        # If k is very large, k*fill_ratio can exceed typical float limits.
+        # Clip k * fill_ratios to prevent overflow.
+        sigmoid_input = k * fill_ratios_for_fitting
+        
+        # To ensure that the output is always positive for fitting bins, and zero for non-fitting,
+        # we apply the sigmoid to `fill_ratios_for_fitting`.
+        # Bins that cannot fit the item will have their priority remain 0 from initialization.
+        priorities[can_fit_mask] = 1 / (1 + np.exp(-sigmoid_input))
+
+    return priorities
+
+```

@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes exact fits with highest score, then bins with minimal excess
+    capacity, scaled to differentiate from exact fits.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        return priorities
+
+    eligible_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # Highest priority for exact fits
+    exact_fit_mask_local = (eligible_bins_remain_cap == item)
+    priorities[can_fit_mask][exact_fit_mask_local] = 2.0
+
+    # For non-exact fits, prioritize based on minimal excess capacity
+    non_exact_fit_mask_local = ~exact_fit_mask_local
+    if np.any(non_exact_fit_mask_local):
+        excess_capacities = eligible_bins_remain_cap[non_exact_fit_mask_local] - item
+        
+        # Normalize excess capacities to [0, 1]
+        min_excess = 0.0
+        max_excess = np.max(excess_capacities)
+
+        if max_excess > min_excess:
+            normalized_excess = (excess_capacities - min_excess) / (max_excess - min_excess)
+        else:
+            normalized_excess = np.zeros_like(excess_capacities) # All excess capacities are the same
+
+        # Assign priority: smaller normalized excess means higher priority, scaled to be less than exact fit score
+        # We use (1 - normalized_excess) to give higher score to smaller excess.
+        # Adding a small epsilon to the denominator for robustness, though normalization should handle it.
+        non_exact_priorities = 1.0 - normalized_excess
+        
+        # Scale these priorities to be between 0.1 and 1.0, ensuring they are always less than exact fit priority (2.0)
+        # and higher than the default 0.0
+        min_target_p = 0.1
+        max_target_p = 1.0
+        
+        if np.max(non_exact_priorities) - np.min(non_exact_priorities) > 1e-9:
+             scaled_non_exact_priorities = min_target_p + (non_exact_priorities - np.min(non_exact_priorities)) * (max_target_p - min_target_p) / (np.max(non_exact_priorities) - np.min(non_exact_priorities))
+        else:
+             scaled_non_exact_priorities = np.full_like(non_exact_priorities, (min_target_p + max_target_p) / 2.0)
+
+        priorities[can_fit_mask][non_exact_fit_mask_local] = scaled_non_exact_priorities
+
+    return priorities
+```

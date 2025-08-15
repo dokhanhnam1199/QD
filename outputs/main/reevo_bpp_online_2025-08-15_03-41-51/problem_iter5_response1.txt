@@ -1,0 +1,92 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority scores for each bin for the online Bin Packing Problem,
+    prioritizing tight fits with a sigmoid-like scoring and a small bonus for larger capacities.
+
+    This heuristic aims to balance the "best fit" strategy (tight packing) with
+    a slight preference for bins that still offer more flexibility for future items.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array representing the remaining capacity of each bin.
+
+    Returns:
+        A numpy array of priority scores, where higher scores indicate a higher
+        preference for placing the item in that bin.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros(num_bins, dtype=float)
+
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bin can fit the item, return all zeros
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Calculate a "tightness" score. Lower remaining capacity after placing the item is better.
+    # We want to penalize bins that would have a lot of remaining space.
+    # A small epsilon is added to avoid division by zero if a bin has exactly 'item' capacity.
+    remaining_after_fit = bins_remain_cap[can_fit_mask] - item
+    
+    # Use a sigmoid-like function to map remaining capacity to a priority score.
+    # We want to give higher scores to smaller remaining capacities.
+    # The logistic function: L / (1 + exp(-k*(x-x0)))
+    # Here, x is remaining_after_fit.
+    # We want to map small remaining_after_fit to high scores.
+    # Let's invert the remaining_after_fit to make it directly proportional to priority.
+    # A common transformation for "goodness" based on "badness" (remaining space)
+    # is 1 / (1 + remaining_space), or using exp for smoother transition.
+    
+    # Factor to control the steepness of the sigmoid (higher means sharper transition)
+    steepness = 5.0
+    # Factor to control the midpoint of the sigmoid. We want to center it around
+    # the average "waste" if the item perfectly fits.
+    # A good heuristic might be to center around the expected small waste.
+    # Let's use a small value like 0.1 for x0.
+    midpoint = 0.1 
+
+    # Calculate scores based on remaining capacity after fitting.
+    # Higher scores for smaller remaining capacity (tighter fit).
+    # We use exp(-k*x) which is like a decaying exponential, and then normalize it.
+    # Or directly use logistic function on negative remaining capacity.
+    
+    # Option 1: Use exp decay on negative remaining capacity (higher is better)
+    # This will give higher scores to smaller remaining capacities.
+    # Add a small constant to avoid log(0) or very large numbers if remaining_after_fit is very negative (shouldn't happen with mask)
+    tightness_scores = np.exp(-steepness * (remaining_after_fit - midpoint))
+
+    # Option 2: Use a normalized inverse, e.g., 1 / (1 + remaining_after_fit)
+    # This might be less sensitive than exponential.
+    # tightness_scores = 1.0 / (1.0 + remaining_after_fit)
+    
+    # Add a small bonus for bins that still have significant remaining capacity.
+    # This encourages keeping some bins more open for larger future items.
+    # This bonus should be relatively small compared to the tightness score.
+    # We can use a scaled version of the remaining capacity itself.
+    flexibility_bonus_scale = 0.1 # Scale factor for the bonus
+    flexibility_bonus = flexibility_bonus_scale * (bins_remain_cap[can_fit_mask] - item)
+    
+    # Combine tightness score and flexibility bonus.
+    # The tightness score should dominate.
+    combined_scores = tightness_scores + flexibility_bonus
+
+    # Normalize the combined scores for bins that can fit.
+    # This makes the priorities relative to each other.
+    if np.any(combined_scores > 0):
+        normalized_scores = combined_scores / np.max(combined_scores)
+    else:
+        # If all combined scores are zero or negative (shouldn't happen with the logic above)
+        normalized_scores = np.zeros_like(combined_scores)
+
+    # Assign the calculated priorities to the bins that can fit
+    priorities[can_fit_mask] = normalized_scores
+
+    # Ensure bins that cannot fit have zero priority. This is already handled by initialization.
+    # priorities[~can_fit_mask] = 0.0
+
+    return priorities
+```

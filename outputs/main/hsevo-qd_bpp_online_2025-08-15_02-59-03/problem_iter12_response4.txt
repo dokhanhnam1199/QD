@@ -1,0 +1,191 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority for packing an item into bins using a strategy that
+    favors bins with a remaining capacity closest to the item size, while
+    also considering the overall fullness of the bins.
+    This aims to minimize wasted space by using bins that are a good fit,
+    and by trying to fill bins more completely before opening new ones.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Mask for bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(suitable_bins_mask):
+        return priorities # No bin can fit the item
+
+    # Calculate the "fit score" for suitable bins: how close is the remaining capacity to the item size
+    # Smaller difference is better, so we invert it for a higher priority score.
+    # We add a small epsilon to avoid division by zero if remaining_capacity - item is 0.
+    diffs = bins_remain_cap[suitable_bins_mask] - item
+    fit_scores = 1.0 / (diffs + 1e-6) 
+    
+    # Normalize fit scores so they are in a comparable range
+    if np.max(fit_scores) > 0:
+        normalized_fit_scores = fit_scores / np.max(fit_scores)
+    else:
+        normalized_fit_scores = np.zeros_like(fit_scores)
+
+    # Calculate a "fill score" for suitable bins: how much capacity is already used.
+    # Higher fill score means the bin is more full, which is generally desirable to minimize bin count.
+    # We use (bin_capacity - bin_remaining_capacity) / bin_capacity as a proxy for fill percentage.
+    # Assuming a default bin capacity if not provided, or if we only have remaining capacity.
+    # For simplicity here, we'll use remaining capacity as a proxy for "how much is left to fill".
+    # A smaller remaining capacity (after placing the item) means the bin is more full.
+    # So, we want to prioritize bins that will have *less* remaining capacity *after* the item is placed.
+    
+    # Let's rethink "fill score". A better approach might be to prioritize bins that are already quite full.
+    # If we only have remaining capacity, we can't directly know the original capacity or current fill.
+    # However, we can infer that a bin with *less* remaining capacity *before* placing the item is generally fuller.
+    # Let's prioritize bins with less remaining capacity among the suitable ones.
+    
+    # We want less remaining capacity among suitable bins, so we invert the remaining capacities.
+    # Larger inverted remaining capacity means it's less full (which we don't want), so we want smaller remaining capacities.
+    # Let's use the inverse of remaining capacity as a proxy for "fullness".
+    # Smaller remaining capacity -> higher inverse remaining capacity -> higher priority.
+    
+    # However, this can be dominated by very small remaining capacities, which might not be ideal if they are too small.
+    # The 'fit_score' already addresses the closeness to the item size.
+    # Let's combine 'fit_score' with a penalty for "too much" remaining capacity *after* placing the item.
+    # This means we prefer bins that end up with a small remaining capacity.
+    
+    # Let's try a simpler approach for the "fill" aspect: prioritize bins that have *less* capacity left *after* the item is placed.
+    # This is equivalent to minimizing (bins_remain_cap[suitable_bins_mask] - item).
+    # Our fit_scores already capture this: higher fit_score means smaller diffs.
+    
+    # Let's consider the absolute remaining capacity *before* placing the item.
+    # A bin with slightly more capacity than the item might be better than one with *exactly* the item's capacity
+    # if that very tight fit leaves little room for future items.
+    # This is a trade-off.
+    
+    # Let's combine the "best fit" idea with a "least remaining capacity" idea.
+    # The Best Fit aspect is captured by `fit_scores`.
+    # Now, let's incorporate a preference for bins that are generally less empty.
+    # Among suitable bins, we want to pick one that has less remaining capacity *overall*.
+    
+    # We can create a "fullness score" which is inversely proportional to the current remaining capacity.
+    # Larger inverse remaining capacity means more full.
+    
+    # Let's assign priority based on how "full" the bin would be *after* placing the item.
+    # The "fullness after" is proportional to (OriginalCapacity - (bins_remain_cap - item)).
+    # We don't have OriginalCapacity, but we can use the `bins_remain_cap - item` as the *new* remaining capacity.
+    # We want to minimize this new remaining capacity.
+    
+    # So, the smaller `bins_remain_cap[suitable_bins_mask] - item` is, the better.
+    # This is already what `fit_scores` captures (higher `fit_scores` for smaller `diffs`).
+    
+    # Let's refine: we want a bin that is a good fit, AND is already quite full.
+    # If two bins have the same "fit", we prefer the one that is currently less empty (i.e., has less remaining capacity).
+    
+    # Let's define priority as:
+    # priority = (contribution from being a good fit) + (contribution from being less empty)
+    
+    # Good fit: smaller `diffs = bins_remain_cap[suitable_bins_mask] - item`. We used `1.0 / (diffs + epsilon)` for this.
+    # Less empty: smaller `bins_remain_cap[suitable_bins_mask]`.
+    
+    # To give preference to less empty bins when fit is similar, we can perhaps use a weighted sum or a lexicographical sort.
+    # A simple way to combine is to use the negative of the remaining capacity (smaller remaining capacity is better).
+    # Since we want to give *higher* priority to less empty bins, we use the negative.
+    
+    # Let's consider the remaining capacities of suitable bins. We want to prioritize smaller values.
+    # So, ` - bins_remain_cap[suitable_bins_mask] ` would be higher for smaller capacities.
+    
+    # Let's try to combine the "tightest fit" with "least remaining capacity".
+    # The item is `item`.
+    # Suitable bins have remaining capacities `R = bins_remain_cap[suitable_bins_mask]`.
+    # We want to minimize `R - item`. This is our 'fit'.
+    # We also want to minimize `R` (less remaining capacity overall).
+    
+    # Let's create a combined score.
+    # The 'best fit' is achieved when `R - item` is minimal.
+    # The 'least remaining capacity' is achieved when `R` is minimal.
+    
+    # Consider the normalized difference `(R - item) / R` as a measure of wasted space *relative to the bin's current capacity*.
+    # A smaller `(R - item) / R` means less relative waste.
+    
+    # Let's try a heuristic that prioritizes bins that, after placing the item, leave the minimum remaining capacity.
+    # This is exactly what Best Fit does (minimizing `R - item`).
+    
+    # How to be "better than Best Fit"?
+    # Best Fit aims to minimize `R - item`.
+    # An alternative is "Worst Fit" (maximize `R - item`), or "First Fit" (first suitable bin).
+    
+    # Consider "Best Fit Decreasing" - it sorts items first. This is online, so we can't sort items.
+    
+    # Let's focus on improving the selection among suitable bins for the *current* item.
+    # What if we try to make bins as full as possible, without being too tight?
+    
+    # Let's try to balance "good fit" and "fullness".
+    # 'Good fit' means `bins_remain_cap[suitable_bins_mask] - item` is small.
+    # 'Fullness' means `bins_remain_cap[suitable_bins_mask]` is small.
+    
+    # We want to prioritize bins where `bins_remain_cap[suitable_bins_mask] - item` is small.
+    # And among those with similar `bins_remain_cap[suitable_bins_mask] - item`, we want the one with smaller `bins_remain_cap[suitable_bins_mask]`.
+    
+    # Let's define a penalty function.
+    # Penalty = (slack) + (some measure of emptiness)
+    # Slack = `bins_remain_cap[suitable_bins_mask] - item`
+    # Emptiness = `bins_remain_cap[suitable_bins_mask]`
+    
+    # We want to minimize `slack`. We also want to minimize `emptiness`.
+    # A simple combination would be to minimize `slack + alpha * emptiness` or `slack * emptiness`.
+    
+    # Let's try to prioritize bins that leave the smallest *percentage* of remaining capacity after packing.
+    # Remaining capacity after packing: `R_new = bins_remain_cap[suitable_bins_mask] - item`
+    # Percentage remaining: `R_new / bins_remain_cap[suitable_bins_mask]`
+    # We want to minimize this percentage.
+    
+    # Priority = 1.0 / ( (bins_remain_cap[suitable_bins_mask] - item) / bins_remain_cap[suitable_bins_mask] + epsilon )
+    # This combines both aspects:
+    # - If `bins_remain_cap[suitable_bins_mask] - item` is small, the numerator is small.
+    # - If `bins_remain_cap[suitable_bins_mask]` is large, the denominator is large, reducing the overall fraction (undesirable).
+    # - If `bins_remain_cap[suitable_bins_mask]` is small (but still >= item), the denominator is small, potentially increasing the fraction.
+    
+    # This seems promising. It favors bins where the item fills a larger proportion of the remaining space.
+    
+    # Let's calculate this score for suitable bins.
+    # `new_remaining = bins_remain_cap[suitable_bins_mask] - item`
+    # `current_remaining = bins_remain_cap[suitable_bins_mask]`
+    # `fill_ratio = new_remaining / current_remaining`
+    # Higher priority for lower `fill_ratio`. So, `1.0 / (fill_ratio + epsilon)`
+    
+    current_remaining = bins_remain_cap[suitable_bins_mask]
+    new_remaining = current_remaining - item
+    
+    # Avoid division by zero if current_remaining is zero (though it shouldn't be if it's suitable >= item)
+    # and if new_remaining is negative (also shouldn't happen).
+    # We are interested in the ratio of remaining space *after* packing to the *original* remaining space.
+    # A smaller ratio means the item took up a larger portion of that space.
+    
+    # Consider bins where current_remaining == item. Then new_remaining = 0. Ratio = 0.
+    # This is ideal for "filling" the bin.
+    # Consider bins where current_remaining is very large, and item is small. new_remaining is still large. Ratio ~ 1.
+    # This is less ideal.
+    
+    # So, we want to maximize `1.0 / (new_remaining / current_remaining + epsilon)`.
+    # Which is equivalent to minimizing `new_remaining / current_remaining`.
+    
+    fill_ratios = new_remaining / (current_remaining + 1e-6) # Use epsilon to avoid division by zero
+    
+    # We want to prioritize bins with *smaller* fill_ratios.
+    # So, priority is inversely proportional to fill_ratio.
+    # Higher priority = higher value.
+    # Let's transform it: prioritize higher values of `1.0 / (fill_ratio + epsilon)`
+    
+    priorities_for_suitable_bins = 1.0 / (fill_ratios + 1e-6)
+    
+    # Normalize these priorities to be between 0 and 1.
+    max_priority = np.max(priorities_for_suitable_bins)
+    if max_priority > 0:
+        normalized_priorities = priorities_for_suitable_bins / max_priority
+    else:
+        normalized_priorities = np.zeros_like(priorities_for_suitable_bins)
+        
+    priorities[suitable_bins_mask] = normalized_priorities
+    
+    return priorities
+
+```

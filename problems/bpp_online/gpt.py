@@ -1,103 +1,48 @@
 import numpy as np
 
 def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
-    """Returns priority with which we want to add item to each bin using a refined Sigmoid Fit Score.
+    """Returns priority with which we want to add item to each bin using Softmax-Based Fit.
 
-    This heuristic prioritizes bins that offer the "tightest fit" for an incoming item.
-    A tight fit means the bin has just enough remaining capacity to accommodate the item,
-    minimizing wasted space. Bins that are too small are excluded, and among the
-    suitable bins, those with less remaining capacity (but still sufficient) are preferred.
-
-    The scoring is based on a sigmoid function applied to the difference between
-    the bin's remaining capacity and the item's size. Specifically, for bins where
-    `remaining_capacity >= item`, the score is calculated as:
-
-    `score = 1 / (1 + exp(k * (remaining_capacity - item)))`
-
-    Here:
-    - `k` is a sensitivity parameter that controls how quickly the priority drops
-      as the remaining capacity exceeds the item size. A higher `k` means a sharper
-      preference for tighter fits.
-    - `remaining_capacity - item` is the "mismatch" or wasted space.
-    - When `remaining_capacity == item` (perfect fit), the exponent is 0, `exp(0)=1`,
-      and the score is `1 / (1 + 1) = 0.5`.
-    - When `remaining_capacity > item` (mismatch > 0), the exponent is positive.
-      As `remaining_capacity` increases, the exponent `k * (remaining_capacity - item)`
-      increases, `exp(...)` increases, `1 + exp(...)` increases, and thus the score
-      decreases (approaching 0 for very large capacities). This correctly penalizes
-      bins with excessive remaining space.
-
-    This approach ensures that bins with smaller positive mismatches (tighter fits)
-    receive higher priority scores than bins with larger positive mismatches.
+    The priority is calculated based on the remaining capacity of the bins.
+    Bins with more remaining capacity are penalized (lower priority), encouraging
+    the use of bins that are closer to being full. A small epsilon is added to
+    avoid division by zero if a bin has zero remaining capacity.
 
     Args:
-        item: The size of the item to be packed.
-        bins_remain_cap: A NumPy array representing the remaining capacity of each bin.
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
 
-    Returns:
-        A NumPy array of the same size as `bins_remain_cap`, where each element
-        is the priority score for the corresponding bin. Bins that cannot fit the item
-        will have a priority of 0.
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
     """
-    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 1e-9  # Small value to prevent division by zero
 
-    # Identify bins that can accommodate the item
-    suitable_bins_mask = bins_remain_cap >= item
-    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+    # Calculate the "fitness" for each bin: how well the item fits.
+    # We want to prioritize bins where the item leaves less remaining space,
+    # meaning the bin is more "full" after the item is added.
+    # So, fitness is inversely related to the remaining capacity after adding the item.
+    # We only consider bins where the item actually fits.
+    fits = bins_remain_cap >= item
+    fitness_scores = np.zeros_like(bins_remain_cap)
+    fitness_scores[fits] = bins_remain_cap[fits] - item
 
-    # If no bin can fit the item, return all zeros
-    if suitable_bins_cap.size == 0:
-        return priorities
+    # Use softmax to convert fitness scores into probabilities (priorities).
+    # We add epsilon to all fitness scores to ensure no non-positive values
+    # are passed to exp, and to differentiate bins with zero remaining capacity
+    # from bins where the item perfectly fits.
+    # Higher fitness_scores (meaning less remaining capacity after packing)
+    # will result in higher priority scores after softmax.
+    adjusted_fitness_scores = fitness_scores + epsilon
 
-    # Parameter for the sigmoid function's steepness.
-    # A higher value makes the function drop faster as capacity increases past the item size.
-    # This encourages selecting bins that are closer to the item size.
-    k = 5.0  # Tunable parameter
+    # Softmax formula: exp(x_i) / sum(exp(x_j))
+    exp_scores = np.exp(adjusted_fitness_scores)
+    sum_exp_scores = np.sum(exp_scores)
 
-    # Calculate the "mismatch" or wasted space for suitable bins
-    # mismatch = suitable_bins_cap - item
-    # We want to give higher priority when mismatch is small (close to 0).
-    # The function 1 / (1 + exp(k * mismatch)) achieves this:
-    # - If mismatch = 0, score = 1 / (1 + exp(0)) = 0.5
-    # - If mismatch > 0 (but small), exp(k*mismatch) is slightly > 1, score is slightly < 0.5
-    # - If mismatch is large positive, exp(k*mismatch) is very large, score approaches 0.
-
-    # Calculate the sigmoid scores for the suitable bins
-    # To avoid potential overflow with exp(k * mismatch) if mismatch is very large,
-    # we can consider the range of `suitable_bins_cap`. If `suitable_bins_cap`
-    # can be extremely large compared to `item`, `k * (suitable_bins_cap - item)`
-    # can be a very large positive number, leading to `exp()` overflowing.
-    # A robust way to handle this is to clip the argument to the exponential or
-    # use a more numerically stable sigmoid implementation if necessary.
-    # For typical BPP scenarios, direct calculation might be acceptable.
-    # If `suitable_bins_cap - item` becomes very large, `exp` might overflow.
-    # We can cap the argument to `exp` to prevent overflow.
-    # A practical upper bound for `k * (capacity - item)` can be set.
-    # For example, if `k=5`, `exp(35)` is already very large. Let's cap at 35.
-    mismatch = suitable_bins_cap - item
-    exponent_arg = k * mismatch
-    
-    # Cap the exponent argument to prevent overflow in np.exp
-    # A value of 700 is a common threshold for `exp` to return inf.
-    # If `k * mismatch` is, say, 40, `exp(40)` is large but manageable.
-    # If `k * mismatch` is 1000, `exp(1000)` is infinity.
-    # Let's cap the argument to a reasonable value, say 35, to keep `exp` within range,
-    # or handle `inf` gracefully. If `exp` becomes `inf`, the score becomes 0.
-    # A simpler approach is to ensure `k` and `mismatch` product doesn't exceed a threshold.
-    # Let's assume typical capacities and k are such that direct calculation is fine,
-    # but for robustness, we'll consider capping.
-    
-    # Let's use a threshold for `k * mismatch`. If `k * mismatch > threshold`,
-    # then `exp(k * mismatch)` will be very large, and the score will be close to 0.
-    # A threshold like 30-40 for the exponent is usually sufficient to make `exp` very large.
-    # Let's use a maximum argument to exp to prevent overflow.
-    max_exponent_arg = 35.0 # Corresponds to exp(35) which is ~3.4e15
-    
-    capped_exponent_arg = np.minimum(exponent_arg, max_exponent_arg)
-    
-    sigmoid_scores = 1 / (1 + np.exp(capped_exponent_arg))
-
-    # Place the calculated sigmoid scores back into the main priorities array
-    priorities[suitable_bins_mask] = sigmoid_scores
+    # If all bins are full or the item doesn't fit anywhere, sum_exp_scores will be 0.
+    # In such cases, return a uniform distribution or all zeros.
+    if sum_exp_scores == 0:
+        priorities = np.zeros_like(bins_remain_cap)
+    else:
+        priorities = exp_scores / sum_exp_scores
 
     return priorities

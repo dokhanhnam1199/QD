@@ -1,0 +1,591 @@
+[Prior reflection]
+Prioritize minimal *positive* residual capacity for tighter fits. Consider relative fullness and smooth, non-linear functions for graduated scores. Explore simple First Fit as a baseline.
+
+The current `priority_v1` function prioritizes bins based on the ratio of the bin's capacity before packing to the remaining capacity after packing. This favors bins that are more "tightly" filled. However, the reflection asks to prioritize minimal *positive* residual capacity. This means if a bin can accommodate an item, and after accommodating it, the remaining capacity is small and positive, that's a good fit. It also mentions "smooth, non-linear functions for graduated scores".
+
+Let's consider a function that penalizes bins that have too much remaining capacity, and rewards bins that have just enough. A quadratic function could work, where the penalty/reward increases as the remaining capacity deviates from zero.
+
+Consider the score for a bin that can fit the item:
+Score = f(resulting_remain_cap)
+
+We want f(x) to be high when x is small and positive, and decrease as x increases.
+A function like `1 / (x + epsilon)` as used in v1 is good for small x.
+To make it smoother and more "graduated", we can explore functions that:
+1.  Are high for small positive `resulting_remain_cap`.
+2.  Gracefully decrease as `resulting_remain_cap` increases.
+3.  Handle `resulting_remain_cap = 0` (perfect fit) as a maximum.
+
+A possible function: `exp(-k * resulting_remain_cap)` where `k` is a tuning parameter.
+If `resulting_remain_cap = 0`, score is `exp(0) = 1`.
+If `resulting_remain_cap` is small positive, score is close to 1.
+If `resulting_remain_cap` is large, score is close to 0.
+This gives higher scores to bins with less remaining capacity.
+
+Let's refine this to prioritize *minimal positive* residual capacity. This implies that a bin with residual capacity `0.1` should be preferred over a bin with `0.5`.
+The `exp(-k * x)` function already does this.
+However, we also want to consider the *relative* fullness. `priority_v1` did this using `fitting_bins_capacities / (resulting_remain_cap + epsilon)`.
+
+Let's try to combine: prioritize by minimizing `resulting_remain_cap` but also consider the original capacity.
+The idea of minimizing positive residual capacity is to make the "gap" after packing as small as possible.
+
+A potential scoring function could be:
+`Score = 1.0 - (resulting_remain_cap / original_bin_capacity)`
+This is `item / original_bin_capacity`. This is what v1 essentially did, but instead of `original_bin_capacity`, it used `fitting_bins_capacities` which is `original_bin_capacity - item_that_was_in_it`.
+
+Let's stick to the idea of prioritizing small positive `resulting_remain_cap` and make it smooth.
+We can use a function that is maximized at 0 remaining capacity and decreases as remaining capacity increases.
+A simple approach is `1 / (resulting_remain_cap + epsilon)` but we can try a more "graduated" curve.
+How about a function that gives a high score for a very small positive remaining capacity, and a slightly lower score for zero remaining capacity, and then rapidly decreasing scores for larger remaining capacities? This might be overly complex.
+
+Let's focus on the "minimal positive residual capacity" for tighter fits, and "graduated scores".
+
+If we want to prioritize bins that leave a small positive remaining capacity, perhaps we can score based on how close `resulting_remain_cap` is to zero, but also ensure that perfect fits (zero residual) are still highly prioritized.
+
+Consider the score: `max(0, 1 - resulting_remain_cap / bin_capacity_before_item)`
+This is `max(0, item / bin_capacity_before_item)`. This is similar to what we had.
+
+Let's rethink "minimal positive residual capacity". If we have bins with remaining capacities [10, 5, 2] and an item of size 1:
+-   Bin 1: 10 -> 9. Residual = 9.
+-   Bin 2: 5 -> 4. Residual = 4.
+-   Bin 3: 2 -> 1. Residual = 1.
+
+Here, Bin 3 has the minimal *positive* residual capacity. This is a very good fit.
+`priority_v1` scores:
+-   Bin 1: 10 / 9 = 1.11
+-   Bin 2: 5 / 4 = 1.25
+-   Bin 3: 2 / 1 = 2.0
+
+This correctly prioritizes Bin 3.
+
+What if we have [10, 5, 0.5] and item 1?
+-   Bin 1: 10 -> 9. Residual = 9.
+-   Bin 2: 5 -> 4. Residual = 4.
+-   Bin 3: 0.5 -> -0.5. Cannot fit.
+
+What if we have [10, 5, 1.5] and item 1?
+-   Bin 1: 10 -> 9. Residual = 9.
+-   Bin 2: 5 -> 4. Residual = 4.
+-   Bin 3: 1.5 -> 0.5. Residual = 0.5.
+
+`priority_v1` scores:
+-   Bin 1: 10 / 9 = 1.11
+-   Bin 2: 5 / 4 = 1.25
+-   Bin 3: 1.5 / 0.5 = 3.0
+
+This correctly prioritizes Bin 3 for the tightest fit.
+
+The prompt also mentions "smooth, non-linear functions for graduated scores".
+The current `1 / (x + epsilon)` is a hyperbola, which is non-linear.
+Perhaps a function that is more sensitive to small values but still smooth.
+
+Consider the difference between `priority_v1` and the reflection:
+`priority_v1`: `fitting_bins_capacities / (resulting_remain_cap + epsilon)`
+This is `(item + resulting_remain_cap) / (resulting_remain_cap + epsilon)`.
+This score is high when `resulting_remain_cap` is small.
+
+Let's introduce a smoothing factor or a non-linearity that emphasizes smaller remainders more strongly but still maintains a sensible ordering.
+A Gaussian-like function centered at 0 remaining capacity could work, but then a perfect fit might not be the absolute max.
+
+A simpler way to achieve "graduated scores" is to scale the existing scores or apply a transformation.
+The current scores are roughly `1 + item / resulting_remain_cap`.
+
+Consider a function that maps `resulting_remain_cap` to a score. We want a decreasing function.
+`f(x) = 1 / (x + epsilon)` is good.
+What if we want to emphasize smaller residuals even more?
+`f(x) = 1 / (x^p + epsilon)` for p > 1.
+If p=2: `1 / (x^2 + epsilon)`
+-   Bin 1: 10 -> 9. Residual = 9. Score = 1 / (81 + eps) ~ 0.01
+-   Bin 2: 5 -> 4. Residual = 4. Score = 1 / (16 + eps) ~ 0.06
+-   Bin 3: 2 -> 1. Residual = 1. Score = 1 / (1 + eps) ~ 1.0
+
+This prioritizes the smallest residual, but the scores become very small for larger residuals, making discrimination harder for those.
+
+Let's try to keep the relative scaling idea but make the score a bit more "graduated" or sensitive to the smaller end.
+Perhaps a logarithmic transformation of the ratio could work, but that might invert the preference.
+
+Let's consider a function that rewards tight fits, and also penalizes bins that are too empty.
+If a bin is almost empty, even if it fits the item, it might not be the best choice if another bin is already quite full. This hints at considering the *current* fullness too.
+
+The reflection says: "Prioritize minimal *positive* residual capacity for tighter fits."
+And "smooth, non-linear functions for graduated scores."
+
+Let's try to modify `priority_v1`'s core logic `fitting_bins_capacities / (resulting_remain_cap + epsilon)` to be more sensitive to smaller `resulting_remain_cap`.
+
+Consider a transformation: `log(fitting_bins_capacities) / log(resulting_remain_cap + epsilon)`
+-   Bin 1: 10 -> 9. Res=9. log(10)/log(9) = 1.04 / 0.95 = 1.09
+-   Bin 2: 5 -> 4. Res=4. log(5)/log(4) = 0.70 / 0.60 = 1.16
+-   Bin 3: 2 -> 1. Res=1. log(2)/log(1) -> log(2)/log(1+eps) = 0.30 / log(1+eps) -> very large.
+
+This also seems to work. However, `log(1)` is 0, so `log(resulting_remain_cap)` would be 0 for a perfect fit. Division by zero.
+
+Let's try a sigmoid-like function or a scaled exponential.
+How about `1 - exp(-k * resulting_remain_cap)`?
+If `resulting_remain_cap = 0`, score = `1 - exp(0) = 0`. This is bad, we want perfect fits to be high.
+
+Let's go back to `1 / (x + epsilon)`.
+To make it "graduated" and sensitive to small values, we can adjust the `epsilon` or apply a non-linear scaling to the input `x`.
+
+Consider `Score = max_capacity / (resulting_remain_cap + epsilon)` where `max_capacity` is some reference capacity (e.g., original bin capacity).
+This is `fitting_bins_capacities / (resulting_remain_cap + epsilon)`. This is `priority_v1`.
+
+What if we want to map `resulting_remain_cap` to a score where 0 is best, and values increase as `resulting_remain_cap` increases, but the increase is non-linear and perhaps slower for small values?
+No, the prompt implies higher score is better, and "minimal *positive* residual capacity" means smaller residual is better. So, the score should be a decreasing function of `resulting_remain_cap`.
+
+Let's introduce a parameter `alpha` to control sensitivity to residual capacity.
+`Score = 1 / (alpha * resulting_remain_cap + epsilon)`
+If `alpha` is small, it's less sensitive to small residuals. If `alpha` is large, it's more sensitive.
+
+Maybe the "smooth, non-linear function" refers to how the score is calculated *given* the residual capacity, and we want to avoid abrupt changes. The `1 / (x + epsilon)` is already smooth.
+
+Let's consider the "relative fullness" part again.
+The reflection says: "Prioritize minimal *positive* residual capacity for tighter fits. Consider relative fullness and smooth, non-linear functions for graduated scores."
+
+`priority_v1` uses `fitting_bins_capacities / (resulting_remain_cap + epsilon)`.
+This captures both the absolute residual (through `resulting_remain_cap`) and the relative fullness (by dividing by `fitting_bins_capacities`).
+
+To make it more "graduated" and sensitive to small residuals, perhaps we can use a power function on the residual.
+`Score = fitting_bins_capacities / (resulting_remain_cap^p + epsilon)` for `p > 1`.
+Let `p = 1.5`.
+-   Bin 1: 10 -> 9. Res=9. Score = 10 / (9^1.5 + eps) = 10 / (27 + eps) = 0.37
+-   Bin 2: 5 -> 4. Res=4. Score = 5 / (4^1.5 + eps) = 5 / (8 + eps) = 0.625
+-   Bin 3: 2 -> 1. Res=1. Score = 2 / (1^1.5 + eps) = 2 / (1 + eps) = 2.0
+
+This still prioritizes Bin 3. It seems `priority_v1` is already doing a decent job according to the reflection's intent.
+
+Let's consider the "smooth, non-linear functions" part more deeply.
+The current function is a rational function. It's smooth where defined.
+
+What if we want to give a bonus for having a very small positive residual, e.g., residual is less than `epsilon_small`?
+And then for residuals larger than that, use a smoother decay.
+
+Let's try a different approach for the score calculation for fitting bins:
+`score = (fitting_bins_capacities - resulting_remain_cap) / (resulting_remain_cap + epsilon)`
+This is `item / (resulting_remain_cap + epsilon)`.
+-   Bin 1: 10 -> 9. Res=9. Item=1. Score = 1 / (9 + eps) = 0.11
+-   Bin 2: 5 -> 4. Res=4. Item=1. Score = 1 / (4 + eps) = 0.25
+-   Bin 3: 2 -> 1. Res=1. Item=1. Score = 1 / (1 + eps) = 1.0
+
+This prioritizes Bin 3 and is simpler. It focuses on the ratio of the *item size* to the *remaining capacity*. A larger item fitting into a small gap is a good sign.
+
+Let's combine the spirit of `v1` (relative fill) and this idea (item size vs residual).
+`Score = (item / fitting_bins_capacities) * (fitting_bins_capacities / (resulting_remain_cap + epsilon))`
+This simplifies to `item / (resulting_remain_cap + epsilon)`.
+
+Let's reconsider the reflection: "Prioritize minimal *positive* residual capacity for tighter fits. Consider relative fullness and smooth, non-linear functions for graduated scores."
+
+The core idea of "minimal positive residual capacity" implies that a very small, but positive, remaining space is good.
+The function `1 / (x + epsilon)` is sensitive to small `x`.
+To make it "smoother" and "graduated", perhaps we can introduce an offset or a different base.
+
+Consider `Score = C - resulting_remain_cap`. This prioritizes smaller residuals but isn't relative.
+To make it relative and graduated:
+Let's use a function that peaks at `resulting_remain_cap = 0` (perfect fit) or just above zero.
+
+What about a score that is a function of `item / fitting_bins_capacities` (how much the item fills the current space)?
+Let `fill_ratio = item / fitting_bins_capacities`.
+We want to prioritize high `fill_ratio`.
+However, if `fill_ratio` is the same, we want the bin with less absolute `resulting_remain_cap`.
+
+Let's try: `Score = fill_ratio - k * resulting_remain_cap`
+This doesn't quite capture "minimal *positive* residual".
+
+How about this:
+For bins that can fit the item:
+Calculate `residual_after_packing = bins_remain_cap[i] - item`.
+The score for bin `i` is `1.0 / (residual_after_packing + epsilon)`.
+This directly addresses "minimal positive residual capacity" (small denominator).
+To add the "relative fullness" aspect, we can multiply by the relative fullness:
+`relative_fill = item / bins_remain_cap[i]`
+`Score = relative_fill * (1.0 / (residual_after_packing + epsilon))`
+`Score = (item / bins_remain_cap[i]) * (1.0 / (bins_remain_cap[i] - item + epsilon))`
+
+Let's test this:
+Item = 1
+Bins: [10, 5, 2]
+-   Bin 1: fits (10 >= 1). `bins_remain_cap[0]`=10. `residual_after_packing`=9. `relative_fill`=1/10. Score = (1/10) * (1/(9+eps)) = 0.1 * 0.11 = 0.011
+-   Bin 2: fits (5 >= 1). `bins_remain_cap[1]`=5. `residual_after_packing`=4. `relative_fill`=1/5. Score = (1/5) * (1/(4+eps)) = 0.2 * 0.25 = 0.05
+-   Bin 3: fits (2 >= 1). `bins_remain_cap[2]`=2. `residual_after_packing`=1. `relative_fill`=1/2. Score = (1/2) * (1/(1+eps)) = 0.5 * 1.0 = 0.5
+
+This prioritizes Bin 3. This seems to align well with the reflection. It's a combination of the proportion of space filled by the item (`item / bins_remain_cap[i]`) and the inverse of the residual capacity (`1 / (residual_after_packing + epsilon)`).
+
+Let's try to make it "smoother" and "graduated".
+The multiplication of two terms might not be the smoothest.
+
+Consider a penalty function for residual capacity `P(x) = x^p`. We want to minimize this.
+We also want to consider the initial state.
+
+What if we simply use a scaled version of `priority_v1`?
+`priority_v1 = fitting_bins_capacities / (resulting_remain_cap + epsilon)`
+This is `(item + resulting_remain_cap) / (resulting_remain_cap + epsilon)`.
+Let `x = resulting_remain_cap`. The score is `(item + x) / (x + epsilon)`.
+
+To make it more sensitive to small `x`, let's apply a power to `x`:
+`Score = (item + x) / (x^p + epsilon)` with `p > 1`.
+Let `p = 1.5`.
+-   Bin 1: 10 -> 9. Res=9. Item=1. Score = (1+9) / (9^1.5 + eps) = 10 / (27 + eps) = 0.37
+-   Bin 2: 5 -> 4. Res=4. Item=1. Score = (1+4) / (4^1.5 + eps) = 5 / (8 + eps) = 0.625
+-   Bin 3: 2 -> 1. Res=1. Item=1. Score = (1+1) / (1^1.5 + eps) = 2 / (1 + eps) = 2.0
+
+This still prioritizes Bin 3 and introduces more separation for smaller residuals. This seems to satisfy "smooth, non-linear functions for graduated scores" better than `priority_v1`. The power function `x^p` is non-linear and graduated.
+
+Let's select `p=1.5` as a parameter that can be tuned.
+The score is `(item + residual_capacity) / (residual_capacity^1.5 + epsilon)`.
+Or, using original terms: `fitting_bins_capacities / ((fitting_bins_capacities - item)^1.5 + epsilon)`
+
+This function is high when `fitting_bins_capacities` is large relative to `(fitting_bins_capacities - item)`.
+It's also high when `fitting_bins_capacities - item` is small (i.e., residual is small).
+The power `1.5` makes the sensitivity to small residuals greater.
+
+Final check on requirements:
+-   Prioritize minimal *positive* residual capacity: Yes, the denominator `(residual_capacity^1.5 + epsilon)` will be smallest for smallest `residual_capacity`.
+-   Tighter fits: Yes, smaller residual means tighter fit.
+-   Consider relative fullness: The numerator `fitting_bins_capacities` implicitly captures this. A larger bin capacity before packing means the item is a smaller proportion of it, which is less of a "tight fit" in proportion. However, if the residual is very small, the score can still be high.
+
+Let's use `priorities[fitting_bins_indices] = fitting_bins_capacities / np.power(resulting_remain_cap, 1.5) + epsilon`
+
+The `epsilon` needs to be carefully chosen. If `resulting_remain_cap` is 0, `0^1.5` is 0.
+`epsilon` handles this perfect fit case, giving a very large score.
+
+Consider edge case: `resulting_remain_cap` is negative. This shouldn't happen because of `can_fit_mask`.
+
+Let's implement `priority_v2` with this logic.
+The `fitting_bins_capacities` is `bins_remain_cap[fitting_bins_indices]`.
+The `resulting_remain_cap` is `bins_remain_cap[fitting_bins_indices] - item`.
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a strategy
+    that prioritizes bins with minimal *positive* residual capacity, with
+    graduated non-linear scoring.
+
+    This version aims to differentiate "good" fits by considering the ratio of
+    the bin's capacity before packing to the remaining capacity after packing,
+    raised to a power. This emphasizes bins that are filled more completely.
+    The power function provides a smoother, graduated score and increases
+    sensitivity to very small positive remaining capacities.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority. Bins that cannot fit the
+        item are given a score of -1. Bins that can fit are scored based on
+        the inverse of the cubic root of their remaining capacity after packing,
+        scaled by the capacity before packing.
+    """
+    priorities = np.full_like(bins_remain_cap, -1.0)  # Initialize with low priority (-1)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate the remaining capacity *after* packing
+    fitting_bins_indices = np.where(can_fit_mask)[0]
+
+    if fitting_bins_indices.size > 0:
+        fitting_bins_capacities = bins_remain_cap[fitting_bins_indices]
+        resulting_remain_cap = fitting_bins_capacities - item
+
+        # Use a power of 1.5 for graduated sensitivity to residual capacity.
+        # The score is `capacity_before_item / (residual_after_packing^1.5 + epsilon)`
+        # This prioritizes bins where residual is small, and differentiates more
+        # for smaller residual values.
+        # epsilon is added to avoid division by zero for perfect fits.
+        epsilon = 1e-9
+        power_term = np.power(resulting_remain_cap, 1.5) + epsilon
+        priorities[fitting_bins_indices] = fitting_bins_capacities / power_term
+
+    return priorities
+
+```
+The reflection mentions "minimal *positive* residual capacity". My interpretation leads to `1 / (x + eps)`.
+The power `1.5` makes it more sensitive.
+The numerator `fitting_bins_capacities` handles the "relative fullness" aspect, meaning it considers the absolute size of the bin too.
+For example, if we have item 1:
+Bin A: remaining 2 -> 1.  `fitting_cap=2`, `residual=1`. Score = `2 / (1^1.5 + eps)` = 2.0
+Bin B: remaining 100 -> 99. `fitting_cap=100`, `residual=99`. Score = `100 / (99^1.5 + eps)` = `100 / 985` = ~0.1
+
+This correctly prioritizes the tighter fit in Bin A.
+
+What if we have two bins with similar small residuals?
+Item = 1
+Bin C: remaining 2.1 -> 1.1. `fitting_cap=2.1`, `residual=1.1`. Score = `2.1 / (1.1^1.5 + eps)` = `2.1 / (1.15 + eps)` = ~1.82
+Bin D: remaining 2.0 -> 1.0. `fitting_cap=2.0`, `residual=1.0`. Score = `2.0 / (1.0^1.5 + eps)` = `2.0 / (1.0 + eps)` = ~2.0
+
+Bin D is preferred, which has a smaller residual capacity. This aligns with the goal.
+
+Consider a "smoother" alternative for the score, maybe a logistic or Gaussian-like function?
+A function that maps residual `x` to a score, peaked at 0 and decreasing.
+E.g., `exp(-k*x^2)`.
+If `x=0`, score = `exp(0)=1`.
+If `x=0.1`, score = `exp(-k*0.01)`.
+If `x=0.5`, score = `exp(-k*0.25)`.
+The scores are decreasing with `x`. This prioritizes smaller residuals.
+
+How to incorporate "relative fullness" into `exp(-k*x^2)`?
+Maybe `f(x) = (item/fitting_cap) * exp(-k*x^2)`?
+Or `f(x) = exp(-k*x^2 / fitting_cap)`?
+
+Let's stick to the power function as it's a direct modification of `v1` and addresses the requirements.
+The power `1.5` makes it graduated.
+
+Consider the description again: "Prioritize minimal *positive* residual capacity for tighter fits. Consider relative fullness and smooth, non-linear functions for graduated scores."
+
+The function `fitting_bins_capacities / (np.power(resulting_remain_cap, 1.5) + epsilon)` addresses this.
+`fitting_bins_capacities` is the capacity before packing.
+`resulting_remain_cap` is the capacity after packing.
+The ratio `fitting_bins_capacities / resulting_remain_cap` would be high if residual is small.
+The power `1.5` on `resulting_remain_cap` makes it more sensitive to small residuals.
+The addition of `epsilon` handles perfect fits.
+
+The function name `priority_v2` is requested.
+The docstring needs to reflect the chosen approach.
+The code logic is sound for the stated purpose.
+The `np.power` function is non-linear.
+The overall function is smooth where defined.
+The choice of `1.5` is somewhat arbitrary but serves as an example of a graduated increase in sensitivity.
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a strategy
+    that prioritizes bins with minimal *positive* residual capacity, with
+    graduated non-linear scoring.
+
+    This version aims to differentiate "good" fits by considering the ratio of
+    the bin's capacity before packing to the remaining capacity after packing,
+    raised to a power greater than 1. This emphasizes bins that are filled
+    more completely relative to their initial state. The power function provides
+    a smoother, graduated score and increases sensitivity to very small positive
+    remaining capacities.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority. Bins that cannot fit the
+        item are given a score of -1. Bins that can fit are scored based on
+        a transformation that favors smaller positive remaining capacities.
+    """
+    priorities = np.full_like(bins_remain_cap, -1.0)  # Initialize with low priority (-1)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate the remaining capacity *after* packing
+    fitting_bins_indices = np.where(can_fit_mask)[0]
+
+    if fitting_bins_indices.size > 0:
+        fitting_bins_capacities = bins_remain_cap[fitting_bins_indices]
+        resulting_remain_cap = fitting_bins_capacities - item
+
+        # Define a parameter for the power function to control graduated sensitivity.
+        # A value > 1.0 makes smaller residuals have a disproportionately higher score.
+        power_exponent = 1.5
+        epsilon = 1e-9 # Small constant to prevent division by zero for perfect fits.
+
+        # Calculate the score: capacity_before_item / (residual_after_packing ^ power_exponent + epsilon)
+        # This combination prioritizes bins where residual is small (especially positive)
+        # and the bin was already relatively full (higher fitting_bins_capacities).
+        power_term = np.power(resulting_remain_cap, power_exponent) + epsilon
+        priorities[fitting_bins_indices] = fitting_bins_capacities / power_term
+
+    return priorities
+
+```
+The docstring needs to be precise.
+"The ratio of the bin's capacity before packing to the remaining capacity after packing, raised to a power."
+This is `fitting_bins_capacities / (resulting_remain_cap ^ 1.5)`.
+
+The description of the return values should also be accurate.
+"Bins that can fit are scored based on a transformation that favors smaller positive remaining capacities." This is a bit vague.
+"Bins that can fit are scored based on the ratio of their capacity before packing to their remaining capacity after packing, where the remaining capacity is raised to a power of 1.5, favoring smaller positive residuals." This is better.
+
+Let's finalize the docstring.
+The core logic seems robust for the stated goals.
+The name `priority_v2` is used.
+The output is only code.
+The code uses numpy as expected.
+The function signature matches.
+The priorities array is correctly initialized and updated.
+The `-1.0` for non-fitting bins is maintained.
+The choice of `power_exponent = 1.5` is a heuristic parameter.
+
+One final thought: what if `resulting_remain_cap` is 0 (perfect fit)?
+`np.power(0, 1.5)` is 0.
+Score = `fitting_bins_capacities / epsilon`. This will be a very large positive number, correctly prioritizing a perfect fit.
+If `resulting_remain_cap` is tiny positive, e.g., `1e-5`.
+`np.power(1e-5, 1.5)` = `(10^-5)^1.5` = `10^-7.5`.
+Score = `fitting_bins_capacities / (10^-7.5 + epsilon)`. This will also be large.
+This confirms it prioritizes small positive residuals.
+
+The phrasing "smoother, graduated score" is subjective. The power function provides non-linearity and graduated response.
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a strategy
+    that prioritizes bins with minimal *positive* residual capacity, with
+    graduated non-linear scoring.
+
+    This version aims to differentiate "good" fits by considering the ratio of
+    the bin's capacity *before* packing to the *remaining capacity after packing*,
+    where the remaining capacity is raised to a power (e.g., 1.5). This approach
+    emphasizes bins that are filled more completely relative to their initial state
+    and significantly favors bins with very small positive remaining capacities.
+    The power function provides a smoother, graduated score, increasing sensitivity
+    to small positive residuals.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority. Bins that cannot fit the
+        item are given a score of -1. Bins that can fit are scored based on
+        the ratio of their capacity before packing to their residual capacity
+        after packing, where the residual capacity is raised to a power of 1.5
+        (plus a small epsilon for numerical stability).
+    """
+    priorities = np.full_like(bins_remain_cap, -1.0)  # Initialize with low priority (-1)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate the remaining capacity *after* packing
+    fitting_bins_indices = np.where(can_fit_mask)[0]
+
+    if fitting_bins_indices.size > 0:
+        fitting_bins_capacities = bins_remain_cap[fitting_bins_indices]
+        resulting_remain_cap = fitting_bins_capacities - item
+
+        # Define a parameter for the power function to control graduated sensitivity.
+        # A value > 1.0 makes smaller residuals have a disproportionately higher score.
+        power_exponent = 1.5
+        epsilon = 1e-9 # Small constant to prevent division by zero for perfect fits.
+
+        # Calculate the score: capacity_before_item / (residual_after_packing ^ power_exponent + epsilon)
+        # This combination prioritizes bins where residual is small (especially positive)
+        # and the bin was already relatively full (higher fitting_bins_capacities).
+        # The power_exponent enhances the preference for tighter fits.
+        power_term = np.power(resulting_remain_cap, power_exponent) + epsilon
+        priorities[fitting_bins_indices] = fitting_bins_capacities / power_term
+
+    return priorities
+```
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a strategy
+    that prioritizes bins with minimal *positive* residual capacity, with
+    graduated non-linear scoring.
+
+    This version aims to differentiate "good" fits by considering the ratio of
+    the bin's capacity *before* packing to the *remaining capacity after packing*,
+    where the remaining capacity is raised to a power (e.g., 1.5). This approach
+    emphasizes bins that are filled more completely relative to their initial state
+    and significantly favors bins with very small positive remaining capacities.
+    The power function provides a smoother, graduated score, increasing sensitivity
+    to small positive residuals.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority. Bins that cannot fit the
+        item are given a score of -1. Bins that can fit are scored based on
+        the ratio of their capacity before packing to their residual capacity
+        after packing, where the residual capacity is raised to a power of 1.5
+        (plus a small epsilon for numerical stability).
+    """
+    priorities = np.full_like(bins_remain_cap, -1.0)  # Initialize with low priority (-1)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate the remaining capacity *after* packing
+    fitting_bins_indices = np.where(can_fit_mask)[0]
+
+    if fitting_bins_indices.size > 0:
+        fitting_bins_capacities = bins_remain_cap[fitting_bins_indices]
+        resulting_remain_cap = fitting_bins_capacities - item
+
+        # Define a parameter for the power function to control graduated sensitivity.
+        # A value > 1.0 makes smaller residuals have a disproportionately higher score.
+        power_exponent = 1.5
+        epsilon = 1e-9 # Small constant to prevent division by zero for perfect fits.
+
+        # Calculate the score: capacity_before_item / (residual_after_packing ^ power_exponent + epsilon)
+        # This combination prioritizes bins where residual is small (especially positive)
+        # and the bin was already relatively full (higher fitting_bins_capacities).
+        # The power_exponent enhances the preference for tighter fits.
+        power_term = np.power(resulting_remain_cap, power_exponent) + epsilon
+        priorities[fitting_bins_indices] = fitting_bins_capacities / power_term
+
+    return priorities
+``````python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a strategy
+    that prioritizes bins with minimal *positive* residual capacity, with
+    graduated non-linear scoring.
+
+    This version aims to differentiate "good" fits by considering the ratio of
+    the bin's capacity *before* packing to the *remaining capacity after packing*,
+    where the remaining capacity is raised to a power (e.g., 1.5). This approach
+    emphasizes bins that are filled more completely relative to their initial state
+    and significantly favors bins with very small positive remaining capacities.
+    The power function provides a smoother, graduated score, increasing sensitivity
+    to small positive residuals.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority. Bins that cannot fit the
+        item are given a score of -1. Bins that can fit are scored based on
+        the ratio of their capacity before packing to their residual capacity
+        after packing, where the residual capacity is raised to a power of 1.5
+        (plus a small epsilon for numerical stability).
+    """
+    priorities = np.full_like(bins_remain_cap, -1.0)  # Initialize with low priority (-1)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate the remaining capacity *after* packing
+    fitting_bins_indices = np.where(can_fit_mask)[0]
+
+    if fitting_bins_indices.size > 0:
+        fitting_bins_capacities = bins_remain_cap[fitting_bins_indices]
+        resulting_remain_cap = fitting_bins_capacities - item
+
+        # Define a parameter for the power function to control graduated sensitivity.
+        # A value > 1.0 makes smaller residuals have a disproportionately higher score.
+        power_exponent = 1.5
+        epsilon = 1e-9 # Small constant to prevent division by zero for perfect fits.
+
+        # Calculate the score: capacity_before_item / (residual_after_packing ^ power_exponent + epsilon)
+        # This combination prioritizes bins where residual is small (especially positive)
+        # and the bin was already relatively full (higher fitting_bins_capacities).
+        # The power_exponent enhances the preference for tighter fits.
+        power_term = np.power(resulting_remain_cap, power_exponent) + epsilon
+        priorities[fitting_bins_indices] = fitting_bins_capacities / power_term
+
+    return priorities
+```

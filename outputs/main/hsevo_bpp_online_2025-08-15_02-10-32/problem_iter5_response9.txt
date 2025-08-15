@@ -1,0 +1,59 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes tight fits using a sigmoid, with a penalty for large initial capacities."""
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    fit_mask = bins_remain_cap >= item
+
+    if not np.any(fit_mask):
+        return priorities
+
+    valid_bins_remain_cap = bins_remain_cap[fit_mask]
+
+    # Component 1: Sigmoid for tight fits (inspired by priority_v0)
+    # Prioritize bins where the remaining capacity after placing the item is small.
+    slack = valid_bins_remain_cap - item
+    
+    # Normalize slack to be in a range suitable for sigmoid, focusing on small slack.
+    # We map smaller slack to larger input for sigmoid, thus higher output.
+    min_slack = np.min(slack)
+    max_slack = np.max(slack)
+    
+    sigmoid_scores = np.zeros_like(slack, dtype=float)
+    if max_slack > min_slack:
+        # Transform slack: smaller slack -> larger transformed value
+        transformed_slack = max_slack - slack
+        normalized_transformed_slack = transformed_slack / (max_slack - min_slack)
+        # Apply sigmoid centered around 0.5 for smooth preference
+        steepness = 5.0 
+        sigmoid_input = steepness * (normalized_transformed_slack - 0.5)
+        sigmoid_scores = 1 / (1 + np.exp(-sigmoid_input))
+    elif slack.size > 0: # All slacks are the same
+        sigmoid_scores = np.full_like(slack, 0.5) # Neutral score if all fits are identical
+
+
+    # Component 2: Penalty for large initial capacities (inspired by the idea of penalizing large bins)
+    # Reduce priority for bins that have significantly more capacity than needed initially.
+    # This is a simple inverse capacity scaling. Add epsilon to avoid division by zero.
+    epsilon_large_cap = 1e-6
+    large_capacity_penalty = epsilon_large_cap / (valid_bins_remain_cap + epsilon_large_cap)
+
+
+    # Combine scores: Multiply sigmoid scores by penalty.
+    # A high sigmoid score (tight fit) AND a low penalty (not excessively large bin) is preferred.
+    combined_scores = sigmoid_scores * large_capacity_penalty
+
+    # Normalize combined scores for the fitting bins
+    sum_combined_scores = np.sum(combined_scores)
+    if sum_combined_scores > 0:
+        normalized_combined_scores = combined_scores / sum_combined_scores
+    else: # If all scores are zero (e.g., if penalty made them zero)
+        # Fallback: give equal priority to all fitting bins
+        normalized_combined_scores = np.ones_like(valid_bins_remain_cap) / len(valid_bins_remain_cap)
+
+    priorities[fit_mask] = normalized_combined_scores
+    
+    return priorities
+```

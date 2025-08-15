@@ -1,0 +1,109 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Almost Full Fit strategy.
+
+    The Almost Full Fit strategy prioritizes bins that are nearly full and can still
+    accommodate the item. Bins that are too small to fit the item are given a very low
+    priority.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Calculate a "tightness" score for bins that can fit the item.
+    # A higher tightness means the bin is closer to being full (after adding the item).
+    # We want to pick bins that are almost full, so maximizing the remaining capacity
+    # after fitting the item, but only among bins that can fit the item.
+    
+    # Find indices of bins that can accommodate the item
+    can_fit_indices = np.where(bins_remain_cap >= item)[0]
+    
+    if len(can_fit_indices) > 0:
+        # For bins that can fit the item, the priority is based on how much space
+        # will be left. We want to leave as little space as possible, implying
+        # the bin was already quite full. So, prioritize bins where
+        # (bins_remain_cap - item) is minimized.
+        # To make it a priority score where higher is better, we can use
+        # the negative of the remaining capacity, or some other transformation.
+        # A simple approach is to use the remaining capacity after packing.
+        # Higher remaining capacity after packing means the bin was less full initially.
+        # So, to prioritize 'almost full' bins, we want bins with SMALLER remaining capacity
+        # AFTER packing. Thus, we assign a higher priority to bins with SMALLER (bins_remain_cap - item).
+        
+        remaining_after_packing = bins_remain_cap[can_fit_indices] - item
+        
+        # To rank, we can invert the remaining space. A common way is to use 1 / remaining_after_packing.
+        # However, if remaining_after_packing is zero, this causes division by zero.
+        # A safer approach is to use a large negative number for those that are exactly full after packing
+        # and smaller (but positive) numbers for those with more space.
+        
+        # Let's use a score that is inversely related to the remaining space after packing.
+        # The goal is to penalize bins that will have a lot of space left.
+        # We can use 1 / (remaining_after_packing + epsilon) to avoid division by zero.
+        # However, a simpler approach for prioritization that aligns with "almost full"
+        # is to prioritize bins with the smallest remaining capacity AFTER fitting the item.
+        # So, if bins are [5, 8, 10] and item is 3:
+        # Bin 0: remaining 2, score related to 2
+        # Bin 1: remaining 5, score related to 5
+        # Bin 2: remaining 7, score related to 7
+        # We want to pick the one with the smallest remaining space (Bin 0), so its score should be highest.
+        
+        # Let's assign a priority score that is inversely proportional to the space left.
+        # A very small amount of space left after packing (close to zero) should have the highest priority.
+        # So, consider (1.0 / (remaining_after_packing + 1e-9)) for positive values.
+        # For bins that fit, we want the one with least remaining capacity.
+        # So, highest priority for bins_remain_cap[i] - item = 0.
+        
+        # Let's try prioritizing bins with the smallest remaining capacity after packing.
+        # The priority can be set as -remaining_after_packing. Higher values mean lower remaining capacity, thus higher priority.
+        priorities[can_fit_indices] = -remaining_after_packing
+        
+        # Alternative: A different heuristic might prioritize bins where the item fills it more "completely".
+        # This is essentially the same as minimizing remaining capacity.
+        # If we want "almost full" to be more specific, we could also add a penalty for being too full such that
+        # the remaining space is very small, but not zero.
+        # For this "Almost Full Fit" I'll stick to minimizing remaining capacity.
+        
+        # To make the "almost full" aspect more explicit, we can consider a distribution
+        # where the peak priority is for bins that will have a small positive remaining capacity.
+        # However, standard "almost full fit" typically aims for minimal waste.
+        
+        # Another way to think about "Almost Full Fit": we want bins that are NOT empty, but can still take the item.
+        # Prioritize bins that are already utilized to some extent.
+        # The remaining capacity is a good proxy for utilization. Lower remaining capacity means higher utilization.
+        
+        # Let's refine the priority to be positive, where higher means more preferred.
+        # We can use a score like: (max_capacity - item) - bins_remain_cap[i]  where max_capacity is the bin's original capacity.
+        # However, we only have remaining capacities.
+        
+        # Simple approach: prioritize bins with the smallest remaining capacity after packing.
+        # Assign priority based on inverse of remaining space: 1 / (remaining_after_packing + epsilon)
+        # Higher values of this will correspond to smaller remaining_after_packing.
+        epsilon = 1e-9
+        priorities[can_fit_indices] = 1.0 / (remaining_after_packing + epsilon)
+
+    # Bins that cannot fit the item receive a priority of 0 or a very low value.
+    # Our initialization already sets them to 0.
+    
+    # Let's adjust the scale so that the priority is positive and reflects "nearness to full".
+    # Bins that are slightly too small to fit the item should have zero priority.
+    # Bins that fit the item should have positive priority.
+    # Among bins that fit, those that will have less remaining capacity are preferred.
+    
+    # Final strategy:
+    # If a bin `b` has `bins_remain_cap[b] >= item`:
+    #   Priority = 1.0 / (bins_remain_cap[b] - item + epsilon)
+    # Else:
+    #   Priority = 0.0
+    
+    # This means bins with smallest `bins_remain_cap[b] - item` (i.e., almost full) get highest priority.
+    
+    return priorities
+```

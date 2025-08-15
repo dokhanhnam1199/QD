@@ -1,0 +1,215 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Softmax-Based Fit.
+
+    This heuristic aims to balance two goals:
+    1. Fit the item into a bin with minimal remaining capacity (tight fit) to avoid
+       leaving small, unusable gaps.
+    2. Favor bins that have enough capacity for the current item.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize priorities to a very small negative number for bins that cannot fit the item.
+    # This ensures they will have a low probability in the softmax.
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+
+    if suitable_bins_remain_cap.size == 0:
+        return priorities # No bin can fit the item
+
+    # Calculate a "fit score" for suitable bins.
+    # A smaller remaining capacity after fitting the item is preferred.
+    # We add a small epsilon to avoid division by zero or log(0) issues if remaining capacity is 0.
+    # The intuition is to make the remaining capacity as small as possible *after* placing the item.
+    # So, if a bin has capacity C and the item has size I, the remaining capacity is C-I.
+    # We want to minimize C-I.
+    # A simple approach is to use 1/(C-I+epsilon) as a score, or to take a negative of it.
+    # Here, we want to maximize the probability for bins with *smaller* remaining capacity after fitting.
+    # Let's use a score that is inversely proportional to the remaining capacity *after* fitting.
+    # So, if a bin has capacity `cap` and item `item`, the new remaining capacity is `cap - item`.
+    # We want to prioritize bins where `cap - item` is small.
+    # A score of `-(cap - item)` would mean smaller remaining capacity gives higher score.
+    # To make it work with softmax, we want values that are not extremely large negative.
+    # Let's consider the "wasted space" if the item is placed, which is `cap - item`.
+    # We want to prioritize bins that minimize this wasted space.
+    # A score like `-abs(cap - item)` or `-(cap - item)` achieves this.
+    # To keep values in a reasonable range for softmax and to promote diversity,
+    # we can transform it.
+    # Let's use a score that is inversely related to the remaining capacity AFTER fitting.
+    # For example, `1 / (bins_remain_cap[i] - item + epsilon)` where epsilon is small.
+    # Higher value means smaller remaining capacity.
+    # Or, even simpler, prioritize bins with the smallest remaining capacity *after* the item is placed.
+    # Let `remaining_after_fit = bins_remain_cap[i] - item`.
+    # We want to maximize the priority for smaller `remaining_after_fit`.
+    # A score of `-remaining_after_fit` works, so we want to maximize `-(bins_remain_cap[i] - item)`.
+    # This is equivalent to minimizing `bins_remain_cap[i] - item`.
+    # For softmax, we usually want positive values or values that are not excessively negative.
+    # Let's consider the 'tightness' of the fit. A tighter fit means `bins_remain_cap[i] - item` is small.
+    # We can represent this by `1.0 / (bins_remain_cap[i] - item + 1e-9)` or `-(bins_remain_cap[i] - item)`.
+    # Let's use `-(bins_remain_cap[i] - item)` as the raw "fit preference".
+    # To make it suitable for softmax, we can scale it or shift it if needed.
+    # A direct approach is `bins_remain_cap[i] - item`. If we want to maximize this, it means
+    # we prefer bins with *more* space left. That's not the "tight fit" strategy.
+    #
+    # Let's re-evaluate: Softmax assigns probability P(bin_i) = exp(score_i) / sum(exp(score_j)).
+    # We want bins with less remaining capacity *after* placing the item to have higher scores.
+    # So, if remaining capacity is `R = bins_remain_cap - item`, we want to prioritize smaller R.
+    # A function `f(R)` such that `f(R)` is increasing for decreasing `R`.
+    # Examples: `-R`, `1/R`, `exp(-R)`.
+    # Using `-R` or `-(bins_remain_cap - item)` is a good candidate.
+    # Let's normalize `bins_remain_cap[i] - item`.
+    # For Softmax, it's better if scores are not too far apart initially to avoid one probability being
+    # overwhelmingly dominant, unless that's intended.
+    #
+    # Alternative: Consider the "tightness" directly. How much "waste" is there if we put it in?
+    # Waste = `bins_remain_cap[i] - item`. We want to MINIMIZE waste.
+    # So, a higher score should correspond to lower waste.
+    # Let's use `score = -(bins_remain_cap[i] - item)`.
+    # However, this can lead to very negative scores if `bins_remain_cap[i] - item` is large.
+    #
+    # Let's try to map the remaining capacity *after* fit to a desirability score.
+    # Smaller remaining capacity => higher desirability.
+    # The range of `bins_remain_cap[i] - item` can be from 0 up to `max(bins_remain_cap) - item`.
+    # Let `post_fit_capacity = bins_remain_cap[suitable_bins_mask] - item`.
+    # We want to convert `post_fit_capacity` into priorities.
+    # A simple mapping to make smaller values map to larger priorities:
+    # `priority = C - post_fit_capacity` for some constant C, or `1.0 / (post_fit_capacity + epsilon)`.
+    # Let's use a linear transformation that maps small remaining capacities to larger scores.
+    # Consider the range of `post_fit_capacity`. We want the smallest values of this range to get the highest scores.
+    # Let `min_post_fit = 0` and `max_post_fit = max(bins_remain_cap) - item`.
+    # We can normalize `post_fit_capacity` to `[0, 1]` and then invert it: `1 - normalized_capacity`.
+    # Normalized capacity = `(post_fit_capacity - min_post_fit) / (max_post_fit - min_post_fit + epsilon)`.
+    # So priority could be `1 - ( (post_fit_capacity - 0) / (max(bins_remain_cap) - item + epsilon) )`.
+    # This would mean bins with 0 remaining capacity after fit get a priority of 1, and
+    # bins with maximum possible remaining capacity after fit get a priority of 0.
+    #
+    # Let's try a simpler approach: Directly use `-(bins_remain_cap[i] - item)` as a raw score.
+    # To keep values more positive and closer for softmax, we can add a large constant.
+    # Or, let's normalize based on the sum of remaining capacities.
+    # The core idea of Softmax-Based Fit is often to leverage the idea of "best fit" or "worst fit"
+    # and apply a soft selection mechanism.
+    #
+    # A common pattern for Softmax-based selection is to have scores related to some
+    # desirable quantity.
+    # If we want to minimize remaining capacity *after* fit, the quantity to minimize is
+    # `bins_remain_cap[i] - item`.
+    # Let `x_i = bins_remain_cap[i] - item` for suitable bins.
+    # We want higher probability for smaller `x_i`.
+    # This suggests a score like `-x_i`.
+    #
+    # Let's consider a different approach that's more robust.
+    # What if we reward bins that are "almost full" after placing the item?
+    # This means `bins_remain_cap[i] - item` is small.
+    # Let `fitting_score = 1.0 / (bins_remain_cap[i] - item + 1e-9)`.
+    # This will give very high scores to bins with near-zero remaining capacity after fitting.
+    #
+    # Another variant is to reward bins that are already "somewhat full", but can still fit the item.
+    # This could mean `bins_remain_cap[i]` is large but not *too* large.
+    #
+    # Let's stick to the "tight fit" interpretation: Prioritize bins that leave minimal space after placing the item.
+    # The value `bins_remain_cap[i] - item` represents the remaining capacity after fitting.
+    # We want to maximize priority for smaller values of this.
+    # Let's define `residual_capacity = bins_remain_cap[suitable_bins_mask] - item`.
+    # We want a scoring function `s(residual_capacity)` that is decreasing.
+    # `s(r) = -r` is the simplest.
+    #
+    # However, to make it work with softmax and encourage exploration, sometimes adding a slight penalty
+    # for very tight fits (which might lead to fragmentation) or a bonus for "just enough" capacity is useful.
+    #
+    # Let's consider a score that reflects how "full" the bin would become *relative to its current state*.
+    # This isn't directly supported by the 'fit' part.
+    #
+    # Let's refine the 'tight fit' idea. A good fit means the remaining capacity after placing the item is small.
+    # `remaining_after_fit = bins_remain_cap[i] - item`
+    # We want to maximize priority for small `remaining_after_fit`.
+    # Let `score_for_bin_i = - (bins_remain_cap[i] - item)`
+    # This means, for `item=3` and `bins_remain_cap = [5, 7, 10]`:
+    # Suitable bins are all.
+    # `remaining_after_fit` are `[2, 4, 7]`.
+    # Scores would be `[-2, -4, -7]`.
+    # Softmax of `[-2, -4, -7]` will assign higher probability to `-2`, which corresponds to `bin_remain_cap = 5`. This is correct.
+    #
+    # To make scores more stable and less prone to extreme values in softmax, especially if the
+    # range of `bins_remain_cap[i] - item` is large, we can normalize them or use a shifted version.
+    #
+    # A common strategy in similar problems (like routing with softmax) is to use `score = -distance` or `score = -cost`.
+    # Here, `cost` is `bins_remain_cap[i] - item`. We want to minimize this cost.
+    #
+    # Let's ensure scores are not too extreme for softmax.
+    # We can cap the negative values or scale them.
+    #
+    # A simple approach that often works well for 'tight fit' is to use the negative of the
+    # remaining capacity after fitting.
+    # `score = -(bins_remain_cap[suitable_bins_mask] - item)`
+    #
+    # To prevent excessively large negative numbers, we could add a constant or take the
+    # exponential of a transformed value.
+    #
+    # Let's try to be a bit more nuanced. The goal is to pick a bin that is "just enough"
+    # but not overly spacious.
+    #
+    # Consider the 'waste' `W = bin_capacity - item`. We want to minimize W.
+    # A "good" bin is one where `W` is small.
+    # A "bad" bin is one where `W` is large.
+    # We can transform `W` into a score.
+    # Let's use a score that captures how "full" the bin becomes *relative to the item size*.
+    # `score = -(bins_remain_cap[i] - item)` implies we want to minimize `bins_remain_cap[i] - item`.
+    #
+    # What if we add a small "tolerance" factor?
+    # `score = -(bins_remain_cap[i] - item + alpha * bins_remain_cap[i])`
+    # This penalizes bins that are too large in absolute terms.
+    #
+    # Let's use a more standard Softmax-based fit approach.
+    # The core idea is to express desirability as `exp(score)`.
+    # For "tight fit", we want bins where `capacity - item` is minimized.
+    # Let `target_remaining = bins_remain_cap[suitable_bins_mask] - item`.
+    # We want to maximize priority when `target_remaining` is small.
+    # Score can be `-target_remaining`.
+    # For softmax: `priorities_suitable = np.exp(-target_remaining)`.
+    #
+    # However, Softmax usually takes raw scores, not probabilities directly.
+    # So, `raw_scores = -target_remaining` is a direct representation.
+    # To prevent large negative values which might cause underflow in `exp()`,
+    # it's common to subtract the maximum score from all scores before exponentiating.
+    # `max_score = np.max(raw_scores)`
+    # `adjusted_scores = raw_scores - max_score`
+    # Then `probabilities = np.exp(adjusted_scores) / np.sum(np.exp(adjusted_scores))`
+    #
+    # The `priority_v2` function should return raw scores that can be passed to a softmax function.
+    #
+    # Let's define the score for each suitable bin `i` as `s_i = -(bins_remain_cap[i] - item)`.
+    # This means a bin with remaining capacity 5 for an item of 3 gets `s_i = -(5-3) = -2`.
+    # A bin with remaining capacity 7 for an item of 3 gets `s_i = -(7-3) = -4`.
+    # The bin with 5 remaining capacity (tighter fit) gets a higher score (-2 > -4).
+    # This is the correct logic for maximizing priority with minimal remaining space.
+
+    # Calculate the remaining capacity after placing the item in suitable bins.
+    # We want to prioritize bins that result in minimal remaining capacity.
+    # So, smaller (bins_remain_cap - item) should yield higher priority.
+    # Let's define the raw score as the negative of this remaining capacity.
+    raw_scores_suitable = -(bins_remain_cap[suitable_bins_mask] - item)
+
+    # To prevent issues with exp() on very large negative numbers (underflow),
+    # we can shift the scores so that the maximum score is 0.
+    # This doesn't change the relative probabilities from the softmax.
+    if raw_scores_suitable.size > 0:
+        max_score = np.max(raw_scores_suitable)
+        adjusted_scores_suitable = raw_scores_suitable - max_score
+    else:
+        adjusted_scores_suitable = np.array([])
+
+    # Apply these adjusted scores to the original priority array at the correct indices.
+    priorities[suitable_bins_mask] = adjusted_scores_suitable
+
+    return priorities
+```

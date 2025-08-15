@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines prioritizing exact fits with a graded Best Fit for others.
+
+    This heuristic prioritizes bins that perfectly fit the item. For other bins,
+    it assigns priority based on how closely they would fit the item,
+    favoring those with less remaining capacity after packing.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Ensure item size is positive to avoid division by zero or non-meaningful ratios.
+    if item <= 0:
+        return priorities
+
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate priorities for bins where the item can fit.
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # Define a high priority score for an exact fit.
+    exact_fit_priority = 2.0
+    # Define a scaling factor for the "graded Best Fit" for non-exact fits.
+    # This factor influences how strongly we favor tighter fits among non-exact ones.
+    # A larger scaling factor emphasizes smaller differences more.
+    best_fit_scaling = 5.0 
+    
+    # Calculate the difference between remaining capacity and item size for fitting bins.
+    # This difference represents the 'slack' or 'waste' if the item is placed in the bin.
+    # A smaller difference is better for Best Fit.
+    difference_from_exact = fitting_bins_remain_cap - item
+
+    # Assign priorities:
+    # - Highest priority for an exact fit (difference is zero).
+    # - For non-exact fits, assign priority inversely proportional to the difference (slack).
+    #   This means bins with less slack get higher priority.
+    #   We add a small epsilon to the difference to avoid division by zero if difference_from_exact is 0
+    #   and to ensure that exact fits (difference=0) don't get an infinite score from the inverse,
+    #   allowing our explicit exact_fit_priority to dominate.
+    
+    # For bins that are an exact fit:
+    exact_fit_mask = difference_from_exact == 0
+    priorities[can_fit_mask][exact_fit_mask] = exact_fit_priority
+    
+    # For bins that are not an exact fit but can still fit the item:
+    non_exact_fit_mask = ~exact_fit_mask
+    
+    # Calculate the base priority for non-exact fits: inverse of the difference (slack).
+    # Higher priority for smaller slack. Add epsilon for numerical stability and to avoid
+    # issues with difference being zero (though handled by exact_fit_mask).
+    # The `best_fit_scaling` is applied to the difference to control the steepness of the prioritization.
+    non_exact_priorities = 1.0 / (difference_from_exact[non_exact_fit_mask] + best_fit_scaling * item * 1e-5) # scaled epsilon
+    
+    # Ensure non-exact fit priorities are strictly less than the exact fit priority
+    # This creates a clear hierarchy: exact fit > tight non-exact fit > looser non-exact fit.
+    # A simple way is to scale the non-exact priorities.
+    scaled_non_exact_priorities = non_exact_priorities / (exact_fit_priority + 1)
+
+    priorities[can_fit_mask][non_exact_fit_mask] = scaled_non_exact_priorities
+
+    return priorities
+```

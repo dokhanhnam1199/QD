@@ -1,0 +1,63 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Calculates priority scores for each bin using an adaptive strategy for the
+    online Bin Packing Problem, balancing "best fit" with "first fit" and
+    encouraging diversity.
+
+    This strategy prioritizes bins that can accommodate the item.
+    It favors bins that result in less remaining capacity (best fit aspect),
+    but also introduces a probabilistic element to explore less optimal bins,
+    preventing premature convergence to a local optimum. A small "randomness"
+    factor is added to slightly perturb the scores, encouraging exploration.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array where each element represents the
+                         remaining capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, where each element
+        is the priority score for placing the item in the corresponding bin.
+    """
+    valid_bins_mask = bins_remain_cap >= item
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+
+    if valid_bins_remain_cap.size == 0:
+        return np.zeros_like(bins_remain_cap)
+
+    # Base score: Prioritize bins that leave minimal remaining capacity (best fit)
+    # Higher score for smaller remaining capacity (closer to zero)
+    # Use 1 / (remaining_capacity_after_fit + epsilon) to avoid division by zero and emphasize smaller remainders.
+    epsilon = 1e-6
+    best_fit_scores = 1.0 / (valid_bins_remain_cap - item + epsilon)
+
+    # Introduce a diversity factor: Slightly favor bins that are not completely full yet,
+    # but can still accommodate the item. This is a weak "first fit" like preference.
+    # Higher score for bins with more remaining capacity (but still fit the item).
+    # We can cap this preference to avoid over-prioritizing very empty bins.
+    # Normalize remaining capacity to be between 0 and 1.
+    normalized_remaining = (valid_bins_remain_cap - item) / np.max(bins_remain_cap) # Using overall max capacity as a reference
+    diversity_scores = 0.1 * normalized_remaining # Small additive factor
+
+    # Combine scores: Primarily driven by best-fit, with a small boost for diversity
+    combined_scores = best_fit_scores + diversity_scores
+
+    # Add a small random perturbation to encourage exploration
+    random_perturbation = np.random.rand(combined_scores.size) * 0.05 # Small random noise
+    final_valid_scores = combined_scores + random_perturbation
+
+    # Softmax to convert scores into probabilities (priorities)
+    # Shift scores to prevent numerical overflow/underflow before exponentiation
+    shifted_scores = final_valid_scores - np.max(final_valid_scores)
+    exp_scores = np.exp(shifted_scores)
+    probabilities = exp_scores / np.sum(exp_scores)
+
+    # Create the final priority array, placing calculated priorities in their original positions
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    priorities[valid_bins_mask] = probabilities
+
+    return priorities
+```

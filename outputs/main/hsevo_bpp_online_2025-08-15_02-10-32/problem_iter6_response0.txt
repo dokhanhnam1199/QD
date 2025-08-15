@@ -1,0 +1,165 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive "Best Fit with Dynamic Ratio" heuristic.
+    This version dynamically adjusts the influence of the "tightness" or "excess" component
+    based on the item's size relative to the overall capacity distribution. It also
+    introduces a small preference for bins that are not "too empty".
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+    
+    # Base score: Primarily aims for Best Fit.
+    # Using log to compress the range and emphasize smaller differences.
+    # Add a small epsilon to avoid log(0).
+    best_fit_score = -np.log(suitable_bins_remain_cap - item + 1e-9)
+
+    # Dynamic weighting factor: Adjust the importance of the "tightness" component.
+    # If the item is small relative to typical bin capacities, we might be more
+    # forgiving of slightly larger remaining capacities. If the item is large,
+    # we want tighter fits.
+    # Consider the average remaining capacity of *all* bins (even unsuitable ones)
+    # as a proxy for the general state of the packing.
+    # Alternatively, use the average remaining capacity of *suitable* bins.
+    avg_suitable_remain_cap = np.mean(bins_remain_cap[bins_remain_cap > 0]) if np.any(bins_remain_cap > 0) else 1.0
+    
+    # If item is large relative to the average suitable remaining capacity,
+    # we want to heavily favor tight fits. If item is small, the penalty for
+    # excess capacity is less critical.
+    # Ratio: item_size / avg_suitable_remain_cap
+    # We want to increase the weight of the tightness component when this ratio is high.
+    
+    # Let's define a "tightness preference" score.
+    # We want to reward bins where `remaining_cap - item` is small relative to `item`.
+    # `excess_ratio = (remaining_cap - item) / item`
+    # We prefer lower `excess_ratio`.
+    excess_ratio = (suitable_bins_remain_cap - item) / (item + 1e-9)
+    
+    # A score that is high when excess_ratio is low.
+    # Use a sigmoid-like function to bound and smooth the effect.
+    # `tightness_score = 1 / (1 + exp(k * excess_ratio))`
+    # A simpler approach: `tightness_score = 1 / (excess_ratio + C)`
+    # Let's use a scaled inverse of excess_ratio.
+    # The scaling factor `item / avg_suitable_remain_cap` will modify the impact.
+    
+    # We want the `tightness_score` component to be more influential for larger items.
+    # Let's consider `weight_for_tightness = min(1.0, item / avg_suitable_remain_cap)`
+    # This weight is between 0 and 1.
+    weight_for_tightness = np.clip(item / (avg_suitable_remain_cap + 1e-9), 0.1, 2.0) # Clip to avoid extreme values
+
+    # Refined tightness score: higher for bins with less excess capacity relative to item size,
+    # scaled by how important tightness is.
+    # `tightness_factor = 1.0 / (1 + excess_ratio)` gives higher values for tighter fits.
+    # Multiply by `weight_for_tightness` to make it adaptive.
+    # We want to ADD this adaptive tightness score to the best_fit_score (which is already a maximization score).
+    # The original `best_fit_score` rewards tighter fits. We want to ADD a component that
+    # also rewards tighter fits, but with an adaptive weight.
+    
+    # Combine: Score = best_fit_score + adaptive_tightness_bonus
+    # `adaptive_tightness_bonus = weight_for_tightness * (1.0 / (1.0 + excess_ratio))`
+    # This encourages tight fits, with the encouragement amplified for larger items.
+
+    adaptive_tightness_bonus = weight_for_tightness * (1.0 / (1.0 + excess_ratio))
+    
+    # Small preference for not being "too empty" for the item.
+    # If remaining capacity is much larger than the item, it's less preferred.
+    # `emptiness_penalty = (suitable_bins_remain_cap - item) / suitable_bins_remain_cap`
+    # We want to penalize high `emptiness_penalty`. So we want to ADD something that
+    # is small when `emptiness_penalty` is large.
+    # `emptiness_score = 1.0 / (1.0 + emptiness_penalty)`
+    # This is essentially `item / suitable_bins_remain_cap`.
+    
+    # Let's use the negative of remaining capacity as a simple penalty for being too empty.
+    # The original best_fit_score already prioritizes minimal remaining capacity.
+    # Adding a component that penalizes large remaining capacity *even more*:
+    # `excess_capacity_penalty = -(suitable_bins_remain_cap - item)`
+    # But we want this penalty to be LESS impactful if `item` is small.
+    # `scaled_excess_capacity_penalty = - (suitable_bins_remain_cap - item) / (item + 1e-9)`
+    # This is negative of the `excess_ratio`.
+    # So, we can add `weight_for_tightness * (excess_ratio)` to the score.
+    # This means we are rewarding smaller excess ratios more when `weight_for_tightness` is high.
+    
+    # Final score: Maximize the log-based best fit score, and add an adaptive bonus
+    # for tightness, where the bonus is stronger for larger items or items that
+    # create tighter fits.
+    
+    # Let's adjust the `best_fit_score` calculation slightly.
+    # Instead of log, let's use a linear inverse of remaining capacity, then scale it.
+    # `bf_score = 1.0 / (suitable_bins_remain_cap - item + 1e-9)`
+    # This already favors minimal remaining capacity.
+    
+    # Now, add the adaptive tightness bonus.
+    # We want to favor smaller `excess_ratio = (suitable_bins_remain_cap - item) / item`.
+    # Let's use `1.0 / (excess_ratio + 1.0)` as a tightness indicator.
+    # We scale this by `weight_for_tightness`.
+    
+    tightness_indicator = 1.0 / (excess_ratio + 1.0) # Higher is better, up to 1.0
+    
+    # The combined score will be:
+    # `score = (1.0 / (suitable_bins_remain_cap - item + 1e-9)) * (1.0 + weight_for_tightness * tightness_indicator)`
+    # This combines the best fit (inverse remaining capacity) with an adaptive bonus for tightness.
+    # The `+ 1.0` in the multiplier ensures that the best-fit part is always dominant,
+    # and the tightness bonus modifies it.
+    
+    # Let's simplify the base score to avoid potential issues with very small differences in remaining capacity.
+    # Instead of `log`, let's use a simple inverse.
+    # Consider the "waste" `suitable_bins_remain_cap - item`. We want to minimize this.
+    # Base score: `- (suitable_bins_remain_cap - item)` - Higher is better.
+    # This directly rewards the smallest remaining capacity.
+    
+    # Now, apply the adaptive tightness bonus.
+    # Bonus should be higher when `excess_ratio` is lower AND `weight_for_tightness` is higher.
+    # `tightness_bonus = weight_for_tightness * (1.0 / (excess_ratio + 1.0))`
+    
+    # Combine them additively.
+    # `final_score = -(suitable_bins_remain_cap - item) + weight_for_tightness * (1.0 / (excess_ratio + 1.0))`
+    # This is essentially maximizing `(item - suitable_bins_remain_cap) + adaptive_bonus`.
+    
+    # Let's try a multiplicative approach again but with refined components.
+    # Score = (BestFitComponent) * (TightnessComponent)
+    # BestFitComponent: `-np.log(suitable_bins_remain_cap - item + 1e-9)` (already good for BF)
+    # TightnessComponent: Needs to be high when `excess_ratio` is low.
+    # `tightness_factor = 1.0 / (excess_ratio + 1.0)` (0 to 1)
+    # Adaptive scaling for tightness: `adaptive_tightness = 1.0 + weight_for_tightness * (tightness_factor - 0.5)`
+    # The `-0.5` shifts the range of `tightness_factor` so that the bonus is centered around typical values.
+    # `weight_for_tightness` is `item / avg_suitable_remain_cap`.
+    
+    # Let's consider a direct combination:
+    # Maximize `f(item, remaining_cap)`
+    # We want `remaining_cap` to be close to `item`.
+    # And we want `item / remaining_cap` to be high.
+    
+    # Revised Strategy:
+    # 1. Start with a Best Fit metric: `1.0 / (remaining_cap - item + eps)`
+    # 2. Add an adaptive "closeness" metric: penalize bins where `remaining_cap` is much larger than `item`.
+    #    The penalty should increase with `(remaining_cap - item) / item`.
+    #    The sensitivity to this penalty should be modulated by `item / avg_suitable_remain_cap`.
+    
+    # Base Best Fit Score: Maximize `-(remaining_cap - item)`
+    base_bf_score = -(suitable_bins_remain_cap - item)
+    
+    # Adaptive Closeness Score:
+    # We want to ADD a score that is higher for smaller `excess_ratio`.
+    # The magnitude of this addition is scaled by `weight_for_tightness`.
+    # `closeness_score = weight_for_tightness * (1.0 / (excess_ratio + 1.0))`
+    # This is the same as `adaptive_tightness_bonus` from before.
+    
+    # Combine additively:
+    # `final_priorities = base_bf_score + closeness_score`
+    # This combines the direct "minimize waste" with an adaptive "maximize tight fit" bonus.
+    
+    final_priorities = base_bf_score + adaptive_tightness_bonus
+    
+    # Apply the calculated priorities back to the original array.
+    priorities[suitable_bins_mask] = final_priorities
+    
+    return priorities
+
+```

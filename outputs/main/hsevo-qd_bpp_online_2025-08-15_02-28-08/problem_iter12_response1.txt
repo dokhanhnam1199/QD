@@ -1,0 +1,183 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    A more sophisticated priority function for online Bin Packing.
+
+    This heuristic prioritizes bins that offer an "exact fit" (remaining capacity
+    is very close to the item size) with the highest possible score. For bins
+    that do not offer an exact fit but can accommodate the item, it prioritizes
+    those with minimal excess capacity. It uses a scaled difference to rank these
+    "close fits", ensuring they receive a score lower than exact fits.
+
+    Args:
+        item: Size of the item to be packed.
+        bins_remain_cap: A numpy array containing the remaining capacity of each bin.
+
+    Returns:
+        A numpy array of priority scores for each bin, with the same shape as bins_remain_cap.
+    """
+    epsilon = 1e-9  # Small value to avoid division by zero
+    high_priority_score = 1e9  # Score for exact fits
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Separate bins into exact fits and close fits
+    exact_fit_mask = np.abs(bins_remain_cap - item) < epsilon
+    close_fit_mask = can_fit_mask & ~exact_fit_mask
+
+    # Assign the highest priority to exact fits
+    priorities[exact_fit_mask] = high_priority_score
+
+    # For close fits, calculate a score based on the inverse of the excess capacity.
+    # We want to prioritize bins with less excess capacity (smaller positive difference).
+    # A simple approach is to use `1 / (difference + epsilon)`.
+    # To ensure these scores are always lower than exact fits, we can scale them down,
+    # or ensure the `high_priority_score` is sufficiently large.
+    # Using `bins_remain_cap / (bins_remain_cap - item + epsilon)` as suggested in thought process
+    # is equivalent to `(item + diff) / (diff + epsilon)` which is a good score for close fits.
+    # We will scale this score down to be less than `high_priority_score`.
+
+    if np.any(close_fit_mask):
+        diff_close_fits = bins_remain_cap[close_fit_mask] - item
+        # The score `bins_remain_cap / (diff + epsilon)` is good for ranking close fits,
+        # but we need to ensure it's less than the exact fit score.
+        # A simple scaling or a different functional form can achieve this.
+        # Let's use a score that decays with increasing difference.
+        # A score like `1 / (diff^2 + epsilon)` could amplify small differences.
+        # Let's stick to the robust `bins_remain_cap / (diff + epsilon)` and scale it.
+        
+        # Calculate the raw score for close fits: prioritize smaller positive difference
+        raw_scores = bins_remain_cap[close_fit_mask] / (diff_close_fits + epsilon)
+        
+        # Scale these scores down to be less than high_priority_score.
+        # We can normalize them relative to the maximum possible raw score or
+        # simply divide by a large constant.
+        # A robust way is to map the range of `diff_close_fits` to a range below `high_priority_score`.
+        # Let's use `1 / (diff + epsilon)` and then scale it.
+        # The maximum value of `1/(diff+eps)` occurs at the minimum positive diff.
+        # Let's ensure scores are less than `high_priority_score`.
+        
+        # A simpler approach: assign priority based on `1 / (diff + epsilon)` and then ensure
+        # exact fits are strictly higher.
+        
+        # Let's use the previous v1 logic for close fits, but ensure it's lower than exact fits.
+        # `1 / (diff + epsilon)`
+        
+        # Instead of `1/(diff+eps)`, let's use the `bins_remain_cap / (diff + epsilon)` idea but scale it.
+        # This score `bins_remain_cap / (diff + epsilon)` is `(item + diff) / (diff + epsilon)`.
+        # If diff is small, this is large. If diff is large, this approaches 1.
+        # We want to prioritize small diff.
+        
+        # Let's use a transformed score: `k / (diff + c)` where k and c are tuned.
+        # The goal is to rank them appropriately among themselves, and keep them below exact fits.
+        
+        # Let's refine the scoring for close fits:
+        # We want minimal `diff` for close fits to have higher priority.
+        # A score like `1 / (diff + epsilon)` already does this.
+        # To ensure these scores are lower than `high_priority_score`, we can map the scores
+        # derived from `1 / (diff + epsilon)` into a range below `high_priority_score`.
+        
+        # Calculate the difference for close fits
+        diff_close = bins_remain_cap[close_fit_mask] - item
+        
+        # Calculate a score that prioritizes smaller differences.
+        # Use `1 / (diff_close + epsilon)`. This gives higher scores for smaller positive differences.
+        # To ensure these scores are distinguishable from exact fits, we can scale them,
+        # or use a secondary factor.
+        
+        # Let's consider a different approach:
+        # Prioritize bins that are *most full* among those that fit, but not exact fits.
+        # This means prioritizing bins with the smallest `bins_remain_cap` such that `bins_remain_cap >= item`.
+        # This is equivalent to prioritizing smallest `diff = bins_remain_cap - item`.
+        
+        # Score for close fits: `1 / (diff_close + epsilon)`
+        # This is already what `priority_v1` does for bins that fit.
+        # The improvement can come from how we combine exact fits with close fits.
+        
+        # Let's give a very high score for exact fits, and a decreasing score for close fits.
+        # The scaling of `bins_remain_cap / (diff + epsilon)` is good for ranking close fits.
+        # Let's normalize this to be below `high_priority_score`.
+        
+        # For close fits, calculate `bins_remain_cap / (diff + epsilon)`
+        # Let's cap these values to be less than `high_priority_score`.
+        
+        # A simple heuristic: Use the `bins_remain_cap / (diff + epsilon)` score.
+        # Then, scale all these scores down so they are consistently lower than `high_priority_score`.
+        # For example, find the max `bins_remain_cap / (diff + epsilon)` among close fits,
+        # and then scale all to be within `[0, high_priority_score * 0.9]`.
+        
+        # Let's implement the idea of "minimal excess capacity" more directly.
+        # For close fits, the priority should be inversely proportional to the excess capacity (`diff`).
+        # `priority = 1.0 / (diff + epsilon)` gives higher scores to smaller `diff`.
+        
+        # To make it distinct from exact fits, we can add a small constant to the difference
+        # before taking the inverse, or use a different function.
+        
+        # Let's use a score that is inversely related to `diff`, but scaled to be lower than exact fits.
+        # Consider `score = max_possible_close_fit_score - diff` where `max_possible_close_fit_score`
+        # is slightly less than `high_priority_score`.
+        # This is essentially `C - diff`, which would prioritize smaller `diff`.
+        
+        # Let's combine the two ideas:
+        # 1. Exact fits get `high_priority_score`.
+        # 2. Close fits get a score based on `bins_remain_cap / (diff + epsilon)`, scaled.
+        
+        # Calculate the base score for close fits.
+        close_fit_scores_base = bins_remain_cap[close_fit_mask] / (diff_close + epsilon)
+        
+        # Normalize these scores to a range [0, 1] and then scale them.
+        # To avoid issues with division by zero if all close fits have same diff,
+        # or if max_score is very small.
+        
+        # A simpler approach is to add a penalty to `diff` for non-exact fits.
+        # Let's use `1 / (diff + some_constant + epsilon)` where `some_constant` ensures
+        # these scores are lower than exact fits.
+        
+        # `priority = 1 / (bins_remain_cap - item + some_constant + epsilon)`
+        # If `some_constant` is chosen to be large enough, the scores will be smaller.
+        # For example, `some_constant = 1.0` might be enough.
+        
+        # Let's use the idea of `bins_remain_cap / (diff + epsilon)` but add a base penalty for not being an exact fit.
+        # `score = bins_remain_cap[close_fit_mask] / (diff_close + epsilon) - penalty`
+        
+        # The most direct way to implement "minimal excess capacity" is to directly use `1/diff`.
+        # Let's try `1 / (diff_close + epsilon)` and ensure it's lower than exact fits.
+        
+        priorities[close_fit_mask] = 1.0 / (diff_close + epsilon)
+        
+        # Now, we need to ensure these are lower than `high_priority_score`.
+        # If there are exact fits, their scores will be `high_priority_score`.
+        # If `1.0 / (diff_close + epsilon)` can become larger than `high_priority_score`
+        # (e.g., if `diff_close` is very close to zero, but not within epsilon of it),
+        # we need to cap it.
+        
+        # Let's adjust the range of scores for close fits to be clearly below exact fits.
+        # We can scale the `1 / (diff + epsilon)` scores.
+        # Find the maximum score among close fits and scale them.
+        
+        if np.any(priorities[close_fit_mask] > 0): # Check if there are any scores for close fits
+            max_close_fit_score = np.max(priorities[close_fit_mask])
+            # Scale these scores to be in a range like [0, `high_priority_score` * 0.9]
+            # If max_close_fit_score is 0 (e.g., all diffs are very large), this scaling might be tricky.
+            # Let's ensure a minimum score of 0 and a maximum score below `high_priority_score`.
+            
+            # A more robust scaling:
+            # If max_close_fit_score is positive, scale to `high_priority_score * 0.9`
+            if max_close_fit_score > epsilon:
+                # Scale the scores for close fits to be in [0, `high_priority_score` * 0.9]
+                # The relative order within close fits is maintained.
+                scaled_close_fit_scores = (priorities[close_fit_mask] / max_close_fit_score) * (high_priority_score * 0.9)
+                priorities[close_fit_mask] = scaled_close_fit_scores
+            else:
+                # If all close fit scores are near zero, assign a small constant score
+                priorities[close_fit_mask] = 1.0 # Or some small value
+
+    # Bins where the item does not fit have a priority of 0, which is already set.
+
+    return priorities
+```

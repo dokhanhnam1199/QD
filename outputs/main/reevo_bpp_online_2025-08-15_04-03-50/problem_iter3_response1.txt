@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using an improved Almost Full Fit strategy.
+
+    The strategy prioritizes bins that have minimal remaining capacity after the item is added.
+    This aims to fill bins more tightly. To ensure robustness and avoid getting stuck in local optima
+    due to overly aggressive "tight fits", a small amount of randomness or exploration can be beneficial.
+    This version prioritizes bins with smaller slacks (bins_remain_cap - item) but also adds a small
+    random perturbation to the priority to encourage exploration of slightly less optimal bins.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins where the item can fit
+    fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate the slack (remaining capacity after packing)
+    # Slack = bins_remain_cap - item
+    # We want to prioritize bins with minimal slack.
+    slack = bins_remain_cap[fit_mask] - item
+
+    # Assign priorities: higher priority for smaller slack.
+    # Using 1 / (1 + slack) gives higher values for smaller slack.
+    # A slack of 0 (perfect fit) gives priority 1.0.
+    # A slack of 1 gives priority 0.5.
+    # A slack of 10 gives priority ~0.09.
+    # This naturally favors bins that become "almost full".
+    base_priorities = 1.0 / (1.0 + slack)
+
+    # Introduce a small random perturbation to encourage exploration.
+    # This helps to avoid always picking the absolute tightest fit, which might
+    # leave slightly larger bins in a state where they are harder to fill later.
+    # The perturbation should be small enough not to override the primary heuristic.
+    # We generate random numbers between 0 and a small fraction of the range of base_priorities.
+    # For example, a perturbation scaled by 10% of the average priority.
+    if len(base_priorities) > 0:
+        max_priority = np.max(base_priorities)
+        perturbation_scale = max_priority * 0.1  # Scale perturbation by a fraction of the max priority
+        random_perturbation = np.random.uniform(-perturbation_scale, perturbation_scale, size=slack.shape)
+        priorities[fit_mask] = base_priorities + random_perturbation
+        # Ensure priorities don't become negative due to perturbation, and clip if necessary
+        # (though with 1/(1+slack) base, this is unlikely unless slack is very large and perturbation negative)
+        priorities[fit_mask] = np.maximum(priorities[fit_mask], 0.0)
+    else:
+        # If no bins fit, priorities remain 0.
+        pass
+
+    return priorities
+```

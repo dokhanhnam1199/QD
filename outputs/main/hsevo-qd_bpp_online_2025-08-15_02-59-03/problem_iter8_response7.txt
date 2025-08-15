@@ -1,0 +1,63 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes exact fits, then best fits, with a penalty for overly tight fits.
+    This combines the clarity of exact/best fit with a nuanced approach to remaining space.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+    remaining_capacities_after_packing = suitable_bins_caps - item
+
+    # Component 1: Exact Fit - Highest priority
+    tolerance = 1e-6
+    exact_fit_mask = np.abs(remaining_capacities_after_packing) < tolerance
+    exact_fit_indices = np.where(suitable_bins_mask)[0][exact_fit_mask]
+    priorities[exact_fit_indices] = 2.0  # Highest priority score
+
+    # Component 2: Best Fit (among remaining suitable bins)
+    # Prioritize bins that leave the least remaining capacity, but avoid extreme tightness.
+    # We'll use a score that rewards smaller remaining capacity, but penalizes near-zero remaining capacity.
+    non_exact_fit_mask = suitable_bins_mask & ~exact_fit_mask
+    if np.any(non_exact_fit_mask):
+        non_exact_bins_caps = suitable_bins_caps[~exact_fit_mask[suitable_bins_mask]]
+        non_exact_remaining_after_packing = remaining_capacities_after_packing[~exact_fit_mask[suitable_bins_mask]]
+
+        min_remaining_cap_overall = np.min(non_exact_remaining_after_packing)
+        max_remaining_cap_overall = np.max(non_exact_remaining_after_packing)
+
+        # Score based on how close to the minimum remaining capacity
+        # Using 1 / (1 + diff) penalizes larger differences more, effectively favoring tighter fits.
+        # Adding 1 to the denominator avoids division by zero and ensures non-zero scores.
+        # Clamp scores to prevent overly large values from very small differences,
+        # and also to avoid penalizing slightly too much if the difference is very small.
+        scores_for_suitable = 1.0 / (1.0 + non_exact_remaining_after_packing - min_remaining_cap_overall)
+
+        # Penalize very tight fits (remaining capacity is very small relative to item size)
+        # Use a sigmoid-like penalty for remaining capacity close to zero.
+        # Here, we define "tight" as remaining capacity less than 10% of item size.
+        tight_fit_penalty_mask = non_exact_remaining_after_packing < 0.1 * item
+        penalty_factor = 0.5 # Reduce priority for tight fits
+        scores_for_suitable[tight_fit_penalty_mask] *= penalty_factor
+
+        # Normalize the scores for non-exact fits to be between 0 and 1 (or slightly less than 2)
+        max_score_suitable = np.max(scores_for_suitable)
+        min_score_suitable = np.min(scores_for_suitable)
+
+        if max_score_suitable > min_score_suitable:
+            normalized_scores = (scores_for_suitable - min_score_suitable) / (max_score_suitable - min_score_suitable)
+        else:
+            normalized_scores = np.ones_like(scores_for_suitable) * 0.5
+
+        # Map normalized scores to the priority array, ensuring they are less than the exact fit priority
+        original_indices_non_exact = np.where(suitable_bins_mask)[0][~exact_fit_mask[suitable_bins_mask]]
+        priorities[original_indices_non_exact] = 1.0 + normalized_scores # Scores between 1.0 and 2.0
+
+    return priorities
+```

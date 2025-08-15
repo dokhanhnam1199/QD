@@ -1,0 +1,59 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with a dynamic penalty for large remaining capacity,
+    prioritizing tight fits and penalizing bins with excessive unused space.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    # If no bins can fit the item, return zero priorities
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+    
+    # Component 1: Best Fit (minimize remaining capacity after packing)
+    # We want to maximize -log(remaining_capacity_after_packing).
+    # Adding a small epsilon to prevent log(0) or division by zero issues.
+    remaining_after_fit = suitable_bins_remain_cap - item
+    best_fit_score = -np.log(remaining_after_fit + 1e-9)
+    
+    # Component 2: Dynamic Penalty for Excess Capacity
+    # Penalize bins where the *initial* remaining capacity is much larger than the item.
+    # We want to penalize bins with a high ratio of (bin_capacity / item_size)
+    # or equivalently, a low ratio of (item_size / bin_capacity).
+    # A simple penalty can be based on (item / bin_capacity).
+    # A high item/bin_capacity ratio is good.
+    # Let's use 1 - (item / bin_capacity) as a penalty: higher value means more excess.
+    # We want to *minimize* this penalty. So, use -(1 - item / bin_capacity) or (item / bin_capacity - 1).
+    # A different approach: penalize large initial remaining capacity relative to the item.
+    # Consider 'excess_ratio_initial' = (suitable_bins_remain_cap - item) / item
+    # A high excess_ratio_initial is bad. We want to penalize it.
+    # Penalty multiplier = 1 / (excess_ratio_initial + C)
+    # This is similar to the logic in priority_v0 for penalty_multiplier.
+    
+    # Let's use the concept of "slack" (initial remaining capacity) and "tightness" (remaining after fit)
+    # We want to prioritize bins with low slack AND low remaining_after_fit.
+    
+    # Using a multiplicative approach combining Best Fit and a penalty for initial large capacity.
+    # The penalty term should be higher for bins with larger initial capacity compared to the item.
+    # Consider the inverse of the remaining capacity as a score for "fullness".
+    # Add epsilon to avoid division by zero.
+    fullness_score = 1.0 / (suitable_bins_remain_cap + 1e-9)
+    
+    # Combine Best Fit score with the fullness score.
+    # A high best_fit_score (tight fit after packing) is good.
+    # A high fullness_score (bin is initially quite full) is also good.
+    # Multiplying them seems reasonable: a bin is good if it's a tight fit AND was already quite full.
+    combined_score = best_fit_score * fullness_score
+    
+    # Assign the calculated scores to the priority array
+    priorities[suitable_bins_mask] = combined_score
+    
+    return priorities
+```

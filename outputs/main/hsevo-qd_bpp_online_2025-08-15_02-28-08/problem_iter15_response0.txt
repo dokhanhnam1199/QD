@@ -1,0 +1,87 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority scores for each bin to pack an item using a refined strategy.
+
+    This heuristic prioritizes bins with an exact fit, then bins with a "close" fit,
+    and finally bins with larger remaining capacities, all in a scalable manner.
+    It aims to reduce fragmentation by preferring tighter fits and utilizing
+    remaining capacity effectively.
+
+    Args:
+        item: Size of the item to be packed.
+        bins_remain_cap: Array of remaining capacities for each existing bin.
+
+    Returns:
+        Array of priority scores for each bin. Higher scores indicate higher priority.
+    """
+    epsilon = 1e-9
+    
+    # Initialize priorities to zero (for bins where the item cannot fit)
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+    
+    # For bins that can fit the item:
+    # Calculate the difference between remaining capacity and item size.
+    # This 'diff' represents the 'slack' or 'wasted' space if the item is placed.
+    diff = bins_remain_cap[can_fit_mask] - item
+    
+    # --- Scoring Strategy ---
+    # We want to prioritize bins where 'diff' is small, especially close to zero.
+    # A score that is high for diff=0 and decreases as diff increases is desired.
+    # A simple and effective scoring function is `1 / (diff + epsilon)`.
+    # This gives a very high score for exact fits (diff=0) and decreasing scores
+    # for bins with larger differences.
+    
+    # To further emphasize the preference for tighter fits over loosely fitting bins,
+    # we can introduce a scaling factor for the difference.
+    # Consider `1 / (diff / item + epsilon)` for item > 0.
+    # This normalizes the difference by the item size, making the comparison
+    # relative. A bin with item 5 fitting into capacity 6 (diff 1) is a tighter
+    # fit than item 50 fitting into capacity 60 (diff 10).
+    
+    # So, the core scoring function for bins that fit will be:
+    # `item / (bins_remain_cap - item + epsilon)`
+    # which is `item / (diff + epsilon)`
+    
+    # Let's refine this to ensure a good distribution and avoid extreme values
+    # while still strongly favoring tight fits.
+    # The previous approach `bins_remain_cap / (diff + epsilon)` already
+    # amplifies the score for tight fits. Let's stick with that and ensure robustness.
+    
+    # If bins_remain_cap = item, diff = 0. Score -> bins_remain_cap / epsilon (very high).
+    # If bins_remain_cap = item + small_value, diff = small_value. Score -> (item + small_value) / small_value (high).
+    # If bins_remain_cap = item + large_value, diff = large_value. Score -> (item + large_value) / large_value (approaches 1).
+    
+    # This function `bins_remain_cap / (diff + epsilon)` is interpretible:
+    # it's the ratio of remaining capacity to the 'slack' space.
+    # A higher ratio means less slack relative to the total space available.
+    
+    # Let's apply this scoring to the bins that can fit.
+    # Add epsilon to bins_remain_cap in the numerator as a safeguard if bins_remain_cap happens to be exactly 0 (though unlikely with can_fit_mask).
+    # However, the standard use case assumes positive capacities.
+    
+    priorities[can_fit_mask] = bins_remain_cap[can_fit_mask] / (diff + epsilon)
+    
+    # Consider an additional factor: penalize bins that are excessively large.
+    # This is implicitly handled by the scoring function, as very large bins
+    # will result in a ratio closer to 1.
+    
+    # To make it more robust and interpretable as a "closeness" metric:
+    # Let's use the inverse of normalized difference for preference.
+    # Normalized difference: `diff / item`.
+    # Score for tight fits: `1 / (diff / item + epsilon)`.
+    # This is `item / (diff + epsilon)`.
+    
+    # This is a good, interpretable heuristic that strongly favors exact fits
+    # and provides decreasing scores for progressively looser fits.
+    # It's also vectorized and efficient.
+    
+    priorities[can_fit_mask] = item / (bins_remain_cap[can_fit_mask] - item + epsilon)
+    
+    return priorities
+```

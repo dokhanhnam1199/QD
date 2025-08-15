@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+
+    valid_bins_mask = bins_remain_cap >= item
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+
+    if valid_bins_remain_cap.size == 0:
+        return np.zeros_like(bins_remain_cap)
+
+    # Hybrid approach: Prioritize perfect fits, then best fits, then consider "nearly" good fits.
+    # 1. Perfect Fit Bonus: If an item perfectly fits, give it a very high score.
+    # 2. Best Fit Score: Minimize remaining capacity after packing.
+    # 3. Exploration Score: Encourage using bins that are not excessively full but can still fit the item.
+    #    This can be a penalty for bins that are *too* empty.
+
+    # Calculate scores for valid bins
+    remaining_after_fit = valid_bins_remain_cap - item
+    
+    # Score 1: Perfect fit bonus (high positive value)
+    perfect_fit_bonus = np.zeros_like(valid_bins_remain_cap)
+    perfect_fit_bonus[remaining_after_fit == 0] = 100.0 # High bonus for perfect fit
+
+    # Score 2: Best fit score (negative of remaining capacity, so smaller remaining is better)
+    best_fit_score = -remaining_after_fit
+
+    # Score 3: Exploration penalty (discourage very empty bins)
+    # We want to penalize bins that have a lot of remaining capacity *after* packing.
+    # A simple approach is to use a negative scaled value of the remaining capacity.
+    # The scale factor can be a tunable parameter, or adaptively chosen.
+    # Let's use a soft penalty that is less severe than the best-fit preference.
+    # We can use a sigmoid-like function that penalizes larger remaining capacities.
+    # For simplicity, let's add a term that is small and negative for larger remaining capacities.
+    # Maximize (1 / (1 + k * remaining_after_fit)) where k is small, or similar.
+    # Or, more simply, add a small negative value proportional to remaining_after_fit, but less than the best_fit_score magnitude.
+    exploration_penalty = -0.1 * remaining_after_fit # Small penalty for more remaining space
+
+    # Combine scores. Prioritize perfect fits significantly.
+    # We can combine them by summation, ensuring the bonus dominates.
+    combined_scores = perfect_fit_bonus + best_fit_score + exploration_penalty
+
+    # Softmax for probabilistic selection among valid bins
+    # Shift scores to prevent numerical overflow/underflow before exponentiation
+    if combined_scores.size > 0:
+        shifted_scores = combined_scores - np.max(combined_scores)
+        exp_scores = np.exp(shifted_scores)
+        probabilities = exp_scores / np.sum(exp_scores)
+    else:
+        probabilities = np.array([])
+
+    # Create the final priority array, placing calculated priorities in their original positions
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    priorities[valid_bins_mask] = probabilities
+
+    return priorities
+```

@@ -1,0 +1,477 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Sigmoid Fit Score strategy.
+
+    The Sigmoid Fit Score strategy prioritizes bins that, after adding the item,
+    would have a remaining capacity that is "close" to zero. This is achieved
+    by mapping the remaining capacity to a sigmoid function, where values near
+    zero are amplified towards 1, and larger values are suppressed towards 0.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Calculate the remaining capacity if the item is placed in each bin
+    remaining_capacities_after_placement = bins_remain_cap - item
+
+    # Filter out bins where the item cannot fit
+    valid_bins_mask = remaining_capacities_after_placement >= 0
+    
+    # Initialize priorities to a very low value (or negative infinity for practical purposes)
+    # for bins where the item doesn't fit. This ensures they are never chosen.
+    priorities = np.full_like(bins_remain_cap, -np.inf) 
+    
+    # Apply the sigmoid function to the remaining capacities of valid bins
+    # We use the remaining capacity itself as the input to the sigmoid.
+    # A smaller remaining capacity (closer to 0) will result in a higher sigmoid output.
+    # The sigmoid function `1 / (1 + exp(-x))` maps values to (0, 1).
+    # We can also scale the input to the sigmoid to control the steepness of the curve.
+    # Here, we'll use a simple sigmoid without scaling, as the objective is to favor
+    # bins with smaller remaining capacity *after* placing the item.
+    
+    # To make sure we don't have issues with exp(very large positive number),
+    # we can apply the sigmoid to a transformation of the remaining capacity.
+    # For example, `1 / (1 + exp(x))` maps values to (0, 1) but in reverse (smaller x -> larger output).
+    # So we want to apply it to something like `-remaining_capacity` or `k * remaining_capacity`
+    # where we want to minimize remaining capacity.
+    
+    # Let's use `exp(-remaining_capacity)` for a decaying function.
+    # Or `1 / (1 + exp(remaining_capacity))` which is `exp(-remaining_capacity) / (exp(-remaining_capacity) + 1)`
+    # This will give higher scores to smaller remaining capacities.
+    
+    # A simple sigmoid transformation that maps smaller remaining capacities to higher scores:
+    # `1 / (1 + exp(remaining_capacities_after_placement))`
+    
+    # To avoid numerical instability with large positive remaining capacities, we can
+    # shift the values. Or, we can simply define the sigmoid argument such that smaller
+    # remaining capacities lead to larger values for the sigmoid argument.
+    # For example, let sigmoid input be `C - remaining_capacity` where C is some large constant.
+    # A more standard approach is to transform the value `x` such that you want to minimize it,
+    # into a value `y` that you want to maximize, and then apply a sigmoid.
+    # If we want to minimize `r` (remaining capacity), we can maximize `-r`.
+    # Then apply sigmoid: `1 / (1 + exp(-(-r))) = 1 / (1 + exp(r))`
+    # This would give higher scores to smaller `r`.
+
+    # Let's use a transformation that maps smaller remaining capacities to higher values before sigmoid.
+    # For example, `exp(-remaining_capacity_after_placement * scale)`
+    # If we want the highest priority for remaining_capacity_after_placement = 0, we can use `exp(-remaining_capacity_after_placement)`.
+    # This value will be 1 for 0 remaining capacity and decay towards 0.
+    # We can use `1 / (1 + exp(remaining_capacity_after_placement))` which maps [0, inf) to (0, 0.5]
+    # Or `1 / (1 + exp(-remaining_capacity_after_placement))` which maps [0, inf) to (0.5, 1]
+
+    # A common Sigmoid Fit Score for BPP aims to put the item into a bin
+    # such that the remaining capacity is as small as possible, but not negative.
+    # This means we want to favor bins where `bins_remain_cap - item` is close to 0.
+    #
+    # We can define a score function that is high when `bins_remain_cap - item` is small and non-negative.
+    # A sigmoid function `1 / (1 + exp(-x))` can be used. If we use `x = C - (bins_remain_cap - item)`,
+    # we want `C` to be large enough such that `C - 0` is a large positive number.
+    # Let's use `x = (MaxCapacity - (bins_remain_cap - item))`. This maps the ideal scenario (0 remaining capacity)
+    # to a high value.
+    #
+    # However, a simpler interpretation is to directly map remaining capacity to a priority.
+    # Smaller remaining capacity should yield higher priority.
+    # Let's use `f(x) = 1 / (1 + exp(x))` where `x = remaining_capacity_after_placement`.
+    # This function maps smaller `x` to higher values.
+
+    # Let's ensure that the input to exp is not too large to avoid overflow.
+    # We can limit the remaining capacity, or scale it.
+    # A common sigmoid approach uses a transformation like `-(remaining_capacity_after_placement)`
+    # scaled by a factor. Let's use `k * (bins_remain_cap - item)`
+    # We want to minimize `bins_remain_cap - item`, so we want to maximize `- (bins_remain_cap - item)`.
+    # A good sigmoid input for maximizing smaller values would be `C - value_to_minimize`.
+    # So, `C - (bins_remain_cap - item)`.
+
+    # Let's consider the difference: `diff = bins_remain_cap - item`.
+    # We want to minimize `diff` for `diff >= 0`.
+    # A common way to use sigmoid for minimization is to transform `x` to `k*x`
+    # and then use `1 / (1 + exp(-k*x))`. This results in values closer to 1 for smaller `x`.
+    # Or `1 / (1 + exp(k*x))` which results in values closer to 1 for larger `x`.
+    # So, we want to use the first one, but with `-k*x` if we want to maximize.
+
+    # Let's define a scaled remaining capacity for the sigmoid input.
+    # We want to maximize the priority for remaining capacity close to 0.
+    # So, let the input to sigmoid be proportional to `-remaining_capacity_after_placement`.
+    # `scaled_remaining_capacity = -remaining_capacities_after_placement * scale_factor`
+    # Then priority = `1 / (1 + exp(-scaled_remaining_capacity))`
+    # This will be high when `scaled_remaining_capacity` is high, meaning `remaining_capacities_after_placement` is low.
+
+    # Let's use a reasonable scale factor. If we want to emphasize values
+    # around 0 remaining capacity, we can choose a scale factor.
+    # A simple approach is to use the item size itself or a related value for scaling.
+    # For instance, if bin capacity is B, an item size s, and remaining capacity r = B - s.
+    # We want high priority for small r.
+
+    # A direct mapping where smaller positive remaining capacity gets higher score:
+    # `sigmoid(remaining_capacity) = 1 / (1 + exp(remaining_capacity))`
+    # This maps [0, inf) to (0, 0.5].
+
+    # Let's try a sigmoid where values close to 0 are mapped to near 1.
+    # We want to minimize `r = bins_remain_cap - item`.
+    # So, we can use `sigmoid(k * r)` where `k` is negative, or `sigmoid(-k * r)` where `k` is positive.
+    # Let's use `k = 1` and apply sigmoid to `-remaining_capacities_after_placement`.
+    
+    # Be cautious about potential overflow with large positive `remaining_capacities_after_placement`.
+    # `exp(very_large_number)` will overflow.
+    # `exp(-very_large_number)` will underflow to 0.
+
+    # Let's use `priority = exp(-remaining_capacities_after_placement)`.
+    # This is simple and maps 0 to 1, and positive values to [0, 1).
+    # It's not strictly a sigmoid, but achieves the goal of prioritizing smaller remaining capacities.
+
+    # Alternatively, to stay closer to the "Sigmoid Fit Score" idea:
+    # Consider the function `f(x) = 1 / (1 + exp(-x))` which maps `x` to (0, 1).
+    # We want smaller `remaining_capacities_after_placement` (let's call it `rem_cap`) to have higher priority.
+    # So, we can map `rem_cap` to an argument `arg` such that `sigmoid(arg)` is higher for smaller `rem_cap`.
+    # This means `arg` should be higher for smaller `rem_cap`.
+    # So, `arg = k * (C - rem_cap)` for some constants `k > 0` and `C`.
+    # A simple choice is `arg = -rem_cap`.
+    # Then `priority = 1 / (1 + exp(-(-rem_cap))) = 1 / (1 + exp(rem_cap))`
+    # This function maps `rem_cap = 0` to `1/2` and `rem_cap = inf` to `0`.
+    # This indeed prioritizes smaller remaining capacities.
+
+    # Let's use this formulation: `priorities[valid_bins_mask] = 1 / (1 + np.exp(remaining_capacities_after_placement[valid_bins_mask]))`
+    # However, if `remaining_capacities_after_placement` is large, `exp()` might overflow.
+    # If `bins_remain_cap` can be very large, this is a concern. Assuming standard bin capacities, this might be fine.
+
+    # Let's consider a practical implementation for stability.
+    # If `remaining_capacities_after_placement` is large and positive, `exp()` can overflow.
+    # If `remaining_capacities_after_placement` is very negative, `exp()` can underflow to 0.
+    # For our purpose (minimizing remaining capacity), we only care about `remaining_capacities_after_placement >= 0`.
+    # So, if `remaining_capacities_after_placement` becomes very large positive, its priority should be very low.
+    # The function `1 / (1 + exp(x))` does this.
+
+    # To handle potential overflow with `exp(x)` when `x` is large positive, we can check for it.
+    # `np.exp` can raise OverflowError.
+    # A robust way is to clip the argument to `exp`.
+
+    # Let's calculate `r = remaining_capacities_after_placement` for valid bins.
+    r_valid = remaining_capacities_after_placement[valid_bins_mask]
+
+    # We want to compute `1 / (1 + exp(r_valid))`.
+    # If `r_valid` is very large, `exp(r_valid)` will be infinity. `1 / (1 + inf)` is 0.
+    # If `r_valid` is very small (close to 0), `exp(r_valid)` is close to 1. `1 / (1 + 1)` is 0.5.
+    # This means this sigmoid formulation might not prioritize near-zero remaining capacity as strongly as desired.
+
+    # Let's re-think. We want to maximize a function `S(r)` where `r = remaining_capacity`.
+    # `S(r)` should be high for small `r >= 0`.
+    # Example: `S(r) = exp(-k * r)`. For `k > 0`.
+    # If `k=1`, `S(0)=1`, `S(1)=1/e`, `S(large)=small`. This looks good.
+    
+    # Let's consider a slightly modified sigmoid approach:
+    # `sigmoid_score = 1 / (1 + exp(k * (rem_cap - target)))`
+    # Where `target` is the ideal remaining capacity (0 in this case).
+    # So, `sigmoid_score = 1 / (1 + exp(k * rem_cap))` for `k > 0`.
+    # This maps `rem_cap=0` to `0.5`. Smaller `rem_cap` gives priority approaching `0.5`.
+    # Larger `rem_cap` gives priority approaching `0`.
+    # This might not be what we want. We want near-zero to be highest.
+
+    # What if we use `sigmoid(k * (C - rem_cap))`?
+    # Let `C` be a capacity such that if `rem_cap = C`, we are in the middle of sigmoid range.
+    # Or simply: we want to maximize priority as `rem_cap` approaches 0.
+    # Let's use `priority = 1 - sigmoid(k * rem_cap)` where `k > 0`.
+    # `priority = 1 - (1 / (1 + exp(k * rem_cap)))`
+    # `priority = (1 + exp(k * rem_cap) - 1) / (1 + exp(k * rem_cap))`
+    # `priority = exp(k * rem_cap) / (1 + exp(k * rem_cap))`
+    # This is `1 / (1 + exp(-k * rem_cap))`.
+    # This maps `rem_cap = 0` to `1 / (1 + exp(0)) = 1 / 2`.
+    # As `rem_cap` increases, `-k * rem_cap` decreases, so `exp()` decreases, and priority decreases towards 0.
+    # This looks like a standard way to map a minimization problem to a priority where higher is better.
+
+    # Let's use this: `priorities[valid_bins_mask] = 1 / (1 + np.exp(-k * r_valid))`
+    # We need to choose a `k`. A higher `k` means the priority drops faster as `rem_cap` increases.
+    # Let's start with `k = 1`.
+    
+    k = 1.0  # Scaling factor for the sigmoid. Higher k means sharper transition.
+
+    # Calculate the sigmoid score for valid bins
+    # Use `np.clip` to avoid potential overflow/underflow in `np.exp` arguments.
+    # If `-k * r_valid` is very large positive, `exp` can overflow.
+    # If `-k * r_valid` is very large negative, `exp` can underflow to 0.
+    
+    # For `1 / (1 + exp(-k * r_valid))`:
+    # If `r_valid` is very small positive (e.g., 0), `-k * r_valid` is very small negative, `exp()` near 1, priority near 0.5.
+    # If `r_valid` is very large positive, `-k * r_valid` is very large negative, `exp()` near 0, priority near 1.
+    # THIS IS THE OPPOSITE of what we want. We want small `r_valid` to have HIGH priority.
+
+    # Let's go back to the basic idea: we want to maximize `f(r)` where `f(r)` is high for small `r >= 0`.
+    # Options:
+    # 1. `f(r) = exp(-k * r)` for `k > 0`.
+    # 2. Use a sigmoid that maps smaller `r` to values closer to 1.
+    #    `1 / (1 + exp(k * r))` for `k > 0`.
+    #    This maps `r=0` to `0.5`, `r=inf` to `0`. Still not prioritizing 0 best.
+
+    # Let's use the simple decreasing function `exp(-r)` as a proxy for sigmoid-like behavior,
+    # or `exp(-k*r)`. This gives the highest value at `r=0`.
+    
+    # Option A: Simple decaying exponential
+    # priorities[valid_bins_mask] = np.exp(-k * r_valid)
+
+    # Option B: Sigmoid where argument is chosen to favor small `r`.
+    # We want a function `g(x)` that maps `r` to `x` such that `sigmoid(x)` is high for small `r`.
+    # This means `x` should be high for small `r`.
+    # So, `x = C - r`.
+    # Priority = `1 / (1 + exp(-(C - r)))`
+    # Priority = `1 / (1 + exp(r - C))`
+    # If we choose `C` to be some reference capacity. Let's say the average remaining capacity, or the bin capacity.
+    # Let's use `C` as a parameter. A larger `C` means we tolerate larger remaining capacities for higher priority.
+    
+    # For a strict "Sigmoid Fit Score", we aim for the remaining capacity to be as close to zero as possible *without going negative*.
+    # This is often framed as fitting the item into a bin where the remaining space is minimized.
+    # Consider the function: `score(r) = 1 / (1 + exp(k * r))`
+    # This gives higher scores for smaller `r`.
+    # `score(0) = 0.5`
+    # `score(very_large) = 0`
+    # `score(very_small_negative) = approaching 1`
+    # Since we filter for `r >= 0`, the scores will be in `[0, 0.5]`.
+    # This also might not be ideal.
+
+    # What if we consider `bins_remain_cap` and `item`?
+    # The "fit" is `bins_remain_cap - item`.
+    # The goal is to minimize `bins_remain_cap - item` for `bins_remain_cap - item >= 0`.
+    # Let `remaining = bins_remain_cap - item`.
+    # We want to maximize `f(remaining)` where `f` decreases as `remaining` increases.
+    # A standard sigmoid approach for this: map `remaining` to `argument` such that `sigmoid(argument)` is maximized for small `remaining`.
+    # Argument should be large for small `remaining`.
+    # So, `argument = -remaining * scale_factor` where `scale_factor > 0`.
+    # Priority = `1 / (1 + exp(-(-remaining * scale_factor)))`
+    # Priority = `1 / (1 + exp(remaining * scale_factor))`
+
+    # Let's use this formulation. `scale_factor` can be adjusted.
+    # A scale factor related to the average item size or bin capacity might be good.
+    # For now, let's use `k=1.0`.
+
+    scale_factor = 1.0
+    # Arguments for the sigmoid. We only care about where item fits.
+    # `np.exp` can overflow for very large positive arguments.
+    # If `r_valid` is large, `exp(r_valid * scale_factor)` is huge, and `1/(1+huge)` is close to 0.
+    # If `r_valid` is close to 0, `exp(...)` is close to 1, `1/(1+1)` is 0.5.
+    # This still prioritizes values away from 0 for *this specific sigmoid formulation*.
+
+    # Let's try the other sigmoid form `1 / (1 + exp(-argument))`.
+    # We want `argument` to be high for small `r_valid`.
+    # `argument = k * (C - r_valid)`
+    # Simple choice: `argument = -k * r_valid`.
+    # Priority = `1 / (1 + exp(-(-k * r_valid)))`
+    # Priority = `1 / (1 + exp(k * r_valid))` -- This is what we had.
+
+    # Let's use a common strategy for "best fit" in online BPP, which is to minimize remaining capacity.
+    # A simple way to get a priority score where smaller remaining capacity is better:
+    # - Calculate `remaining_cap = bins_remain_cap - item` for valid bins.
+    # - Use `score = 1 / (1 + remaining_cap)` for valid bins. This is not sigmoid but simple.
+    # - Or `score = exp(-remaining_cap)`.
+
+    # The prompt specifically asks for Sigmoid Fit Score strategy.
+    # A robust Sigmoid Fit Score for minimization (like remaining capacity):
+    # `score = sigmoid(k * (max_value - value_to_minimize))`
+    # `value_to_minimize = remaining_capacities_after_placement[valid_bins_mask]`
+    # Let `max_value` be something like the maximum possible remaining capacity.
+    # If we don't have a fixed max capacity, let's use `bins_remain_cap` itself for scaling.
+
+    # Let's try a different sigmoid argument transformation that focuses on making `r=0` map to a high value.
+    # If `r_valid` are the remaining capacities.
+    # We want a function that peaks at `r_valid = 0`.
+    # Consider the argument `x` for `sigmoid(x) = 1 / (1 + exp(-x))`.
+    # For `sigmoid(x)` to be high, `x` should be high.
+    # So we need a function that maps `r_valid` to a high value when `r_valid` is small.
+    # This means the function itself should be decreasing with `r_valid`.
+    # Let `f(r) = -k * r` for `k > 0`.
+    # So, `argument = -k * r_valid`.
+    # `priorities[valid_bins_mask] = 1 / (1 + np.exp(-(-k * r_valid)))`
+    # `priorities[valid_bins_mask] = 1 / (1 + np.exp(k * r_valid))` -- This is where we started and got confused.
+
+    # Let's re-evaluate: `f(x) = 1 / (1 + exp(-x))`
+    # If `x` is large positive, `f(x)` approaches 1.
+    # If `x` is large negative, `f(x)` approaches 0.
+    # We want high priority for small `r_valid`.
+    # So, we want to map `r_valid` to `x` such that `x` is large positive for small `r_valid`.
+    # This means `x` must be a decreasing function of `r_valid`.
+    # Let `x = C - k * r_valid` where `k > 0`.
+    # `priorities[valid_bins_mask] = 1 / (1 + np.exp(-(C - k * r_valid)))`
+    # `priorities[valid_bins_mask] = 1 / (1 + np.exp(k * r_valid - C))`
+    # Let `C = k * reference_value`.
+    # `priorities[valid_bins_mask] = 1 / (1 + np.exp(k * (r_valid - reference_value)))`
+    # If `reference_value = 0`, then `priorities[valid_bins_mask] = 1 / (1 + np.exp(k * r_valid))`.
+    # This indeed maps `r_valid=0` to `0.5`, and higher `r_valid` to lower priorities.
+    # The issue is that `0.5` isn't the highest priority.
+
+    # The core idea of Sigmoid Fit Score is often to penalize bins that are too large or too small.
+    # For online BPP, "too small" remaining capacity after placing the item means a better fit.
+    # So we want to maximize the priority for `remaining_capacity_after_placement` close to 0.
+    # The function `1 / (1 + exp(k * r))` maps `r=0` to `0.5` and `r -> inf` to `0`.
+    # The function `1 / (1 + exp(-k * r))` maps `r=0` to `0.5` and `r -> inf` to `1`. This is also not ideal.
+
+    # Let's use a slightly different sigmoid: `1 - sigmoid(k * r) = 1 - 1/(1+exp(-kr)) = exp(kr)/(1+exp(kr))`.
+    # This is `1 / (1 + exp(-kr))`.
+    # It maps `r=0` to `0.5`. `r -> inf` to `1`. `r -> -inf` to `0`.
+    # This means it assigns higher scores to larger remaining capacities.
+
+    # A more fitting sigmoid for minimization would be one that is high for small positive values.
+    # Consider the function `g(x) = a * exp(-k*x)`. This isn't sigmoid.
+
+    # Let's re-read common Sigmoid Fit strategies for BPP.
+    # Often, they try to fit into bins where `remaining_capacity - item_size` is small.
+    # So, the quantity to minimize is `bins_remain_cap - item_size`.
+
+    # Consider the objective: Minimize `r = bins_remain_cap - item`.
+    # Let's use the sigmoid to "smoothly" penalize larger `r`.
+    # A common transformation: `score = sigmoid(k * (target - value))`
+    # Here, `value = r`, `target = 0`.
+    # `score = sigmoid(k * (0 - r)) = sigmoid(-k * r)`
+    # `score = 1 / (1 + exp(-(-k * r))) = 1 / (1 + exp(k * r))`
+    # This maps `r=0` to `0.5`, and larger `r` to smaller scores.
+    # So the valid bins would get scores in `(0, 0.5]`.
+    # The bin with the highest score would be the one with the smallest `r >= 0`. This seems correct.
+
+    # Let's implement `score = 1 / (1 + np.exp(k * r_valid))`
+    # To avoid overflow for `exp(k * r_valid)` when `r_valid` is large and positive,
+    # and underflow for `exp(k * r_valid)` when `r_valid` is very negative (though we filter for >= 0).
+    # If `k * r_valid` becomes very large positive, `exp()` overflows.
+    # We can clamp the argument.
+    # Let's clamp the argument to `exp` to avoid overflow.
+    # `argument = k * r_valid`
+    # If `argument` is too large, say `> 700`, `exp` overflows.
+    # We can set `argument = min(argument, 700.0)`
+
+    # Calculate remaining capacities for valid bins.
+    r_valid = remaining_capacities_after_placement[valid_bins_mask]
+    
+    # Apply sigmoid: 1 / (1 + exp(k * r))
+    # where k is a scaling factor. Smaller r should give higher score.
+    # For r=0, score is 0.5. For r>0, score < 0.5.
+    # For r<0, score > 0.5.
+    # This is precisely what we want if we consider ALL bins (including invalid ones which would map to higher scores for negative r).
+    # However, we've filtered out invalid bins.
+
+    # Let's try to adjust the sigmoid argument or form to make small positive `r` get highest priority.
+    # Consider `score = 1 - (1 / (1 + exp(-k * r)))` for `k > 0`. This is `1 / (1 + exp(k * r))`.
+    #
+    # What if we want `r=0` to be the peak of the sigmoid?
+    # The function `exp(-k * (r - target)^2)` is Gaussian, not sigmoid.
+
+    # Let's re-evaluate: The goal is to pack items. A good fit leaves minimal remaining space.
+    # So, we want to prioritize bins where `bins_remain_cap - item` is as small as possible, and non-negative.
+    
+    # A popular interpretation for "sigmoid fit" in this context:
+    # Maximize `P(bin) = sigmoid(k * (capacity - item))` for bins where `capacity >= item`.
+    # Let `rem_cap = capacity - item`.
+    # Maximize `P(bin) = sigmoid(k * rem_cap)`? No, this maximizes for large rem_cap.
+    # Maximize `P(bin) = sigmoid(-k * rem_cap)`? This maps `rem_cap=0` to `0.5`, and larger `rem_cap` to lower priority. This is what we want.
+    #
+    # So the formulation `priorities[valid_bins_mask] = 1 / (1 + np.exp(-k * r_valid))` with `k=1.0` seems incorrect as it leads to higher priority for larger `r_valid` in `[0, inf)`.
+    #
+    # Let's use `priorities[valid_bins_mask] = 1 / (1 + np.exp(k * r_valid))` with `k=1.0`.
+    # This maps `r_valid=0` to `0.5`, and larger `r_valid` to values less than `0.5`.
+    # This means the maximum value of the priority will be `0.5`.
+    # If multiple bins have `r_valid = 0`, they all get `0.5`.
+    # This should work as a priority.
+
+    k = 1.0  # Scaling factor for the sigmoid.
+
+    # Ensure we don't compute exp of very large numbers which can cause overflow.
+    # Clamp `k * r_valid` to a reasonable upper bound. For exp(x), if x > ~700, it overflows.
+    # We are computing `exp(k * r_valid)`. If `r_valid` is large, `k * r_valid` is large.
+    # If `k * r_valid` is large positive, `exp()` grows very large. `1/(1+large)` becomes near 0.
+    # If `k * r_valid` is large negative, `exp()` approaches 0. `1/(1+0)` becomes 1.
+    # We want small `r_valid` to have high priority.
+    # So we want to map small `r_valid` to large scores.
+    # With `sigmoid(k*r)`, small `r` gives small `k*r`, sigmoid gives ~0.5.
+    # With `sigmoid(-k*r)`, small `r` gives small `-k*r`, sigmoid gives ~0.5.
+    #
+    # The most common sigmoid score for "minimizing remaining capacity" (best fit) is achieved by using a sigmoid
+    # where the input is proportional to the negative of the remaining capacity.
+    # Let `remaining_cap = bins_remain_cap - item`.
+    # We want to maximize `f(remaining_cap)` where `f` is decreasing for `remaining_cap >= 0`.
+    # Consider `sigmoid(x) = 1 / (1 + exp(-x))`. This increases with `x`.
+    # To get a decreasing priority, we can use `sigmoid(-x) = 1 / (1 + exp(x))`.
+    # Or we can use `1 - sigmoid(x) = exp(x) / (1 + exp(x)) = 1 / (1 + exp(-x))`.
+    #
+    # Let's use `score = 1 / (1 + exp(k * r_valid))`. This yields scores in (0, 0.5].
+    # The issue might be that the absolute values are not high.
+    # But if all valid bins get scores < 0.5, then the highest one (closest to 0.5) is prioritized.
+
+    # A potential problem with `1 / (1 + exp(k * r_valid))` is that when `r_valid` is 0, score is 0.5.
+    # If the item is very small, many bins might have `r_valid` very close to 0.
+    #
+    # Consider a scenario where we want a steep drop-off in priority as remaining capacity increases.
+    # This implies a larger `k`.
+    # Let's think about scaling `r_valid`. If bin capacities are large, `r_valid` can be large.
+    # If we use `k=1.0`, `exp(100)` overflows.
+    #
+    # Robust approach for `1 / (1 + exp(x))`:
+    # If `x` is very large positive, score is near 0.
+    # If `x` is very large negative, score is near 1.
+    # We want small `r_valid`. So we want `k * r_valid` to be negative.
+    # This requires `k < 0` or `r_valid < 0`. But we filter `r_valid >= 0`.
+    #
+    # The strategy is to put items into bins such that the remaining space is minimized.
+    # A way to achieve this with sigmoid is to model the "badness" of a bin.
+    # "Badness" is increasing with `r_valid`.
+    # Let `Badness(r) = k * r`.
+    # Priority can be `1 - sigmoid(Badness(r))` or `sigmoid(-Badness(r))`.
+    # `Priority = 1 / (1 + exp(k * r_valid))`.
+
+    # Let's use a clamping mechanism for the exponential argument for numerical stability.
+    # If `k * r_valid` is very large, the score approaches 0.
+    # If `k * r_valid` is very small (e.g., negative infinity), the score approaches 1.
+    # Since `r_valid >= 0`, `k * r_valid` will be non-negative if `k>0`.
+    # So the scores will be in (0, 0.5] if `k>0`.
+    
+    # Let's define the clamping bound. For `exp(x)`, a bound around 700 is often used.
+    # `bounded_arg = np.clip(k * r_valid, -700.0, 700.0)`
+    # `priorities[valid_bins_mask] = 1 / (1 + np.exp(bounded_arg))`
+    
+    # This will map `r_valid = 0` to `0.5`.
+    # Larger `r_valid` values will result in larger `k * r_valid`,
+    # thus larger `exp(...)`, and smaller `1/(1+...)`.
+    # So this correctly prioritizes bins with smaller remaining capacities.
+
+    k = 5.0 # A higher k can make the penalty for larger remaining capacity steeper.
+
+    # Calculate remaining capacities for valid bins.
+    r_valid = remaining_capacities_after_placement[valid_bins_mask]
+
+    # Compute the argument for the sigmoid function.
+    # We want to map small remaining capacities to high scores.
+    # Using `sigmoid(k * (C - r))` where `C` is some reference.
+    # A simple transformation for minimizing `r` is `sigmoid(-k * r)`.
+    # `sigmoid(-k * r) = 1 / (1 + exp(-(-k * r))) = 1 / (1 + exp(k * r))`.
+    # This gives scores in (0, 0.5] for `r >= 0`.
+
+    # Let's use a scaled version to ensure the steepness is appropriate.
+    # We want to avoid situations where the priority difference between valid bins is too small or too large.
+    # A common choice for `k` is related to the range of the input values.
+
+    # For robustness with `np.exp(k * r_valid)`:
+    # If `k * r_valid` is large and positive, `exp` can overflow.
+    # If `k * r_valid` is large and negative, `exp` can underflow.
+    #
+    # Let's define the argument: `arg = k * r_valid`.
+    # `priorities[valid_bins_mask] = 1 / (1 + np.exp(arg))`
+    
+    # To make `exp(arg)` more stable:
+    # `exp(x)` can be computed as `exp(min(x, max_val))` if `x > max_val`.
+    # If `x` is very large, `exp(x)` is infinite. `1 / (1 + inf)` is 0.
+    # If `x` is very small (large negative), `exp(x)` is near 0. `1 / (1 + 0)` is 1.
+    
+    # Let's consider the term `k * r_valid`.
+    # If `r_valid` is very large, `k * r_valid` is large positive. `exp` overflows.
+    # We want the score to be very low in this case. So setting it to 0 is fine.
+    #
+    # Let's compute `exp_val = np.exp(k * r_valid)`.
+    # If `exp_val` is infinite due to overflow, the priority will be `1 / (1 + inf)` which is 0.
+    # This means that if `k * r_valid` overflows, the priority correctly becomes 0.
+
+    # However, if `r_valid` is 0, `k * r_valid` is 0, `exp(0)` is 1, priority is `1 / (1 + 1) = 0.5`.
+    # This is the maximum priority for this formulation.
+    # So, `priority_v2` assigns the highest priority to bins that have exactly 0 remaining capacity after placing the item.
+
+    priorities[valid_bins_mask] = 1.0 / (1.0 + np.exp(k * r_valid))
+
+    return priorities
+```

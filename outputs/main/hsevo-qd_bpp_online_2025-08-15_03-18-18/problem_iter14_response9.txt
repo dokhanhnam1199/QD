@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with adaptive diversification using a temperature parameter.
+    Favors bins that minimize wasted space while encouraging exploration of less full bins.
+    """
+    valid_bins_mask = bins_remain_cap >= item
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+
+    if valid_bins_remain_cap.size == 0:
+        return np.zeros_like(bins_remain_cap)
+
+    # Best Fit component: favors bins with minimal remaining capacity after packing.
+    # Score is -(remaining_capacity_after_packing). Higher is better.
+    best_fit_scores = -(valid_bins_remain_cap - item)
+
+    # Diversification component: favors bins that are less full initially.
+    # Higher remaining capacity is better for diversification.
+    # We use the current remaining capacity directly.
+    diversification_scores = valid_bins_remain_cap
+
+    # Combine scores: weighted sum of Best Fit and Diversification.
+    # alpha controls the balance: higher alpha means more emphasis on diversification.
+    alpha = 0.3  # Tune this parameter
+    composite_scores = best_fit_scores + alpha * diversification_scores
+
+    # Adaptive Temperature: Adjust Softmax temperature based on solution space.
+    # If there are many similar options (low std dev), use a lower temperature
+    # to exploit good options. If options are diverse (high std dev), use
+    # a higher temperature to explore more broadly.
+    if composite_scores.size > 1:
+        std_dev = np.std(composite_scores)
+        # Simple mapping: lower std_dev -> higher temp (more exploration);
+        # higher std_dev -> lower temp (more exploitation).
+        # This is inverse to common practice. Let's rethink:
+        # If std_dev is LOW, options are SIMILAR. We want to EXPLOIT the best ones -> LOW temp.
+        # If std_dev is HIGH, options are DIVERSE. We want to EXPLORE them -> HIGH temp.
+        # So, temperature should be proportional to std_dev.
+        # To prevent extreme values, we can normalize std_dev or use a capped function.
+        
+        # A common approach is to use a base temperature and modulate it.
+        # Let's use temperature = base_temp * (1 + std_dev / mean_score) or similar.
+        # A simpler approach: temperature is inversely related to the spread of "goodness".
+        # Let's use temperature = max(0.1, some_base / (std_dev + epsilon))
+        # Or temperature = some_base / (1 + std_dev).
+        
+        # A robust temperature strategy:
+        # If std_dev is very low, we are very certain about relative scores. Lower temp.
+        # If std_dev is very high, we are uncertain. Higher temp.
+        
+        # Let's try temperature that is higher when diversity is lower (std_dev is low).
+        # This encourages exploration when there isn't much natural diversity.
+        # Temperature = base_temp * (1 / (std_dev + epsilon))
+        base_temp = 1.0
+        epsilon = 1e-6
+        temperature = base_temp / (std_dev + epsilon)
+        # Cap temperature to avoid extreme probabilities.
+        temperature = max(0.1, min(temperature, 5.0)) 
+    else:
+        # Only one valid bin, temperature doesn't matter.
+        temperature = 1.0
+
+    # Apply Softmax with adaptive temperature.
+    shifted_scores = composite_scores / temperature
+    shifted_scores -= np.max(shifted_scores) # For numerical stability
+    exp_scores = np.exp(shifted_scores)
+    probabilities = exp_scores / np.sum(exp_scores)
+
+    # Create the final priority array, placing calculated probabilities in their original positions.
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    priorities[valid_bins_mask] = probabilities
+
+    return priorities
+```

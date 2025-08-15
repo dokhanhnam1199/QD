@@ -1,0 +1,67 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin, prioritizing tight fits and penalizing large gaps.
+
+    This version prioritizes bins that have a remaining capacity that is just
+    slightly larger than the item size, aiming to minimize wasted space.
+    It also penalizes bins with very large remaining capacities to encourage
+    spreading and avoid creating excessively large empty spaces that might
+    not be efficiently utilized by future items. A small amount of random noise
+    is added to the scores to break ties and encourage exploration.
+
+    The priority is calculated as follows:
+    1. For bins that can fit the item, the base priority is related to the
+       'slack' (remaining capacity - item size). A smaller slack is better.
+    2. A penalty is applied for large slack. This penalty increases as the
+       slack grows beyond a certain threshold (e.g., twice the item size).
+    3. A small random value is added to introduce stochasticity.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot fit the item will have a priority of -inf.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    eligible_bins_mask = bins_remain_cap >= item
+
+    if not np.any(eligible_bins_mask):
+        return priorities
+
+    fittable_bins_capacities = bins_remain_cap[eligible_bins_mask]
+    slack = fittable_bins_capacities - item
+
+    # --- Prioritize tight fits ---
+    # We want smaller slack to have higher priority.
+    # A good score would be inversely related to slack, e.g., 1 / (1 + slack).
+    # Using sigmoid of negative slack: 1 / (1 + exp(-k * slack))
+    # This gives higher values for smaller slack.
+    k_fit = 5.0  # Steepness for tight fits
+    tight_fit_score = 1.0 / (1.0 + np.exp(-k_fit * slack))
+
+    # --- Penalize large gaps ---
+    # We want to penalize slack values that are significantly larger than ideal.
+    # Define an "ideal maximum slack" (e.g., twice the item size).
+    # Beyond this, we want the score to decrease.
+    ideal_max_slack = 2.0 * item
+    # Use a sigmoid that penalizes slack > ideal_max_slack.
+    # 1 / (1 + exp(k * (slack - ideal_max_slack)))
+    # This score is ~0.5 at ideal_max_slack and decreases for larger slack.
+    k_penalty = 1.0 # Steepness of the penalty
+    large_gap_penalty = 1.0 / (1.0 + np.exp(k_penalty * (slack - ideal_max_slack)))
+
+    # Combine scores. We want both tight fits and reasonable gaps.
+    # The tight_fit_score is high for small slack.
+    # The large_gap_penalty is high for small slack (and below ideal_max_slack).
+    # A simple linear combination seems appropriate.
+    # Let's weight the tight fit more, as minimizing waste is primary.
+    combined_score_values = 0.7 * tight_fit_score + 0.3 * large_gap_penalty
+
+    # Add a small random noise to break ties and encourage exploration.
+    random_noise = np.random.rand(len(slack)) * 1e-6
+    priorities[eligible_bins_mask] = combined_score_values + random_noise
+
+    return priorities
+```

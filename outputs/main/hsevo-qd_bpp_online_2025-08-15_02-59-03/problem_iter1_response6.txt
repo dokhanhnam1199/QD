@@ -1,0 +1,165 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Sigmoid Fit Score.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    available_bins = bins_remain_cap >= item
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    if np.any(available_bins):
+        fit_ratio = bins_remain_cap[available_bins] - item
+        
+        # Using a sigmoid-like function to penalize larger remaining capacities
+        # A smaller remaining capacity after fitting is preferred.
+        # We want to map fit_ratio (which is >=0) to a priority where smaller is better.
+        # So, we invert the logic of a standard sigmoid where higher input gives higher output.
+        # A simple approach is to use exp(-x) for a smaller remaining capacity.
+        # To avoid issues with very large or very small values, we can normalize or scale.
+        
+        # Let's define a sigmoid-like function: f(x) = 1 / (1 + exp(-k*(x - c)))
+        # Here, 'x' is related to remaining capacity. We want smaller remaining capacity to have higher priority.
+        # So, we want our function to be decreasing.
+        # Let's consider the "waste" or "slack" after placing the item: slack = bin_capacity - item
+        # We want to prioritize bins with *minimum* slack.
+        # Let's map slack to priority. A smaller slack should yield a higher priority.
+        
+        # A simple inverted sigmoid approach: higher priority for smaller remaining capacity.
+        # Consider a score function like 1 / (1 + exp(k * (remaining_capacity - offset)))
+        # where k is a steepness parameter and offset is a target remaining capacity.
+        
+        # A more direct approach: we want to maximize the use of space without significant overflow.
+        # A large remaining capacity after fitting is generally bad, as it might indicate wasted space.
+        # A very small remaining capacity might also be bad if it's *too* tight, leading to future fragmentation.
+        # The sigmoid function excels at capturing this "just right" sweet spot.
+        
+        # Let's map remaining capacity (after fitting) to priority.
+        # We want to prioritize bins where (bins_remain_cap - item) is small.
+        
+        # Let's use a Sigmoid function that maps the "unused capacity" after placing the item.
+        # The input to the sigmoid should be such that a smaller "unused capacity" gives a higher output.
+        # Let 'x' be the remaining capacity in a bin *after* the item is placed.
+        # We want a function g(x) such that g(small_x) > g(large_x).
+        # A standard sigmoid is 1 / (1 + exp(-beta * (x - alpha))). This is increasing.
+        # An inverted sigmoid is 1 / (1 + exp(beta * (x - alpha))). This is decreasing.
+        # We want to prioritize bins where (bins_remain_cap - item) is minimized.
+        
+        # Let's define a 'fit_metric' as the remaining capacity *after* placing the item.
+        fit_metric = bins_remain_cap[available_bins] - item
+        
+        # We want to map fit_metric to priority, where smaller fit_metric is better.
+        # Let's use a form of sigmoid that penalizes larger remaining capacities.
+        # A common way is to use exp(-fit_metric).
+        # To make it a "sigmoid fit score", we need a way to bound it, or shape it.
+        # Consider exp(-fit_metric * scaling_factor). Larger remaining capacity -> smaller value.
+        # To prevent extreme values, we can scale the fit_metric.
+        
+        # Let's try a simple approach: prioritize bins that leave the least amount of remaining space.
+        # Higher priority for smaller (bins_remain_cap - item).
+        # Using a sigmoid can help avoid extreme values and create a smoother preference.
+        
+        # Define a sigmoid function where smaller `waste` gets higher score.
+        # waste = remaining_capacity - item
+        # Score = 1 / (1 + exp(k * waste))
+        # k controls the steepness. Higher k means preference is more strongly for exact fits.
+        # We want to avoid bins that are "just barely" large enough (high waste) and bins that are "way too large" (also high waste).
+        # It seems we want to prioritize bins that result in minimal *remaining* capacity.
+        
+        # Let's use a sigmoid centered around a "good" remaining capacity, say 0.
+        # We want higher values for smaller remaining capacities.
+        # So, we use an inverted sigmoid: f(x) = 1 / (1 + exp(k * x))
+        # Here, x is the remaining capacity after fitting the item.
+        
+        # To avoid numerical issues with exp, especially for very large negative numbers.
+        # Let's scale and shift the remaining capacity to be in a reasonable range for exp.
+        
+        # Option 1: Simple inverted relationship (closer to 0 remaining is better)
+        # priority = 1 / (1 + exp(k * (bins_remain_cap[available_bins] - item)))
+        # Let's pick a reasonable k, e.g., k=2.0
+        k = 2.0
+        # Using a form that is stable: np.exp(-x) is better than 1 / (1 + np.exp(x)) if x is very negative.
+        # We want smaller (bins_remain_cap - item) to give higher scores.
+        # Consider f(x) = exp(-x) where x = bins_remain_cap - item.
+        # To make it more "sigmoid-like" and bounded, we can rescale x.
+        
+        # Let's try a transformation of the remaining capacity:
+        # We want bins with smaller `remaining_cap - item` to have higher scores.
+        # Let `slack = bins_remain_cap[available_bins] - item`.
+        # Score = exp(-slack * factor). Larger slack -> smaller score.
+        # To make it sigmoid-like and bounded between 0 and 1, let's scale slack.
+        
+        # A common sigmoid approach for prioritization in online problems often
+        # aims to fill bins as much as possible without "too much" wasted space.
+        # This means preferring bins with small remaining capacity.
+        
+        # Let's use the logistic function (sigmoid):
+        # S(x) = 1 / (1 + exp(-x))
+        # We want this to be high when `bins_remain_cap - item` is low.
+        # So, we can set x = - (bins_remain_cap[available_bins] - item) * scale_factor
+        # Or equivalently, x = (item - bins_remain_cap[available_bins]) * scale_factor
+        
+        scale_factor = 1.0 # Controls the steepness of the sigmoid
+        
+        # Transform the remaining capacities into priority scores using an inverted sigmoid.
+        # We want to assign higher priority to bins that will have less remaining capacity
+        # after the item is placed.
+        
+        # Remaining capacity after placing the item
+        remaining_after_fit = bins_remain_cap[available_bins] - item
+        
+        # Apply a sigmoid transformation. The standard sigmoid 1/(1+exp(-x)) increases with x.
+        # We want higher priority for smaller remaining capacity.
+        # So, we should feed a *negatively* scaled remaining capacity into the sigmoid.
+        # `priority_score = 1 / (1 + exp(-scale_factor * remaining_after_fit))`
+        # This means smaller `remaining_after_fit` leads to a larger argument `-scale_factor * remaining_after_fit`,
+        # leading to a sigmoid score closer to 1.
+        
+        # A common strategy for BPP with sigmoid-like functions is to
+        # prioritize bins that are "almost full" or "fit well".
+        # This can be modeled by a function that is high when the remaining space is small.
+        
+        # Let's refine the sigmoid argument. We want to favor small remaining capacity.
+        # A remaining capacity of 0 is ideal for minimal waste.
+        # Let's model the "goodness" as the inverse of the remaining capacity,
+        # scaled and passed through a sigmoid.
+        
+        # Let's use a score that increases as (bins_remain_cap - item) decreases.
+        # `score = 1 / (1 + exp(k * (bins_remain_cap[available_bins] - item)))`
+        # where k is a steepness parameter. A higher k means we care more about exact fits.
+        k_steepness = 1.5
+        
+        # The raw values for remaining capacity could vary greatly.
+        # A sigmoid often works best when the input is centered or scaled appropriately.
+        # However, for an online setting, we might not know the global distribution.
+        # Let's stick to the core idea of mapping (remaining_cap - item) to priority.
+        
+        # Let's use the probability of fitting into a bin with that remaining capacity.
+        # This is a "fitting probability" approach which can be sigmoid-like.
+        # If a bin has remaining capacity R, and we fit an item of size I, the new remaining capacity is R-I.
+        # We want to prioritize bins where R-I is small.
+        
+        # Let's define the priority as a function of the remaining capacity *after* fitting.
+        # Let R_prime = bins_remain_cap[available_bins] - item
+        # We want a function P(R_prime) that is decreasing in R_prime.
+        # A sigmoid-like function: P(R_prime) = 1 / (1 + exp(beta * R_prime))
+        # Here beta is a scaling factor, higher beta means steeper preference for smaller R_prime.
+        
+        beta = 2.0 # Controls how quickly priority drops as remaining capacity increases
+        
+        # Calculate the priority scores for bins that can accommodate the item
+        # using the sigmoid function based on the remaining capacity after fitting.
+        # A smaller remaining capacity will result in a higher priority score.
+        raw_priorities = 1 / (1 + np.exp(beta * remaining_after_fit))
+        
+        # Assign these scores to the corresponding available bins
+        priorities[available_bins] = raw_priorities
+
+    return priorities
+```

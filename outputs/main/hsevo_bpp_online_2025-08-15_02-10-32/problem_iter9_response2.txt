@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes bins based on a combination of First Fit Decreasing (FFD) like preference
+    (favoring bins that are nearly full, but can still fit the item) and a penalty
+    for bins that would leave excessive "dead space" after packing.
+    This aims for a balance between fitting items tightly and avoiding fragmentation.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    # Mask for bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+    
+    # Score component 1: Proximity to a perfect fit (similar to Best Fit)
+    # We want to minimize (remaining_capacity - item).
+    # A smaller value is better. Using negative value to maximize.
+    # Adding a small constant to avoid log(0) or division by zero if remaining_cap == item.
+    fit_score = 1.0 / (suitable_bins_remain_cap - item + 1e-9)
+    
+    # Score component 2: Penalty for large leftover capacity relative to the item size.
+    # This discourages putting a small item into a very large bin if other options exist.
+    # Calculate the "waste ratio" if the item is placed in the bin: (remaining_capacity - item) / item
+    # A higher waste ratio is bad. We want to penalize this.
+    # Using `item + epsilon` to avoid division by zero if item is zero.
+    waste_ratio = (suitable_bins_remain_cap - item) / (item + 1e-9)
+    
+    # We want to penalize bins with high waste_ratio.
+    # A simple penalty function could be 1 / (waste_ratio + C) where C is a constant.
+    # This means as waste_ratio increases, the penalty multiplier decreases.
+    # We want to favor bins with low waste_ratio.
+    # A small constant (e.g., 0.5) makes the penalty more sensitive to small waste.
+    penalty_multiplier = 1.0 / (waste_ratio + 0.5)
+    
+    # Combine scores: Multiply the fit_score by the penalty_multiplier.
+    # This means bins that have a good fit AND a low waste ratio (high penalty_multiplier) will have a higher priority.
+    # The intuition is to maximize both fitting tightly and minimizing relative waste.
+    
+    combined_score = fit_score * penalty_multiplier
+    
+    priorities[suitable_bins_mask] = combined_score
+    
+    return priorities
+```

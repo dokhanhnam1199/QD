@@ -1,0 +1,69 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using a modified Best Fit strategy.
+    This version prioritizes bins that have just enough space for the item, and among those,
+    prefers bins that will have the least remaining capacity after packing.
+    It also introduces a slight preference for bins that have been used less (i.e., higher remaining capacity)
+    if no "perfect fit" is found, to encourage better space utilization over time.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+    remaining_capacities_after_packing = suitable_bins_caps - item
+
+    # Identify bins that are a "perfect fit" or very close
+    # A small tolerance is introduced to capture bins that are "almost" a perfect fit
+    tolerance = 1e-6
+    perfect_fit_mask = np.abs(remaining_capacities_after_packing) < tolerance
+
+    if np.any(perfect_fit_mask):
+        # Among perfect fits, prefer those with the absolute minimum remaining capacity (which is close to zero)
+        # This is essentially Best Fit for perfect fits.
+        min_remaining_cap_among_perfect = np.min(remaining_capacities_after_packing[perfect_fit_mask])
+        best_fit_perfect_mask = (suitable_bins_caps - item == min_remaining_cap_among_perfect)
+
+        # Map back to original indices
+        original_indices_perfect = np.where(suitable_bins_mask)[0][best_fit_perfect_mask]
+        priorities[original_indices_perfect] = 2.0 # Highest priority
+
+    else:
+        # If no perfect fit, fall back to a modified Best Fit strategy.
+        # Prioritize bins that leave the least remaining capacity, but not too much.
+        # We'll give a higher score to bins that have a small remaining capacity after packing,
+        # but not so small that it's completely unusable for future small items.
+        # The score is inversely related to the remaining capacity after packing.
+        # To avoid extreme values, we use a scaled inverse.
+        min_remaining_cap_overall = np.min(remaining_capacities_after_packing)
+        
+        # Assign scores based on how close the remaining capacity is to the minimum
+        # Higher score for bins that are closer to the minimum remaining capacity
+        scores_for_suitable = 1.0 / (1.0 + remaining_capacities_after_packing - min_remaining_cap_overall)
+        
+        # Normalize scores to be between 0 and 1
+        max_score = np.max(scores_for_suitable)
+        min_score = np.min(scores_for_suitable)
+        if max_score > min_score:
+            normalized_scores = (scores_for_suitable - min_score) / (max_score - min_score)
+        else:
+            normalized_scores = np.ones_like(scores_for_suitable) * 0.5 # Assign a neutral score if all are equal
+
+        # Map back to original indices
+        original_indices_suitable = np.where(suitable_bins_mask)[0]
+        priorities[original_indices_suitable] = normalized_scores
+        
+        # Ensure perfect fits (if any were missed by tolerance) still get top priority
+        if np.any(np.abs(remaining_capacities_after_packing) < tolerance):
+            min_remaining_cap_close_to_zero = np.min(remaining_capacities_after_packing[np.abs(remaining_capacities_after_packing) < tolerance])
+            best_fit_close_mask = (suitable_bins_caps - item == min_remaining_cap_close_to_zero)
+            original_indices_close = np.where(suitable_bins_mask)[0][best_fit_close_mask]
+            priorities[original_indices_close] = np.maximum(priorities[original_indices_close], 1.5) # Boost priority
+
+    return priorities
+```

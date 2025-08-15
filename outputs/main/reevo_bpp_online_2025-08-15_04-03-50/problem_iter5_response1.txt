@@ -1,0 +1,207 @@
+[Prior reflection]
+The current `priority_v1` function implements an "Almost Full Fit" strategy by prioritizing bins with minimal non-negative slack. While this is a good starting point, the reflection suggests a balance: "Prioritize minimal remaining capacity ('tight fits'). Balance this with bin fullness and explore slightly larger gaps for robustness." The current `1.0 / (1.0 + slack)` gives highest priority to perfect fits (slack=0) and then rapidly decreases priority as slack increases. This might be too sensitive to slight overestimation of item size or bin capacity.
+
+To balance tightness with robustness, we can consider a function that is less aggressive in penalizing slightly larger gaps. Instead of `1/(1+x)`, we could use something like `1/(1 + x^p)` for `p > 1` to emphasize smaller gaps more, or a piecewise function. Another approach is to directly consider the `potential_remaining_cap`. Maximizing `-potential_remaining_cap` (which means minimizing `potential_remaining_cap`) directly reflects packing as tightly as possible.
+
+Let's try a strategy that combines a penalty for slack with a bonus for bins that become "more full". We want to prioritize bins where `bins_remain_cap - item` is small and non-negative. A simple way to achieve this is to use the negative of the `potential_remaining_cap` as a base priority, but this might favor bins that are very large initially and still have large capacity left, even if they are 'tight fits' for the current item in a relative sense.
+
+A more robust approach for "Almost Full Fit" that balances tightness and avoiding too-small gaps could be:
+1. Identify bins where the item fits (`bins_remain_cap >= item`).
+2. For these fitting bins, calculate the `potential_remaining_cap = bins_remain_cap - item`.
+3. We want to prioritize bins with the smallest `potential_remaining_cap`. So, a higher priority means smaller `potential_remaining_cap`.
+4. A linear inverse relationship like `-(potential_remaining_cap)` is problematic if `potential_remaining_cap` can be large positive or negative.
+5. A better approach is to consider the "degree of fullness" after insertion. The smaller `potential_remaining_cap` is, the more full the bin.
+6. We can prioritize bins that result in the smallest positive `potential_remaining_cap`.
+7. To balance with "slightly larger gaps for robustness," we can introduce a factor that slightly reduces priority for bins that are *too* full (i.e., very small `potential_remaining_cap`), or we can simply use a function that penalizes larger remaining capacities less severely than `1/(1+x)`.
+
+Let's consider a different function for priority that is still increasing as `potential_remaining_cap` decreases, but less steeply for larger values. The goal is to pick a bin that is "almost full" after packing. This means `potential_remaining_cap` should be small.
+
+Consider a function that is proportional to `1 / (epsilon + potential_remaining_cap)` for fitting bins, where `epsilon` is a small positive number to avoid division by zero. This would assign high priority to bins with small positive `potential_remaining_cap`.
+
+Let's try a strategy that aims to minimize `potential_remaining_cap` directly, but perhaps with a smoother penalty for larger capacities.
+A common technique in heuristic design is to use a function of the gap. We want to minimize the gap (`bins_remain_cap - item`).
+
+How about: `priority = 1.0 / (some_large_number + (bins_remain_cap - item))` for fitting bins. This prioritizes smaller `bins_remain_cap - item`.
+Or, `priority = exp(-k * (bins_remain_cap - item))` for fitting bins, where `k` is a positive constant. This gives higher priority to smaller non-negative remaining capacities. A larger `k` would make it more sensitive to small gaps.
+
+Let's try a combination: prioritize bins that fit, and among those, prefer those with less remaining capacity. The intuition is to use bins efficiently.
+If `bins_remain_cap - item` is the remaining capacity, we want to minimize this.
+So, `priority = - (bins_remain_cap - item)` for fitting bins? This would select the bin that becomes most full.
+However, this doesn't account for the "slightly larger gaps for robustness."
+
+A strategy that balances "tight fit" with "robustness" might involve a score that is high for small non-negative gaps, but doesn't drop off too sharply for slightly larger gaps compared to `1/(1+x)`.
+Let's reconsider prioritizing `potential_remaining_cap`. We want to minimize it.
+A score that is `large_value - potential_remaining_cap` would work, but we need to bound it and handle non-fitting bins.
+
+Let's try to map `potential_remaining_cap` to a priority score such that smaller values get higher scores.
+A simple transformation is `1.0 / (1.0 + potential_remaining_cap)` only if `potential_remaining_cap >= 0`. This is what `priority_v1` does.
+
+Let's try to use the negative of the remaining capacity but scaled, and ensure robustness.
+What if we consider the original capacity too?
+`priority = -potential_remaining_cap + alpha * bins_remain_cap` ? This is getting complicated.
+
+Back to basics: "Prioritize minimal remaining capacity". This means we want `potential_remaining_cap` to be as small as possible.
+So, we want to MAXIMIZE `-potential_remaining_cap` for bins that fit.
+Let's test this idea:
+Bin A: bins_remain_cap=5, item=3 => potential_remaining_cap=2, priority = -2
+Bin B: bins_remain_cap=4, item=3 => potential_remaining_cap=1, priority = -1
+Bin C: bins_remain_cap=3, item=3 => potential_remaining_cap=0, priority = 0
+Bin D: bins_remain_cap=2, item=3 => does not fit, priority = 0 (or -inf)
+Bin E: bins_remain_cap=6, item=3 => potential_remaining_cap=3, priority = -3
+
+In this scheme, Bin C (perfect fit) gets the highest priority. This aligns with "tight fits".
+How to incorporate "explore slightly larger gaps for robustness"?
+This implies that maybe a bin with `potential_remaining_cap=1` shouldn't be *that* much worse than `potential_remaining_cap=0`.
+The current `1/(1+slack)` does this: slack=0 -> 1.0, slack=1 -> 0.5. The drop is significant.
+
+Let's try a function that is more linear or has a slower decay for larger slacks.
+Consider `priority = max(0, MaxPossibleSlack - slack)` where `MaxPossibleSlack` is the max slack among fitting bins. This prioritizes smaller slacks but linearly.
+Or `priority = max(0, some_constant - slack)`.
+
+Let's stick to prioritizing minimum `potential_remaining_cap` for fitting bins.
+`priority = -potential_remaining_cap`.
+To make it "robust" and less aggressive on small slacks, we can normalize this or add a small constant.
+What if we use `priority = -potential_remaining_cap + C` where `C` is large enough so that priorities are positive?
+`priority = C - (bins_remain_cap - item)`.
+Let `C = max(bins_remain_cap)` (the original bin capacity, say `B`).
+So, `priority = B - (bins_remain_cap - item)`.
+If item fits, `bins_remain_cap >= item`.
+Bin A: `B=10, bins_remain_cap=5, item=3` => `potential_remaining_cap=2`. Priority = `10 - 2 = 8`.
+Bin B: `B=10, bins_remain_cap=4, item=3` => `potential_remaining_cap=1`. Priority = `10 - 1 = 9`.
+Bin C: `B=10, bins_remain_cap=3, item=3` => `potential_remaining_cap=0`. Priority = `10 - 0 = 10`.
+Bin D: `B=10, bins_remain_cap=2, item=3` => does not fit. Priority = `0`.
+Bin E: `B=10, bins_remain_cap=6, item=3` => `potential_remaining_cap=3`. Priority = `10 - 3 = 7`.
+
+This strategy `B - potential_remaining_cap` prioritizes bins that end up with less remaining capacity.
+It implicitly favors bins that were initially fuller but can still fit the item, as they will have smaller `potential_remaining_cap`.
+This seems to capture the "tight fit" aspect well.
+For robustness against slight variations, this linear relationship might be better than the exponential decay of `1/(1+x)`.
+It also ensures that bins that fit are strictly preferred over those that don't (since priorities are non-negative if `B >= potential_remaining_cap`, which is always true if the item fits and `B` is the original bin capacity).
+
+Let's refine this: we need the *original bin capacity* to compute this. The function only receives `bins_remain_cap`. This implies the heuristic itself should not depend on the original full capacity of bins unless it's passed in.
+
+Okay, let's reconsider the original goal: prioritize minimal remaining capacity.
+This implies `potential_remaining_cap` should be small.
+What if we use `1.0 / (epsilon + potential_remaining_cap)` again, but ensure `epsilon` is chosen carefully?
+Or, we can simply use `-(potential_remaining_cap)` as a score, but to ensure positive scores, we can add a large offset.
+Let `offset = max(potential_remaining_cap)` over all bins where it fits.
+Then priority is `offset - potential_remaining_cap` for fitting bins.
+
+Let's simplify. The primary goal is "tight fit", which means minimize `potential_remaining_cap`.
+So, we want to maximize `-(potential_remaining_cap)` for valid bins.
+To handle the "robustness" and "balance" part, let's avoid extremely sharp penalties.
+A linear function of `potential_remaining_cap` might be good.
+We want priority to decrease as `potential_remaining_cap` increases.
+So, `priority = C - potential_remaining_cap` where `C` is a constant.
+To ensure higher priority for smaller `potential_remaining_cap`, we want the coefficient of `potential_remaining_cap` to be negative.
+
+Let's try a scoring function that awards points based on how close `bins_remain_cap` is to `item`.
+We want `bins_remain_cap - item` to be small and non-negative.
+
+Consider the set of `potential_remaining_cap` for bins that fit. Let this set be `P`.
+We want to assign higher scores to smaller values in `P`.
+A simple transformation is `max(P) - p` for each `p` in `P`. This gives highest score to the bin with smallest `potential_remaining_cap`.
+This is essentially what the `B - potential_remaining_cap` idea was, but using `max(P)` as the constant.
+
+Let's implement `max_possible_potential_remaining_cap - potential_remaining_cap` for fitting bins.
+
+`potential_remaining_cap = bins_remain_cap - item`
+`fit_mask = bins_remain_cap >= item`
+`fitting_potential_remaining_cap = potential_remaining_cap[fit_mask]`
+
+If `fitting_potential_remaining_cap` is empty (item doesn't fit anywhere), return zeros.
+Otherwise, `max_potential_rem_cap = np.max(fitting_potential_remaining_cap)`
+`priorities[fit_mask] = max_potential_rem_cap - fitting_potential_remaining_cap`
+
+Example:
+`bins_remain_cap = [5, 4, 3, 2, 6]`, `item = 3`
+`potential_remaining_cap = [2, 1, 0, -1, 3]`
+`fit_mask = [True, True, True, False, True]`
+`fitting_potential_remaining_cap = [2, 1, 0, 3]`
+`max_potential_rem_cap = 3`
+
+Priorities:
+Bin 0 (cap 5): `3 - 2 = 1`
+Bin 1 (cap 4): `3 - 1 = 2`
+Bin 2 (cap 3): `3 - 0 = 3`
+Bin 3 (cap 2): `0` (doesn't fit)
+Bin 4 (cap 6): `3 - 3 = 0`
+
+This prioritizes the tightest fit (Bin 2, remaining 0), then the next tightest (Bin 1, remaining 1), then others.
+It also assigns 0 priority to bins that don't fit or are only "loosely fit" (Bin 4, remaining 3). This is good.
+
+This strategy directly implements "Prioritize minimal remaining capacity" and provides a linear decay for slack, which could be considered a balance for robustness compared to `1/(1+x)`.
+
+Let's consider the "slightly larger gaps for robustness". If `bins_remain_cap = [10, 9]` and `item=3`.
+`potential_remaining_cap = [7, 6]`
+`fit_mask = [True, True]`
+`fitting_potential_remaining_cap = [7, 6]`
+`max_potential_rem_cap = 7`
+Bin 0: `7 - 7 = 0`
+Bin 1: `7 - 6 = 1`
+This prioritizes the slightly fuller bin (Bin 1).
+This might not be what "robustness" implies. "Robustness" might mean not being *too* sensitive to small differences. Maybe we want a less steep decay.
+
+What if we use `priority = 1.0 / (1.0 + slack^2)` or `1.0 / (1.0 + slack^alpha)` with `alpha > 1`?
+This would penalize larger slacks even more than `1/(1+x)`. This is not what we want.
+
+Let's think about the "balance" part again. "Balance this with bin fullness".
+This could mean that if two bins have the same `potential_remaining_cap`, maybe we prefer the one that was originally fuller? But that information isn't available.
+
+Let's stick to the interpretation of "balance" as a less aggressive penalty for larger slacks.
+The `max_potential_rem_cap - potential_remaining_cap` approach gives a linear decrease.
+`priority = C - slack`.
+`priority_v1` used `1 / (1 + slack)`. This decays faster for larger slack.
+`priority = C - slack` is probably a good balance.
+
+Final check on the "robustness" and "balance":
+The strategy `max_potential_rem_cap - potential_remaining_cap` for fitting bins emphasizes minimizing the remaining space. This directly addresses "tight fits." The linear nature of the penalty means that a gap of 2 is twice as bad as a gap of 1, which is less severe than the multiplicative penalty in `1/(1+x)` (where a gap of 2 is 3x worse than a gap of 1 in terms of priority value). This seems to fit the description.
+It also ensures that only bins that can fit get positive priorities, and the best fit gets the maximum priority.
+
+Let's call this `priority_v2`.
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a balanced 'Almost Full Fit' strategy.
+
+    This strategy prioritizes bins that will have minimal remaining capacity after the item is added.
+    It balances the preference for tight fits with a less aggressive penalty for slightly larger gaps,
+    aiming for robustness.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority. Bins that cannot fit the item have a priority of 0.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins where the item can fit
+    fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity if the item is placed in each fitting bin
+    # Use only fitting bins for calculation
+    potential_remaining_cap_fitting = bins_remain_cap[fit_mask] - item
+
+    # If no bins can fit the item, return all zeros
+    if potential_remaining_cap_fitting.size == 0:
+        return priorities
+
+    # Strategy: Maximize -(potential_remaining_cap) for fitting bins.
+    # This means minimizing potential_remaining_cap (tightest fit).
+    # To make the priority scores positive and to create a relative ranking,
+    # we can subtract each potential_remaining_cap from the maximum potential_remaining_cap found among fitting bins.
+    # This ensures the tightest fit gets the highest score, and larger remaining capacities get lower scores linearly.
+    max_potential_rem_cap = np.max(potential_remaining_cap_fitting)
+
+    # Assign priorities to the fitting bins
+    # The priority is higher for bins with smaller potential_remaining_cap
+    priorities[fit_mask] = max_potential_rem_cap - potential_remaining_cap_fitting
+
+    return priorities
+
+```

@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Hybrid heuristic prioritizing exact fits and then employing a scaled
+    Best Fit approach with tie-breaking based on initial bin fullness.
+
+    This strategy assigns the highest priority to bins that perfectly fit the item.
+    For other bins, it prioritizes those that minimize the remaining capacity
+    after packing (Best Fit), using a scaled score. As a tie-breaker, it
+    favors bins that were initially fuller (less remaining capacity).
+    """
+    priorities = np.full_like(bins_remain_cap, -1.0, dtype=float)
+    
+    can_fit_mask = bins_remain_cap >= item
+    
+    if np.any(can_fit_mask):
+        fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+        
+        # --- Primary objective: Exact Fit ---
+        # Assign a very high score for bins that perfectly fit the item.
+        exact_fit_mask = fitting_bins_remain_cap == item
+        
+        # Use a large constant for exact fits to ensure they are always preferred.
+        exact_fit_score = 1e9
+        priorities[can_fit_mask][exact_fit_mask] = exact_fit_score
+        
+        # --- Secondary objective: Best Fit (for non-exact fits) ---
+        non_exact_fit_mask = ~exact_fit_mask
+        
+        if np.any(non_exact_fit_mask):
+            non_exact_fitting_bins_remain_cap = fitting_bins_remain_cap[non_exact_fit_mask]
+            
+            # Calculate remaining capacity after fitting the item.
+            remaining_after_fit = non_exact_fitting_bins_remain_cap - item
+            
+            # Score for Best Fit: Higher score for smaller `remaining_after_fit`.
+            # We maximize `-remaining_after_fit`.
+            best_fit_score_base = -remaining_after_fit
+            
+            # --- Tertiary objective: Tie-breaking based on initial bin fullness ---
+            # For bins with the same `remaining_after_fit` score (or very close),
+            # prefer the bin that was initially fuller. This means preferring
+            # bins with less `bins_remain_cap`.
+            # We can achieve this by adding a term proportional to `-bins_remain_cap`.
+            # A larger negative value (more initial capacity used) is better.
+            
+            # Combine Best Fit score with tie-breaker. Use a scaling factor
+            # to ensure Best Fit is the dominant criterion.
+            scale_factor = 1e6  # Ensures Best Fit dominates tie-breaking.
+            
+            # Combined score for non-exact fits:
+            # Maximize: (scale_factor * -remaining_after_fit) + (-initial_remaining_capacity)
+            # This prioritizes minimal `remaining_after_fit`, then minimal `initial_remaining_capacity`.
+            combined_priorities = scale_factor * best_fit_score_base - non_exact_fitting_bins_remain_cap
+            
+            priorities[can_fit_mask][non_exact_fit_mask] = combined_priorities
+
+    return priorities
+```

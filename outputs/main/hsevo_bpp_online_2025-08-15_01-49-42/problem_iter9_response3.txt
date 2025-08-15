@@ -1,0 +1,311 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive Nearly Full Fit with Robustness and Scaled Objective.
+
+    This strategy aims to improve upon "Almost Full Fit" by introducing
+    a more nuanced scoring that balances the "almost full" objective with
+    robustness and a consideration for bins that might be slightly larger
+    but still offer a good fit.
+
+    The core idea is to prioritize bins that leave a small remaining capacity
+    (similar to v1), but with modifications:
+    1.  **Differentiated Scores:** Instead of a simple linear inverse, we use a
+        sigmoid-like function or a piecewise function to differentiate scores
+        more effectively. Bins that are *very* close to fitting get a high score,
+        but bins that are slightly further away but still good fits don't get
+        penalized too harshly.
+    2.  **Scaled Objective Integration:** The "almost full" metric (remaining capacity)
+        is scaled to be within a reasonable range, preventing extreme values
+        from dominating the priority. We can also integrate a secondary objective,
+        like the proportion of remaining capacity relative to the bin's original
+        capacity (if original capacity was available, which it isn't here, so we
+        use remaining capacity itself as a proxy for "how much space is left in general").
+        A simpler approach here is to focus on the *quality of fit* as a primary driver.
+    3.  **Robustness:** Handle edge cases and potential numerical instabilities.
+        The primary concern is minimizing `remaining_capacity = bins_remain_cap - item`.
+        A very small positive `remaining_capacity` is ideal.
+        Large positive `remaining_capacity` is less ideal.
+        Negative `remaining_capacity` is not allowed (handled by the mask).
+
+    We will prioritize bins that leave the smallest *positive* remaining capacity.
+    To achieve this, we want to maximize a score that is high for small positive
+    remainders and decreases as the remainder increases.
+
+    A function like `exp(-k * remaining_capacity)` where k is a scaling factor
+    could work, but a simpler linear approach is often effective and more interpretable.
+    Let's refine the negative linear approach from v1 to be more robust and
+    potentially offer better discrimination.
+
+    Instead of `- (remaining_capacity)`, consider a function that emphasizes
+    very small positive remainders.
+
+    Let `slack = bins_remain_cap - item`. We want to maximize a function `f(slack)`
+    where `slack >= 0`.
+    We want `f(slack)` to be high when `slack` is close to 0, and decrease as `slack` grows.
+
+    Let's use a transformation:
+    `priority = max_possible_slack - slack` where `max_possible_slack` is some
+    large value (e.g., bin capacity, if known, or a heuristic large value).
+    This effectively turns minimization of slack into maximization.
+
+    A more sophisticated approach: Map slack to a priority score.
+    Consider a function that maps `slack` to a score in a fixed range, e.g., [0, 1].
+    If slack is 0, score is 1. If slack is very large, score approaches 0.
+
+    Let's try a simple but effective approach: Maximize `1.0 / (slack + epsilon)`
+    for small positive slacks, but cap the priority or use a softer decay.
+    A common heuristic is to use a penalty function that is small for small slacks
+    and increases more rapidly for larger slacks.
+
+    The original v1 used `-(bins_remain_cap - item)`. This means it prioritizes
+    the bin that leaves the *least negative* remaining capacity (or largest positive)
+    if we were to consider negative values. However, since we only consider bins
+    where `bins_remain_cap >= item`, `bins_remain_cap - item` is always non-negative.
+    So `-(bins_remain_cap - item)` means we want to *minimize* `bins_remain_cap - item`.
+    This is equivalent to minimizing the remaining capacity.
+
+    Let's refine this to make the difference between "almost full" and "moderately full"
+    more pronounced.
+    A potential improvement is to scale the priority based on the *relative* remaining capacity
+    or use a non-linear transformation that emphasizes near-zero remainders.
+
+    Let's try prioritizing bins with the smallest *absolute* difference between
+    `bins_remain_cap` and `item`. This is equivalent to minimizing `abs(bins_remain_cap - item)`.
+    Since we only consider `bins_remain_cap >= item`, this simplifies to minimizing
+    `bins_remain_cap - item`.
+
+    To create *differentiated scores* and *robustness*, we can normalize or scale
+    the slack.
+    If `slack = bins_remain_cap - item`, we want to maximize `f(slack)`.
+    A good candidate for `f(slack)` would be something that decays as `slack` increases.
+    A simple inverse `1/(slack + epsilon)` might be too aggressive.
+
+    Let's try a scaled approach:
+    Prioritize bins that leave a slack `s`. We want to maximize `g(s)`.
+    We want `g(0)` to be maximum.
+    Consider `g(s) = C - s`, where `C` is a large constant. This is what v1 implicitly does.
+
+    How to differentiate?
+    If we have bins with slacks [0.1, 0.2, 0.3], v1 gives priorities [-0.1, -0.2, -0.3]. Max is -0.1.
+    If we have slacks [0.01, 0.1, 0.5], v1 gives [-0.01, -0.1, -0.5]. Max is -0.01.
+
+    Let's introduce a non-linearity or scaling.
+    Consider `priority = 1.0 / (slack + epsilon)` capped at some value.
+    Or, transform slack: `transformed_slack = slack / max_possible_slack`.
+    Then `priority = 1.0 - transformed_slack`. This is linear.
+
+    Let's focus on the 'almost full' aspect by rewarding minimal slack.
+    The key is to make the scores *comparable* and *meaningful*.
+    A bin that leaves 0.1 remaining capacity should be significantly better than
+    one leaving 0.5, but perhaps not infinitely better.
+
+    Let's define priority score `P` for a bin `i` with remaining capacity `R_i` for item `I`:
+    `slack_i = R_i - I`
+    If `slack_i < 0`, priority is invalid (-1).
+    If `slack_i >= 0`, we want to maximize `P_i`.
+
+    Proposed scoring function:
+    `P_i = exp(-k * slack_i)` where `k` is a tuning parameter.
+    If `k=1`, `P_i = exp(-slack_i)`.
+    slacks [0.1, 0.2, 0.3] -> exp(-0.1) ~ 0.905, exp(-0.2) ~ 0.819, exp(-0.3) ~ 0.741.
+    slacks [0.01, 0.1, 0.5] -> exp(-0.01) ~ 0.990, exp(-0.1) ~ 0.905, exp(-0.5) ~ 0.606.
+    This gives good differentiation.
+
+    We need to select a reasonable `k`.
+    The range of `slack` can vary greatly depending on the bin capacity and item sizes.
+    If `slack` can be large, `exp(-k * slack)` can become very small.
+    To make it more robust, we can normalize slack.
+    Let `max_slack_possible` be an estimate of the maximum reasonable slack.
+    This is tricky without knowing bin capacity.
+    Alternatively, we can compute slack relative to the *item size* itself, or relative to
+    the *smallest bin capacity that fits the item*.
+
+    Let's assume we only have `bins_remain_cap`.
+    We can use the smallest non-negative slack as a reference for normalization.
+    However, this requires an initial pass to find the minimum slack.
+
+    Simpler approach: Use a capped inverse or a sigmoid-like function.
+    Let's stick to the exponential decay but consider a scaling factor derived from the
+    range of possible slacks IF we had more context.
+    Without it, a fixed `k` is a starting point.
+
+    Let's try a piecewise linear function or a modified inverse.
+    Consider a linear function for small slacks and a different one for larger slacks.
+
+    The core idea is to maximize a score that is high for small `slack = R_i - I` and
+    decreases as `slack` increases.
+
+    Let's try prioritizing bins that have a high "occupancy" after placing the item.
+    Occupancy = `item_size / (original_capacity)` if original_capacity was known.
+    Here, we only have remaining capacity.
+    The quality of fit is measured by minimizing `slack`.
+
+    Revised approach for `priority_v2`:
+    Use a score that is high for bins with small `slack = bins_remain_cap - item`.
+    The score should decay smoothly.
+    We want to maximize `f(slack)`.
+    Let's define `f(slack)` such that `f(0) = 1`, `f(large) = 0`.
+
+    Option 1: `f(slack) = 1.0 / (1.0 + slack * scale_factor)`
+    This is a form of logistic function which maps to [0, 1].
+    If `slack` is 0, score is 1. If `slack` is large, score approaches 0.
+    `scale_factor` controls how quickly the score drops.
+    A smaller `scale_factor` means slower decay (less preference for "almost full").
+    A larger `scale_factor` means faster decay (stronger preference for "almost full").
+
+    Let's choose a `scale_factor` that is adaptive or empirically set.
+    For online BPP, we don't have global information to set an optimal `scale_factor`.
+    A reasonable heuristic might be to scale by the average remaining capacity of bins
+    that can fit the item, or by the item size itself.
+
+    Let `scale_factor = 1.0 / avg_slack_of_fitting_bins` or `scale_factor = 1.0 / item_size`.
+    This could be unstable if `item_size` is very small or average slack is 0.
+
+    Let's try a simpler, robust approach.
+    We want to maximize `-(slack)` as in v1.
+    To differentiate better, let's apply a non-linear transformation that amplifies
+    small differences.
+    Consider `priority = -(slack^2)` or `priority = -(sqrt(slack))`.
+    This would penalize larger slacks more heavily than v1.
+
+    The key problem with `-(slack)` is that the difference between slack=0.1 and slack=0.2
+    is 0.1. The difference between slack=0.01 and slack=0.02 is also 0.1.
+    We want the difference between 0.01 and 0.02 to be *more significant* than the
+    difference between 0.1 and 0.2.
+
+    This suggests a function that grows faster for small slacks.
+    Consider `priority = -exp(slack)`. This would have higher priority for smaller slack.
+    slacks [0.1, 0.2, 0.3] -> -exp(0.1) ~ -1.105, -exp(0.2) ~ -1.221, -exp(0.3) ~ -1.350. Max is -1.105.
+    slacks [0.01, 0.1, 0.5] -> -exp(0.01) ~ -1.010, -exp(0.1) ~ -1.105, -exp(0.5) ~ -1.648. Max is -1.010.
+
+    This seems promising. It prioritizes bins that are "closer" to being full.
+    The "almost full" concept is captured by minimizing `slack`.
+    `exp(slack)` grows exponentially, so small changes in `slack` at small values
+    result in larger changes in the score compared to linear or `exp(-slack)`.
+
+    Let's ensure the scores are robust. The range of `exp(slack)` can be large.
+    We can shift the scores by subtracting a constant to make them negative,
+    or normalize.
+
+    Let's use `priority = -exp(slack)`.
+    We still need to handle bins that cannot fit the item.
+    `priorities = np.full_like(bins_remain_cap, -np.inf)` (or a very small number).
+    Then for bins that fit: `priorities[can_fit_mask] = -np.exp(slack[can_fit_mask])`.
+
+    We can also add a small epsilon to slack to avoid `exp(0)` if needed, but `exp(0)=1` is fine.
+    The primary requirement is to return higher scores for better bins.
+
+    Final consideration: "Scaled Objective Integration" and "Differentiated Scores".
+    The `-exp(slack)` function provides differentiated scores.
+    To scale, we can consider the distribution of slacks.
+    If `slack` can be very large, `exp(slack)` can overflow.
+    We need to cap slack or use a different function if this is a concern.
+    A robust alternative to `exp(slack)` might be `1.0 / (slack + epsilon)` with some clipping.
+    Or `priority = 1.0 - tanh(slack * scale_factor)`.
+
+    Let's refine `-exp(slack)` by scaling slack relative to a typical slack.
+    Or, let's try a function that gives a higher priority to bins with smaller remaining capacity.
+    This is equivalent to maximizing `f(remaining_capacity_after_fit)`.
+    We want `f(x)` to be decreasing for `x >= 0`.
+
+    Let's reconsider v1's `-(bins_remain_cap[can_fit_mask] - item)`.
+    This is equivalent to `item - bins_remain_cap[can_fit_mask]`.
+    It prioritizes bins with the smallest `bins_remain_cap` that can still fit the item.
+    This is the "Best Fit" heuristic.
+
+    The prompt asks for "almost full fit".
+    This usually means minimizing the slack.
+    So, v1 implements "Best Fit" in a sense of minimizing slack.
+
+    Let's try to differentiate more.
+    A common way to differentiate scores for "best fit" is to reward smaller slacks.
+    Consider `priority = MaxPossibleSlack - slack`.
+    If we don't know `MaxPossibleSlack`, we can use a large constant or a value related to the data.
+
+    Let's try a robust scoring based on the inverse of slack, but with a non-linear transformation
+    that handles small slacks effectively.
+    `priority = 1 / (1 + slack^alpha)` where alpha > 1.
+    If `alpha = 2`: `priority = 1 / (1 + slack^2)`.
+    slacks [0.1, 0.2, 0.3] -> 1/(1+0.01) ~ 0.99, 1/(1+0.04) ~ 0.96, 1/(1+0.09) ~ 0.917. Max is 0.99.
+    slacks [0.01, 0.1, 0.5] -> 1/(1+0.0001) ~ 0.9999, 1/(1+0.01) ~ 0.99, 1/(1+0.25) ~ 0.8. Max is 0.9999.
+    This works. It prioritizes smaller slacks. The `slack^2` term penalizes larger slacks more.
+
+    To make it more "almost full" specific, let's focus on small slacks.
+    Consider a function that is close to 1 for very small slacks and decays.
+    `priority = exp(-slack / scale_factor)` might be better than `exp(slack)`.
+    If `scale_factor` is small, it penalizes larger slacks more.
+    Let `scale_factor` be related to the typical slack values.
+    A simple robust choice for `scale_factor` could be `1.0` or `item_size`.
+
+    Let's use `priority = exp(-slack)`. This is simple and effective.
+    To ensure robustness and prevent potential underflow/overflow if slack is extreme,
+    we can clip slack or use a robust variant.
+
+    Consider the goal: "prioritize bins that will be 'almost full'".
+    This implies minimizing `slack = R_i - I`.
+    So we want to maximize `f(slack)` where `f` is a decreasing function.
+
+    Let's try `priority = 1.0 / (slack + epsilon)`. This is simple and often effective.
+    To differentiate scores:
+    The problem is when slacks are very small (e.g., 1e-5, 1e-4). `1/slack` can be huge.
+    We can cap the priority score, or shift the slack.
+
+    Alternative: Use a function that maps slack to a score in a bounded range, e.g., [0, 1].
+    Let `slack = bins_remain_cap - item`.
+    `priorities = np.full_like(bins_remain_cap, -1.0)`
+    `can_fit_mask = bins_remain_cap >= item`
+    `fitting_slacks = bins_remain_cap[can_fit_mask] - item`
+
+    If we want to prioritize small slacks, we want a high score for small slack.
+    `score = 1 / (slack + epsilon)` works conceptually.
+    To make it robust and differentiated, we can consider scaling or non-linearity.
+
+    Let's try a robust inverse squared function that maps to [0, 1].
+    `priority = 1.0 / (1.0 + slack^2)`
+    This gives scores between 0 and 1.
+    `slack = 0` -> `priority = 1`
+    `slack = 1` -> `priority = 0.5`
+    `slack = 10` -> `priority = 1/101 ~ 0.01`
+
+    This approach:
+    1.  **Differentiated Scores:** `slack^2` penalizes larger slacks quadratically,
+        leading to more distinct scores for bins with small slacks.
+    2.  **Robustness:** The addition of `1.0` prevents division by zero and keeps scores
+        within a predictable range [0, 1]. Using `slack^2` is more stable than `1/slack`.
+    3.  **Scaled Objective Integration:** The objective (minimizing slack) is mapped
+        to a score in [0, 1]. The quadratic penalty can be seen as a form of scaling
+        that emphasizes "almost full" more than a linear penalty.
+
+    Let's implement this.
+    We'll set priority to -1 for bins that cannot fit.
+    For bins that can fit, the priority will be `1.0 / (1.0 + slack**2)`.
+    Higher scores are better.
+    """
+
+    priorities = np.full_like(bins_remain_cap, -1.0)
+    
+    can_fit_mask = bins_remain_cap >= item
+    
+    if np.any(can_fit_mask):
+        fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+        slacks = fitting_bins_remain_cap - item
+        
+        # Calculate priority score: 1.0 / (1.0 + slack^2)
+        # This function gives higher scores to bins with smaller slacks.
+        # slack = 0 -> priority = 1.0
+        # slack increases -> priority decreases towards 0.
+        # The slack^2 term provides a quadratic penalty, differentiating scores more
+        # for small slack values.
+        
+        epsilon = 1e-9  # To prevent potential issues if slack is extremely close to zero and squared.
+                        # Though 1.0 + 0^2 is 1.0, it's good practice.
+        priorities[can_fit_mask] = 1.0 / (1.0 + slacks**2 + epsilon)
+        
+        # Ensure scores are within a reasonable range if needed, though [0, 1] is good.
+        # No explicit clipping needed here as the function naturally stays in [0, 1].
+
+    return priorities
+```

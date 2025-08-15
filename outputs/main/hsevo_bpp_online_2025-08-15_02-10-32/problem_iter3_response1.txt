@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Adaptive Best Fit with Adaptive Penalty.
+    This heuristic dynamically adjusts its strategy based on the available bins.
+    It prioritizes bins that are a close fit (Best Fit), but also incorporates
+    a penalty for bins with very large remaining capacity. The penalty is
+    calibrated to avoid over-penalizing bins that are necessary due to item size.
+    It aims for better adaptability to diverse item sizes and bin configurations.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(suitable_bins_mask):
+        # If no bin can fit the item, all priorities remain 0.
+        return priorities
+
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+    
+    # --- Best Fit Component ---
+    # Calculate a score that favors smaller remaining capacities.
+    # A higher score means a tighter fit.
+    # Adding a small epsilon to prevent division by zero for exact fits.
+    best_fit_score = 1.0 / (suitable_bins_remain_cap - item + 1e-9)
+    
+    # --- Adaptive Penalty Component ---
+    # We want to penalize bins with significantly more space than needed.
+    # The "excess" is the space beyond what's required for the current item.
+    excess_capacity = suitable_bins_remain_cap - item
+    
+    # To make the penalty adaptive, consider the distribution of excess capacities
+    # among the suitable bins.
+    # If excess capacities are clustered, a small penalty for slightly larger bins is okay.
+    # If there's a wide range, we need a stronger penalty for the largest ones.
+    
+    # Calculate a base penalty that inversely relates to excess capacity.
+    # This penalizes larger gaps. Using a softplus-like function to avoid
+    # extremely large penalties for very small excesses, while still penalizing larger ones.
+    # The 'alpha' parameter can be tuned for sensitivity.
+    alpha = 1.0 # Sensitivity parameter for penalty, higher means stronger penalty for excess
+    penalty_base = np.log(1 + np.exp(alpha * excess_capacity)) # Softplus function
+    
+    # Normalize this penalty to consider the range of excess capacities.
+    # This makes the penalty relative to the "worst" excess among suitable bins.
+    min_excess = np.min(excess_capacity)
+    max_excess = np.max(excess_capacity)
+    
+    # Avoid division by zero if all suitable bins have the same excess capacity
+    if max_excess == min_excess:
+        normalized_penalty_contribution = np.zeros_like(excess_capacity)
+    else:
+        # Scale the penalty contribution based on the relative excess
+        # We want a higher value to mean *less* penalty.
+        # So, we invert the scaled penalty_base.
+        scaled_penalty_base = (penalty_base - np.min(penalty_base)) / (np.max(penalty_base) - np.min(penalty_base) + 1e-9)
+        # Invert to get a "goodness" score from the penalty: higher means less penalty.
+        normalized_penalty_contribution = 1.0 - scaled_penalty_base 
+
+    # --- Combination ---
+    # Combine Best Fit score with the adaptive penalty score.
+    # We want to maximize both: good fit (high best_fit_score) and low excess (high normalized_penalty_contribution).
+    # A simple multiplicative approach balances these two objectives.
+    # Using geometric mean-like combination for robustness: (bf_score * penalty_contrib)^weight
+    # Here, we'll use a simple multiplication and add a small epsilon to the penalty for stability.
+    combined_priority = best_fit_score * (normalized_penalty_contribution + 0.01)
+    
+    # Assign the calculated priorities back to the original array structure
+    priorities[suitable_bins_mask] = combined_priority
+    
+    return priorities
+```

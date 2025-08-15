@@ -1,0 +1,56 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+    
+    # --- Objective 1: Fit Tightness (Best Fit) ---
+    best_fit_diff = suitable_bins_cap - item
+    
+    # Normalize differences: smaller is better, so invert and scale
+    # Add a small epsilon to avoid division by zero if all diffs are 0
+    normalized_fit_tightness = 1.0 / (best_fit_diff + 1e-9)
+    
+    # Scale to a 0-1 range (approximately)
+    min_fit = np.min(normalized_fit_tightness)
+    max_fit = np.max(normalized_fit_tightness)
+    if max_fit - min_fit > 1e-9:
+        normalized_fit_tightness = (normalized_fit_tightness - min_fit) / (max_fit - min_fit)
+    else:
+        normalized_fit_tightness = np.ones_like(normalized_fit_tightness) * 0.5 # Neutral if all are same
+
+    # --- Objective 2: Bin Fullness (Favor fuller bins that can still fit the item) ---
+    # Calculate how full the suitable bins currently are (relative to item size needed)
+    # We want to favor bins that are *already* quite full, so a larger capacity remaining means *less* favorable
+    # So, we can use the inverse of remaining capacity, but capped by item size
+    current_fullness_score = 1.0 / (suitable_bins_cap + 1e-9) 
+    
+    # Normalize fullness score: larger is better
+    min_fullness = np.min(current_fullness_score)
+    max_fullness = np.max(current_fullness_score)
+    if max_fullness - min_fullness > 1e-9:
+        normalized_fullness = (current_fullness_score - min_fullness) / (max_fullness - min_fullness)
+    else:
+        normalized_fullness = np.ones_like(current_fullness_score) * 0.5 # Neutral if all are same
+
+    # --- Combine Objectives with Adaptive Weights ---
+    # Weights can be adjusted. Here, we give a slight preference to fit tightness,
+    # but also consider fullness. The weights can be made adaptive based on problem instance properties.
+    weight_fit = 0.6
+    weight_fullness = 0.4
+
+    composite_score = weight_fit * normalized_fit_tightness + weight_fullness * normalized_fullness
+    
+    # Assign scores to the original bins
+    original_indices = np.where(suitable_bins_mask)[0]
+    priorities[original_indices] = composite_score
+    
+    return priorities
+```

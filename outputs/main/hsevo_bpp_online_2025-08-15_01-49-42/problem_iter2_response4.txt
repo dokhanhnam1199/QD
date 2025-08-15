@@ -1,0 +1,45 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes bins that are closest to fitting the item (best fit),
+    while also giving a strong preference to exact fits.
+    It uses inverse of slack for non-exact fits, with a bonus for exact matches.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Mask for bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Calculate slack for bins that can fit
+    slack = bins_remain_cap[can_fit_mask] - item
+    
+    # Exact fit bonus: prioritize bins with zero slack
+    exact_fit_mask_local = slack == 0
+    if np.any(exact_fit_mask_local):
+        # Assign a high priority to exact fits
+        priorities[can_fit_mask][exact_fit_mask_local] = 1.0
+    
+    # Non-exact fits: prioritize those with smaller slack (closer to fitting)
+    non_exact_fit_mask_local = slack > 0
+    if np.any(non_exact_fit_mask_local):
+        # Use inverse of slack + 1 to avoid division by zero and give higher priority to smaller slack
+        # Add a small epsilon for numerical stability, though slack > 0 should handle it.
+        priorities[can_fit_mask][non_exact_fit_mask_local] = 1.0 / (slack[non_exact_fit_mask_local] + 1e-9)
+        
+    # Normalize priorities to ensure a consistent scale, giving a slight boost to exact fits
+    # This is inspired by prioritizing exact fits with a score of 1.0 and scaled inverse for others
+    # We can scale non-exact fits relative to the best non-exact fit to make them more distinguishable
+    if np.any(priorities[can_fit_mask][non_exact_fit_mask_local]):
+        max_non_exact_priority = np.max(priorities[can_fit_mask][non_exact_fit_mask_local])
+        if max_non_exact_priority > 0: # Avoid division by zero if only exact fits exist
+            priorities[can_fit_mask][non_exact_fit_mask_local] /= max_non_exact_priority
+            priorities[can_fit_mask][non_exact_fit_mask_local] *= 0.9 # Scale down non-exact fits
+            
+    # Ensure exact fits (priority 1.0) still stand out
+    if np.any(priorities[can_fit_mask][exact_fit_mask_local]):
+         priorities[can_fit_mask][exact_fit_mask_local] = 1.0
+            
+    return priorities
+```

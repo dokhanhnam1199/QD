@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines strong Best Fit with an adaptive, smoothed penalty based on capacity-to-item ratio.
+    Prioritizes tight fits while gracefully penalizing bins with disproportionately large remaining space.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    
+    # Mask for bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Consider only bins that can fit the item
+    valid_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    
+    if valid_bins_remain_cap.size > 0:
+        # Calculate the remaining capacity after placing the item
+        remaining_after_fit = valid_bins_remain_cap - item
+        
+        # Best Fit component: prioritize smaller gaps (higher score for smaller gaps).
+        # Add epsilon for numerical stability.
+        best_fit_scores = 1.0 / (remaining_after_fit + 1e-9)
+        
+        # Adaptive Penalty component: Penalize based on the ratio of remaining space to the item size.
+        # A higher ratio (more wasted space relative to the item) gets a higher penalty (lower priority).
+        # Using a sigmoid-like function to smoothly increase the penalty as the ratio exceeds a threshold.
+        # This provides a more nuanced penalty than a simple logarithmic function.
+        penalty_threshold_ratio = 1.5 # Ratio where penalty starts to increase significantly
+        penalty_steepness = 0.8 # Controls how quickly the penalty increases
+        
+        # Calculate penalty: sigmoid function ensures values between 0 and 1.
+        # Penalty is high when capacity/item ratio is much larger than threshold.
+        # Add epsilon to item in denominator to prevent division by zero for zero-sized items.
+        capacity_ratio = valid_bins_remain_cap / (item + 1e-9)
+        penalty = 1.0 / (1.0 + np.exp(-penalty_steepness * (capacity_ratio - penalty_threshold_ratio)))
+        
+        # Combine Best Fit score with penalty (subtract penalty from score)
+        combined_scores = best_fit_scores - penalty
+        
+        # Normalize the combined scores to be between 0 and 1.
+        # This makes scores comparable across different item/bin configurations and ensures positive priorities.
+        min_score = np.min(combined_scores)
+        max_score = np.max(combined_scores)
+        
+        if max_score > min_score:
+            normalized_scores = (combined_scores - min_score) / (max_score - min_score)
+        else:
+            # If all valid bins have the same combined score, assign a uniform medium priority
+            normalized_scores = np.full_like(combined_scores, 0.5)
+            
+        # Assign the calculated priorities back to the original indices
+        original_indices = np.where(can_fit_mask)[0]
+        priorities[original_indices] = normalized_scores
+
+    return priorities
+```

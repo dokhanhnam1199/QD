@@ -1,0 +1,68 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a tunable Sigmoid Fit Score.
+
+    This version refines the Sigmoid Fit Score by introducing `steepness` to control the
+    sigmoid's slope and `ideal_gap_fraction` to specify the desired positive gap as a
+    fraction of the item size. This allows for fine-tuning the preference for bins
+    that are not perfectly filled, potentially leaving more room for future items.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot fit the item will have a priority of -inf.
+    """
+    # Initialize priorities to negative infinity for bins that cannot fit the item.
+    # This ensures they are never selected.
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins that can accommodate the item
+    possible_bins_mask = bins_remain_cap >= item
+
+    if not np.any(possible_bins_mask):
+        # If no bin can fit the item, return the initialized -inf priorities.
+        return priorities
+
+    # Calculate the "gap" for bins that can fit the item.
+    # Gap is the remaining capacity after placing the item.
+    gaps = bins_remain_cap[possible_bins_mask] - item
+
+    # --- Tunable Parameters ---
+    # `steepness`: Controls how quickly the priority score decreases as the gap increases.
+    # A higher value leads to a sharper drop-off, making the choice more sensitive to small gaps.
+    steepness = 25.0
+
+    # `ideal_gap_fraction`: Defines the target gap as a fraction of the item's size.
+    # A value of 0.0 means we ideally want a perfect fit (gap=0).
+    # A value of 0.1 means we ideally want a gap of 10% of the item size.
+    # This encourages leaving some buffer space.
+    ideal_gap_fraction = 0.08 # Aim for a gap of ~8% of the item size
+
+    # Calculate the ideal gap based on the item size.
+    # Ensure the ideal gap is non-negative. If item size is 0, ideal_gap is 0.
+    ideal_gap = max(0.0, ideal_gap_fraction * item)
+
+    # --- Sigmoid Argument Calculation ---
+    # We use the sigmoid function `1 / (1 + exp(-x))` which maps x to [0, 1].
+    # To prioritize bins with gaps close to `ideal_gap`, we can map `ideal_gap` to the center
+    # of the sigmoid's steep slope (input close to 0).
+    # The argument `x` for the sigmoid will be `steepness * (ideal_gap - gap)`.
+    #
+    # If `gap < ideal_gap`: The argument is positive, sigmoid output > 0.5. Higher scores for smaller gaps.
+    # If `gap = ideal_gap`: The argument is 0, sigmoid output = 0.5. This is the pivot point.
+    # If `gap > ideal_gap`: The argument is negative, sigmoid output < 0.5. Lower scores for larger gaps.
+    #
+    # By choosing `ideal_gap_fraction`, we are effectively tuning the bias of the sigmoid.
+    # The argument can be seen as: `steepness * ideal_gap - steepness * gap`.
+    # The `steepness * ideal_gap` term acts as an additive bias.
+    sigmoid_arg = steepness * (ideal_gap - gaps)
+
+    # Apply the sigmoid function to compute the priority scores for fitting bins.
+    # Higher values indicate a more desirable bin.
+    priorities[possible_bins_mask] = 1 / (1 + np.exp(-sigmoid_arg))
+
+    return priorities
+```

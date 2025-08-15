@@ -1,0 +1,68 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined Best Fit strategy with slack penalty.
+
+    This strategy prioritizes bins that leave minimal remaining capacity after packing
+    the current item (Best Fit). Additionally, it penalizes bins that have excessive
+    slack (remaining capacity significantly larger than the item size), aiming to
+    reserve large bins for potentially larger future items.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority. Bins that cannot fit the item
+        will have a priority of 0.
+    """
+    # Mask for bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Initialize priorities to 0
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Get capacities of bins that can fit the item
+    fitting_bins_capacities = bins_remain_cap[can_fit_mask]
+
+    # Calculate the slack for each fittable bin
+    slack = fitting_bins_capacities - item
+
+    # --- Score Calculation ---
+    # 1. Best Fit Component: Prioritize bins with minimum slack.
+    #    We use 1 / (1 + slack) so that smaller slack yields a higher score.
+    #    Adding 1 avoids division by zero and ensures positive scores.
+    best_fit_score = 1.0 / (1.0 + slack)
+
+    # 2. Slack Penalty Component: Penalize bins with excessive slack.
+    #    We define "excessive" as slack larger than a certain multiple of the item size.
+    #    Let's use a threshold like 2 * item.
+    #    A sigmoid function that decreases as slack increases can model this penalty.
+    #    `1 / (1 + exp(k * (slack - threshold)))` will be close to 1 for slack <= threshold
+    #    and decrease for slack > threshold.
+    slack_threshold = 2.0 * item  # Threshold for excessive slack
+    k_penalty = 0.5  # Steepness of the penalty function
+    slack_penalty = 1.0 / (1.0 + np.exp(k_penalty * (slack - slack_threshold)))
+
+    # Combine scores:
+    # We want to favor small slack (high best_fit_score) and penalize large slack
+    # (low slack_penalty). A simple multiplication is often effective here.
+    # The best_fit_score is high for small slack. The slack_penalty is high for small slack too.
+    # Multiplying them means both conditions (tight fit and not excessively large) contribute positively.
+    # A tighter fit (small slack) will naturally result in a higher score in both components.
+    # The penalty is more about preventing the use of overly large bins.
+    combined_scores = best_fit_score * slack_penalty
+
+    # Assign the calculated scores to the priorities for the fittable bins
+    priorities[can_fit_mask] = combined_scores
+
+    # Normalize priorities for fittable bins so they sum to 1 (optional, for probabilistic selection)
+    fittable_scores_sum = np.sum(priorities[can_fit_mask])
+    if fittable_scores_sum > 0:
+        priorities[can_fit_mask] /= fittable_scores_sum
+
+    return priorities
+```

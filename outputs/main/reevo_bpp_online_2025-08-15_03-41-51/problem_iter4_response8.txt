@@ -1,0 +1,72 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a Softmax-Based Best Fit.
+
+    This heuristic prioritizes bins that result in the least remaining capacity
+    after packing the item. It uses a softmax-like transformation on the negative
+    of the remaining capacity to assign probabilities. The scores are stabilized
+    by subtracting the maximum score before exponentiation, which is a common
+    technique to prevent overflow in softmax calculations and emphasize differences.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot fit the item will have a priority of 0.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        # No bin can fit the item, return all zeros
+        return priorities
+
+    # Calculate the remaining capacity for bins that can fit the item.
+    # We want to minimize (bins_remain_cap - item).
+    # For a softmax-like score where higher means better, we use the negative
+    # of this value: -(bins_remain_cap - item) which simplifies to item - bins_remain_cap.
+    # A more intuitive way to represent "best fit" is by directly using the
+    # resulting remaining capacity and wanting it to be small.
+    # Let's use the negative of the remaining capacity directly as the score
+    # to reward bins that leave less space.
+    
+    resulting_remain_cap_for_fitting_bins = bins_remain_cap[can_fit_mask] - item
+    
+    # A higher score should indicate a better fit (lower remaining capacity).
+    # So, we can use -resulting_remain_cap_for_fitting_bins.
+    # Or, to make it more robust and avoid negative exponents leading to very small numbers,
+    # we can use a score that is inversely proportional to the remaining capacity,
+    # e.g., 1 / (remaining_capacity + epsilon).
+    # However, following the "minimal remaining capacity" idea, let's use
+    # a score that is higher when remaining capacity is smaller.
+    # The direct negative of remaining capacity works well for this purpose.
+    
+    scores_for_fitting_bins = -resulting_remain_cap_for_fitting_bins
+
+    # Apply softmax-like transformation.
+    # To prevent potential numerical overflow with np.exp, we subtract the maximum
+    # score from all scores before exponentiation. This does not change the
+    # relative probabilities computed by softmax but ensures that exp(0) is the max.
+    max_score = np.max(scores_for_fitting_bins)
+    
+    # Ensure we don't get NaN or Inf if scores_for_fitting_bins is empty, though
+    # the `if not np.any(can_fit_mask)` check should prevent this.
+    if scores_for_fitting_bins.size > 0:
+        stable_exp_scores = np.exp(scores_for_fitting_bins - max_score)
+        sum_stable_exp_scores = np.sum(stable_exp_scores)
+
+        if sum_stable_exp_scores > 1e-9:  # Check for numerical stability to avoid division by zero
+            priorities[can_fit_mask] = stable_exp_scores / sum_stable_exp_scores
+        else:
+            # If all scores are extremely small (e.g., due to very large negative
+            # resulting remaining capacities), distribute probability equally.
+            num_fitting_bins = np.sum(can_fit_mask)
+            if num_fitting_bins > 0:
+                priorities[can_fit_mask] = 1.0 / num_fitting_bins
+    
+    return priorities
+```

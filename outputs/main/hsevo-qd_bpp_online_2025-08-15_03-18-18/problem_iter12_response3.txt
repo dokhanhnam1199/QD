@@ -1,0 +1,80 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Calculates priority scores for each bin using a hybrid Softmax-based strategy
+    with adaptive weighting for the online Bin Packing Problem.
+
+    This strategy prioritizes bins that can accommodate the item, favoring
+    bins that result in minimal wasted space (Best Fit aspect). It also
+    incorporates a diversification factor to prevent premature convergence
+    to suboptimal states and a strong preference for perfect fits.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array where each element represents the
+                         remaining capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, where each element
+        is the priority score for placing the item in the corresponding bin.
+    """
+    # Identify bins that can accommodate the item
+    valid_bins_mask = bins_remain_cap >= item
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+
+    if valid_bins_remain_cap.size == 0:
+        return np.zeros_like(bins_remain_cap)
+
+    # --- Score Calculation ---
+    # 1. Best Fit Score: Minimize remaining capacity after placing the item.
+    #    We want to maximize -(remaining_capacity - item), so minimize (item - remaining_capacity).
+    #    A perfect fit (remaining_capacity - item == 0) should have the highest score.
+    best_fit_scores = -(valid_bins_remain_cap - item)
+
+    # 2. Diversification Score: To encourage exploration and avoid getting stuck
+    #    in local optima, we can add a small positive value that is constant across
+    #    valid bins or varies slightly. A simple approach is to add a constant.
+    #    We'll use a small epsilon to slightly perturb scores and ensure distinctness
+    #    when best_fit_scores are identical.
+    diversification_epsilon = 1e-6
+    diversification_scores = np.random.rand(valid_bins_remain_cap.size) * diversification_epsilon
+
+    # 3. Perfect Fit Bonus: Explicitly boost the score for bins that are a perfect fit.
+    #    This ensures that perfect fits are highly prioritized.
+    perfect_fit_bonus = np.where(valid_bins_remain_cap - item == 0, 10.0, 0.0) # Large bonus
+
+    # Combine scores: Weighted sum of best fit and diversification, with perfect fit bonus
+    # The weight for best_fit_scores can be thought of as controlling the 'greediness'.
+    # Let's keep it simple for now and focus on maximizing the combined score.
+    # Prioritize the best fit, with a bonus for perfect fits and slight randomness.
+    combined_scores = best_fit_scores + perfect_fit_bonus + diversification_scores
+
+    # --- Softmax Application with Numerical Stability ---
+    # Shift scores to prevent overflow/underflow in exp and improve stability
+    # by subtracting the maximum score. This makes the highest score 0.
+    shifted_scores = combined_scores - np.max(combined_scores)
+    
+    # Calculate exponential of shifted scores. Handle potential NaNs/Infs if scores are extreme.
+    # Use np.clip to keep values within a reasonable range before exp if necessary,
+    # though shifting usually handles this well for typical BPP scales.
+    exp_scores = np.exp(shifted_scores)
+
+    # Calculate the sum of exponentiated scores. Handle cases where sum might be zero or NaN.
+    sum_exp_scores = np.sum(exp_scores)
+    if sum_exp_scores == 0 or np.isnan(sum_exp_scores):
+        # If sum is zero (e.g., all shifted scores were -inf), assign uniform probability
+        probabilities = np.ones_like(exp_scores) / exp_scores.size
+    else:
+        probabilities = exp_scores / sum_exp_scores
+
+    # --- Final Priority Array Construction ---
+    # Initialize the result array with zeros.
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Place the calculated probabilities into the correct positions.
+    priorities[valid_bins_mask] = probabilities
+
+    return priorities
+```

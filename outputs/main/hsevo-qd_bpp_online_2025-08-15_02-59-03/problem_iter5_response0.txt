@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines the exact-fit prioritization with a scaled Best Fit approach,
+    giving a higher preference to bins that are nearly full after packing.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=np.float64)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+    
+    # Calculate the remaining capacity after placing the item
+    remaining_after_fit = suitable_bins_remain_cap - item
+    
+    # Heuristic 1: Prioritize exact fits (remaining_after_fit == 0) with a high score.
+    # This is similar to 'priority_v0' and 'priority_v1' where exact fits are strongly preferred.
+    exact_fit_scores = np.zeros_like(suitable_bins_remain_cap)
+    exact_fit_scores[remaining_after_fit == 0] = 2.0 # Higher score for exact fits
+
+    # Heuristic 2: For non-exact fits, use a score inversely proportional to remaining capacity.
+    # This encourages using bins that will have little space left, akin to Best Fit.
+    # We scale this by the *minimum* remaining capacity to normalize the "tightness".
+    # Add epsilon to avoid division by zero.
+    non_exact_fit_mask = remaining_after_fit > 0
+    if np.any(non_exact_fit_mask):
+        non_exact_remain_cap = remaining_after_fit[non_exact_fit_mask]
+        min_non_exact_remain_cap = np.min(non_exact_remain_cap)
+        
+        # The score is higher for smaller remaining capacities.
+        # A simple inverse relationship is used.
+        scaled_non_exact_scores = 1.0 / (non_exact_remain_cap + 1e-9)
+        
+        # Further scale this to ensure it complements the exact_fit_scores.
+        # We can normalize these non-exact scores relative to the best possible non-exact fit.
+        if np.max(scaled_non_exact_scores) > 0:
+             scaled_non_exact_scores /= np.max(scaled_non_exact_scores)
+        
+        # Assign these scores only to the non-exact fits.
+        non_exact_scores = np.zeros_like(suitable_bins_remain_cap)
+        non_exact_scores[non_exact_fit_mask] = scaled_non_exact_scores
+
+        # Combine: Exact fits get a high fixed score, others get a scaled score.
+        # We prioritize exact fits heavily, then use the scaled non-exact scores.
+        combined_scores = exact_fit_scores + non_exact_scores
+    else:
+        # If all suitable bins are exact fits, just use those scores.
+        combined_scores = exact_fit_scores
+    
+    # Ensure scores are not excessively high or low. Normalize if needed.
+    # For simplicity, we let the absolute values of exact_fit_scores and scaled_non_exact_scores
+    # dictate the priority. If all scores are 0 (e.g., no suitable bins or only exact fits with score 0),
+    # it remains 0.
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```

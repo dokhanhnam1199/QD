@@ -1,0 +1,72 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Differentiated and Scaled Fit priority function.
+
+    This strategy aims to provide more differentiated priority scores by considering
+    both how "full" a bin becomes and how well the item "fits" relative to the bin's
+    current remaining capacity. It also scales the contribution of these factors.
+
+    The priority is calculated based on two components:
+    1.  **Slack Minimization:** Similar to "Almost Full Fit", we want to minimize
+        the remaining capacity after placing the item. This is captured by
+        `bins_remain_cap - item`. A smaller value here is better.
+    2.  **Fit Ratio:** We also consider how "tight" the fit is relative to the
+        bin's current remaining capacity. A bin with much more capacity might
+        be less preferable even if it leaves a small absolute remainder,
+        if another bin with less capacity can also accommodate the item snugly.
+        This is captured by `item / bins_remain_cap`. A smaller value here is better.
+
+    These two components are combined with scaling factors to create a single priority score.
+    The function prioritizes bins that can fit the item (remaining capacity >= item).
+    Bins that cannot fit receive a priority of -1.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of priority scores for each bin. Bins that cannot accommodate the item
+        receive a priority of -1. Higher scores indicate higher priority.
+    """
+    priorities = np.full_like(bins_remain_cap, -1.0)
+    
+    can_fit_mask = bins_remain_cap >= item
+    
+    if np.any(can_fit_mask):
+        available_bins_remain_cap = bins_remain_cap[can_fit_mask]
+        
+        # Component 1: Minimize remaining capacity after placing the item (Slack)
+        # We want to maximize the negative of slack, so smaller slack -> higher priority.
+        slack = available_bins_remain_cap - item
+        slack_priority = -slack
+        
+        # Component 2: Minimize the ratio of item size to bin remaining capacity (Fit Ratio)
+        # This penalizes using a large bin for a small item if a tighter fit is available.
+        # We want to maximize the negative of the ratio.
+        # Add a small epsilon to avoid division by zero if an item perfectly fills a bin
+        # that had 0 remaining capacity (though this case is handled by can_fit_mask,
+        # it's good practice for robustness if logic were to change).
+        epsilon = 1e-9
+        fit_ratio = item / (available_bins_remain_cap + epsilon)
+        fit_ratio_priority = -fit_ratio
+        
+        # Combine components with scaling.
+        # We can assign weights based on desired behavior.
+        # For example, give more weight to minimizing slack (e.g., 0.7) and less to fit ratio (e.g., 0.3).
+        # The specific weights can be tuned based on empirical performance.
+        weight_slack = 0.7
+        weight_fit_ratio = 0.3
+        
+        # A simple linear combination. Normalize the priorities if their scales differ significantly
+        # or if we want to ensure they contribute to a bounded range.
+        # For now, we combine them directly.
+        combined_priority = (weight_slack * slack_priority) + (weight_fit_ratio * fit_ratio_priority)
+        
+        # Assign the calculated priorities to the bins that can fit the item.
+        priorities[can_fit_mask] = combined_priority
+        
+    return priorities
+```

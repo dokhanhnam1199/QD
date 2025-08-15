@@ -1,0 +1,173 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    epsilon = 1e-9
+    
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Identify bins that perfectly fit the item
+    perfect_fit_mask = np.abs(bins_remain_cap - item) < epsilon
+    
+    # Assign a very high, distinct priority to perfect fits
+    # A value significantly larger than any possible score from other bins
+    priorities[perfect_fit_mask] = 1e9  # High priority for exact fits
+    
+    # For bins that fit but not perfectly
+    close_fit_mask = can_fit_mask & ~perfect_fit_mask
+    
+    if np.any(close_fit_mask):
+        # Calculate the excess capacity for bins that can fit the item but not perfectly
+        excess_capacity = bins_remain_cap[close_fit_mask] - item
+        
+        # Score based on the inverse of excess capacity, scaled by the remaining capacity itself.
+        # This prioritizes bins with minimal excess capacity, but also considers the overall size of the bin.
+        # The idea is to prefer bins that are nearly full and have little leftover space.
+        # The score: (bin_remaining_capacity) / (excess_capacity + epsilon)
+        # This is equivalent to (item + excess_capacity) / (excess_capacity + epsilon)
+        # This score is high when excess_capacity is small.
+        
+        # We can normalize the excess capacity relative to the item size to make it scale-invariant to the item size itself.
+        # normalized_excess_capacity = excess_capacity / item
+        # Score = 1 / (normalized_excess_capacity + epsilon)
+        # This is equivalent to item / (excess_capacity + epsilon)
+        
+        # Let's use a score that emphasizes smaller excess capacity by using the inverse of excess capacity.
+        # Adding the original remaining capacity in the numerator helps to slightly prefer larger bins if excess is similar.
+        # A score of `remaining_capacity / (excess_capacity + epsilon)` is already good.
+        # Or `1 / (excess_capacity + epsilon)` which is `priority_v1`.
+        
+        # Let's try to give a boost to smaller bins that have a tight fit.
+        # The ratio `item / bins_remain_cap` for these bins will be close to 1.
+        # Let's try `1 / (excess_capacity + epsilon)`
+        
+        # To differentiate from perfect fit, and still favor tight fits:
+        # Use a score that is lower than the perfect fit score but still high for small excess.
+        # Let's use `1 / (excess_capacity + epsilon)`. This is what `priority_v1` does for fits.
+        # The key is to give perfect fits a *much* higher score.
+        
+        # A slight variation: Penalize bins with *too much* excess capacity.
+        # For instance, if excess_capacity is much larger than item size, the score should be low.
+        # The current score `1 / (excess_capacity + epsilon)` already does this.
+        
+        # To ensure `priority_v2` is better, let's try a score that emphasizes the "waste" or "slack".
+        # Slack = bin_remaining_cap - item
+        # We want slack to be small.
+        # Score = 1 / (slack + epsilon) is `priority_v1`.
+        
+        # Let's consider the ratio of slack to the item size.
+        # If slack is small relative to item size, it's a good fit.
+        # `slack_ratio = excess_capacity / item`
+        # Score = `1 / (slack_ratio + epsilon)` which is `item / (excess_capacity + epsilon)`.
+        
+        # Let's use a combination:
+        # Prefer smaller excess capacity: `1 / (excess_capacity + epsilon)`
+        # Also consider the "fullness" of the bin: `item / bins_remain_cap[close_fit_mask]`
+        
+        # A score of `1.0 / (excess_capacity + epsilon)` gives higher values for smaller excess.
+        # Example:
+        # item = 5
+        # bins_remain_cap = [6, 7, 10]
+        # excess_capacity = [1, 2, 5]
+        # Scores = [1/1, 1/2, 1/5] = [1.0, 0.5, 0.2]
+        # This favors the bin with remaining capacity 6.
+        
+        # What if we want to slightly favor larger bins if the excess is the same?
+        # Example:
+        # item = 5
+        # bins_remain_cap = [6, 15]
+        # excess_capacity = [1, 10]
+        # Scores = [1/1, 1/10] = [1.0, 0.1]
+        # This correctly favors the tighter fit.
+        
+        # Let's try `1 / (excess_capacity**2 + epsilon)` to amplify the preference for very tight fits.
+        # item = 5
+        # bins_remain_cap = [6, 7, 10]
+        # excess_capacity = [1, 2, 5]
+        # Scores = [1/1, 1/4, 1/25] = [1.0, 0.25, 0.04]
+        # This strongly favors the bin with remaining capacity 6.
+        
+        # Let's try to balance between tight fit and not "too much" remaining capacity.
+        # A score that is high for small `excess_capacity` and then drops off.
+        # Consider `f(x) = 1 / (x + epsilon)` where x is `excess_capacity`.
+        
+        # Let's ensure that scores for close fits are strictly less than perfect fits, but still meaningful.
+        # We can scale `1 / (excess_capacity + epsilon)`.
+        
+        # Let's use the `item / excess_capacity` idea, but with a twist.
+        # This prioritizes bins where `bins_remain_cap` is close to `item`.
+        # `item / excess_capacity` gives `item / (bins_remain_cap - item)`
+        
+        # Let's use `bins_remain_cap / excess_capacity`
+        # item = 5
+        # bins_remain_cap = [6, 7, 10]
+        # excess_capacity = [1, 2, 5]
+        # Scores = [6/1, 7/2, 10/5] = [6.0, 3.5, 2.0]
+        # This also favors tighter fits.
+        
+        # Compare `1/excess_capacity` and `bins_remain_cap / excess_capacity`:
+        # `1/excess_capacity` is `1/(bin_remain_cap - item)`
+        # `bins_remain_cap/excess_capacity` is `bin_remain_cap / (bin_remain_cap - item)`
+        
+        # The latter is `(item + excess_capacity) / excess_capacity` = `item/excess_capacity + 1`
+        # So, `bins_remain_cap / excess_capacity` is just a shifted version of `item / excess_capacity`.
+        
+        # Let's try to introduce a penalty for large remaining capacity that is not used.
+        # Consider the ratio of used capacity to available capacity.
+        # For a bin that fits, `item / bins_remain_cap`.
+        # We want this ratio close to 1 for tight fits.
+        # Score = `item / bins_remain_cap[close_fit_mask]`
+        # Example:
+        # item = 5
+        # bins_remain_cap = [6, 7, 10]
+        # Scores = [5/6, 5/7, 5/10] = [0.83, 0.71, 0.5]
+        # This favors the bin with remaining capacity 6.
+        
+        # Let's combine `1/excess_capacity` and `item/bins_remain_cap`.
+        # `(1 / excess_capacity) * (item / bins_remain_cap)`
+        # `(1 / (bin_remain_cap - item)) * (item / bin_remain_cap)`
+        
+        # Let's test:
+        # item = 5
+        # bins_remain_cap = [6, 7, 10]
+        # excess_capacity = [1, 2, 5]
+        # Scores = (1/1)*(5/6), (1/2)*(5/7), (1/5)*(5/10)
+        # Scores = 0.833, 0.357, 0.1
+        # This also favors the tightest fit.
+        
+        # The prompt hints at "minimal excess capacity" and "scaled difference".
+        # `1 / (excess_capacity + epsilon)` is a good candidate for minimal excess capacity.
+        # For "scaled difference", we can consider `excess_capacity / item`.
+        # Score = `1 / (excess_capacity / item + epsilon)` which is `item / (excess_capacity + epsilon)`.
+        
+        # Let's use `1 / (excess_capacity + epsilon)` and ensure it's less than perfect fit score.
+        # We can scale this score down or simply rely on `1e9` being sufficiently large.
+        
+        # Let's try a score that slightly penalizes larger available capacities beyond the tight fit.
+        # The score `1 / (excess_capacity + epsilon)` already does this.
+        
+        # Let's consider the prompt's hint: "Explicitly separate exact fits with maximum priority. For close fits, score based on a scaled measure of excess capacity, ensuring these scores are always lower than exact fit scores."
+        
+        # We've handled exact fits with `1e9`.
+        # For close fits, we want to score based on `excess_capacity`.
+        # A simple `1 / (excess_capacity + epsilon)` seems appropriate.
+        # To make it "scaled", we can divide `excess_capacity` by `item`.
+        # So, `1 / (excess_capacity / item + epsilon)` which is `item / (excess_capacity + epsilon)`.
+        
+        # Let's evaluate `item / (excess_capacity + epsilon)`:
+        # item = 5
+        # bins_remain_cap = [6, 7, 10]
+        # excess_capacity = [1, 2, 5]
+        # Scores = [5/1, 5/2, 5/5] = [5.0, 2.5, 1.0]
+        # This clearly favors the tightest fit and is always less than 1e9.
+        
+        # This metric `item / (excess_capacity + epsilon)` captures:
+        # 1. Minimal excess capacity (smaller excess_capacity -> higher score)
+        # 2. Scaled difference (division by item makes it somewhat independent of item scale, more about the proportion of excess)
+        
+        priorities[close_fit_mask] = item / (excess_capacity + epsilon)
+    
+    return priorities
+```

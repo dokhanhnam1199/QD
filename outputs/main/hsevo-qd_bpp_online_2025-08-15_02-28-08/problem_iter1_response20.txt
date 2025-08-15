@@ -1,0 +1,50 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using First Fit strategy.
+
+    In First Fit, the item is placed in the first bin that has enough remaining capacity.
+    This heuristic prioritizes bins that can accommodate the item and gives higher
+    priority to bins that have just enough capacity to avoid fragmentation.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    # Assign a high priority to bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    priorities[can_fit_mask] = 1.0
+
+    # Among those that can fit, prioritize bins that have just enough capacity.
+    # This is a greedy approach to minimize wasted space in the selected bin.
+    # We can use the inverse of the remaining capacity minus the item size as a measure
+    # of how "tight" the fit is. Smaller difference means higher priority.
+    tight_fit_scores = np.where(can_fit_mask, bins_remain_cap - item, np.inf)
+    
+    # Normalize the tight fit scores to avoid overly large or small values.
+    # Add a small epsilon to avoid division by zero if all differences are the same.
+    min_tight_fit = np.min(tight_fit_scores[tight_fit_scores != np.inf]) if np.any(tight_fit_scores != np.inf) else 0
+    max_tight_fit = np.max(tight_fit_scores[tight_fit_scores != np.inf]) if np.any(tight_fit_scores != np.inf) else 1
+    
+    if max_tight_fit - min_tight_fit > 1e-9: # Avoid division by zero if all are the same
+        normalized_tight_fit = (tight_fit_scores - min_tight_fit) / (max_tight_fit - min_tight_fit)
+    else:
+        normalized_tight_fit = np.zeros_like(tight_fit_scores)
+    
+    # Invert to give higher priority to smaller differences (tighter fits)
+    inverted_normalized_tight_fit = 1.0 - normalized_tight_fit
+    
+    # Combine the "can fit" priority with the "tight fit" priority.
+    # We want to boost bins that fit and then order them by tightness.
+    # The "+ 0.1" ensures that bins that can fit are always prioritized over those that cannot,
+    # even if their tight fit score is very high (which shouldn't happen if they can't fit).
+    priorities = np.where(can_fit_mask, 1.0 + inverted_normalized_tight_fit * 0.1, 0)
+    
+    # Ensure that bins that cannot fit have a priority of 0
+    priorities[~can_fit_mask] = 0
+
+    return priorities
+```

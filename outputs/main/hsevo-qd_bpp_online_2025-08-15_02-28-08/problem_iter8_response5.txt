@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Hybrid heuristic: Prioritizes exact fits, then bins with minimal remaining capacity.
+    Combines "Exact Fit First" with a normalized "Best Fit" strategy.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    can_fit_mask = bins_remain_cap >= item
+
+    if np.any(can_fit_mask):
+        available_bins_cap = bins_remain_cap[can_fit_mask]
+        
+        # Strategy 1: Exact Fit - Assign a high priority (e.g., 1.0)
+        exact_fit_mask_local = available_bins_cap == item
+        priorities[can_fit_mask][exact_fit_mask_local] = 1.0
+        
+        # Strategy 2: Best Fit - For bins that don't provide an exact fit
+        non_exact_fit_mask_local = ~exact_fit_mask_local
+        
+        if np.any(non_exact_fit_mask_local):
+            non_exact_bins_cap = available_bins_cap[non_exact_fit_mask_local]
+            
+            # Calculate priority based on how little space is left (smaller is better)
+            # Score is inversely proportional to remaining capacity after placement
+            space_after_placement = non_exact_bins_cap - item
+            
+            # Use inverse of remaining capacity for scoring. Add epsilon to avoid division by zero.
+            # Higher score for smaller remaining capacity.
+            proximity_scores = 1.0 / (space_after_placement + 1e-9)
+            
+            # Normalize these scores to a range below 1.0 to maintain hierarchy
+            # Range [0.1, 0.9] ensures non-exact fits get priority less than exact fits.
+            if len(proximity_scores) > 0:
+                min_score = np.min(proximity_scores)
+                max_score = np.max(proximity_scores)
+                
+                if max_score - min_score > 1e-9:
+                    normalized_proximity_scores = 0.1 + 0.8 * (proximity_scores - min_score) / (max_score - min_score)
+                else:
+                    normalized_proximity_scores = np.full_like(proximity_scores, 0.5) # Uniform if all are same
+
+                # Map these back to the original bins
+                # Get the indices within the original `bins_remain_cap` that fit and are not exact fits
+                original_indices_for_non_exact = np.where(can_fit_mask)[0][non_exact_fit_mask_local]
+                priorities[original_indices_for_non_exact] = normalized_proximity_scores
+
+    return priorities
+```

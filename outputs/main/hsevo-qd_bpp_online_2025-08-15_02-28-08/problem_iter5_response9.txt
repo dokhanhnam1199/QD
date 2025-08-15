@@ -1,0 +1,72 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Exact Fit First with a normalized Best Fit strategy.
+    Prioritizes exact fits, then bins with the least excess capacity
+    relative to the minimum possible excess.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Mask for bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    eligible_bins_cap = bins_remain_cap[can_fit_mask]
+    
+    if eligible_bins_cap.size == 0:
+        return priorities
+
+    # Mask for exact fits
+    exact_fit_mask = (eligible_bins_cap == item)
+    
+    if np.any(exact_fit_mask):
+        # Assign highest priority (1.0) to exact fits
+        priorities[can_fit_mask][exact_fit_mask] = 1.0
+        
+        # For non-exact fits, assign a lower priority band (0.0 to 0.9)
+        non_exact_fit_mask = can_fit_mask.copy()
+        non_exact_fit_mask[can_fit_mask][exact_fit_mask] = False
+        
+        if np.any(non_exact_fit_mask):
+            non_exact_bins_cap = bins_remain_cap[non_exact_fit_mask]
+            # Calculate excess capacity for non-exact fits
+            excess_capacities = non_exact_bins_cap - item
+            
+            # Find the minimum excess capacity among non-exact fits
+            min_excess_capacity = np.min(excess_capacities)
+            
+            # Calculate normalized scores: higher score for smaller excess capacity relative to min
+            # Add epsilon to avoid division by zero and to ensure scores are not infinite
+            normalized_scores = 1.0 / (excess_capacities - min_excess_capacity + 1e-9)
+            
+            # Scale these scores to a lower range (e.g., 0.0 to 0.9)
+            max_normalized_score = np.max(normalized_scores)
+            if max_normalized_score > 0:
+                scaled_scores = 0.9 * (normalized_scores / max_normalized_score)
+            else:
+                scaled_scores = np.zeros_like(normalized_scores) # Should not happen if there are non-exact fits
+
+            priorities[non_exact_fit_mask] = scaled_scores
+            
+    else:
+        # If no exact fit, all fitting bins are non-exact fits
+        # Calculate excess capacity for all eligible bins
+        excess_capacities = eligible_bins_cap - item
+        
+        # Find the minimum excess capacity
+        min_excess_capacity = np.min(excess_capacities)
+        
+        # Calculate normalized scores: higher score for smaller excess capacity relative to min
+        normalized_scores = 1.0 / (excess_capacities - min_excess_capacity + 1e-9)
+        
+        # Scale these scores to a range (e.g., 0.0 to 1.0)
+        max_normalized_score = np.max(normalized_scores)
+        if max_normalized_score > 0:
+            scaled_scores = normalized_scores / max_normalized_score
+        else:
+            scaled_scores = np.zeros_like(normalized_scores) # Should not happen
+
+        priorities[can_fit_mask] = scaled_scores
+
+    return priorities
+```

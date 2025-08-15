@@ -1,0 +1,47 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with a dynamic 'fill ratio' consideration.
+    Prioritizes bins that offer a tight fit and maximize item utilization,
+    while remaining robust to extreme capacities.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Mask for bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities  # No bin can fit the item
+
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+
+    # Component 1: Best Fit (Minimize slack)
+    # We want to minimize (remaining_capacity - item).
+    # Using -log(slack + epsilon) makes smaller slacks yield higher scores.
+    # This strongly prefers bins that leave minimal space after packing.
+    slack = suitable_bins_remain_cap - item
+    best_fit_score = -np.log(slack + 1e-9)
+
+    # Component 2: Fill Ratio (Maximize item utilization within the bin's current capacity)
+    # This score represents how much of the *current* remaining capacity the item would occupy.
+    # Maximizing item / suitable_bins_remain_cap is good, as it means the item fills
+    # a larger portion of the available space in that bin.
+    # This helps in scenarios where the absolute slack might be similar, but one bin
+    # is generally less full, thus offering more room for future items.
+    fill_ratio_score = item / (suitable_bins_remain_cap + 1e-9)
+
+    # Combine scores:
+    # A multiplicative combination of best_fit_score and fill_ratio_score.
+    # This encourages bins that are both a tight fit (high best_fit_score)
+    # AND where the item significantly contributes to filling the bin (high fill_ratio_score).
+    # It balances minimizing waste in the chosen bin with efficiently packing the current item.
+    # The log in best_fit_score helps to compress the range of slack, making the multiplicative
+    # effect more balanced.
+    combined_score = best_fit_score * fill_ratio_score
+
+    priorities[suitable_bins_mask] = combined_score
+
+    return priorities
+```

@@ -1,0 +1,271 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    epsilon = 1e-9
+    
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    # Mask for bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+    
+    # For bins where the item fits, calculate priority
+    # Tier 1: Exact fits (remaining capacity equals item size) get the highest priority.
+    exact_fit_mask = np.abs(bins_remain_cap - item) < epsilon
+    priorities[exact_fit_mask] = 1e6  # Assign a very high score for exact fits
+    
+    # Tier 2: Near fits (remaining capacity is slightly larger than item size).
+    # Prioritize bins where the excess capacity is minimal.
+    # Use a score that is inversely proportional to the excess capacity, scaled to be less than Tier 1.
+    # Score: 1 / (excess_capacity + epsilon)
+    # Excess capacity = bins_remain_cap[can_fit_mask] - item
+    
+    near_fit_mask = can_fit_mask & ~exact_fit_mask
+    
+    if np.any(near_fit_mask):
+        excess_capacity = bins_remain_cap[near_fit_mask] - item
+        # Scale the scores for near fits to be significant but lower than exact fits
+        # We want smaller excess capacity to yield higher scores.
+        # A simple inverse relationship works well.
+        # Let's add a base score to ensure they are always preferred over bins with large excess capacity
+        # but less preferred than exact fits.
+        
+        # A score that is high for small excess and decreases.
+        # Using 1 / (excess_capacity + epsilon) will work.
+        # Let's amplify the difference for smaller excess capacities by squaring.
+        # Or, more simply, use a scaled inverse.
+        
+        # Consider a score like: `base_score + C / (excess_capacity + epsilon)`
+        # `base_score` ensures even low priority bins have some score.
+        # `C` scales the importance of tightness.
+        
+        # Let's try `bins_remain_cap / (bins_remain_cap - item + epsilon)` again, but ensure exact fits are handled separately.
+        # For near fits, we want bins where `bins_remain_cap - item` is small to have high scores.
+        # `bins_remain_cap / (bins_remain_cap - item + epsilon)` = `(item + excess_capacity) / (excess_capacity + epsilon)`
+        # This ratio is indeed high when `excess_capacity` is small.
+        
+        # Let's assign scores to near fits as a significant fraction of the exact fit score.
+        # For example, let the score be proportional to `1 / (excess_capacity + epsilon)`.
+        
+        # Normalize excess capacity to have a more stable scoring across different item sizes.
+        # Normalized excess capacity = excess_capacity / item
+        # This requires item > 0.
+        
+        normalized_excess_capacity = excess_capacity / item if item > epsilon else excess_capacity
+        
+        # Score = 1 / (normalized_excess_capacity + epsilon)
+        # This prioritizes bins where the item takes up a larger fraction of the remaining space.
+        
+        # Alternative using direct difference: prioritize small positive diff.
+        # `1 / (diff + epsilon)`
+        
+        # Let's try a score that is `1 / (excess_capacity + epsilon)` and scaled.
+        # Scale such that it is less than 1e6 but still significant.
+        
+        # Option 1: `bins_remain_cap / (bins_remain_cap - item + epsilon)` for near fits.
+        # This can still be very large if `excess_capacity` is small.
+        
+        # Option 2: Focus on the "closeness" to exact fit.
+        # Score = `1 / (excess_capacity + epsilon)`
+        # Let's add a base score and scale.
+        
+        # Score for near fits: A value that decreases as `excess_capacity` increases.
+        # `score = C * (1 / (excess_capacity + epsilon))`
+        # To make it comparable to exact fits, maybe `score = C * (bins_remain_cap / (bins_remain_cap - item + epsilon))`
+        
+        # Let's aim for a score that is substantial but clearly less than exact fits.
+        # Let the score be `(bins_remain_cap[near_fit_mask] / item) / (excess_capacity[near_fit_mask] / item + epsilon)`
+        # This simplifies to `bins_remain_cap[near_fit_mask] / (excess_capacity[near_fit_mask] + epsilon)` which is `bins_remain_cap[near_fit_mask] / (bins_remain_cap[near_fit_mask] - item + epsilon)`
+        
+        # This gives very high scores for tight fits among near fits.
+        # Let's try to make the range of scores for near fits more controlled.
+        
+        # Consider a score that interpolates between a high value for minimal excess and a low value for large excess.
+        # We can use `exp(-k * excess_capacity)` or a polynomial.
+        
+        # Let's try a score that is `1 / (excess_capacity + epsilon)` and then scale it.
+        # `score = 1000 / (excess_capacity + epsilon)`
+        
+        # To make it more robust to scale: `score = 1000 / (excess_capacity / item + epsilon)` if item > 0
+        # If item is small, `excess_capacity / item` can be large.
+        
+        # Let's use the ratio of remaining capacity to the item size, but inversely related to excess.
+        # `score = (bins_remain_cap[near_fit_mask] + epsilon) / (item + epsilon)`
+        # This means bins with more space relative to the item get higher scores IF they are near fits.
+        # This seems counter-intuitive. We want bins where `bins_remain_cap` is close to `item`.
+        
+        # Back to `bins_remain_cap / (bins_remain_cap - item + epsilon)`
+        # This gives a score between 1 and infinity.
+        # For exact fits: remaining_cap = item, diff = 0, score -> infinity.
+        # For near fits: remaining_cap = item + delta, diff = delta. score = (item + delta) / (delta + epsilon)
+        # As delta -> 0, score -> infinity. As delta -> large, score -> 1.
+        
+        # This scoring already strongly favors tight fits.
+        # The issue might be that even "near" fits get very high scores.
+        
+        # Let's try to cap or scale the scores for near fits.
+        # We can cap the scores for near fits to be less than the exact fit score.
+        
+        near_fit_scores = bins_remain_cap[near_fit_mask] / (excess_capacity + epsilon)
+        
+        # Scale these scores to be less than the exact fit score.
+        # A simple scaling factor could be used, or we could try to map the range of near-fits
+        # to a range below the exact fit score.
+        
+        # Let's map the scores such that the "tightest" near fits are still good, but not as good as exact.
+        # We can use `1 / (excess_capacity + epsilon)` and scale it.
+        # For example, `100000 / (excess_capacity + epsilon)`
+        
+        # Alternatively, we can use a function that penalizes excess capacity more strongly for larger excesses.
+        # `score = 1 / (excess_capacity**2 + epsilon)` for near fits. This amplifies small excesses.
+        
+        # Let's try: `score = 1 / (excess_capacity + epsilon)` and then scale these down.
+        # The original approach `bins_remain_cap / (bins_remain_cap - item + epsilon)` already does a good job prioritizing.
+        # The problem is ensuring the *ranking* within near-fits is smooth and distinct from exact fits.
+        
+        # Let's add a robust component: prioritize bins that are not too empty.
+        # If `bins_remain_cap` is very large, it's generally worse.
+        # `bins_remain_cap / (bins_remain_cap - item + epsilon)` already implicitly handles this to some extent:
+        # large `bins_remain_cap` means large `diff`, so `bins_remain_cap / diff` approaches 1.
+        
+        # The key is to make the exact fits stand out distinctly.
+        # We have assigned `1e6` to exact fits.
+        
+        # For near fits, let's use the same formula `bins_remain_cap / (diff + epsilon)` but capped.
+        # Max score for near fits should be less than `1e6`.
+        
+        # Let's try capping the scores for near fits to `1e5`.
+        # If `bins_remain_cap / (diff + epsilon)` exceeds `1e5`, cap it at `1e5`.
+        
+        raw_near_fit_scores = bins_remain_cap[near_fit_mask] / (bins_remain_cap[near_fit_mask] - item + epsilon)
+        priorities[near_fit_mask] = np.minimum(raw_near_fit_scores, 1e5)
+        
+    # Tier 3: Bins that fit but are not "near" fits (i.e., have substantial excess capacity).
+    # These should have lower priority than near fits.
+    # Their score should decrease as excess capacity increases.
+    
+    # Let's define "substantial excess capacity" as `bins_remain_cap - item > some_threshold`.
+    # A simple approach: `1 / (excess_capacity + epsilon)`.
+    
+    # Let's use a scaled version of the `bins_remain_cap / (diff + epsilon)` score, but with a stronger penalty for larger `diff`.
+    # `score = 1000 / (diff + epsilon)`
+    # This will be less than scores for near fits (which are capped at 1e5).
+    
+    # For bins that fit and are not near fits (i.e., `diff` is larger)
+    large_excess_mask = can_fit_mask & ~exact_fit_mask & (bins_remain_cap - item > 1e5) # Arbitrary threshold to distinguish large excess
+    
+    # For bins with large excess capacity, assign a moderate score that decreases with excess.
+    # `score = C / (excess_capacity + epsilon)`
+    # Let's use `1000 / (excess_capacity + epsilon)` as a reasonable lower bound score.
+    # This ensures that even bins with large remaining capacity still get some priority over completely unusable bins.
+    
+    if np.any(large_excess_mask):
+        excess_capacity_large = bins_remain_cap[large_excess_mask] - item
+        # We want scores to decrease as excess_capacity_large increases.
+        # A simple inverse is suitable.
+        priorities[large_excess_mask] = 1000 / (excess_capacity_large + epsilon)
+        
+    # Final check: ensure exact fits have the highest priority.
+    # The `1e6` assignment for exact fits should dominate.
+    
+    # The use of `bins_remain_cap / (bins_remain_cap - item + epsilon)` is good for ranking.
+    # The issue is the magnitude and separation.
+    
+    # Let's refine the tiers:
+    # 1. Exact fit: Very high, constant score (e.g., 1000)
+    # 2. Tight fit (excess < X% of item size): High score, inversely proportional to excess.
+    # 3. Moderate fit (X% < excess < Y%): Medium score, inversely proportional to excess.
+    # 4. Loose fit (excess > Y%): Low score, inversely proportional to excess.
+    
+    # Let's implement this with a single function, ensuring monotonicity.
+    # The function `f(diff) = bins_remain_cap / (diff + epsilon)` works well for prioritization.
+    # `f(delta) = (item + delta) / (delta + epsilon)`
+    # For delta=0, f -> infinity.
+    # For delta > 0, f decreases as delta increases.
+    
+    # The key is to make exact fits clearly superior.
+    # We can achieve this by having a base score for exact fits and a scaled version for others.
+    
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Calculate differences for bins that can fit
+    diffs = bins_remain_cap[can_fit_mask] - item
+    
+    # Create an array for scores of bins that can fit
+    fit_scores = np.zeros_like(diffs)
+    
+    # Perfect fit: diff is zero or very close to zero
+    perfect_fit_mask = diffs < epsilon
+    
+    # Tight fit: diff is small, but positive. Let's define "tight" as diff < 0.1 * item
+    # This threshold can be adjusted. For simplicity, let's use a fixed factor relative to item size.
+    tight_fit_threshold = 0.1 * item if item > epsilon else epsilon
+    tight_fit_mask = (diffs >= epsilon) & (diffs < tight_fit_threshold)
+    
+    # Moderate fit: diff is larger than tight fit threshold, but not excessively large.
+    # Let's define "moderate" as diff < 0.5 * item
+    moderate_fit_threshold = 0.5 * item if item > epsilon else epsilon
+    moderate_fit_mask = (diffs >= tight_fit_threshold) & (diffs < moderate_fit_threshold)
+    
+    # Loose fit: diff is larger than moderate fit threshold
+    loose_fit_mask = diffs >= moderate_fit_threshold
+    
+    # Assign scores:
+    # Perfect fits get the highest score.
+    # Tight fits get a high score, inversely proportional to diff.
+    # Moderate fits get a medium score, inversely proportional to diff.
+    # Loose fits get a low score, inversely proportional to diff.
+    
+    # Scoring function: `1 / (diff + epsilon)`
+    # Scale the scores to create distinct tiers.
+    
+    # Base score for perfect fits
+    perfect_fit_score = 1000.0
+    
+    # Scores for tight fits: Scaled inverse of diff.
+    # We want scores to be significant but less than perfect fit score.
+    # `score = base_for_tight + scale_tight * (1 / (diff + epsilon))`
+    # Let's ensure the maximum score for tight fits is less than perfect.
+    # Max for tight fit occurs at smallest diff. `1 / epsilon`.
+    # So we need to scale down.
+    
+    # Let's normalize diff relative to the item size to make thresholds more robust.
+    # `normalized_diff = diff / item` (if item > 0)
+    
+    # New scoring function based on normalized difference:
+    # Perfect fit: 1000
+    # Tight fit: 500 / (normalized_diff + epsilon)
+    # Moderate fit: 100 / (normalized_diff + epsilon)
+    # Loose fit: 10 / (normalized_diff + epsilon)
+    
+    if item > epsilon:
+        normalized_diffs = diffs / item
+        
+        # Perfect fit
+        fit_scores[perfect_fit_mask] = perfect_fit_score
+        
+        # Tight fit: normalized_diffs < 0.1
+        tight_fit_scores = 500 / (normalized_diffs[tight_fit_mask] + epsilon)
+        fit_scores[tight_fit_mask] = tight_fit_scores
+        
+        # Moderate fit: 0.1 <= normalized_diffs < 0.5
+        moderate_fit_scores = 100 / (normalized_diffs[moderate_fit_mask] + epsilon)
+        fit_scores[moderate_fit_mask] = moderate_fit_scores
+        
+        # Loose fit: normalized_diffs >= 0.5
+        loose_fit_scores = 10 / (normalized_diffs[loose_fit_mask] + epsilon)
+        fit_scores[loose_fit_mask] = loose_fit_scores
+        
+    else: # Handle case where item is effectively zero
+        # If item is zero, all bins that can fit it (i.e., have >= 0 capacity)
+        # are perfect fits. Assign them a high score.
+        fit_scores[perfect_fit_mask] = perfect_fit_score # This mask covers all fitting bins if item is 0
+        
+    # Place the calculated scores back into the main priorities array
+    priorities[can_fit_mask] = fit_scores
+    
+    return priorities
+```

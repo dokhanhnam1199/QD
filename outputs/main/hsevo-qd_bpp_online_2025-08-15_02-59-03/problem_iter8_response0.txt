@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Exact Fit First with a penalty for bins that would become too full.
+    Prioritizes exact fits, then bins that leave a moderate remaining capacity,
+    penalizing those that leave very little space.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    # If no bins can fit the item, return all zeros.
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    # Separate suitable bins from unsuitable ones.
+    suitable_capacities = bins_remain_cap[suitable_bins_mask]
+
+    # --- Strategy: Exact Fit First ---
+    # Bins that perfectly fit the item get the highest priority.
+    exact_fit_mask = (suitable_capacities == item)
+    if np.any(exact_fit_mask):
+        priorities[suitable_bins_mask][exact_fit_mask] = 1.0
+
+    # --- Strategy: Moderate Fit (Avoid "too full" bins) ---
+    # For bins that do not provide an exact fit, calculate remaining capacity after placing the item.
+    # Use a score that peaks for a moderate remaining capacity, avoiding near-zero values.
+    # The score function r * exp(-k*r) peaks at r = 1/k.
+    # We choose k to encourage leaving a reasonable amount of space.
+    non_exact_fit_mask = ~exact_fit_mask
+    if np.any(non_exact_fit_mask):
+        non_exact_capacities = suitable_capacities[non_exact_fit_mask]
+        remaining_after_fit = non_exact_capacities - item
+
+        # Parameter 'k' tunes the peak of the scoring function.
+        # A higher 'k' favors smaller remaining capacities.
+        # k=3.0 suggests a preference for leaving around 1/3 of capacity.
+        k = 3.0 
+        
+        # Calculate scores: score = remaining_capacity * exp(-k * remaining_capacity)
+        # This function gives low scores for very small or very large remaining capacities,
+        # and peaks for intermediate values. This helps avoid creating too many "nearly full" bins.
+        scores = remaining_after_fit * np.exp(-k * remaining_after_fit)
+
+        # Normalize scores to be between 0 and 1 for consistency, and add a small base.
+        # This ensures these priorities are lower than exact fits (1.0) but still positive.
+        # We scale by a factor < 1.0 to ensure they are less than exact fit priority.
+        # Adding a small base (e.g., 0.01) ensures they have some priority even if scores are very low.
+        max_score = np.max(scores) if np.any(scores) else 1.0
+        if max_score > 0:
+            scaled_scores = 0.9 * (scores / max_score) + 0.01
+        else: # Handle case where all remaining capacities are 0 (highly unlikely for non-exact fits)
+            scaled_scores = np.full_like(scores, 0.01)
+
+        # Assign these calculated priorities to the non-exact fit bins.
+        priorities[suitable_bins_mask][non_exact_fit_mask] = scaled_scores
+
+    # Bins that cannot fit the item (already handled by initialization to 0).
+    
+    return priorities
+```

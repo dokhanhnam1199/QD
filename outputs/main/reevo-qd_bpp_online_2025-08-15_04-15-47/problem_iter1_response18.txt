@@ -1,0 +1,130 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Implements an epsilon-greedy strategy for online bin packing.
+
+    This heuristic balances exploration (trying different bins) with exploitation
+    (preferring bins that are a good fit).
+
+    Args:
+        item: Size of the item to be packed.
+        bins_remain_cap: A numpy array where each element is the remaining
+                         capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, containing the
+        priority score for placing the item in each bin.
+    """
+    epsilon = 0.2  # Probability of exploration
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify valid bins where the item can fit
+    valid_bins_mask = bins_remain_cap >= item
+    valid_bins_indices = np.where(valid_bins_mask)[0]
+
+    if len(valid_bins_indices) == 0:
+        # No bin can fit the item, return all zeros (or handle as error)
+        return priorities
+
+    # Exploitation: Calculate a 'goodness' score for each valid bin
+    # A good fit is a bin where remaining capacity is close to the item size,
+    # but not too much larger (to avoid wasted space). We want bins that are
+    # "tight" fits.
+    # We use a kernel-like approach where the score is higher for bins with
+    # remaining capacity closer to the item size.
+    # A simple approach: -(remaining_capacity - item_size)^2, then clip to 0
+    # if the item doesn't fit, and normalize.
+    
+    # Calculate 'tightness' score for valid bins
+    tightness_scores = (bins_remain_cap[valid_bins_mask] - item)
+
+    # We want smaller remaining capacity for a tighter fit.
+    # Let's assign higher priority to bins with smaller positive remaining capacity.
+    # We can use the inverse of the remaining capacity as a proxy for priority.
+    # Avoid division by zero if remaining capacity is exactly the item size.
+    # A common technique is to add a small epsilon or use a different scoring.
+    # For this example, let's score based on how "full" the bin becomes with this item.
+    # Priority = 1 / (1 + (bins_remain_cap - item)) for valid bins
+    # or simpler: priority = - (bins_remain_cap - item) for tighter fits
+    
+    # A more robust approach: similarity score.
+    # Higher priority if remaining capacity is closer to 'item'
+    # using a Gaussian-like function centered at 'item' or slightly above.
+    # Let's use a score that penalizes large gaps.
+    # score = max(0, 1 - (bins_remain_cap[valid_bins_mask] - item) / max(1, np.max(bins_remain_cap)))
+    # Or, a simpler heuristic: prioritize bins that have *just enough* space.
+    # Let's score based on how much space is left after packing:
+    # score = - (bins_remain_cap[valid_bins_mask] - item) 
+    # We want the smallest non-negative residual capacity.
+
+    # Let's define the "goodness" as the negative of the residual capacity.
+    # This means bins with residual capacity closer to 0 get higher scores.
+    exploitation_scores = -tightness_scores
+
+    # Normalize exploitation scores to be between 0 and 1
+    if exploitation_scores.size > 0:
+        min_score = np.min(exploitation_scores)
+        max_score = np.max(exploitation_scores)
+        if max_score > min_score:
+            priorities[valid_bins_mask] = (exploitation_scores - min_score) / (max_score - min_score)
+        else:
+            # All valid bins have the same score
+            priorities[valid_bins_mask] = 1.0
+    else:
+        # Should not happen if valid_bins_indices is not empty, but for safety
+        return priorities
+
+    # Exploration: With probability epsilon, pick a random valid bin
+    if len(valid_bins_indices) > 0:
+        exploration_prob = epsilon / len(valid_bins_indices)
+        # Add a small random perturbation to encourage exploration
+        random_perturbation = np.random.rand(num_bins) * (epsilon / 2) # Small noise
+        priorities += random_perturbation
+        
+        # Ensure exploration component is properly handled.
+        # A cleaner way to implement epsilon-greedy:
+        # With probability epsilon, choose a random VALID bin.
+        # With probability (1-epsilon), choose the best bin according to some heuristic.
+        
+        # Let's redefine the strategy more directly:
+        
+        # 1. Identify all bins that can fit the item
+        can_fit_indices = np.where(bins_remain_cap >= item)[0]
+        
+        if len(can_fit_indices) == 0:
+            return np.zeros_like(bins_remain_cap) # Cannot fit anywhere
+            
+        # 2. Decide whether to explore or exploit
+        if np.random.rand() < epsilon:
+            # Explore: Pick a random bin from those that can fit
+            chosen_bin_index = np.random.choice(can_fit_indices)
+            # Assign high priority to the chosen bin, and lower to others
+            exploration_priorities = np.zeros_like(bins_remain_cap)
+            exploration_priorities[chosen_bin_index] = 1.0 # Highest priority for exploration choice
+            return exploration_priorities
+        else:
+            # Exploit: Choose the bin that results in the smallest remaining capacity
+            # or a tightest fit.
+            
+            # For 'tightest fit', we prefer bins where bins_remain_cap - item is minimized
+            # but still non-negative.
+            residual_capacities = bins_remain_cap[can_fit_indices] - item
+            min_residual_index_in_subset = np.argmin(residual_capacities)
+            
+            # The actual index in the original bins_remain_cap array
+            best_exploit_bin_index = can_fit_indices[min_residual_index_in_subset]
+            
+            # Assign high priority to the best bin found via exploitation
+            exploitation_priorities = np.zeros_like(bins_remain_cap)
+            exploitation_priorities[best_exploit_bin_index] = 1.0 # Highest priority for exploitation choice
+            
+            return exploitation_priorities
+
+    else:
+        # No bin can fit the item
+        return np.zeros_like(bins_remain_cap)
+
+```

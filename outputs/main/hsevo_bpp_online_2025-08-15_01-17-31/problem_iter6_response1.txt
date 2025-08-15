@@ -1,0 +1,168 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if np.any(suitable_bins_mask):
+        suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+        
+        best_fit_diff = suitable_bins_cap - item
+        
+        min_diff = np.min(best_fit_diff)
+        
+        best_fit_indices_mask = best_fit_diff == min_diff
+        
+        best_fit_indices_original = np.where(suitable_bins_mask)[0][best_fit_indices_mask]
+        
+        # Heuristic v2: Hybrid approach combining Best Fit and a penalty for very large remaining capacities
+        # If a bin is a "best fit", give it a high priority.
+        # Otherwise, assign a lower priority based on how much capacity is left,
+        # with a penalty for bins that are very "empty" (to encourage filling them up).
+        
+        for i in range(len(bins_remain_cap)):
+            if suitable_bins_mask[i]:
+                if i in best_fit_indices_original:
+                    priorities[i] = 1.0  # Highest priority for best fit
+                else:
+                    remaining_capacity = bins_remain_cap[i]
+                    # Assign a priority based on remaining capacity.
+                    # Higher remaining capacity gets a slightly lower score,
+                    # but penalize very large remaining capacities more.
+                    # A simple approach: inversely proportional to remaining capacity, but capped.
+                    # We want to avoid very empty bins if possible, unless they are the only option.
+                    
+                    # Let's try a score that increases as capacity decreases, but with a penalty for being "too empty"
+                    # A common strategy is to favor bins that are nearly full.
+                    # For non-best-fit bins, we can use a score that is higher for bins with less remaining capacity.
+                    # However, we also want to avoid creating many partially filled bins.
+                    
+                    # Let's define a penalty for bins that are significantly larger than the item.
+                    # A bin that's just barely large enough might be better than one with huge excess capacity.
+                    
+                    # A simple linear scoring: favor less remaining capacity
+                    # We can scale this to avoid interfering too much with the "best fit" score of 1.0
+                    
+                    # Let's assign a score between 0 and 0.5 for non-best-fit bins
+                    # Score is higher for bins with less remaining capacity.
+                    # We normalize remaining capacity relative to bin size (assuming a max capacity for normalization, or relative to the largest current remaining capacity)
+                    
+                    # For simplicity, let's assign a score inversely proportional to the remaining capacity
+                    # and add a small bonus for bins that are not completely empty, to avoid selecting a brand new bin when a partially filled one exists.
+                    
+                    # Let's try a weighted approach:
+                    # Priority = (1 - (remaining_capacity - item) / (MAX_REMAINING_CAPACITY - item)) * weight_for_near_full
+                    # A simpler approach: favor bins with less remaining capacity.
+                    
+                    # Let's consider the "gap" (remaining_capacity - item)
+                    gap = bins_remain_cap[i] - item
+                    
+                    # If the gap is very large, assign a lower priority.
+                    # If the gap is small, assign a higher priority.
+                    # We need to normalize the gap. A simple normalization could be against the maximum possible gap.
+                    # Or, we can use a function that has a steep drop for large gaps.
+                    
+                    # Example: logistic function or a simple inverse
+                    # Let's use an inverse function with a small constant to avoid division by zero and to give some priority to very small gaps.
+                    
+                    # Priority score for non-best-fit bins:
+                    # We want to prioritize bins that are closer to fitting the item (smaller gap).
+                    # This should be less than the "best fit" score of 1.0.
+                    
+                    # Let's try a score that is higher for smaller gaps.
+                    # The maximum possible gap for a suitable bin.
+                    max_gap_among_suitable = np.max(best_fit_diff) if len(best_fit_diff) > 0 else 0
+                    
+                    # Normalize the gap for the current bin
+                    if max_gap_among_suitable > 0:
+                        normalized_gap = gap / max_gap_among_suitable
+                    else: # All suitable bins have the same gap (which is the minimum gap)
+                        normalized_gap = 0.0 # This bin is a best-fit or equivalent
+                    
+                    # We want smaller normalized_gap to result in higher priority.
+                    # Let's use 1 - normalized_gap, but scaled down.
+                    # Also, a small bonus for having *some* remaining capacity, to avoid always picking an empty bin if possible.
+                    
+                    # Let's assign a priority between 0.1 and 0.8 for non-best-fit bins.
+                    # A bin with a smaller gap should have a higher score.
+                    # A bin with a larger gap should have a lower score.
+                    
+                    # Example: Score = 0.8 * (1 - normalized_gap) + 0.05 (base priority for being suitable but not best-fit)
+                    # This ensures that even the "worst" suitable bin (largest gap) gets some priority if no best fit exists.
+                    
+                    # Let's refine the score for non-best-fit bins.
+                    # We want to prioritize bins that are "almost full".
+                    # The remaining capacity itself is a good indicator. Smaller remaining capacity is better.
+                    
+                    # A score that is higher for smaller remaining_capacity:
+                    # Score = (MAX_CAPACITY - bins_remain_cap[i]) / MAX_CAPACITY
+                    # But we need to consider the item size.
+                    
+                    # Let's focus on the gap again.
+                    # The smaller the gap, the better.
+                    # We can use an inverse function like 1 / (gap + epsilon)
+                    
+                    epsilon = 1e-6 # To avoid division by zero
+                    
+                    # Scale the inverse gap to be between 0 and 0.8 (since best fit is 1.0)
+                    # The maximum gap among suitable bins
+                    max_suitable_gap = np.max(bins_remain_cap[suitable_bins_mask] - item) if np.any(suitable_bins_mask) else 0
+                    
+                    if max_suitable_gap > epsilon:
+                        # We want smaller gaps to have higher priority.
+                        # The score should be inversely proportional to the gap.
+                        # Larger gaps -> smaller scores.
+                        # Let's try a score like: C * (1 / (gap + epsilon))
+                        # To map this to a range [0.1, 0.8], we need to consider the minimum and maximum gap.
+                        
+                        # Let's try a simpler approach:
+                        # Score is proportional to how "full" the bin becomes after packing.
+                        # Fill level = (initial_capacity - remaining_capacity) / initial_capacity
+                        # But we don't have initial capacity. We only have remaining capacity.
+                        
+                        # Let's stick to the gap.
+                        # A score that decreases with increasing gap.
+                        # Consider the "waste" in the bin after packing.
+                        
+                        # Let's try assigning priority based on the remaining capacity itself.
+                        # Smaller remaining capacity is better (closer to best fit).
+                        # But we don't want to heavily penalize bins with a lot of space if they are the only option.
+                        
+                        # Priority = C * (1 - (bins_remain_cap[i] / MAX_POSSIBLE_CAPACITY))
+                        # This doesn't account for the item size well.
+                        
+                        # Let's reconsider the hybrid approach:
+                        # 1. Best Fit gets priority 1.0.
+                        # 2. For other suitable bins:
+                        #    - Prioritize bins that have less remaining capacity.
+                        #    - Add a small penalty for bins that have *too much* remaining capacity (e.g., > 2*item). This discourages leaving very large gaps.
+                        
+                        # Let's use a score based on remaining capacity, scaled.
+                        # The range of remaining capacities for suitable bins.
+                        min_rem_cap_suitable = np.min(bins_remain_cap[suitable_bins_mask])
+                        max_rem_cap_suitable = np.max(bins_remain_cap[suitable_bins_mask])
+                        
+                        # Normalize remaining capacity: 0 for most full, 1 for most empty.
+                        if max_rem_cap_suitable > min_rem_cap_suitable:
+                            normalized_rem_cap = (bins_remain_cap[i] - min_rem_cap_suitable) / (max_rem_cap_suitable - min_rem_cap_suitable)
+                        else:
+                            normalized_rem_cap = 0.5 # All suitable bins have same capacity
+                            
+                        # We want smaller remaining capacity to get higher priority.
+                        # So, priority should be related to (1 - normalized_rem_cap).
+                        # Let's scale this to be between 0.1 and 0.8.
+                        
+                        score = 0.1 + 0.7 * (1 - normalized_rem_cap)
+                        
+                        # Add a penalty for very large remaining capacities.
+                        # If remaining capacity is more than twice the item size, reduce its score.
+                        if bins_remain_cap[i] > 2 * item:
+                            score *= 0.7 # Apply a 30% penalty
+                            
+                        # Ensure score doesn't go below a minimum threshold, and not above 0.8
+                        priorities[i] = max(0.1, min(0.8, score))
+    
+    return priorities
+```

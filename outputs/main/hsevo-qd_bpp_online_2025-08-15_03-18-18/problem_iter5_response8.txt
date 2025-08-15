@@ -1,0 +1,45 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with a penalty for near-perfect fits,
+    favoring bins that leave a small, but not minuscule, remaining capacity.
+    """
+    valid_bins_mask = bins_remain_cap >= item
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+
+    if valid_bins_remain_cap.size == 0:
+        return np.zeros_like(bins_remain_cap)
+
+    # Score based on remaining capacity after packing.
+    # Higher score for bins that result in smaller remaining capacity (Best Fit).
+    # We use -(remaining_capacity - item) to maximize smaller positive differences.
+    best_fit_score = -(valid_bins_remain_cap - item)
+
+    # Add a penalty for bins that will have *very* little remaining capacity after packing.
+    # This discourages fits that are almost perfect but might leave unusable small gaps.
+    # Use an exponential decay penalty: higher penalty for smaller remaining capacity.
+    # Penalty term: exp(-beta * (remaining_capacity - item))
+    beta = 3.0  # Controls how strongly small gaps are penalized.
+    penalty = np.exp(-beta * (valid_bins_remain_cap - item))
+
+    # Combined score: Best Fit score minus the penalty.
+    # This rewards good fits but reduces priority for those that leave almost no space.
+    composite_scores = best_fit_score - penalty
+
+    # Apply Softmax for probability distribution.
+    # Shift scores to prevent numerical overflow/underflow.
+    if composite_scores.size > 0:
+        shifted_scores = composite_scores - np.max(composite_scores)
+        exp_scores = np.exp(shifted_scores)
+        probabilities = exp_scores / np.sum(exp_scores)
+    else:
+        probabilities = np.array([])
+
+    # Map probabilities back to the original array.
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    priorities[valid_bins_mask] = probabilities
+
+    return priorities
+```

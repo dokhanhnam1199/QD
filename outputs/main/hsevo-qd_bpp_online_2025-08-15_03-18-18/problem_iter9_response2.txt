@@ -1,0 +1,98 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Calculates priority scores for each bin using an adaptive Softmax-Based Fit
+    strategy for the online Bin Packing Problem, aiming for better adaptation
+    and robustness compared to v1.
+
+    This strategy prioritizes bins that can accommodate the item. It adapts
+    its scoring based on the "tightness" of the fit and the overall distribution
+    of available bin capacities. It uses a temperature parameter to control
+    exploration-exploitation.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array where each element represents the
+                         remaining capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, where each element
+        is the priority score for placing the item in the corresponding bin.
+    """
+    valid_bins_mask = bins_remain_cap >= item
+
+    if not np.any(valid_bins_mask):
+        return np.zeros_like(bins_remain_cap, dtype=float)
+
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+
+    # Calculate a "fit score". Lower remaining capacity after placement is better.
+    # We want to maximize a score related to this.
+    # Using the negative of the remaining capacity after placing the item.
+    # A smaller (more negative) score means a tighter fit.
+    fit_scores = -(valid_bins_remain_cap - item)
+
+    # Introduce a "spread" or "diversity" component.
+    # If all valid bins are very similar in remaining capacity, we might want
+    # to slightly favor bins that are not the absolute tightest, to avoid
+    # creating many bins that are *almost* full, which can be inefficient later.
+    # A simple way to capture this is to consider the variance or standard deviation
+    # of the remaining capacities among valid bins.
+    # If variance is low, we might want to slightly penalize the absolute best fit
+    # to encourage using other slightly less optimal but still valid bins.
+    
+    # Calculate the standard deviation of remaining capacities for valid bins.
+    std_dev_valid_bins = np.std(valid_bins_remain_cap)
+
+    # Create a diversity bonus. If std_dev is small, the bonus is larger.
+    # We want to add a small amount to the score to increase exploration.
+    # Normalize std_dev to be between 0 and 1 for better control.
+    # Max possible std_dev could be large, so we might want to cap it or use a
+    # robust measure. For simplicity, let's consider a relative measure.
+    # A simple approach: if std_dev is very small, add a small positive value.
+    # This encourages picking something other than the absolute best fit if
+    # many bins are almost identical.
+    diversity_bonus = np.exp(-std_dev_valid_bins * 5.0) * 0.1 # Tune multiplier
+
+    # Combine fit_scores with diversity_bonus.
+    # Add the diversity bonus to all valid bins. This slightly nudges
+    # away from the absolute greedy choice when options are similar.
+    adjusted_scores = fit_scores + diversity_bonus
+
+    # Adaptive temperature for Softmax.
+    # A higher temperature leads to a more uniform distribution (more exploration).
+    # A lower temperature leads to a more peaked distribution (more exploitation).
+    # We can set temperature based on how "difficult" the current situation is.
+    # For example, if many items are large relative to bin capacity, we might want
+    # more exploration. Or if there's a high variance in item sizes.
+    # A simple adaptive strategy: if there are many valid bins, or if valid bins
+    # have very diverse capacities (high std_dev), use a slightly higher temp.
+    
+    # A simple adaptive temperature: based on the number of valid bins and std_dev.
+    num_valid_bins = len(valid_bins_remain_cap)
+    # Base temperature, can be tuned.
+    base_temp = 1.0
+    
+    # Increase temperature if there are many options or if capacities are very spread out.
+    temp_multiplier = 1.0 + (num_valid_bins / 10.0) * (std_dev_valid_bins / np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else 0)
+    temperature = base_temp * temp_multiplier
+    
+    # Ensure temperature is not zero to avoid division by zero or infinite softmax.
+    temperature = max(temperature, 0.1)
+
+    # Apply Softmax with adaptive temperature.
+    # Shift scores to prevent overflow/underflow before exponentiation.
+    max_score = np.max(adjusted_scores)
+    shifted_scores = (adjusted_scores - max_score) / temperature
+    
+    exp_scores = np.exp(shifted_scores)
+    probabilities = exp_scores / np.sum(exp_scores)
+
+    # Create the final priority array, placing calculated priorities in their original positions.
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    priorities[valid_bins_mask] = probabilities
+
+    return priorities
+```

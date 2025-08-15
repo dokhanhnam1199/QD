@@ -1,0 +1,97 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins that offer an exact fit or the smallest remaining capacity after placement.
+
+    Combines 'Exact Fit First' and 'Inverse Distance' strategies for a robust approach.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    can_fit_mask = bins_remain_cap >= item
+
+    if np.any(can_fit_mask):
+        available_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+        # Strategy 1: Exact Fit (Highest Priority)
+        exact_fit_mask = available_bins_remain_cap == item
+        if np.any(exact_fit_mask):
+            priorities[can_fit_mask][exact_fit_mask] = 1.0
+            # If there are exact fits, we only consider them for ranking (effectively)
+            # but to allow other bins to have non-zero priority if needed, we proceed.
+            # However, for simplicity and clear hierarchy, we could return here if only exact fits are desired as the sole choice.
+            # For a more nuanced approach, we allow other bins to compete if they are "close".
+
+        # Strategy 2: Proximity Fit (Inverse of remaining capacity after placement)
+        # Assigns higher priority to bins that leave less space after placing the item.
+        # Avoids division by zero by adding a small epsilon.
+        space_after_placement = available_bins_remain_cap - item
+        
+        # We want to prioritize bins with smaller space_after_placement.
+        # Using 1 / (space_after_placement + epsilon) favors smaller positive differences.
+        # For bins where space_after_placement is 0 (exact fit), this will be 1/epsilon (very high).
+        # To avoid extremely high values for exact fits that might dominate too much,
+        # and to ensure proximity fits are ranked meaningfully, we can cap or scale.
+        # A simple approach is to ensure exact fits get priority 1.0 and then rank others.
+
+        # Let's refine: assign 1.0 to exact fits, and then rank the rest based on inverse remaining capacity.
+        
+        non_exact_fit_mask = ~exact_fit_mask
+        if np.any(non_exact_fit_mask):
+            non_exact_available_caps = available_bins_remain_cap[non_exact_fit_mask]
+            non_exact_space_after_placement = non_exact_available_caps - item
+
+            # Calculate inverse of remaining capacity (higher score for smaller remaining capacity)
+            # Add epsilon to avoid division by zero. The smaller the remaining capacity, the higher the score.
+            proximity_scores = 1.0 / (non_exact_space_after_placement + 1e-9)
+
+            # Normalize these scores to be between 0 and (1 - epsilon) to not overlap with exact fits
+            # if we wanted a strict hierarchy.
+            # For a combined heuristic, we can normalize them relative to each other.
+            if len(proximity_scores) > 0:
+                min_prox_score = np.min(proximity_scores)
+                max_prox_score = np.max(proximity_scores)
+                
+                # Normalize scores to a range that doesn't conflict with exact fit priority (e.g., 0 to 0.99)
+                # or simply use their relative ranking.
+                # Using ranks is often more robust than raw values.
+                
+                # Rank the non-exact fits based on their proximity score (higher score = better rank)
+                # argsort returns indices that would sort the array.
+                # We want higher proximity_scores to have higher ranks.
+                sorted_indices_for_non_exact = np.argsort(proximity_scores)
+                
+                # Assign ranks: the bin with the highest proximity_score gets the highest rank (close to 1).
+                # The indices obtained from argsort are ascending for smaller values.
+                # So, if proximity_scores are [10, 5, 20], argsort gives [1, 0, 2].
+                # We want ranks [0.33, 0.66, 1.0] or similar.
+                # Let's assign ranks such that smaller space_after_placement gets higher priority.
+                
+                # Sort the actual non-exact remaining capacities to get a clear order for prioritization.
+                sorted_non_exact_space_after = non_exact_space_after_placement[sorted_indices_for_non_exact]
+                
+                # Now assign priorities based on these sorted capacities.
+                # The bin with the smallest space_after_placement gets the highest priority (excluding exact fits).
+                # We can assign priorities from 0.0 up to something less than 1.0 (e.g., 0.99).
+                # Let's normalize the ranks to a range like [0.1, 0.9].
+                
+                if len(sorted_non_exact_space_after) > 1:
+                    rank_values = np.linspace(0.1, 0.9, len(sorted_non_exact_space_after))
+                    # The smallest remaining space should get the highest rank (0.9).
+                    # The current sorted_non_exact_space_after is ascending, so the last element is the largest.
+                    # We want to assign highest priority to the smallest values.
+                    assigned_priorities_for_non_exact = rank_values[::-1] # Reverse to give highest to smallest
+                else:
+                    assigned_priorities_for_non_exact = np.array([0.5]) # Default priority for single non-exact fit
+
+                # Map these assigned priorities back to the original indices of the available_bins_array.
+                # `sorted_indices_for_non_exact` are indices within `non_exact_available_caps`
+                # We need to map these back to `can_fit_mask` indices.
+                
+                # Get the original indices within `can_fit_mask` that correspond to non_exact_fit_mask
+                original_indices_of_non_exact_fits = np.where(can_fit_mask)[0][non_exact_fit_mask]
+                
+                # Update priorities for these bins
+                priorities[original_indices_of_non_exact_fits] = assigned_priorities_for_non_exact
+
+    return priorities
+```

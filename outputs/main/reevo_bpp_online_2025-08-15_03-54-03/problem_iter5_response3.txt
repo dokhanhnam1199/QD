@@ -1,0 +1,246 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined strategy.
+
+    This strategy prioritizes bins that can accommodate the item and then
+    selects bins with the *tightest fit* (smallest remaining capacity) but
+    also considers the *relative fullness* of the bin. Bins that cannot fit
+    the item are given a score of -1.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority.
+    """
+    priorities = np.full_like(bins_remain_cap, -1.0)  # Initialize with low priority (-1)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, assign a priority score.
+    fitting_bins_capacities = bins_remain_cap[can_fit_mask]
+    
+    if fitting_bins_capacities.size > 0:
+        # Strategy: Prioritize bins with the tightest fit (smallest remaining capacity).
+        # To achieve this, we can use a score that is inversely related to the
+        # remaining capacity. A simple approach is to subtract the remaining
+        # capacity from a large constant or from the maximum possible remaining
+        # capacity to ensure smaller remaining capacities get higher scores.
+        # We also want to be sensitive to the *relative fullness*.
+        # A good heuristic might be to penalize bins that are *almost full*
+        # or *almost empty* relative to their capacity if they can fit the item.
+        # For this version, let's focus on the tightest fit with a positive residual.
+
+        # Calculate a score that favors smaller remaining capacities.
+        # A larger value means a tighter fit.
+        # We subtract remaining_capacity from a large enough number.
+        # A value like np.max(bins_remain_cap) + item ensures all fitting bins get a positive score.
+        # However, to make it more nuanced, we can consider the difference from the item size.
+        # A bin with remaining capacity R for an item I has a "gap" of R - I. We want to minimize this gap.
+        # So, we can use a score proportional to -(R - I), or equivalently, (I - R).
+        # However, a higher score is better. So, we want larger values for smaller R.
+        # Let's use a scaled inverse.
+        # Consider the "waste" if we put the item in: bins_remain_cap - item. We want to minimize waste.
+        # So, a higher priority should correspond to smaller waste.
+        # We can map waste `w` to a priority `p`.
+        # A simple mapping is `p = C - w`, where C is a large constant.
+        # Let's use a value that ensures all fitting bins have a priority higher than -1.
+        # The maximum possible remaining capacity can be around the bin capacity itself
+        # if we consider a newly opened bin. So, let's use a value derived from the item size and capacities.
+        
+        # Prioritize bins with less remaining capacity.
+        # We can achieve this by assigning a score that decreases as remaining capacity increases.
+        # A common approach is to use `1 / (remaining_capacity - item + epsilon)` or
+        # `(max_capacity_of_any_bin_ever_seen) - remaining_capacity`.
+        
+        # Let's try a score that is the negative of the remaining capacity plus a large offset.
+        # This prioritizes smaller remaining capacities.
+        # Adding the item size can also help differentiate bins for the same item.
+        # A score based on `remaining_capacity - item` would represent the 'slack' or 'waste'.
+        # We want to minimize slack, so a higher priority for smaller slack.
+        # Let's use a score proportional to the negative slack, scaled.
+        
+        # Positive residual strategy:
+        # For a bin with remaining capacity `r` and an item of size `i`:
+        # The "fit difference" is `r - i`. We want to minimize this non-negative difference.
+        # A score that is `- (r - i)` (i.e., `i - r`) would mean smaller `r` gives a larger score.
+        # However, we need to handle cases where `r - i` is small.
+        # A simple inverse of the remaining capacity can work, but might be too sensitive.
+        
+        # Let's try a simple approach: prioritize smaller remaining capacities.
+        # `max_capacity_for_scaling` should be larger than any `bins_remain_cap` value.
+        # A safe bet is the maximum possible capacity of a bin, or a reasonable upper bound.
+        # If we don't know the initial bin capacity, we can use `np.max(bins_remain_cap)`
+        # or a generous constant. Let's assume `bins_remain_cap` can be large.
+        # We want a higher score for smaller `fitting_bins_capacities`.
+        # The expression `max_val - x` results in higher scores for smaller `x`.
+        # Let's use a `max_val` that is sufficiently large.
+        # A value derived from the current `bins_remain_cap` can adapt.
+        
+        # Option 1: Inverse of remaining capacity (can be unstable if capacities are close to 0)
+        # `priorities[can_fit_mask] = 1.0 / (fitting_bins_capacities + 1e-6)` # add epsilon for stability
+        
+        # Option 2: Scaled difference to emphasize tight fits more.
+        # We want to prioritize bins with `r` such that `r` is small and `r >= item`.
+        # This means `r - item` (waste) is small.
+        # A good priority could be `- (r - item)`, so smaller waste gets higher priority.
+        # To make scores positive and distinct, we can add an offset.
+        # Let's try `offset - (r - item)`. A larger offset gives higher scores.
+        # The offset could be related to the maximum possible remaining capacity or item size.
+        
+        # Let's consider the "goodness of fit": `bins_remain_cap - item`. We want to minimize this.
+        # A higher priority should be assigned to a smaller `bins_remain_cap - item`.
+        # We can achieve this by using a score like `max_possible_slack - (bins_remain_cap - item)`.
+        # The `max_possible_slack` should be larger than any `bins_remain_cap - item`.
+        # A simple way is to use `bins_remain_cap` itself, but this is not ideal as
+        # it mixes capacity and slack.
+
+        # A robust strategy for prioritizing tighter fits is to use a large number minus
+        # the remaining capacity. This ensures that smaller remaining capacities get higher scores.
+        # Let's make the priority directly related to the "closeness" to the item size.
+        # The value `bins_remain_cap - item` is the slack. We want to minimize slack.
+        # A score of `C - slack` would work.
+        # Let's use `bins_remain_cap` as a basis, as it implicitly orders bins.
+        # By subtracting `bins_remain_cap` from a large constant, we reverse the order.
+        
+        # Let's use a score that is the negative of remaining capacity.
+        # This makes smaller remaining capacities have less negative (higher) scores.
+        # We can also add the item size to differentiate bins when remaining capacities are similar.
+        # `bins_remain_cap[can_fit_mask] - item` would be the slack.
+        # We want to prioritize smaller slack.
+        # A good priority could be `(max_val - item) - bins_remain_cap`.
+        # Or simply, higher priority for smaller `bins_remain_cap`.
+
+        # Let's use a score that prioritizes bins with less remaining capacity.
+        # A simple way is to use a large constant minus the remaining capacity.
+        # This ensures smaller remaining capacities get higher scores.
+        # The constant should be larger than any possible remaining capacity.
+        # `np.max(bins_remain_cap)` is a reasonable choice if we assume bins start from some capacity.
+        # To ensure scores are always positive and distinct, we can add a small epsilon.
+        
+        # Refined approach: prioritize bins with the smallest `bins_remain_cap` that fit.
+        # This is essentially First Fit. The priority should reflect this.
+        # The value `bins_remain_cap` itself can be used if we want to prioritize smaller values.
+        # However, higher score means higher priority.
+        # So, we want `bins_remain_cap` to be small.
+        # We can use `-(bins_remain_cap)` and add a large constant.
+        # Or, `max_capacity_value - bins_remain_cap`.
+
+        # Let's consider the difference from the item size, `bins_remain_cap - item`.
+        # We want to minimize this difference.
+        # A score `(bins_remain_cap - item)` would favor larger remaining capacities, which is wrong.
+        # A score `-(bins_remain_cap - item)` or `item - bins_remain_cap` would favor smaller remaining capacities.
+        # To make scores positive and ordered: `max_slack - (bins_remain_cap - item)`.
+        # The maximum possible slack could be related to the bin's initial capacity.
+        
+        # Let's simplify: a higher priority for a bin means it's a "better" fit.
+        # "Better" here means smaller remaining capacity.
+        # We can assign a score that is inversely proportional to the remaining capacity.
+        # To avoid division by zero and instability, we can use `C - bins_remain_cap`.
+        # Let C be a value larger than any remaining capacity.
+        # `np.max(bins_remain_cap)` is a good candidate if we assume bins start with some capacity.
+        # If we don't have an upper bound, we can use a sufficiently large number.
+
+        # For a tighter fit, we want `bins_remain_cap` to be close to `item`.
+        # This means `bins_remain_cap - item` should be small and non-negative.
+        # A priority could be `-(bins_remain_cap - item)`.
+        # To make these positive and distinct:
+        # `max_waste - (bins_remain_cap - item)`
+        # `max_waste` can be `np.max(bins_remain_cap) - item`.
+        # Let's set a scaling factor to control the sensitivity.
+        
+        # Simple inverse of remaining capacity, scaled and offset for positive values.
+        # Prioritize smaller `bins_remain_cap`.
+        # Let's consider `bins_remain_cap` as the primary indicator for tightness.
+        # A higher priority is given to smaller `bins_remain_cap`.
+        # We can achieve this with a score proportional to the negative of remaining capacity.
+        # `priorities[can_fit_mask] = -fitting_bins_capacities`
+        # To ensure positive and distinct scores:
+        # `priorities[can_fit_mask] = 1000.0 - fitting_bins_capacities`  (1000.0 is an arbitrary large constant)
+        # This prioritizes bins with the least remaining capacity.
+
+        # Alternative using slack: `slack = bins_remain_cap - item`. Minimize slack.
+        # Priority could be `1 / (slack + epsilon)`.
+        # Or `max_slack - slack`.
+        
+        # Let's go with a strategy that emphasizes smaller remaining capacities.
+        # We want a higher score for smaller `fitting_bins_capacities`.
+        # We can use a base value and subtract the remaining capacity.
+        # This directly implements the "smaller remaining capacity is better" logic.
+        # The base value should be large enough to ensure positive and distinct scores.
+        
+        # Using the inverse of the remaining capacity can be sensitive to small values.
+        # Using a large constant minus the remaining capacity is more stable.
+        # Let's use a score that is simply the negative of the remaining capacity.
+        # Smaller remaining capacity means a less negative score, which is higher priority.
+        # To ensure these are generally higher than the -1 default for non-fitting bins,
+        # we can add a sufficiently large constant.
+        
+        # Final refined strategy: Prioritize bins with the smallest remaining capacity.
+        # This is the core of First Fit.
+        # The priority score should reflect this: higher score for smaller remaining capacity.
+        # A simple and effective way is to use `C - remaining_capacity`.
+        # `C` should be a value greater than any possible `remaining_capacity`.
+        # `np.max(bins_remain_cap)` could be a baseline, but if a new bin is opened,
+        # its remaining capacity is the full bin capacity.
+        # Let's use a scaled inverse approach where we emphasize the tightness.
+        # Consider `(bins_remain_cap - item)` as slack. We want to minimize slack.
+        # A score of `1 / (bins_remain_cap - item + epsilon)` will rank bins by increasing slack.
+        # To get higher priority for smaller slack, we can use `1 / (slack + epsilon)` directly.
+        # Or, `max_slack - slack`.
+        
+        # Let's try a scaled inverse of the remaining capacity for prioritization.
+        # This emphasizes bins that are nearly full (small remaining capacity).
+        # `priorities[can_fit_mask] = 1.0 / (fitting_bins_capacities + 1e-9)`
+        # This gives higher scores to bins with smaller remaining capacities.
+        
+        # Let's consider the "fit quality" as `bins_remain_cap - item`.
+        # We want to minimize this.
+        # A score proportional to `-(bins_remain_cap - item)` is desired.
+        # To make these positive and distinguishable, we can use:
+        # `scaling_factor * (max_possible_remaining_capacity - (bins_remain_cap - item))`
+        # Where `max_possible_remaining_capacity` is the largest possible value `bins_remain_cap` can take.
+        
+        # A simpler approach that favors tighter fits:
+        # Assign a score inversely proportional to the remaining capacity.
+        # `priorities[can_fit_mask] = 1.0 / (fitting_bins_capacities + 1e-9)`
+        
+        # Let's try a slightly more nuanced approach, considering the *difference*
+        # from the item size. We want to minimize `bins_remain_cap - item`.
+        # A higher priority for smaller `bins_remain_cap - item`.
+        # So, a score that is `-(bins_remain_cap - item)` would work.
+        # To ensure positive and distinct scores, we can add a large constant.
+        # `priorities[can_fit_mask] = (np.max(fitting_bins_capacities) - fitting_bins_capacities) + item`
+        # This prioritizes bins where `fitting_bins_capacities` is smallest.
+
+        # Let's use a score that is simply the negative of the remaining capacity.
+        # This ensures smaller remaining capacities have less negative, thus higher scores.
+        # `priorities[can_fit_mask] = -fitting_bins_capacities`
+        # To make these scores positive and generally higher than -1, we can add a large offset.
+        # For example, an offset of `max(bins_remain_cap)` plus a margin.
+        # A simple approach: `max_val - fitting_bins_capacities`.
+        
+        # Let's define `max_val` to be larger than any current remaining capacity.
+        # This ensures higher scores for bins with less remaining capacity.
+        # We can pick a value that ensures positive and distinct scores.
+        # Using the maximum possible remaining capacity is a good strategy.
+        # If we don't know the initial bin capacity, we can use a large number.
+        
+        # A good heuristic is to prioritize bins with the smallest remaining capacity.
+        # This means a higher priority for bins where `bins_remain_cap` is smaller.
+        # We can use `max_possible_capacity - bins_remain_cap` to achieve this ordering.
+        # Let `max_possible_capacity` be a value larger than any expected `bins_remain_cap`.
+        # A simple choice is `np.max(bins_remain_cap) + item` or a fixed large number.
+        
+        # Let's use a score that is `1 / (bins_remain_cap - item + epsilon)`
+        # This emphasizes bins where the remaining capacity is just enough.
+        # smaller `bins_remain_cap - item` gives higher score.
+        priorities[can_fit_mask] = 1.0 / (fitting_bins_capacities - item + 1e-9)
+
+    return priorities
+```

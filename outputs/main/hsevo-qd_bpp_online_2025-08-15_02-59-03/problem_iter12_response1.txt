@@ -1,0 +1,146 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using a strategy
+    that favors bins with remaining capacity closest to the item size,
+    while also considering bins that can accommodate the item with minimal waste.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_capacities = bins_remain_cap[suitable_bins_mask]
+    
+    # Calculate the difference between bin capacity and item size for suitable bins
+    diffs = suitable_bins_capacities - item
+
+    # Strategy: Prioritize bins where the remaining capacity is closest to the item size (minimizing immediate slack)
+    # We can achieve this by assigning a higher priority to bins with smaller positive differences.
+    # For bins with exact fit (diff == 0), they get the highest priority.
+    # For other suitable bins, we can use the inverse of the difference + 1 to create a ranking.
+    # Adding 1 to the difference ensures that a difference of 0 (exact fit) doesn't lead to division by zero,
+    # and also gives a high priority to exact fits.
+    
+    # Normalize differences to create priorities. Lower diff is better.
+    # Add a small epsilon to avoid division by zero for bins with exactly item size.
+    # We want smaller positive differences to have higher priorities.
+    # A common approach is to use 1 / (difference + epsilon) or a similar transformation.
+    # Let's use a transformation that maps 0 difference to a high value and larger differences to lower values.
+    
+    # Option 1: Using inverse of difference (handles exact fit well with small epsilon)
+    # Higher priority for smaller positive differences
+    priorities_for_suitable_bins = 1.0 / (diffs + 1e-9)
+    
+    # Option 2: Using a penalty based on difference, where smaller difference is better
+    # This might be more robust if differences can be very large.
+    # We want to map small positive diffs to high priorities.
+    # Let's try a transformation that gives a high score for small diffs.
+    # Consider a function like: MaxPossibleDiff - diff. This would give higher scores to smaller diffs.
+    # However, this assumes a known max diff. A more general approach is to rank them.
+    
+    # Let's stick with the inverse-based approach for now, as it's intuitive for "closest fit".
+    # We can also add a small bonus for bins that are nearly full, as this often leads to packing efficiency.
+    # This can be done by considering the original capacity relative to the bin size.
+    
+    # Let's refine the priority:
+    # 1. Exact fits (diff == 0) get highest priority.
+    # 2. Bins with smallest positive difference get next highest.
+    # 3. Other suitable bins get lower priorities.
+    
+    # Let's sort the suitable bins by their remaining capacity after placing the item
+    sorted_indices_in_suitable = np.argsort(diffs)
+    
+    # Assign priorities based on sorted order
+    # The bin with the smallest difference (closest fit) gets the highest priority.
+    # The bin with the largest difference (but still suitable) gets the lowest priority among suitable ones.
+    
+    # Assign higher priority to bins with smaller remaining capacity after packing the item.
+    # This is essentially Best Fit.
+    # We can assign a rank-based priority.
+    
+    ranks = np.argsort(diffs) # Ranks suitable bins from smallest diff to largest diff
+    
+    # Assign priorities inversely proportional to the rank.
+    # Rank 0 (smallest diff) gets highest priority.
+    # Lower rank value means higher priority.
+    
+    # Let's assign a priority score where smaller diffs get higher scores.
+    # We can use the inverse of the rank + 1 to ensure positive and decreasing values.
+    
+    # Create a temporary array for priorities of suitable bins
+    priorities_suitable = np.zeros_like(suitable_bins_capacities)
+    
+    # For each suitable bin, calculate its priority.
+    # The smaller the diff (suitable_bins_capacities - item), the higher the priority.
+    # This is the core of Best Fit.
+    
+    # To make it a priority score that we want to maximize, we can transform diffs.
+    # A simple transformation is 1 / (diff + epsilon) or max_diff - diff.
+    
+    # Let's try a score that is higher for smaller diffs.
+    # We can use the negative of the difference, but we need to handle the "suitable" part.
+    
+    # Consider the "slack" after packing the item. We want to minimize slack.
+    # Slack = remaining_capacity - item
+    # We want the smallest non-negative slack.
+    
+    # Let's assign priority based on the inverse of the slack (plus a small constant to avoid division by zero).
+    # The smaller the slack, the higher the priority.
+    priorities_for_suitable_bins = 1.0 / (diffs + 1e-6)
+    
+    # If we want to add a secondary criterion, like favoring fuller bins if slack is similar,
+    # we could combine factors. But for a direct "better" version of Best Fit,
+    # focusing on minimizing slack is key.
+    
+    # To ensure that bins that are "almost full" but can still fit the item get a good score,
+    # this inverse slack approach works well.
+    
+    # Let's ensure the priorities are positive. diffs are already >= 0.
+    # The highest priority should go to the bin with the smallest positive diff.
+    
+    # Example: item=3, bins_remain_cap=[5, 8, 4, 6]
+    # Suitable bins: [5, 8, 4, 6]
+    # suitable_bins_mask: [T, T, T, T]
+    # suitable_bins_capacities: [5, 8, 4, 6]
+    # diffs: [2, 5, 1, 3]
+    # priorities_for_suitable_bins: [1/2, 1/5, 1/1, 1/3] = [0.5, 0.2, 1.0, 0.333]
+    # The bin with capacity 4 (diff=1) gets the highest priority. This is correct for Best Fit.
+    
+    # If we wanted to create a variation that, for example, also considers the overall "fullness"
+    # of the bin as a secondary factor if diffs are similar, we could do something like:
+    # priority = (1 / (diffs + 1e-6)) + (suitable_bins_capacities - item) / bin_size * bonus_factor
+    # But this adds complexity without a clear objective unless specified.
+    
+    # The current approach directly implements and prioritizes the Best Fit strategy.
+    # "Better" can mean more robust, or incorporating more information.
+    # Let's consider a slight modification to enhance the "best fit" property
+    # and make it more sensitive to small differences.
+    
+    # Instead of just 1/diff, let's use a function that amplifies smaller diffs more.
+    # For instance, a transformation like: exp(-k * diff) where k is a positive constant.
+    # A smaller diff leads to a value closer to exp(0)=1. A larger diff leads to a smaller value.
+    # This aligns with our goal: smaller diff = higher priority.
+    
+    k = 5.0 # A tunable parameter, higher k means more emphasis on very small differences
+    priorities_for_suitable_bins = np.exp(-k * diffs)
+    
+    # Example again: item=3, bins_remain_cap=[5, 8, 4, 6]
+    # diffs: [2, 5, 1, 3]
+    # priorities_for_suitable_bins = [exp(-10), exp(-25), exp(-5), exp(-15)]
+    # = [approx 0, approx 0, approx 0.0067, approx 0]
+    # This still prioritizes the bin with diff=1 correctly.
+    
+    # Let's consider the original problem statement: "prioritize with which we want to add item to each bin".
+    # This suggests a score where higher means more desirable.
+    # The exponential function provides this.
+    
+    # Now, assign these calculated priorities to the correct positions in the original priorities array.
+    priorities[suitable_bins_mask] = priorities_for_suitable_bins
+
+    return priorities
+
+```

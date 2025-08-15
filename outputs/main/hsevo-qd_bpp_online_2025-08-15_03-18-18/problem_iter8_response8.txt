@@ -1,0 +1,50 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with an adaptive diversification strategy using Softmax.
+    Balances fitting tightly with exploring more open bins based on capacity variance.
+    """
+    suitable_bins_mask = bins_remain_cap >= item
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    valid_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+
+    # --- Adaptive Epsilon based on variance ---
+    # Higher variance in remaining capacities suggests a need for more exploration.
+    # We scale the variance using a sigmoid to keep epsilon between a small (e.g., 0.1) and moderate (e.g., 0.6) range.
+    # Adding a small constant to variance to avoid issues with zero variance and large number of similar bins.
+    variance_remain_cap = np.var(valid_bins_remain_cap) if len(valid_bins_remain_cap) > 1 else 0.0
+    epsilon = 0.1 + 0.5 * (1 / (1 + np.exp(-0.1 * (variance_remain_cap + 1e-6))))
+
+    # --- Scoring Components ---
+    # 1. Goodness of Fit (Best Fit tendency): Score is high when (remaining_capacity - item) is small.
+    # Using negative exponential scaled by item size for a sharp decrease in score as misfit increases.
+    goodness_of_fit_scores = np.exp(-10.0 * (valid_bins_remain_cap - item) / (item + 1e-9))
+
+    # 2. Openness (Diversification tendency): Score is high for bins with more remaining capacity.
+    # Using exponential scaling to give a significant boost to very open bins.
+    # Normalize by max capacity to keep scores in a somewhat bounded range.
+    max_cap = np.max(bins_remain_cap)
+    openness_scores = np.exp(0.1 * valid_bins_remain_cap / (max_cap + 1e-9))
+
+    # --- Combined Score ---
+    # Linearly interpolate between Goodness of Fit and Openness using epsilon.
+    # When epsilon is high (diverse capacities), openness_scores have more weight.
+    # When epsilon is low (similar capacities), goodness_of_fit_scores have more weight.
+    combined_scores = (1 - epsilon) * goodness_of_fit_scores + epsilon * openness_scores
+
+    # --- Softmax for Probabilistic Selection ---
+    # Shift scores to prevent numerical instability (overflow/underflow) before exponentiation.
+    shifted_scores = combined_scores - np.max(combined_scores)
+    exp_scores = np.exp(shifted_scores)
+    probabilities = exp_scores / np.sum(exp_scores)
+
+    priorities[suitable_bins_mask] = probabilities
+
+    return priorities
+```

@@ -1,0 +1,128 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Calculates priority scores for each bin using a multi-objective,
+    adaptive Softmax-based strategy for the online Bin Packing Problem.
+
+    This strategy prioritizes bins based on:
+    1.  **Fit Quality:** Favors bins that leave minimal remaining capacity after packing (Best Fit).
+    2.  **Bin Diversity/Spread:** Encourages using less full bins to maintain flexibility,
+        but this is balanced against the primary goal of good fit.
+    3.  **Adaptive Temperature:** Adjusts the "aggressiveness" of the Softmax based on
+        how many valid bins are available.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array where each element represents the
+                         remaining capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, where each element
+        is the priority score for placing the item in the corresponding bin.
+    """
+    valid_bins_mask = bins_remain_cap >= item
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+
+    if valid_bins_remain_cap.size == 0:
+        return np.zeros_like(bins_remain_cap, dtype=float)
+
+    # --- Objective 1: Fit Quality (Best Fit) ---
+    # We want to minimize remaining capacity after fitting.
+    # Score component: -(remaining_capacity_after_fit)
+    # Higher score (closer to 0) is better.
+    fit_scores = -(valid_bins_remain_cap - item)
+
+    # --- Objective 2: Bin Diversity (Encourage using less full bins) ---
+    # This is a secondary objective. We want to slightly penalize bins that
+    # become "too full" after packing, meaning they have very little remaining
+    # capacity left. However, this should be less dominant than the fit quality.
+    # A simple way is to add a small term that increases with how full the bin is.
+    # Let's use the inverse of the remaining capacity after fit, but capped to avoid division by zero.
+    # A more stable approach: use a function that decreases as remaining capacity decreases.
+    # For example, log(1 + remaining_capacity_after_fit). Larger values are better.
+    # Or, consider the original capacity and how much space is left relative to it.
+    # Let's stick to a simpler diversity idea: penalize bins that are very close to full *after* packing.
+    # The penalty should be small.
+    # Consider `1.0 / (1 + (valid_bins_remain_cap - item))` - this gives higher score to less full bins.
+    # Let's refine this: we want to slightly favor bins that are NOT nearly full *before* packing,
+    # unless the item fits perfectly. This is complex.
+
+    # A simpler approach for diversity: penalize bins that are almost full *after* packing.
+    # Let's try to balance fit score with a "spread" score.
+    # Spread score: favor bins with more remaining capacity *before* packing.
+    # Higher remaining capacity before packing is better for spread.
+    # We can use `valid_bins_remain_cap` directly as a positive contribution.
+    # However, this directly conflicts with Best Fit.
+
+    # Let's combine using a weighted sum, prioritizing fit.
+    # Score = alpha * fit_score + beta * spread_score
+    # A common heuristic is to prioritize minimal waste.
+    # Let's try a different approach: modify the fit score based on how 'tight' the fit is.
+    # If a bin is almost full and the item fits well, it gets a high score.
+    # If a bin is very empty and the item fits poorly (leaves a lot of space), it gets a lower score.
+
+    # Refined Strategy: Focus on the 'tightness' of the fit relative to the bin's original capacity.
+    # For a bin `b` with remaining capacity `c_b` and item size `i`:
+    # If `c_b >= i`:
+    #   Remaining capacity after fit = `c_b - i`
+    #   Score component 1 (Goodness of fit): Minimize `c_b - i`. Use `-(c_b - i)`.
+    #   Score component 2 (Diversity/Spread): If `c_b - i` is very small, it's a tight fit.
+    #     If `c_b - i` is large, it's a loose fit. We want to balance.
+    #     Consider a score that peaks when `c_b - i` is small but not zero.
+    #     Let's use `-(c_b - i)` as the primary score.
+    #     We can add a small penalty for very large `c_b - i`.
+
+    # Let's try a simpler hybrid: Best Fit + Penalty for too much remaining space.
+    # Base score: -(valid_bins_remain_cap - item)  (Best Fit component)
+    # Penalty component: We want to slightly reduce the score for bins that are still very empty *after* packing.
+    # Let's define "very empty" as having more than, say, 50% of the original capacity remaining (or some threshold).
+    # This is tricky because we don't know the original capacity.
+    # Let's use the remaining capacity *after* packing as a proxy.
+    # If `c_b - i` is large, we want to slightly decrease the score.
+    # We can use a function like `-(c_b - i)^2` or `-(c_b - i) * log(1 + c_b - i)`
+    # This makes very loose fits even less attractive compared to tight fits.
+
+    # Let's use a quadratic penalty for slack:
+    # score = -(remaining_capacity_after_fit) - penalty_factor * (remaining_capacity_after_fit)^2
+    # This prioritizes tight fits, and penalizes loose fits more heavily.
+    penalty_factor = 0.1 # Hyperparameter to tune the penalty strength
+    scores = -(valid_bins_remain_cap - item) - penalty_factor * (valid_bins_remain_cap - item)**2
+
+    # --- Adaptive Temperature for Softmax ---
+    # If there are many bins that can fit the item, we might want a lower "temperature"
+    # (more distinct probabilities) to favor the best options.
+    # If there are few bins, we might want a higher "temperature" (smoother probabilities)
+    # to allow for some exploration or less drastic choices.
+    # A simple adaptive temperature: inversely proportional to the number of valid bins.
+    num_valid_bins = len(valid_bins_remain_cap)
+    # Avoid division by zero or extremely small temperatures. Clamp a minimum temperature.
+    min_temperature = 0.1
+    max_temperature = 2.0 # Higher temperature means softer probabilities
+    # Temperature decreases as num_valid_bins increases.
+    # Let's map num_valid_bins to a temperature in [min_temperature, max_temperature]
+    # A simple mapping: temp = max_temp - (num_valid_bins - 1) * scale
+    # Or use a function that saturates.
+    # Let's try: temperature = max_temperature / (1 + num_valid_bins * scale)
+    scale_factor = 0.2 # Controls how quickly temperature drops
+    temperature = max_temperature / (1 + num_valid_bins * scale_factor)
+    temperature = max(min_temperature, temperature) # Ensure minimum temperature
+
+    # Apply Softmax with adaptive temperature
+    # Softmax formula: exp(score / temperature) / sum(exp(score / temperature))
+    # Shift scores to prevent overflow/underflow before exponentiation
+    if scores.size > 0:
+        shifted_scores = scores - np.max(scores)
+        exp_scores = np.exp(shifted_scores / temperature)
+        probabilities = exp_scores / np.sum(exp_scores)
+    else:
+        probabilities = np.array([])
+
+    # Create the final priority array
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    if probabilities.size > 0:
+        priorities[valid_bins_mask] = probabilities
+
+    return priorities
+```

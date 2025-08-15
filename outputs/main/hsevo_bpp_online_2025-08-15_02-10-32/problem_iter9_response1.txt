@@ -1,0 +1,65 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Aims to balance the "tightness" of a fit with the "bin fullness",
+    prioritizing bins that have just enough space for the item (tight fit)
+    but are not overly empty themselves. This promotes fuller bins overall.
+    It also incorporates a penalty for bins that are too full to accept the item,
+    ensuring only valid placements are considered.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf) # Initialize with negative infinity for invalid bins
+
+    # Mask for bins that can fit the item
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return np.zeros_like(bins_remain_cap) # Return zeros if no bin can fit
+
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+
+    # Component 1: "Tight Fit" Score (Maximizes tightness)
+    # Prioritize bins where remaining capacity is closest to the item size.
+    # This is the inverse of the remaining capacity after packing.
+    # Adding a small epsilon to avoid division by zero.
+    tightness_score = 1.0 / (suitable_bins_remain_cap - item + 1e-9)
+
+    # Component 2: "Bin Fullness" Score (Maximizes bin fullness)
+    # Prioritize bins that are already quite full (low remaining capacity before packing).
+    # This encourages using partially filled bins.
+    # Using the inverse of the remaining capacity.
+    bin_fullness_score = 1.0 / (bins_remain_cap[suitable_bins_mask] + 1e-9)
+
+    # Component 3: "Proximity Penalty" (Penalizes bins that are *almost* full but don't fit)
+    # While not directly used for selection of suitable bins, we can implicitly consider
+    # bins that are very close to fitting as less desirable than truly "tight" fits.
+    # However, for clarity and directness, we focus on the positive aspects of suitable bins.
+
+    # Combine scores: Weighted sum or product. A product can emphasize bins that excel in both.
+    # Let's use a multiplicative approach: a bin is good if it's tight AND the bin is generally full.
+    # We want to maximize both tightness_score and bin_fullness_score.
+    # To make it a single maximization objective, we multiply them.
+    combined_score = tightness_score * bin_fullness_score
+
+    # Assign the calculated priorities to the suitable bins
+    priorities[suitable_bins_mask] = combined_score
+
+    # Ensure that bins that cannot fit the item have a very low priority (handled by initialization with -inf)
+    # For selection purposes, it's often better to return zero for non-suitable bins if the selection logic
+    # is `np.argmax` and we want to avoid picking them if possible.
+    # If no bin is suitable, we already return zeros. If some are suitable, we want to pick the max among them.
+    # If `priorities` contains only -inf and zeros, `argmax` will pick a zero if available.
+    # If all are -inf, argmax might pick an arbitrary one.
+
+    # A robust way: If any suitable bins exist, return the computed priorities.
+    # Otherwise, return zeros.
+    if np.any(suitable_bins_mask):
+        # Replace -inf with 0 for bins that couldn't fit, so argmax doesn't pick them
+        # if all suitable bins have a score of 0 (e.g., item size is exactly 0).
+        priorities[~suitable_bins_mask] = 0
+        return priorities
+    else:
+        return np.zeros_like(bins_remain_cap)
+
+```

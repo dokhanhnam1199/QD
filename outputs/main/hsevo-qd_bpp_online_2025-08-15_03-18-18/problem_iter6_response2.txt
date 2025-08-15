@@ -1,0 +1,66 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Calculates priority scores for each bin using an adaptive strategy that
+    combines "Best Fit" and "First Fit" principles with an awareness of
+    bin fullness for the online Bin Packing Problem.
+
+    This strategy prioritizes bins that can fit the item. Among fitting bins,
+    it favors those that leave minimal remaining capacity (Best Fit) but also
+    introduces a slight bias towards earlier bins if the fit is very good,
+    simulating a mild First Fit tendency to prevent premature closure of
+    potentially useful "near-empty" bins for future small items. It adapts
+    by considering the overall fullness of bins when making a decision.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array where each element represents the
+                         remaining capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, where each element
+        is the priority score for placing the item in the corresponding bin.
+    """
+    valid_bins_mask = bins_remain_cap >= item
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+    valid_bin_indices = np.where(valid_bins_mask)[0]
+
+    if valid_bins_remain_cap.size == 0:
+        return np.zeros_like(bins_remain_cap)
+
+    # Calculate a "fit quality" score: maximize the negative of remaining capacity after fit.
+    # This is the core of the "Best Fit" idea: minimize waste.
+    fit_quality_scores = -(valid_bins_remain_cap - item)
+
+    # Introduce a mild "First Fit" bias. Earlier bins (lower index) get a small boost
+    # if the fit is good. This helps in keeping later bins open for potentially
+    # smaller items if an item fits well into an early bin.
+    # The boost is larger for better fits.
+    # The penalty for not being an early bin is inversely related to the item size
+    # and directly related to the remaining capacity, encouraging use of early bins
+    # when they are a good fit but not excessively large.
+    # Let's create a small bonus for earlier bins, scaled by the inverse of the
+    # remaining capacity after fitting (i.e., how "tight" the fit is).
+    # A tighter fit in an earlier bin gets a slightly higher priority.
+    # We use a small constant offset to avoid zeroing out good fits.
+    idx_bonus = 1.0 / (valid_bins_remain_cap - item + 1e-9)  # Higher for tighter fits
+    first_fit_bias = 0.01 * idx_bonus # Small multiplicative bias
+
+    # Combine fit quality with the first-fit bias.
+    # The primary driver is fit_quality_scores. The bias slightly nudges towards earlier bins for good fits.
+    combined_scores = fit_quality_scores + first_fit_bias
+
+    # Apply Softmax to convert scores into probabilities (priorities).
+    # Shift scores to prevent numerical overflow/underflow in exp.
+    shifted_scores = combined_scores - np.max(combined_scores)
+    exp_scores = np.exp(shifted_scores)
+    probabilities = exp_scores / np.sum(exp_scores)
+
+    # Construct the final priority array
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    priorities[valid_bins_mask] = probabilities
+
+    return priorities
+```

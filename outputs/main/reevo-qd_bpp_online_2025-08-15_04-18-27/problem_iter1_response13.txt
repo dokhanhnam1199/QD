@@ -1,0 +1,90 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Almost Full Fit strategy.
+
+    The Almost Full Fit strategy prioritizes bins that are almost full but can still accommodate the item.
+    It aims to leave larger remaining capacities in other bins for potentially larger future items.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    
+    # If no bins can fit, return all zeros (or handle this case as appropriate, e.g., create a new bin)
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Get remaining capacities of bins that can fit the item
+    fitting_bins_cap = bins_remain_cap[can_fit_mask]
+
+    # Calculate the "almost full" score. This score is higher for bins that will be
+    # closer to full *after* the item is placed.
+    # We want to prioritize bins where (remaining_capacity - item) is minimized,
+    # but not so small that it becomes zero or negative, as that would mean the bin is too full.
+    # A good measure of "almost full" for the remaining capacity *after* adding the item
+    # would be the inverse of (remaining_capacity - item), provided it's positive.
+    # To avoid division by zero or very small numbers, we can add a small epsilon.
+    
+    # Calculate the remaining capacity after adding the item
+    remaining_after_add = fitting_bins_cap - item
+    
+    # Calculate priority: Higher priority for smaller positive remaining_after_add
+    # Using 1 / (remaining_after_add + epsilon) can achieve this.
+    # We can also add a penalty for bins that are *too* full, such that remaining_after_add is very close to zero.
+    # A simple approach is to assign a very high priority to bins that have the smallest positive remaining capacity.
+
+    # Let's try a score that favors bins with small positive remaining capacity after placement.
+    # Specifically, bins where fitting_bins_cap - item is smallest positive.
+    # We can use the inverse of this difference.
+    
+    # Add a small epsilon to avoid division by zero for bins that will be exactly full
+    epsilon = 1e-6
+    priorities_for_fitting_bins = 1.0 / (remaining_after_add + epsilon)
+
+    # We can further refine this by giving a slight preference to bins that are already quite full
+    # but can still accommodate the item. A simple way is to scale the priority by the original
+    # remaining capacity. However, the core of "almost full" is about minimizing the gap *after* packing.
+    
+    # For Almost Full Fit, the goal is to fill bins as much as possible.
+    # This means we want the remaining capacity *after* placing the item to be as small as possible,
+    # but still positive.
+    # So, priority is inversely proportional to (bins_remain_cap - item).
+    
+    # To make it more robust and to better capture "almost full", let's consider the original capacity as well.
+    # A bin that's already 80% full and can take the item might be a better candidate than a bin that's 30% full
+    # and can take the same item, leading to a similar final fill level.
+    
+    # Let's try a score based on how close the bin will be to full.
+    # The remaining capacity after placing the item: `bins_remain_cap[i] - item`.
+    # We want to minimize this value, among bins that can fit the item.
+    # A higher priority means a smaller `bins_remain_cap[i] - item`.
+    
+    # We can map `bins_remain_cap[i] - item` to a priority score.
+    # For example, a linear mapping: `max_possible_diff - (bins_remain_cap[i] - item)`.
+    # Or, using the inverse: `1 / (bins_remain_cap[i] - item + epsilon)`.
+
+    # Let's consider the remaining capacity after placing the item.
+    # The "gap" is `bins_remain_cap[can_fit_mask] - item`.
+    # We want to prioritize bins with the smallest positive gap.
+    
+    # A simple heuristic:
+    # For bins that can fit the item, calculate `remaining_capacity - item`.
+    # The priority is the inverse of this value (plus epsilon to avoid division by zero).
+    # This assigns higher priority to bins that will have less remaining space after the item is added.
+    
+    priorities_values = 1.0 / (fitting_bins_cap - item + epsilon)
+    
+    # Distribute these priorities back to the original array
+    priorities[can_fit_mask] = priorities_values
+    
+    return priorities
+```

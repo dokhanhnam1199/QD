@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Improved priority function for Online Bin Packing.
+
+    This heuristic prioritizes bins that offer an "exact fit" or, failing that,
+    minimizes the normalized slack. Normalized slack is defined as the remaining
+    capacity after placing the item, divided by the original capacity of that bin.
+    This approach aims to provide a more stable and meaningful comparison across
+    bins of potentially different original capacities (though in standard BPP,
+    all bins have the same capacity, this design is more robust to variations).
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of priority scores for each bin. Bins that cannot accommodate the item
+        receive a priority of -1. Higher scores indicate higher priority.
+        Exact fits receive the highest priority.
+    """
+    priorities = np.full_like(bins_remain_cap, -1.0)
+    
+    can_fit_mask = bins_remain_cap >= item
+    
+    if np.any(can_fit_mask):
+        # Calculate remaining capacities for bins that can fit the item
+        remaining_capacities_if_fit = bins_remain_cap[can_fit_mask] - item
+        
+        # Assign a very high priority for exact fits
+        exact_fit_mask = remaining_capacities_if_fit == 0
+        priorities[can_fit_mask][exact_fit_mask] = float('inf') # Maximize exact fits
+
+        # For bins that don't offer an exact fit, prioritize minimizing normalized slack
+        # Normalized slack = (remaining_capacity_after_fit) / (original_bin_capacity)
+        # Since all bins have the same capacity in standard BPP, we can assume a
+        # constant original bin capacity. However, for generality, let's consider
+        # a scenario where bins might have slightly different conceptual capacities
+        # or if we're generalizing. If we stick to the standard BPP, then the
+        # normalized slack is simply (remaining_capacity_after_fit) / (bin_capacity_constant).
+        # To prioritize MINIMIZING normalized slack, we MAXIMIZE the NEGATIVE of it.
+        
+        # In standard BPP, the bin capacity is constant. Let's assume bin_capacity is known
+        # or can be inferred (e.g., from the maximum capacity observed or a problem parameter).
+        # For simplicity and to follow the "normalized slack" idea even if capacities are the same,
+        # we can conceptually think of the "slack" itself as the value we want to minimize.
+        # Prioritizing the minimum remaining capacity is equivalent to minimizing normalized slack
+        # when the denominator (bin capacity) is constant.
+        
+        # We want to maximize the negative of the remaining capacity to find the minimum.
+        # Higher negative values mean smaller remaining capacity, hence higher priority.
+        
+        non_exact_fit_mask = ~exact_fit_mask
+        
+        if np.any(can_fit_mask[can_fit_mask][non_exact_fit_mask]):
+            # Calculate priorities for non-exact fits: prioritize smaller remaining capacities
+            # We want to maximize -(remaining_capacity).
+            # A more stable approach than 1/x is to use a linear score where smaller values are better.
+            # For instance, priority = C - remaining_capacity. To maximize, we use -(remaining_capacity).
+            
+            priorities[can_fit_mask][non_exact_fit_mask] = -remaining_capacities_if_fit[non_exact_fit_mask]
+            
+            # If we were to strictly use normalized slack with a known bin capacity:
+            # bin_capacity = some_constant_or_inferred_value
+            # normalized_slacks = remaining_capacities_if_fit[non_exact_fit_mask] / bin_capacity
+            # priorities[can_fit_mask][non_exact_fit_mask] = -normalized_slacks
+            
+            # To ensure exact fits are always preferred over any non-exact fit, and
+            # among non-exact fits, those with smaller remaining capacity are preferred,
+            # the current assignment of 'inf' for exact fits and negative remaining capacity
+            # for others works. The negative values for non-exact fits will always be less than 'inf'.
+
+    return priorities
+```

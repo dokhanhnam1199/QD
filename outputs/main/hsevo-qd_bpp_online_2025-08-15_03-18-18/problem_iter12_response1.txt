@@ -1,0 +1,139 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Calculates priority scores for each bin using an Adaptive Softmax-Based Fit strategy
+    for the online Bin Packing Problem.
+
+    This strategy aims to improve upon v1 by:
+    1. Explicitly rewarding perfect fits (item == remaining_capacity).
+    2. Using a softened penalty for bins that would leave a large remaining capacity,
+       making it less aggressive than a simple negative remaining capacity.
+    3. Incorporating a small constant to the denominator of the score calculation
+       to improve numerical stability when all remaining capacities are equal or very close.
+    4. Adapting the "aggressiveness" of the fit preference based on the item size
+       relative to the available capacities.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array where each element represents the
+                         remaining capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, where each element
+        is the priority score for placing the item in the corresponding bin.
+    """
+    valid_bins_mask = bins_remain_cap >= item
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+
+    if valid_bins_remain_cap.size == 0:
+        return np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Calculate a score for each valid bin:
+    # We prioritize bins that result in minimal remaining capacity after packing.
+    # Remaining capacity after packing: valid_bins_remain_cap - item
+    remaining_after_fit = valid_bins_remain_cap - item
+
+    # Score design:
+    # 1. Perfect fit should get the highest priority.
+    # 2. Bins leaving small remaining capacity are good.
+    # 3. Bins leaving large remaining capacity are less preferred.
+
+    # We can define a score that is high for small remaining_after_fit.
+    # Using negative remaining capacity and adding a large constant for perfect fits
+    # can work. Let's try a score that is inverse to remaining capacity, but
+    # handle perfect fits as a special case for maximum priority.
+
+    # Create a base score that favors smaller remaining_after_fit.
+    # A simple inverse relationship: 1 / (remaining_after_fit + epsilon)
+    # Adding a small epsilon to the denominator to avoid division by zero and
+    # improve stability when remaining_after_fit is zero or very small.
+    epsilon = 1e-6
+    scores = 1.0 / (remaining_after_fit + epsilon)
+
+    # Boost scores for perfect fits. Add a significant amount to make them stand out.
+    # The magnitude of this boost should be large enough to ensure perfect fits
+    # are overwhelmingly preferred over near-perfect fits, but not so large
+    # that it causes numerical overflow issues with softmax.
+    perfect_fit_mask = (remaining_after_fit == 0)
+    scores[perfect_fit_mask] += 100.0  # Significant boost for perfect fits
+
+    # Adaptive scaling: The "aggressiveness" of favoring tight fits could be
+    # influenced by the item size relative to bin capacity. For smaller items
+    # relative to bin capacity, leaving a large gap might be acceptable. For
+    # larger items, a tighter fit is more critical.
+    # Let's scale the 'scores' based on item size relative to the maximum bin capacity
+    # to moderate the preference for tight fits. A smaller item-to-capacity ratio
+    # might warrant a less "picky" approach to fitting.
+    # This is a heuristic adaptation and can be tuned.
+    max_bin_capacity = np.max(bins_remain_cap) # Assuming bins are initialized with same capacity, or we use max available.
+    if max_bin_capacity > 0:
+        # Scale down the 'scores' if item is small relative to bin capacity.
+        # A larger ratio means the item takes up a significant portion of a bin,
+        # so we want to strongly favor good fits.
+        # A smaller ratio means the item is small, so being very picky about the gap might be detrimental.
+        # We can use a sigmoid-like function or a simple linear scaling.
+        # Let's try a simple approach: moderate the scores by (item / max_bin_capacity).
+        # This means if item is small, the scores are less exaggerated.
+        scaling_factor = (item / max_bin_capacity) if max_bin_capacity > 0 else 1.0
+        # We want to *increase* the preference for tight fits when the item is large relative to capacity.
+        # So, we should multiply by something related to how "large" the item is.
+        # Let's consider (1 + alpha * (item / max_bin_capacity)) as a multiplier.
+        # For simplicity, let's use a penalty if the item is small.
+        # If item/max_cap is small, we want to reduce the impact of the gap.
+        # A simpler approach might be to use the inverse: (max_bin_capacity / item)
+        # and take the log, but that might be too complex.
+
+        # Let's consider the variance of remaining capacities for valid bins.
+        # If variance is high, there are very different bin sizes available.
+        # If variance is low, bins are similarly sized.
+
+        # For v2, let's keep the adaptation simpler:
+        # Scale the scores by a factor that encourages tighter packing when items are large.
+        # A possible scaling factor could be related to item_size / bin_capacity.
+        # However, a simpler approach is to just make the base score more sensitive to small gaps.
+        # The 1/(rem_after_fit + epsilon) already does this.
+
+        # Instead of scaling the score itself, let's consider a penalty for large gaps.
+        # The current score is 1/(gap + epsilon). This already penalizes large gaps.
+
+        # Let's introduce a term that accounts for the overall "fullness" of the bins,
+        # encouraging packing into slightly less full bins if the immediate fit is similar.
+        # This can help distribute items better.
+        # Let's consider the inverse of the remaining capacity of the bin *before* packing.
+        # A higher inverse means the bin was already more full.
+        # This term should be less dominant than the fit score.
+        # Add a small component based on how full the bin already is.
+        # We want to favor bins that are *already* fuller, assuming the fit is good.
+        # So, add a score component proportional to 1/valid_bins_remain_cap.
+        # We need to ensure valid_bins_remain_cap is not zero, which it isn't here because valid_bins_mask checks >= item.
+        # However, it could be equal to item.
+        fullness_score = 1.0 / (valid_bins_remain_cap + epsilon)
+        
+        # Combine the scores. The fit score should be more important.
+        # Let's weight the fullness score lower.
+        # This combination might be sensitive to the scale of 1/(gap+eps) vs 1/(cap+eps).
+        # Let's use a weighted sum: alpha * fit_score + beta * fullness_score
+        # alpha should be significantly larger than beta.
+        alpha = 1.0
+        beta = 0.1
+        combined_scores = alpha * scores + beta * fullness_score
+
+        # Apply Softmax to convert scores into probabilities (priorities)
+        # Use max-shifting for numerical stability.
+        shifted_scores = combined_scores - np.max(combined_scores)
+        exp_scores = np.exp(shifted_scores)
+        # Add epsilon to the sum to avoid division by zero if all exp_scores are ~0 (highly unlikely with max shifting)
+        probabilities = exp_scores / (np.sum(exp_scores) + epsilon)
+    else: # Handle case where max_bin_capacity is zero or less (edge case)
+        shifted_scores = scores - np.max(scores)
+        exp_scores = np.exp(shifted_scores)
+        probabilities = exp_scores / (np.sum(exp_scores) + epsilon)
+
+    # Create the final priority array, placing calculated priorities in their original positions
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    priorities[valid_bins_mask] = probabilities
+
+    return priorities
+```

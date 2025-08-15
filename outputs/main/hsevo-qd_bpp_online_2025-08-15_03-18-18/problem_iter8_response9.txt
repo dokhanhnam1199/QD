@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with an adaptive exploration strategy using a Softmax
+    approach, balancing tight packing with diversification based on bin capacities.
+    """
+    valid_bins_mask = bins_remain_cap >= item
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+
+    if valid_bins_remain_cap.size == 0:
+        return np.zeros_like(bins_remain_cap)
+
+    # Heuristic 19/20 is excellent due to adaptive epsilon. Let's refine its scoring.
+    # The 'goodness_of_fit_scores' heavily favors tight fits.
+    # The 'openness_scores' favors bins with more capacity.
+    # Let's make the 'goodness_of_fit' score even more sensitive to near-perfect fits
+    # and also introduce a penalty for bins that are *too* large, to avoid extreme WF.
+
+    # Calculate a "fit quality" score: higher for smaller (remaining_capacity - item)
+    # Use a negative exponential to emphasize smaller differences. Add small value to item for scaling.
+    fit_quality = np.exp(-15.0 * (valid_bins_remain_cap - item) / (item + 1e-9))
+
+    # Calculate a "diversification" score: higher for bins with more remaining capacity.
+    # Scale it to prevent extreme values dominating.
+    diversification_score = valid_bins_remain_cap / (np.max(bins_remain_cap) + 1e-9)
+
+    # Calculate a "penalty for excessive space": lower for bins that are too large.
+    # This discourages placing small items in very large bins if other options exist.
+    excess_space_penalty = np.exp(-0.05 * valid_bins_remain_cap) # Penalize large capacities
+
+    # Determine adaptive exploration parameter (epsilon) based on variance
+    # Higher variance suggests more diverse bin states, so increase exploration.
+    non_zero_caps = bins_remain_cap[bins_remain_cap > 0]
+    variance_remain_cap = np.var(non_zero_caps) if non_zero_caps.size > 0 else 1.0
+    # Sigmoid function to smoothly map variance to an epsilon between 0.1 and 0.6
+    epsilon = 0.1 + 0.5 / (1.0 + np.exp(-0.2 * variance_remain_cap))
+
+    # Combine scores: blend fit_quality and diversification, moderated by epsilon, and apply penalty
+    # We want to maximize the combined score.
+    # Use (1-epsilon) for fit_quality and epsilon for diversification.
+    # The excess_space_penalty should generally lower the score of very large bins.
+    combined_scores = (1 - epsilon) * fit_quality + epsilon * diversification_score + excess_space_penalty
+
+    # Softmax for probabilistic selection:
+    # Shift scores to prevent overflow/underflow before exponentiation.
+    shifted_scores = combined_scores - np.max(combined_scores)
+    exp_scores = np.exp(shifted_scores)
+    probabilities = exp_scores / np.sum(exp_scores)
+
+    # Create the final priority array
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    priorities[valid_bins_mask] = probabilities
+
+    return priorities
+```

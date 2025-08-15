@@ -1,0 +1,131 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Sigmoid Fit Score strategy.
+
+    The Sigmoid Fit Score strategy prioritizes bins that, after accommodating the item,
+    leave a remaining capacity that is "close" to some ideal capacity.
+    This "ideal capacity" is often related to the bin size itself or a proportion of it.
+    Here, we use a sigmoid function to map the remaining capacity to a priority score.
+    Bins that leave a remaining capacity closer to (bin_capacity - item_size) would get higher priority.
+    We aim for a remaining capacity that is *just* enough or slightly more than what's needed.
+    A bin that perfectly fits the item (remaining capacity = bin_capacity - item_size)
+    should ideally have the highest priority.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Assuming all bins have the same fixed capacity. Let's infer it if possible,
+    # or use a reasonable default if not. For this strategy, the absolute bin capacity matters.
+    # A common approach is to consider the bin capacity that would leave the item fitting perfectly.
+    # If we assume the *original* capacity of all bins is `B`, and `bins_remain_cap` is the
+    # current remaining capacity, then `B - bins_remain_cap[i]` is the amount already used in bin `i`.
+    # If an item of size `item` is placed, the new remaining capacity would be `bins_remain_cap[i] - item`.
+    # The goal is to find a bin where `bins_remain_cap[i] - item` is "good".
+
+    # Let's define an "ideal" remaining capacity. A common heuristic is to aim for
+    # leaving as little *wasted* space as possible after placing the item.
+    # This means we prefer bins where `bins_remain_cap[i] - item` is close to 0.
+    # However, the sigmoid is usually applied to the *proportion* of space used or remaining.
+
+    # Let's reinterpret the "Sigmoid Fit Score strategy" to prioritize bins
+    # where the remaining capacity is *just enough* or slightly more than the item size.
+    # If `bins_remain_cap[i]` is the current remaining capacity, and `item` is the item size,
+    # the new remaining capacity will be `bins_remain_cap[i] - item`.
+    # We want this new remaining capacity to be small (close to 0).
+
+    # Let's consider the available space relative to the item size.
+    # For bins where `bins_remain_cap[i] >= item`:
+    # The "goodness" is how close `bins_remain_cap[i]` is to `item`.
+    # We can define a score based on `bins_remain_cap[i] / item`.
+    # A score of 1 (perfect fit) should be maximized.
+
+    # Let's try a common interpretation of "fit": prioritizing bins that leave minimal
+    # remaining capacity AFTER the item is placed. So, `bins_remain_cap[i] - item` should be minimized.
+    # A sigmoid function can map small positive values to high scores.
+
+    # If `bins_remain_cap[i] < item`, the item cannot fit. We assign a very low priority.
+    # We can use a large negative number or -infinity for these.
+
+    priorities = np.full_like(bins_remain_cap, -np.inf)  # Initialize with very low priority
+
+    # Consider only bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    eligible_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    if eligible_bins_remain_cap.size == 0:
+        return priorities # No bin can fit the item
+
+    # We want to minimize the remaining capacity AFTER placing the item: `eligible_bins_remain_cap - item`
+    # This value should ideally be close to 0.
+    # Let's transform this to a positive value for the sigmoid.
+    # A common transformation for minimization using sigmoid is 1 / (1 + x) or exp(-k*x).
+    # We can use `exp(-k * (eligible_bins_remain_cap - item))` or `1 / (1 + k * (eligible_bins_remain_cap - item))`
+
+    # Using a logistic function (sigmoid) to map remaining capacity to a score.
+    # We want to map small positive values of (remaining_capacity - item) to high scores.
+    # A common form: S(x) = 1 / (1 + exp(-k * (x - mid)))
+    # If we want to maximize score when (remaining_capacity - item) is small, let's use:
+    # score = exp(-k * (eligible_bins_remain_cap - item))
+    # where `k` is a steepness parameter. A larger `k` makes the score drop faster as remaining capacity increases.
+
+    # Let's use k=1 for simplicity and test.
+    # The logistic function maps values in [0, infinity) to (0, 1].
+    # We want values near 0 to be high.
+    # If `diff = eligible_bins_remain_cap - item`, we want high scores for small `diff`.
+    # `sigmoid(x) = 1 / (1 + exp(-x))` maps R -> (0,1) with S-shape.
+    # If we want values near 0 to be high, we can transform `diff` and feed it.
+    # A good transformation might be `exp(-diff)`. This maps `diff=0` to 1, `diff=small_positive` to slightly less than 1, `diff=large_positive` to near 0.
+
+    # Let's try a simple approach with `exp(-k * diff)`
+    k = 1.0  # Steepness parameter
+    # Ensure we don't get negative differences which would already be handled by can_fit_mask
+    # but as a safeguard or if k was very large and rounding occurred.
+    diffs = eligible_bins_remain_cap - item
+    scores = np.exp(-k * diffs)
+
+    # Alternative approach using a standard sigmoid function:
+    # The "fit" score can be interpreted as how well the item fits into the *remaining* space.
+    # We want to maximize the usage of the remaining space without overflow.
+    # If `remaining_capacity` is the current remaining capacity and `item` is the item size:
+    # The space `bins_remain_cap[i]` can hold the item.
+    # We can define a score based on `item / bins_remain_cap[i]` (fill ratio).
+    # Or based on how much is left: `(bins_remain_cap[i] - item)`.
+    # The sigmoid fit often implies finding a bin that's "just right".
+    # Let's consider the value `bins_remain_cap[i] / BIN_CAPACITY` as the "slack" space,
+    # and `item / BIN_CAPACITY` as the item "demand". We want `slack` to be close to `item/BIN_CAPACITY`.
+    # This requires knowing BIN_CAPACITY.
+
+    # Let's revert to minimizing `bins_remain_cap[i] - item`.
+    # `score = 1 / (1 + exp(k * (eligible_bins_remain_cap - item)))` would make small `diff` have high score.
+    # Or more directly, map `diff` to [0,1] where 0 is best.
+    # `f(x) = exp(-k * x)` maps [0, inf) -> (0, 1]. This is a decreasing function.
+    # The higher the score, the better. So `exp(-k * diff)` works for maximizing.
+
+    # Let's use `sigmoid(x) = 1 / (1 + exp(-x))` by transforming our difference.
+    # We want to maximize scores when `eligible_bins_remain_cap - item` is small.
+    # Consider `score = 1 / (1 + exp(k * (eligible_bins_remain_cap - item)))`
+    # This function decreases from 1 to 0 as `eligible_bins_remain_cap - item` goes from 0 to infinity.
+    # So, a smaller remaining capacity after packing gives a higher score.
+
+    k = 10.0  # A higher k means the sigmoid "kicks in" more strongly around 0.
+    # For a score to be high when diff is near zero, use exp(-k*diff) or 1/(1+exp(k*diff)).
+    # Let's use the latter form to align with typical sigmoid descriptions for "goodness".
+    # To avoid numerical issues with very large `k*diff`, we can clip.
+    scaled_diffs = k * diffs
+    # Clip to avoid overflow in exp(), though usually exp(-large) goes to 0 safely.
+    # scaled_diffs = np.clip(scaled_diffs, -500, 500) # Example clipping
+
+    priorities[can_fit_mask] = 1.0 / (1.0 + np.exp(scaled_diffs))
+
+    # Ensure no NaNs or Infs that weren't intended.
+    priorities[np.isnan(priorities)] = 0
+    priorities[np.isinf(priorities)] = 1 if k>0 else 0 # If exp() resulted in inf
+
+    return priorities
+```

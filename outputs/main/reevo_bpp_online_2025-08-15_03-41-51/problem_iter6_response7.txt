@@ -1,0 +1,646 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This priority function implements a "Worst Fit" strategy with a tunable
+    parameter to balance between "Worst Fit" and "Best Fit". It prioritizes
+    bins that can accommodate the item with the most remaining capacity (Worst Fit),
+    but with a bias towards tighter fits controlled by `worst_fit_bias`.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority. Bins that cannot fit the item
+        will have a very low priority (negative infinity).
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins that have enough remaining capacity for the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item:
+    # Calculate the remaining capacity after placing the item.
+    remaining_caps_after_fit = bins_remain_cap[can_fit_mask] - item
+
+    # --- Tunable Parameter ---
+    # `worst_fit_bias`: Controls the preference for the worst fit.
+    # A value of 0.0 makes it purely "Worst Fit" (prioritize largest remaining capacity).
+    # A positive value increases the preference for tighter fits (closer to Best Fit).
+    # A value of 1.0 would effectively negate the remaining capacity, making it
+    # closer to a Best Fit strategy based on the *resulting* space.
+    worst_fit_bias = 0.5  # Example: Moderate bias towards tighter fits
+
+    # The priority is based on the remaining capacity after fitting.
+    # For "Worst Fit", we want to maximize `remaining_caps_after_fit`.
+    # To incorporate a bias towards tighter fits, we can modify this.
+    # A simple way is to subtract a term that penalizes larger remaining capacities
+    # or rewards smaller remaining capacities.
+    # Let's try to combine the "Worst Fit" idea (maximize `remaining_caps_after_fit`)
+    # with the "Best Fit" idea (minimize `remaining_caps_after_fit`).
+    # We can use `remaining_caps_after_fit` as the base score and add a term
+    # that reduces the score as `remaining_caps_after_fit` increases, but less
+    # aggressively than pure Best Fit.
+
+    # Strategy: Maximize `remaining_caps_after_fit` but penalize it slightly.
+    # A score of `remaining_caps_after_fit - worst_fit_bias * remaining_caps_after_fit`
+    # simplifies to `remaining_caps_after_fit * (1 - worst_fit_bias)`.
+    # If `worst_fit_bias` is 0, it's pure Worst Fit.
+    # If `worst_fit_bias` is 1, it's `0`, which doesn't distinguish.
+
+    # Alternative: Maximize `remaining_caps_after_fit` plus a bonus for being *closer* to zero.
+    # This is like `remaining_caps_after_fit - slack_penalty` where `slack_penalty`
+    # is small for small `remaining_caps_after_fit`.
+    # A simple linear penalty: `remaining_caps_after_fit - worst_fit_bias * remaining_caps_after_fit`.
+
+    # Let's try a scoring function that is a mix:
+    # Prioritize bins with larger `bins_remain_cap[can_fit_mask]` (Worst Fit)
+    # BUT also prioritize bins that result in smaller `remaining_caps_after_fit` (Best Fit)
+    # We can achieve this by having a score that is a weighted sum.
+    # For example, prioritize bins with `bins_remain_cap[can_fit_mask]` that are large,
+    # but if two bins have similar large remaining capacity, pick the one that fits tighter.
+
+    # Let's try a simpler approach: we want to maximize the remaining capacity,
+    # but "discount" larger remaining capacities.
+    # Score = `bins_remain_cap[can_fit_mask]` - `penalty_for_large_remaining_cap`
+    # The penalty should increase with `remaining_caps_after_fit`.
+    # A linear penalty: `remaining_caps_after_fit * worst_fit_bias`.
+    # Score = `remaining_caps_after_fit - worst_fit_bias * remaining_caps_after_fit`
+    # Score = `remaining_caps_after_fit * (1 - worst_fit_bias)`
+
+    # This formulation means if `worst_fit_bias = 0.5`, we prioritize bins with
+    # the largest `remaining_caps_after_fit`, but the score is halved. This doesn't
+    # seem to blend strategies effectively.
+
+    # Let's consider the "slack" or `remaining_caps_after_fit`.
+    # For pure Best Fit, we minimize slack. Priority = -slack.
+    # For pure Worst Fit, we maximize slack. Priority = slack.
+
+    # To blend: Maximize `slack * (1 - bias) + (-slack) * bias`
+    # = `slack - slack*bias - slack*bias`
+    # = `slack * (1 - 2*bias)` -> this is not right.
+
+    # Let's think about what we want to maximize:
+    # We want to maximize the remaining capacity (Worst Fit), BUT
+    # we prefer smaller remaining capacity when other factors are equal, or when
+    # the difference in remaining capacity is not too large.
+
+    # Consider the "gap" for Best Fit: `bins_remain_cap[can_fit_mask] - item`.
+    # For Worst Fit, we want to maximize `bins_remain_cap[can_fit_mask]`.
+    # This is equivalent to maximizing `(bins_remain_cap[can_fit_mask] - item) + item`.
+    # So, Worst Fit prioritizes maximizing `remaining_caps_after_fit`.
+
+    # Let's create a score that combines these two:
+    # Score = `alpha * remaining_caps_after_fit` + `beta * (-remaining_caps_after_fit)`
+    # We want to favor larger `remaining_caps_after_fit` (Worst Fit), so `alpha` should be positive.
+    # We want to penalize larger `remaining_caps_after_fit` when `bias` is applied,
+    # meaning we prefer smaller `remaining_caps_after_fit` to some degree.
+
+    # A common way to blend "maximize X" and "minimize X" is to consider them as
+    # two different objectives and find a compromise.
+    # If we want to maximize `R` (remaining capacity) but also prefer smaller `R`,
+    # we can maximize `R * (1-w) + (max_R - R) * w` where `w` is a weight for preferring smaller `R`.
+    # This becomes `R - R*w + max_R*w - R*w` = `R*(1-2w) + max_R*w`.
+    # This is complex as it depends on `max_R`.
+
+    # Simpler approach: combine `bins_remain_cap[can_fit_mask]` (for Worst Fit)
+    # and `-remaining_caps_after_fit` (for Best Fit).
+    # Let `wf_score = bins_remain_cap[can_fit_mask]`
+    # Let `bf_score = -remaining_caps_after_fit`
+    # Combined Score = `(1-bias) * wf_score + bias * bf_score`
+    # Combined Score = `(1-bias) * bins_remain_cap[can_fit_mask]` + `bias * -(bins_remain_cap[can_fit_mask] - item)`
+    # Combined Score = `bins_remain_cap[can_fit_mask] * (1 - bias)` + `bias * (item - bins_remain_cap[can_fit_mask])`
+    # Combined Score = `bins_remain_cap[can_fit_mask] * (1 - bias - bias)` + `bias * item`
+    # Combined Score = `bins_remain_cap[can_fit_mask] * (1 - 2*bias)` + `bias * item`
+
+    # Let's test this:
+    # If `bias = 0`: Score = `bins_remain_cap[can_fit_mask]`. Pure Worst Fit. Maximizes remaining capacity. Correct.
+    # If `bias = 0.5`: Score = `bins_remain_cap[can_fit_mask] * 0` + `0.5 * item` = `0.5 * item`.
+    # This means all bins that can fit get the same priority (a constant). This is not good.
+
+    # The issue is that `bins_remain_cap[can_fit_mask]` and `remaining_caps_after_fit` are directly related.
+    # `bins_remain_cap[can_fit_mask] = remaining_caps_after_fit + item`.
+
+    # Let's try a different blend: prioritize large `bins_remain_cap[can_fit_mask]`,
+    # but if two bins have very similar large `bins_remain_cap`, pick the one with
+    # smaller `remaining_caps_after_fit`.
+
+    # A simpler formulation: Use `bins_remain_cap[can_fit_mask]` as the primary sorting key (Worst Fit).
+    # For tie-breaking, use `-remaining_caps_after_fit` (Best Fit).
+    # This can be done by creating a composite score.
+    # Prioritize maximizing `bins_remain_cap[can_fit_mask]`.
+    # To incorporate bias, we can slightly penalize larger `bins_remain_cap[can_fit_mask]`.
+    # Score = `bins_remain_cap[can_fit_mask] - penalty * remaining_caps_after_fit`
+    # Penalty should be small for Worst Fit bias.
+    # Let `penalty = worst_fit_bias`. We want to maximize this.
+    # Score = `bins_remain_cap[can_fit_mask] - worst_fit_bias * remaining_caps_after_fit`
+    # Score = `(remaining_caps_after_fit + item) - worst_fit_bias * remaining_caps_after_fit`
+    # Score = `remaining_caps_after_fit * (1 - worst_fit_bias) + item`
+
+    # Let's test this:
+    # If `worst_fit_bias = 0`: Score = `remaining_caps_after_fit + item`. Maximizes `bins_remain_cap[can_fit_mask]`. Correct.
+    # If `worst_fit_bias = 1`: Score = `remaining_caps_after_fit * 0 + item` = `item`. All bins have same priority. Not good.
+
+    # The issue is that `remaining_caps_after_fit` is what we're trying to optimize.
+    # We want to maximize it (Worst Fit) but also penalize large values.
+
+    # Consider the function `f(x) = x * (1 - bias)`.
+    # If bias = 0, f(x) = x (maximizes x)
+    # If bias = 1, f(x) = 0 (no distinction)
+
+    # Let's go back to blending Best Fit and Worst Fit criteria.
+    # Best Fit prioritizes minimizing `bins_remain_cap[can_fit_mask] - item`.
+    # Worst Fit prioritizes maximizing `bins_remain_cap[can_fit_mask]`.
+
+    # Let's use the example: item = 0.3, bins_remain_cap = [0.35, 0.4, 0.5, 0.2]
+    # can_fit_mask = [True, True, True, False]
+    # For fitting bins:
+    # bins_remain_cap[can_fit_mask] = [0.35, 0.4, 0.5]
+    # remaining_caps_after_fit = [0.05, 0.1, 0.2]
+
+    # Pure Best Fit priority: [-0.05, -0.1, -0.2] (Bin 0.35 is best)
+    # Pure Worst Fit priority: [0.35, 0.4, 0.5] (Bin 0.5 is best)
+
+    # We want to blend these. Let `bias` be the weight for Best Fit.
+    # Priority = `(1-bias) * (WorstFitScore) + bias * (BestFitScore)`
+    # Priority = `(1-bias) * bins_remain_cap[can_fit_mask] + bias * (-remaining_caps_after_fit)`
+    # Priority = `(1-bias) * (remaining_caps_after_fit + item) + bias * (-remaining_caps_after_fit)`
+    # Priority = `(1-bias) * remaining_caps_after_fit + (1-bias) * item - bias * remaining_caps_after_fit`
+    # Priority = `remaining_caps_after_fit * (1 - bias - bias) + (1-bias) * item`
+    # Priority = `remaining_caps_after_fit * (1 - 2*bias) + (1-bias) * item`
+
+    # Test again:
+    # If `bias = 0` (pure Worst Fit): Priority = `remaining_caps_after_fit * 1 + item`. Maximizes `remaining_caps_after_fit + item`, which is `bins_remain_cap[can_fit_mask]`. Correct.
+    # If `bias = 0.5` (equal blend): Priority = `remaining_caps_after_fit * 0 + (1-0.5) * item` = `0.5 * item`. Constant. Still not good.
+
+    # The problem is that the raw values of `bins_remain_cap` and `remaining_caps_after_fit` are highly correlated.
+
+    # Let's re-frame the "Worst Fit" criteria. It's about maximizing the *unused* capacity.
+    # We want to maximize `bins_remain_cap[can_fit_mask]`.
+
+    # For blending, we can use a form that prioritizes the primary goal (Worst Fit)
+    # and uses the secondary goal (Best Fit) to break ties or modify slightly.
+
+    # Let's try prioritizing `bins_remain_cap[can_fit_mask]` directly, but scale it
+    # down by a factor that depends on the remaining capacity.
+    # Score = `bins_remain_cap[can_fit_mask] / (1 + worst_fit_bias * remaining_caps_after_fit)`
+
+    # Test this:
+    # If `worst_fit_bias = 0`: Score = `bins_remain_cap[can_fit_mask]`. Pure Worst Fit. Correct.
+    # If `worst_fit_bias` is large: The denominator increases for bins with large remaining capacity,
+    # thus reducing their score. This makes bins with small remaining capacity (tighter fits) more
+    # likely to be chosen. This is the desired behavior.
+
+    # Example: item = 0.3, bins_remain_cap = [0.35, 0.4, 0.5, 0.2]
+    # `bins_remain_cap[can_fit_mask]` = [0.35, 0.4, 0.5]
+    # `remaining_caps_after_fit` = [0.05, 0.1, 0.2]
+    # `worst_fit_bias` = 0.5
+
+    # Bin 0.35: `bins_remain_cap`=0.35, `remaining_caps_after_fit`=0.05
+    # Score = 0.35 / (1 + 0.5 * 0.05) = 0.35 / (1 + 0.025) = 0.35 / 1.025 ≈ 0.34146
+
+    # Bin 0.4: `bins_remain_cap`=0.4, `remaining_caps_after_fit`=0.1
+    # Score = 0.4 / (1 + 0.5 * 0.1) = 0.4 / (1 + 0.05) = 0.4 / 1.05 ≈ 0.38095
+
+    # Bin 0.5: `bins_remain_cap`=0.5, `remaining_caps_after_fit`=0.2
+    # Score = 0.5 / (1 + 0.5 * 0.2) = 0.5 / (1 + 0.1) = 0.5 / 1.1 ≈ 0.45454
+
+    # With `worst_fit_bias = 0.5`, the ranking is [0.35, 0.4, 0.5] -> [0.34146, 0.38095, 0.45454].
+    # The highest priority is still for the bin with the largest remaining capacity (0.5).
+    # This seems to be leaning towards Worst Fit, which is what `worst_fit_bias` implies.
+
+    # If we want `worst_fit_bias` to control the *degree* to which we deviate from Worst Fit towards Best Fit,
+    # a higher `worst_fit_bias` should mean more preference for tighter fits.
+
+    # Let's try a score that is a sum:
+    # Score = `bins_remain_cap[can_fit_mask]` (Worst Fit component)
+    #       - `worst_fit_bias * remaining_caps_after_fit` (Penalty for slack, i.e. favouring Best Fit)
+
+    # Score = `(remaining_caps_after_fit + item) - worst_fit_bias * remaining_caps_after_fit`
+    # Score = `remaining_caps_after_fit * (1 - worst_fit_bias) + item`
+
+    # Test again with `worst_fit_bias = 0.5`:
+    # Bin 0.35: `remaining_caps_after_fit`=0.05, `item`=0.3
+    # Score = 0.05 * (1 - 0.5) + 0.3 = 0.05 * 0.5 + 0.3 = 0.025 + 0.3 = 0.325
+
+    # Bin 0.4: `remaining_caps_after_fit`=0.1, `item`=0.3
+    # Score = 0.1 * (1 - 0.5) + 0.3 = 0.1 * 0.5 + 0.3 = 0.05 + 0.3 = 0.35
+
+    # Bin 0.5: `remaining_caps_after_fit`=0.2, `item`=0.3
+    # Score = 0.2 * (1 - 0.5) + 0.3 = 0.2 * 0.5 + 0.3 = 0.1 + 0.3 = 0.4
+
+    # Ranking: [0.325, 0.35, 0.4]. Still prioritizing the largest remaining capacity (0.5).
+    # This formula seems to be a scaled Worst Fit.
+
+    # Let's define `worst_fit_bias` as the weight for the Best Fit component.
+    # Priority = `(1 - bias) * (WorstFitMetric) + bias * (BestFitMetric)`
+    # WorstFitMetric = `bins_remain_cap[can_fit_mask]`
+    # BestFitMetric = `-remaining_caps_after_fit`
+
+    # Priority = `(1 - bias) * bins_remain_cap[can_fit_mask] + bias * (-remaining_caps_after_fit)`
+    # Priority = `(1 - bias) * (remaining_caps_after_fit + item) - bias * remaining_caps_after_fit`
+    # Priority = `(1 - bias) * remaining_caps_after_fit + (1 - bias) * item - bias * remaining_caps_after_fit`
+    # Priority = `remaining_caps_after_fit * (1 - bias - bias) + (1 - bias) * item`
+    # Priority = `remaining_caps_after_fit * (1 - 2*bias) + (1 - bias) * item`
+
+    # The issue persists with this linear combination if `1 - 2*bias` is positive.
+
+    # Let's think about what happens when `bins_remain_cap` are similar.
+    # If `bins_remain_cap = [0.5, 0.51]`, item = 0.3.
+    # remaining_caps_after_fit = [0.2, 0.21]
+    # Pure WF: [0.5, 0.51] -> 0.51 is better
+    # Pure BF: [-0.2, -0.21] -> -0.2 is better
+
+    # If we use `bins_remain_cap[can_fit_mask] - penalty * remaining_caps_after_fit`
+    # penalty = `worst_fit_bias`
+    # Score = `bins_remain_cap[can_fit_mask] - worst_fit_bias * (bins_remain_cap[can_fit_mask] - item)`
+    # Score = `bins_remain_cap[can_fit_mask] * (1 - worst_fit_bias) + item * worst_fit_bias`
+
+    # Test again with `worst_fit_bias = 0.5`:
+    # Bin 0.35: Score = 0.35 * (1 - 0.5) + 0.3 * 0.5 = 0.35 * 0.5 + 0.15 = 0.175 + 0.15 = 0.325
+    # Bin 0.4: Score = 0.4 * (1 - 0.5) + 0.3 * 0.5 = 0.4 * 0.5 + 0.15 = 0.2 + 0.15 = 0.35
+    # Bin 0.5: Score = 0.5 * (1 - 0.5) + 0.3 * 0.5 = 0.5 * 0.5 + 0.15 = 0.25 + 0.15 = 0.4
+
+    # This is the same result as before. The `item` term is constant for all bins.
+    # The ranking is still determined by `bins_remain_cap[can_fit_mask] * (1 - worst_fit_bias)`.
+    # If `worst_fit_bias < 1`, this is maximized by maximizing `bins_remain_cap[can_fit_mask]`.
+
+    # To truly blend, we need a term that prioritizes smaller `remaining_caps_after_fit` when `bins_remain_cap` is similar.
+
+    # Let's try: maximize `bins_remain_cap[can_fit_mask]` but penalize it based on its "slackness".
+    # Score = `bins_remain_cap[can_fit_mask]` (base WF score)
+    # A bin is "bad" if its remaining capacity is much larger than the item.
+    # A bin is "good" if its remaining capacity is just enough for the item.
+
+    # Consider the quantity we want to maximize for WF: `bins_remain_cap[can_fit_mask]`
+    # Consider the quantity we want to minimize for BF: `remaining_caps_after_fit`
+
+    # Let's construct a score that uses `bins_remain_cap[can_fit_mask]` but shifts it
+    # based on `remaining_caps_after_fit`.
+    # Score = `bins_remain_cap[can_fit_mask] - worst_fit_bias * remaining_caps_after_fit` is still the most direct blend.
+
+    # If the problem is that `worst_fit_bias` is not directly controlling the *trade-off*,
+    # maybe we should use a different formulation.
+
+    # A different interpretation:
+    # "Worst Fit" means selecting the bin that leaves the largest capacity.
+    # If we want to temper this by preferring tighter fits, we can subtract a portion of the "tightness".
+    # The "tightness" is `bins_remain_cap[can_fit_mask] - item`.
+    # Score = `bins_remain_cap[can_fit_mask]` - `bias * (bins_remain_cap[can_fit_mask] - item)`
+    # Score = `bins_remain_cap[can_fit_mask] * (1 - bias)` + `item * bias`
+
+    # This leads back to the same formula. The issue might be in how `bias` is interpreted.
+
+    # Let's try to maximize `bins_remain_cap[can_fit_mask]` but with a discount applied to larger values.
+    # Score = `bins_remain_cap[can_fit_mask] / (1 + worst_fit_bias * bins_remain_cap[can_fit_mask])`
+    # This would also penalize larger bins.
+
+    # Let's consider the function `f(x) = x - bias * x`.
+    # If `bias` is small, we maximize `x`.
+    # If `bias` is large, we minimize `x`.
+
+    # Let's try a score that combines the *absolute remaining capacity* with the *slack*.
+    # We want to maximize `bins_remain_cap[can_fit_mask]` (Worst Fit).
+    # We also want to minimize `remaining_caps_after_fit` (Best Fit).
+
+    # Consider the value `bins_remain_cap[can_fit_mask]`.
+    # If `worst_fit_bias = 0.0`, we want to maximize this.
+    # If `worst_fit_bias = 1.0`, we want to minimize `remaining_caps_after_fit`.
+    # This implies a transition.
+
+    # Let's try to maximize `bins_remain_cap[can_fit_mask]` but subtract a term that
+    # is related to how "over-filled" the bin would become if we were aiming for a perfect fit.
+    # This is getting complicated.
+
+    # Simpler approach:
+    # Prioritize bins with larger `bins_remain_cap`.
+    # If multiple bins have the same (or very similar) `bins_remain_cap`, then prefer the one with less slack.
+    # This suggests a compound score: `(bins_remain_cap[can_fit_mask], -remaining_caps_after_fit)`.
+    # To combine into a single number: `bins_remain_cap[can_fit_mask] + epsilon * (-remaining_caps_after_fit)`
+    # where `epsilon` is a small value.
+
+    # Let `epsilon = worst_fit_bias`.
+    # Score = `bins_remain_cap[can_fit_mask] - worst_fit_bias * remaining_caps_after_fit`
+    # This is the same formula we've been testing.
+
+    # Let's reconsider the interpretation of `worst_fit_bias`.
+    # If `worst_fit_bias` is the *strength* of the "Worst Fit" preference.
+    # And we want to temper it with "Best Fit".
+
+    # Let's try to maximize `bins_remain_cap[can_fit_mask]` directly, and use `worst_fit_bias`
+    # as a divisor that reduces the score for bins that leave a lot of slack.
+    # Score = `bins_remain_cap[can_fit_mask] / (1 + worst_fit_bias * remaining_caps_after_fit)`
+    # This still leads to Worst Fit preference being dominant if `worst_fit_bias` is small.
+
+    # What if `worst_fit_bias` controls how much we penalize slack?
+    # Score = `bins_remain_cap[can_fit_mask] - worst_fit_bias * remaining_caps_after_fit`
+    # This is `bins_remain_cap[can_fit_mask] * (1 - worst_fit_bias) + item * worst_fit_bias`.
+
+    # The issue might be that `item` is added, creating a constant shift.
+    # Let's remove the `item` term and focus on the relative ordering:
+    # Score_relative = `bins_remain_cap[can_fit_mask] * (1 - worst_fit_bias)`
+
+    # If `worst_fit_bias = 0`: maximize `bins_remain_cap`. WF.
+    # If `worst_fit_bias = 1`: maximize `0`. All equal. Bad.
+
+    # Let's try to maximize a quantity that is *inversely* related to slack, but scaled by WF.
+    # Maximize `bins_remain_cap[can_fit_mask]`
+    # and also maximize `1 / (1 + remaining_caps_after_fit)` (which favors smaller slack).
+
+    # Score = `bins_remain_cap[can_fit_mask] * (1 - bias) + (1 / (1 + remaining_caps_after_fit)) * bias`
+
+    # Test with `worst_fit_bias = 0.5`:
+    # Bin 0.35: `bins_remain_cap`=0.35, `rem_cap`=0.05
+    # Score = 0.35 * 0.5 + (1 / (1 + 0.05)) * 0.5 = 0.175 + (1 / 1.05) * 0.5 = 0.175 + 0.95238 * 0.5 = 0.175 + 0.47619 = 0.65119
+
+    # Bin 0.4: `bins_remain_cap`=0.4, `rem_cap`=0.1
+    # Score = 0.4 * 0.5 + (1 / (1 + 0.1)) * 0.5 = 0.2 + (1 / 1.1) * 0.5 = 0.2 + 0.90909 * 0.5 = 0.2 + 0.45454 = 0.65454
+
+    # Bin 0.5: `bins_remain_cap`=0.5, `rem_cap`=0.2
+    # Score = 0.5 * 0.5 + (1 / (1 + 0.2)) * 0.5 = 0.25 + (1 / 1.2) * 0.5 = 0.25 + 0.83333 * 0.5 = 0.25 + 0.41666 = 0.66666
+
+    # Ranking: [0.65119, 0.65454, 0.66666]. This still prioritizes the largest remaining capacity (0.5).
+
+    # The interpretation of `worst_fit_bias` is crucial. Let's assume a higher value means
+    # we are "more Worst Fit".
+
+    # Final attempt at a sensible blending formula:
+    # We want to maximize `bins_remain_cap[can_fit_mask]`.
+    # Let `ideal_gap` be the target slack for Best Fit (e.g., 0).
+    # The "goodness" of a bin for Best Fit is related to how close `remaining_caps_after_fit` is to 0.
+    # We can use the sigmoid from `priority_v0` as a measure of "Best Fit desirability".
+    # `bf_desirability = 1 / (1 + exp(-steepness * (ideal_gap - remaining_caps_after_fit)))`
+
+    # Then blend Worst Fit metric with this Best Fit desirability.
+    # Score = `bins_remain_cap[can_fit_mask]` (WF metric)
+    #        + `blend_factor * bf_desirability`
+
+    # Let `worst_fit_bias` control the `blend_factor`.
+    # Higher `worst_fit_bias` means more contribution from BF desirability.
+    # Score = `bins_remain_cap[can_fit_mask]` + `worst_fit_bias * bf_desirability`
+
+    # Let's use `steepness = 10` and `ideal_gap = 0`.
+    # bf_desirability = 1 / (1 + exp(10 * remaining_caps_after_fit))
+
+    # Test with `worst_fit_bias = 0.5`:
+    # Bin 0.35: `bins_remain_cap`=0.35, `rem_cap`=0.05
+    # bf_desirability = 1 / (1 + exp(10 * 0.05)) = 1 / (1 + exp(0.5)) = 1 / (1 + 1.6487) = 1 / 2.6487 ≈ 0.37754
+    # Score = 0.35 + 0.5 * 0.37754 = 0.35 + 0.18877 = 0.53877
+
+    # Bin 0.4: `bins_remain_cap`=0.4, `rem_cap`=0.1
+    # bf_desirability = 1 / (1 + exp(10 * 0.1)) = 1 / (1 + exp(1)) = 1 / (1 + 2.71828) = 1 / 3.71828 ≈ 0.26894
+    # Score = 0.4 + 0.5 * 0.26894 = 0.4 + 0.13447 = 0.53447
+
+    # Bin 0.5: `bins_remain_cap`=0.5, `rem_cap`=0.2
+    # bf_desirability = 1 / (1 + exp(10 * 0.2)) = 1 / (1 + exp(2)) = 1 / (1 + 7.38905) = 1 / 8.38905 ≈ 0.11919
+    # Score = 0.5 + 0.5 * 0.11919 = 0.5 + 0.05959 = 0.55959
+
+    # Ranking: [0.53877, 0.53447, 0.55959].
+    # Here, bin 0.5 still has the highest score. The behavior is that WF is primary,
+    # and BF adds a bonus.
+
+    # If we want `worst_fit_bias` to control how much we *shift* from WF to BF.
+    # Let's make `worst_fit_bias` control the weight of the BF term.
+    # Score = `(1 - worst_fit_bias) * bins_remain_cap[can_fit_mask] + worst_fit_bias * (some BF metric)`
+
+    # Let's retry: `bins_remain_cap[can_fit_mask] * (1 - worst_fit_bias) + item * worst_fit_bias`
+    # This form means if `worst_fit_bias` is high, `item` becomes a dominant factor.
+
+    # What if we directly blend the criteria?
+    # We want to maximize `bins_remain_cap[can_fit_mask]`.
+    # And we want to minimize `remaining_caps_after_fit`.
+
+    # Consider the function: `f(rem_cap, bias) = rem_cap * (1-bias) - rem_cap * bias` -- doesn't make sense.
+
+    # Let's use `bins_remain_cap` as the primary sorting key (WF) and `remaining_caps_after_fit` (BF) as secondary.
+    # A common way to achieve this is:
+    # Score = `bins_remain_cap[can_fit_mask] * M - remaining_caps_after_fit`
+    # where `M` is a large multiplier to ensure `bins_remain_cap` dominates.
+    # However, we want to tune the *blend*.
+
+    # The reflection says "balance between 'Worst Fit' and 'Best Fit'".
+    # This implies a continuous transition.
+
+    # Let's go with the formulation:
+    # Score = `bins_remain_cap[can_fit_mask] * (1 - worst_fit_bias)`
+    # This makes `worst_fit_bias` control how much the WF score is "dampened".
+    # If `worst_fit_bias = 0`, we maximize `bins_remain_cap`.
+    # If `worst_fit_bias = 1`, the score is 0.
+
+    # What if we want `worst_fit_bias = 1.0` to mean pure Best Fit?
+    # Score = `(1 - worst_fit_bias) * bins_remain_cap[can_fit_mask] + worst_fit_bias * (-remaining_caps_after_fit)`
+    # If `worst_fit_bias = 1.0`, Score = `-remaining_caps_after_fit`. Pure BF.
+    # If `worst_fit_bias = 0.0`, Score = `bins_remain_cap[can_fit_mask]`. Pure WF.
+
+    # Let's re-test this formulation with `worst_fit_bias` as the weight for BF.
+    # Score = `(1 - worst_fit_bias) * bins_remain_cap[can_fit_mask] + worst_fit_bias * (-remaining_caps_after_fit)`
+
+    # Example: item = 0.3, bins_remain_cap = [0.35, 0.4, 0.5, 0.2]
+    # `bins_remain_cap[can_fit_mask]` = [0.35, 0.4, 0.5]
+    # `remaining_caps_after_fit` = [0.05, 0.1, 0.2]
+
+    # Let `worst_fit_bias = 0.5` (50% BF, 50% WF)
+    # Bin 0.35: `bins_remain_cap`=0.35, `rem_cap`=0.05
+    # Score = (1 - 0.5) * 0.35 + 0.5 * (-0.05) = 0.5 * 0.35 - 0.5 * 0.05 = 0.175 - 0.025 = 0.15
+
+    # Bin 0.4: `bins_remain_cap`=0.4, `rem_cap`=0.1
+    # Score = (1 - 0.5) * 0.4 + 0.5 * (-0.1) = 0.5 * 0.4 - 0.5 * 0.1 = 0.2 - 0.05 = 0.15
+
+    # Bin 0.5: `bins_remain_cap`=0.5, `rem_cap`=0.2
+    # Score = (1 - 0.5) * 0.5 + 0.5 * (-0.2) = 0.5 * 0.5 - 0.5 * 0.2 = 0.25 - 0.10 = 0.15
+
+    # This formulation results in constant scores when the bias is 0.5. This is because
+    # `0.5 * A + 0.5 * (-B)` where `A = B + C` leads to `0.5 * (B+C) - 0.5 * B = 0.5*C`.
+    # Here `A = bins_remain_cap`, `B = remaining_caps_after_fit`, `C = item`.
+    # `bins_remain_cap = remaining_caps_after_fit + item`.
+    # So, `0.5 * (rem_cap + item) + 0.5 * (-rem_cap)` = `0.5 * item`. Constant.
+
+    # The reflection implies that we should be able to "tune" the preference.
+    # The current issue is that WF and BF are opposing objectives that are linearly dependent.
+
+    # Let's try to maximize `bins_remain_cap[can_fit_mask]` and use `worst_fit_bias` to *reduce* the score
+    # for bins with large remaining capacity.
+    # Score = `bins_remain_cap[can_fit_mask] - worst_fit_bias * bins_remain_cap[can_fit_mask]`
+    # Score = `bins_remain_cap[can_fit_mask] * (1 - worst_fit_bias)`
+
+    # Test this:
+    # If `worst_fit_bias = 0`: Score = `bins_remain_cap`. Pure WF.
+    # If `worst_fit_bias = 1`: Score = `0`. Equal.
+    # If `worst_fit_bias = 0.5`: Score = `0.5 * bins_remain_cap`. Still prioritizes largest.
+
+    # The key is to make the *relative* priority between bins change.
+
+    # Consider the metric: `bins_remain_cap[can_fit_mask]`.
+    # For WF, we want to maximize this.
+    # For BF, we want to minimize `bins_remain_cap[can_fit_mask] - item`.
+
+    # Let's use a score that is `bins_remain_cap[can_fit_mask]`, but we "shift" it
+    # based on the bias towards BF.
+    # If `worst_fit_bias = 0`, score is `bins_remain_cap`.
+    # If `worst_fit_bias = 1`, score is `-remaining_caps_after_fit`.
+
+    # Consider a score `S = A * x + B * y` where we want to vary `A` and `B`.
+    # Let `x = bins_remain_cap[can_fit_mask]`
+    # Let `y = -remaining_caps_after_fit`
+
+    # If `worst_fit_bias` is the weight for the BF component:
+    # Score = `(1 - worst_fit_bias) * x + worst_fit_bias * y`
+    # Score = `(1 - worst_fit_bias) * bins_remain_cap[can_fit_mask] + worst_fit_bias * (-remaining_caps_after_fit)`
+
+    # As shown earlier, this leads to a constant score if `bias = 0.5`.
+    # The issue is the linear dependency of x and y.
+
+    # Let's try this:
+    # We want to prioritize bins with large `bins_remain_cap`.
+    # But, we want to penalize bins that leave a *large* gap when the `bins_remain_cap` are similar.
+
+    # A different approach:
+    # Prioritize bins by `bins_remain_cap`.
+    # Then, for bins that are "close" in `bins_remain_cap`, use the slack as a tie-breaker.
+    # "Close" can be defined by `worst_fit_bias`.
+
+    # Score = `bins_remain_cap[can_fit_mask] + worst_fit_bias * (-remaining_caps_after_fit)`
+    # This is the formula that gave WF dominance.
+
+    # Let's try:
+    # Score = `bins_remain_cap[can_fit_mask]`  # Primary WF objective
+    # We want to reduce this score for bins that leave too much slack.
+    # Reduction = `worst_fit_bias * remaining_caps_after_fit`
+    # Score = `bins_remain_cap[can_fit_mask] - worst_fit_bias * remaining_caps_after_fit`
+    # This is the same one that yielded `bins_remain_cap * (1 - worst_fit_bias) + item * worst_fit_bias`.
+
+    # The formulation that blends WF and BF should allow a tunable parameter to move
+    # from pure WF to pure BF.
+
+    # Consider the "slack" `s = bins_remain_cap - item`.
+    # WF prioritizes maximizing `s + item`.
+    # BF prioritizes minimizing `s`.
+
+    # Let `w` be `worst_fit_bias`.
+    # We want to transition from maximizing `s + item` (w=0) to minimizing `s` (w=1).
+
+    # Score = `(1-w) * (s + item) + w * (-s)`
+    # This yielded the constant score issue.
+
+    # Alternative blend:
+    # Score = `(1-w) * (s + item) + w * (something else related to BF)`
+
+    # What if we consider the *ratio*?
+    # Maximize `bins_remain_cap / (bins_remain_cap - item)`? No.
+
+    # Let's reconsider the original `priority_v0` with its sigmoid.
+    # It controlled the "ideal gap". This is a different dimension.
+
+    # The reflection says: "balance between 'Worst Fit' and 'Best Fit'".
+    # This suggests a linear interpolation between the "ideal" WF score and the "ideal" BF score.
+
+    # WF Score: `bins_remain_cap[can_fit_mask]`
+    # BF Score: `-remaining_caps_after_fit`
+
+    # Blend Score = `(1 - bias) * WF_Score + bias * BF_Score`
+    # where `bias` is the weight for BF. Let's use `best_fit_weight` for clarity.
+    # Score = `(1 - best_fit_weight) * bins_remain_cap[can_fit_mask] + best_fit_weight * (-remaining_caps_after_fit)`
+
+    # This formulation, as proven, fails to provide a useful blend when the input variables are linearly dependent.
+    # `bins_remain_cap[can_fit_mask] = remaining_caps_after_fit + item`.
+    # Let `R = remaining_caps_after_fit`.
+    # Score = `(1 - w) * (R + item) + w * (-R)`
+    # Score = `(1 - w) * R + (1 - w) * item - w * R`
+    # Score = `R * (1 - w - w) + (1 - w) * item`
+    # Score = `R * (1 - 2w) + (1 - w) * item`
+
+    # This score is linear in `R`.
+    # If `1 - 2w > 0` (i.e., `w < 0.5`), the score increases with `R`. This means it still favors WF.
+    # If `1 - 2w < 0` (i.e., `w > 0.5`), the score decreases with `R`. This means it favors BF.
+    # If `1 - 2w = 0` (i.e., `w = 0.5`), the score is constant (`0.5 * item`).
+
+    # This formula *does* provide a tunable transition:
+    # - If `w < 0.5`: It's effectively a weighted WF. Higher `w` in this range means less WF preference.
+    # - If `w > 0.5`: It's effectively a weighted BF (reversed). Higher `w` means more BF preference.
+    # - At `w = 0.5`: All bins are equal.
+
+    # This is a valid blending strategy, though the `w=0.5` point is degenerate.
+    # Let's use `worst_fit_bias` to control the weight for WF, and `best_fit_bias` for BF.
+    # Or, let `worst_fit_bias` be the weight for WF, and we derive the weight for BF.
+
+    # Let's assume `worst_fit_bias` directly controls the blend:
+    # `worst_fit_bias = 0.0` -> Pure WF
+    # `worst_fit_bias = 1.0` -> Pure BF
+
+    # Formula: `Score = (1 - w) * WF_Score + w * BF_Score`
+    # where `w` is `worst_fit_bias`.
+    # WF_Score = `bins_remain_cap[can_fit_mask]`
+    # BF_Score = `-remaining_caps_after_fit`
+
+    # Score = `(1 - worst_fit_bias) * bins_remain_cap[can_fit_mask] + worst_fit_bias * (-remaining_caps_after_fit)`
+    # This is the formula `R * (1 - 2w) + item * (1 - w)`.
+
+    # Let's refine the parameter meaning.
+    # Let `blend_weight` be the parameter, from 0 to 1.
+    # `blend_weight = 0`: Pure WF. Priority = `bins_remain_cap`.
+    # `blend_weight = 1`: Pure BF. Priority = `-remaining_caps_after_fit`.
+
+    # Score = `(1 - blend_weight) * bins_remain_cap[can_fit_mask] + blend_weight * (-remaining_caps_after_fit)`
+
+    # Example: item = 0.3, bins_remain_cap = [0.35, 0.4, 0.5]
+    # `bins_remain_cap` = [0.35, 0.4, 0.5]
+    # `rem_cap_after` = [0.05, 0.1, 0.2]
+
+    # Case `blend_weight = 0` (Pure WF):
+    # Scores = [0.35, 0.4, 0.5]. Max is 0.5.
+
+    # Case `blend_weight = 1` (Pure BF):
+    # Scores = [-0.05, -0.1, -0.2]. Max is -0.05.
+
+    # Case `blend_weight = 0.2` (20% BF):
+    # Score = 0.8 * bins_remain_cap + 0.2 * (-rem_cap_after)
+    # Bin 0.35: 0.8 * 0.35 + 0.2 * (-0.05) = 0.28 - 0.01 = 0.27
+    # Bin 0.4:  0.8 * 0.4  + 0.2 * (-0.1)  = 0.32 - 0.02 = 0.30
+    # Bin 0.5:  0.8 * 0.5  + 0.2 * (-0.2)  = 0.40 - 0.04 = 0.36
+    # Ranking: [0.27, 0.30, 0.36]. Max is 0.36 (from bin 0.5). Still WF dominant.
+
+    # Case `blend_weight = 0.8` (80% BF):
+    # Score = 0.2 * bins_remain_cap + 0.8 * (-rem_cap_after)
+    # Bin 0.35: 0.2 * 0.35 + 0.8 * (-0.05) = 0.07 - 0.04 = 0.03
+    # Bin 0.4:  0.2 * 0.4  + 0.8 * (-0.1)  = 0.08 - 0.08 = 0.00
+    # Bin 0.5:  0.2 * 0.5  + 0.8 * (-0.2)  = 0.10 - 0.16 = -0.06
+    # Ranking: [0.03, 0.00, -0.06]. Max is 0.03 (from bin 0.35). Now BF dominant.
+
+    # This formula correctly transitions the preference.
+    # The name `worst_fit_bias` is misleading if it represents the weight for BF.
+    # Let's rename the tunable parameter to `best_fit_weight`.
+
+    # --- Tunable Parameter ---
+    # `best_fit_weight`: Controls the preference for "Best Fit".
+    # A value of 0.0 corresponds to pure "Worst Fit" (prioritizing largest remaining capacity).
+    # A value of 1.0 corresponds to pure "Best Fit" (prioritizing smallest remaining capacity).
+    # Values in between blend the two strategies.
+    best_fit_weight = 0.5 # Example: Equal blend, which we found to be degenerate.
+                          # Let's choose a non-degenerate example.
+
+    # Let's try `best_fit_weight = 0.3`. This should still be WF dominant.
+    # Let's try `best_fit_bias` for clarity.
+
+    best_fit_bias = 0.3 # Example: 30% preference for Best Fit, 70% for Worst Fit.
+
+    # Calculate the score for bins that can fit the item.
+    # Score = (1 - best_fit_bias) * (Worst Fit metric) + best_fit_bias * (Best Fit metric)
+    # Worst Fit metric: bins_remain_cap[can_fit_mask] (higher is better)
+    # Best Fit metric: -remaining_caps_after_fit (higher is better, i.e., smaller positive remaining_caps_after_fit)
+
+    # The formula `R * (1 - 2w) + item * (1 - w)` works.
+    # Here, `w` is `best_fit_bias`.
+
+    # Let's use the direct formula for clarity.
+    # `bins_remain_cap_fit = bins_remain_cap[can_fit_mask]`
+    # `remaining_caps_fit = bins_remain_cap_fit - item`
+
+    # Score = `(1 - best_fit_bias) * bins_remain_cap_fit + best_fit_bias * (-remaining_caps_fit)`
+    priorities[can_fit_mask] = (1 - best_fit_bias) * bins_remain_cap[can_fit_mask] + \
+                               best_fit_bias * -(bins_remain_cap[can_fit_mask] - item)
+
+    return priorities
+
+```

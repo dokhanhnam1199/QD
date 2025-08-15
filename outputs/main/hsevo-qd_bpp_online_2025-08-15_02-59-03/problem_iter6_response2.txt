@@ -1,0 +1,84 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin.
+    This heuristic prioritizes bins that result in less wasted space after packing,
+    while also favoring bins that are a "closer fit" without being too tight.
+    It also introduces a penalty for bins that are nearly full to encourage
+    using bins with more remaining capacity when possible, especially for smaller items.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    # Calculate remaining capacity after packing
+    potential_remaining_caps = bins_remain_cap[suitable_bins_mask] - item
+
+    # Heuristic component 1: Minimize wasted space (similar to Best Fit)
+    # We want bins with smaller potential_remaining_caps to have higher priority.
+    # Normalize this to avoid extreme values.
+    min_potential_remaining = np.min(potential_remaining_caps)
+    max_potential_remaining = np.max(potential_remaining_caps)
+
+    if max_potential_remaining == min_potential_remaining:
+        # If all suitable bins have the same remaining capacity after packing,
+        # assign equal priority to them.
+        score1 = np.ones_like(potential_remaining_caps)
+    else:
+        # Higher priority for bins with smaller remaining capacity after packing
+        score1 = 1.0 - (potential_remaining_caps - min_potential_remaining) / (max_potential_remaining - min_potential_remaining)
+
+    # Heuristic component 2: Favor "good enough" fits over very tight fits
+    # We want to avoid situations where a very small item fills a bin almost completely,
+    # leaving little room for future, potentially larger items.
+    # If the remaining capacity after packing is very small (e.g., close to 0),
+    # we might want to slightly reduce its priority.
+    # This is a form of "anti-tightness" penalty.
+    # We use a sigmoid-like function or a simple threshold for this.
+    # Let's consider bins where remaining_cap - item is small.
+    # A small positive remaining capacity is good, but very small might be bad.
+    # Let's define a "tightness threshold" relative to the bin's original capacity.
+    # For simplicity, let's consider a threshold relative to the item size itself.
+    # If remaining_cap - item < epsilon * item, it's a tight fit.
+    # We want to penalize these.
+    tightness_threshold_factor = 0.1 # This factor can be tuned
+    tight_fit_mask = potential_remaining_caps < tightness_threshold_factor * item
+    score2 = np.ones_like(potential_remaining_caps)
+    # Reduce priority for tight fits
+    score2[tight_fit_mask] *= 0.7 # Reduce priority by 30% for tight fits
+
+    # Heuristic component 3: Encourage fuller bins when it doesn't hurt too much
+    # This is to try and consolidate items. If multiple bins have similar 'waste',
+    # prefer the one that is more full (i.e., has less initial remaining capacity).
+    # This is a tie-breaker for score1.
+    # Higher initial remaining capacity is worse in this component.
+    initial_remaining_caps_suitable = bins_remain_cap[suitable_bins_mask]
+    min_initial_rem = np.min(initial_remaining_caps_suitable)
+    max_initial_rem = np.max(initial_remaining_caps_suitable)
+
+    if max_initial_rem == min_initial_rem:
+        score3 = np.ones_like(potential_remaining_caps)
+    else:
+        # Higher priority for bins with less initial remaining capacity
+        score3 = 1.0 - (initial_remaining_caps_suitable - min_initial_rem) / (max_initial_rem - min_initial_rem)
+
+
+    # Combine scores. Weights can be tuned.
+    # score1 (minimize waste) is primary.
+    # score2 (avoid tightness) is secondary.
+    # score3 (encourage fullness) is a tie-breaker.
+    weights = {'score1': 0.6, 'score2': 0.3, 'score3': 0.1}
+
+    combined_score = (weights['score1'] * score1 +
+                      weights['score2'] * score2 +
+                      weights['score3'] * score3)
+
+    # Assign combined scores to the original priority array
+    priorities[suitable_bins_mask] = combined_score
+
+    return priorities
+```

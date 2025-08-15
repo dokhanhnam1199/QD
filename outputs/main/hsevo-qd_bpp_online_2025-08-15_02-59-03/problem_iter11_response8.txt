@@ -1,0 +1,55 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines exact fits, tightest fits, and a penalty for small remaining capacities.
+
+    Prioritizes exact fits, then bins with the least remaining capacity,
+    and penalizes bins that would leave very little space after packing.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=np.float64)
+
+    # Mask for bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Mask for exact fits
+    exact_fit_mask = (bins_remain_cap == item) & can_fit_mask
+    priorities[exact_fit_mask] = 2.0  # Highest priority for exact fits
+
+    # Mask for bins that can fit but are not exact fits
+    suitable_but_not_exact_mask = can_fit_mask & ~exact_fit_mask
+
+    if np.any(suitable_but_not_exact_mask):
+        suitable_bins_remain_cap = bins_remain_cap[suitable_but_not_exact_mask]
+        
+        # Calculate residual capacity after packing
+        residual_capacities = suitable_bins_remain_cap - item
+
+        # Priority 2: Tightest Fits (based on minimal residual capacity)
+        # Use 1 / (residual + epsilon) to give higher scores to smaller residuals.
+        tight_fit_scores = 1.0 / (residual_capacities + 1e-9)
+        
+        # Normalize these scores to be less than 2.0, ensuring exact fits remain dominant.
+        if np.max(tight_fit_scores) > 0:
+            normalized_tight_fit_scores = (tight_fit_scores / np.max(tight_fit_scores)) * 0.9 + 0.05 # Scale to 0.05-0.95
+        else:
+            normalized_tight_fit_scores = np.zeros_like(suitable_bins_remain_cap)
+
+        # Priority 3: Penalize bins that leave very little remaining capacity
+        # A small epsilon is added to residual_capacities for the penalty calculation
+        # This discourages very tight but not exact fits if a slightly looser fit is available.
+        # Small residual capacities (e.g., < 0.1) get a higher penalty score (lower priority contribution).
+        penalty_threshold = 0.1
+        small_residual_mask = residual_capacities < penalty_threshold
+        penalty_scores = np.ones_like(residual_capacities)
+        if np.any(small_residual_mask):
+            penalty_scores[small_residual_mask] = 0.5 # Apply a penalty to these scores
+
+        # Combine tight fit scores with penalties: Higher tight fit score, lower penalty contribution
+        final_scores = normalized_tight_fit_scores * penalty_scores
+        
+        # Assign these refined priorities to the suitable but not exact bins
+        priorities[suitable_but_not_exact_mask] = final_scores
+
+    return priorities
+```

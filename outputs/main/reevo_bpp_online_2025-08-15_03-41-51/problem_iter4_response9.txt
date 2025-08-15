@@ -1,0 +1,138 @@
+```python
+import numpy as np
+from scipy.special import expit  # Sigmoid function
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin,
+    prioritizing tightest fits with a bonus for flexibility, using normalized values
+    and sigmoid for smooth prioritization.
+
+    The priority is a composite score based on:
+    1. Tightness: Prioritizes bins with minimal non-negative remaining capacity
+       that can fit the item. Modeled by a sigmoid function of the negative gap.
+    2. Flexibility: Prioritizes bins with larger remaining capacity.
+       Modeled by a sigmoid function of the normalized remaining capacity.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros(num_bins, dtype=float)
+
+    # Parameters for tuning:
+    # k_tight: Controls the steepness of the tightness score. Higher k_tight
+    #          means smaller gaps are much more favored.
+    # k_flex: Controls the steepness of the flexibility score. Higher k_flex means
+    #         larger capacities reach saturation faster.
+    # w_tight: Weight for the tightness component.
+    # w_flex: Weight for the flexibility component.
+    # norm_clip_max: Value to clip normalized capacities at to prevent extreme flexibility scores.
+    k_tight = 5.0
+    k_flex = 2.0
+    w_tight = 0.7
+    w_flex = 0.3
+    norm_clip_max = 1.0 # Clip normalized capacity at 1.0 to prevent infinite sigmoid input if max_cap == min_cap
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Process only bins that can fit the item
+    eligible_bins_indices = np.where(can_fit_mask)[0]
+
+    if len(eligible_bins_indices) > 0:
+        eligible_rem_cap = bins_remain_cap[eligible_bins_indices]
+        gaps = eligible_rem_cap - item # These are guaranteed non-negative
+
+        # --- Calculate Tightness Score ---
+        # We want small positive gaps to have high scores.
+        # A measure of tightness could be `1 / (1 + gap)` or `exp(-k * gap)`.
+        # Using `exp(-k * gap)`:
+        # If gap = 0, score = exp(0) = 1.
+        # If gap = small positive, score < 1.
+        # If gap = large positive, score -> 0.
+        # This directly gives higher scores for tighter fits.
+        # We can pass this through a sigmoid to smooth and bound.
+        # Let's use sigmoid(k_tight * (1 - gap)) - this doesn't quite work as intended.
+        # Revisit: sigmoid(x) is high for positive x, low for negative x.
+        # We want high score for small gap. Let input to sigmoid be `k * (-gap)`.
+        # `tightness_score = expit(k_tight * (-gaps))`
+        # If gap = 0, input = 0, score = 0.5
+        # If gap = small positive, input = small negative, score < 0.5
+        # If gap = large positive, input = large negative, score -> 0.
+        # This is still inverted.
+
+        # Correct approach for `sigmoid(input)` to be high for small `gaps`:
+        # Input should be high for small gaps.
+        # Try `k * (1.0 / (1.0 + gaps))`
+        #   If gap = 0, input = k * 1.0. Score ~ 1.0
+        #   If gap = small, input = k * (1 / (1 + small)) < k. Score < 1.0
+        #   If gap = large, input = k * (1 / (1 + large)) -> 0. Score -> 0.5.
+        # This seems correct.
+        # Or use `k * exp(-gaps)`
+        #   If gap = 0, input = k * 1.0. Score ~ 1.0
+        #   If gap = small, input = k * exp(-small) < k. Score < 1.0
+        #   If gap = large, input = k * exp(-large) -> 0. Score -> 0.5.
+        # Let's use the `exp(-k*gap)` directly as it's simpler and then sigmoid.
+        # `tightness_measure = np.exp(-k_tight * gaps)`
+        # `tightness_score = expit(k_tight * (tightness_measure - 0.5) * 2)` # Rescale [0,1] to [-1,1] for sigmoid center at 0.5
+
+        # A more direct way for sigmoid:
+        # We want high score when `gaps` is small.
+        # Let `input = C - gaps`. Choose C large enough.
+        # `tightness_score = expit(k_tight * (1.0 - gaps))` # Assuming gaps are normalized 0-1
+        # Since gaps can be larger, let's normalize them first.
+        max_gap = np.max(gaps) if len(gaps) > 0 else 0
+        min_gap = np.min(gaps) if len(gaps) > 0 else 0
+
+        if max_gap > min_gap:
+            normalized_gaps = (gaps - min_gap) / (max_gap - min_gap)
+        else:
+            normalized_gaps = np.zeros_like(gaps) # All gaps are the same
+
+        # Now, small normalized_gaps should yield high priority.
+        # Use `expit(k_tight * (1.0 - normalized_gaps))`
+        tightness_score = expit(k_tight * (1.0 - normalized_gaps))
+
+        # --- Calculate Flexibility Score ---
+        # We want larger remaining capacities to have higher scores.
+        # Normalize `eligible_rem_cap` to [0, 1].
+        max_cap = np.max(bins_remain_cap) if num_bins > 0 else 0
+        min_cap = np.min(bins_remain_cap) if num_bins > 0 else 0
+
+        if max_cap > min_cap:
+            normalized_caps = (eligible_rem_cap - min_cap) / (max_cap - min_cap)
+            # Clip to avoid extreme values if max_cap == min_cap for eligible bins
+            normalized_caps = np.clip(normalized_caps, 0.0, norm_clip_max)
+        else:
+            # If all bins have the same capacity (or only one bin exists),
+            # assign a neutral or slightly positive normalized capacity.
+            normalized_caps = np.full_like(eligible_rem_cap, 0.5)
+
+        # Use sigmoid on normalized capacities. Higher capacity -> higher score.
+        flexibility_score = expit(k_flex * normalized_caps)
+
+        # --- Combine Scores ---
+        # Weighted sum of tightness and flexibility scores
+        composite_priorities = w_tight * tightness_score + w_flex * flexibility_score
+
+        # Assign the calculated composite priorities back to the main priorities array
+        priorities[eligible_bins_indices] = composite_priorities
+
+        # --- Final Normalization (Optional but good practice) ---
+        # Normalize all priorities to be in the range [0, 1] based on the maximum priority found.
+        # This ensures that the highest priority bin always gets a score of 1.0,
+        # making relative scores clearer.
+        max_priority_value = np.max(priorities)
+        if max_priority_value > 0:
+            priorities = priorities / max_priority_value
+        # If all priorities are zero (e.g., no eligible bins or calculation resulted in zeros),
+        # the array remains all zeros.
+
+    return priorities
+```

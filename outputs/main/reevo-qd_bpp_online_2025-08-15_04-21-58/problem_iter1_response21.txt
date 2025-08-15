@@ -1,0 +1,96 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a Best Fit strategy.
+
+    The Best Fit strategy prioritizes bins that have just enough remaining capacity
+    to accommodate the item. This aims to leave larger remaining capacities in other
+    bins for potentially larger future items.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize priorities to a very low value (negative infinity)
+    # to ensure that bins that cannot fit the item get a zero priority.
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins where the item can fit, calculate the remaining capacity after packing.
+    # The "best fit" is the one that results in the smallest remaining capacity,
+    # but also importantly, the remaining capacity should be non-negative.
+    # We want to maximize the negative of the remaining capacity (or minimize the positive remaining capacity).
+    # To make it a "priority score" where higher is better, we can invert the difference.
+    # A bin that is a perfect fit (bins_remain_cap - item == 0) should have the highest priority.
+    # Bins that are a looser fit should have lower priorities.
+
+    # Calculate remaining capacity if the item fits
+    remaining_capacities_if_fit = bins_remain_cap[can_fit_mask] - item
+
+    # For Best Fit, we want to minimize `remaining_capacities_if_fit`.
+    # We can use `1.0 / (remaining_capacities_if_fit + epsilon)` to create a priority
+    # where smaller positive remaining capacities yield higher priorities.
+    # Adding a small epsilon to the denominator prevents division by zero if `remaining_capacities_if_fit` is 0.
+    # However, a simpler and often effective way is to use a negative value of the remaining capacity
+    # and then potentially shift it so that perfect fits have the highest priority.
+
+    # Let's consider a score that is 0 for bins that cannot fit.
+    # For bins that can fit, the priority can be `1.0 - (bins_remain_cap - item)`
+    # This way, a perfect fit (remaining capacity 0) gets a priority of 1.0,
+    # and a looser fit (remaining capacity > 0) gets a priority less than 1.0.
+    # This makes bins that are a tighter fit have higher priorities.
+
+    # A more direct "best fit" interpretation is to give the highest priority
+    # to the bin that leaves the smallest remaining capacity, *but only if it fits*.
+    # We can achieve this by assigning a high priority for fitting bins, and within
+    # fitting bins, prioritizing those with less remaining space *after* packing.
+    # A common way is to use the inverse of the leftover space, or to use the leftover space itself
+    # as a penalty (lower is better). For our priority system (higher is better), we can
+    # use a transformation.
+
+    # Let's try a heuristic where:
+    # - Bins that don't fit get a priority of 0.
+    # - Bins that fit get a priority based on how tightly they fit.
+    #   A perfect fit (remaining_capacity - item == 0) should be prioritized most.
+    #   A looser fit (remaining_capacity - item > 0) should be prioritized less.
+
+    # We can assign a priority score that is inversely related to the *remaining capacity after packing*.
+    # To avoid division by zero and to ensure higher is better, we can use `max_capacity - (bins_remain_cap - item)`.
+    # However, we don't have `max_capacity` readily available without more context.
+
+    # A robust "Best Fit" heuristic typically tries to minimize the waste for the current item.
+    # So, `bins_remain_cap - item` should be minimized.
+    # For a priority score (higher is better), we can use a transformation like `1 / (1 + (bins_remain_cap - item))`
+    # or `k - (bins_remain_cap - item)` for some large k.
+
+    # Let's assign a priority based on the negative of the remaining capacity after packing.
+    # For bins that can fit, the score is `-(bins_remain_cap - item)`.
+    # This means a perfect fit (0 remaining capacity) gets a score of 0,
+    # and a looser fit (e.g., 5 remaining capacity) gets a score of -5.
+    # The highest priority will be for perfect fits.
+    # We need to ensure bins that don't fit get a lower priority than any fitting bin.
+
+    # For bins that can fit, let's assign a priority that rewards tighter fits.
+    # A simple heuristic is to assign `bins_remain_cap - item` as a "waste" value.
+    # To make it a priority score (higher is better), we can negate this value.
+    # So, for fitting bins, priority = -(bins_remain_cap - item).
+    # This gives a score of 0 for perfect fits, and negative scores for looser fits.
+    # For bins that don't fit, we want their priority to be lower than any fitting bin.
+    # The initial -np.inf handles this, but we need to make sure we only update fitting bins.
+
+    # Update priorities for bins that can fit the item
+    # The goal is to find the bin with the smallest `bins_remain_cap - item`.
+    # To maximize the priority, we can use the negative of this difference.
+    # A perfect fit (difference is 0) will have a priority of 0.
+    # A slightly loose fit (difference is 1) will have a priority of -1.
+    # The larger the remaining capacity after packing, the lower the priority.
+    priorities[can_fit_mask] = -(bins_remain_cap[can_fit_mask] - item)
+
+    return priorities
+```

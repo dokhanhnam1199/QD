@@ -1,0 +1,111 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Calculates priority scores for each bin using a multi-objective, adaptive
+    Softmax-based strategy for the online Bin Packing Problem.
+
+    This strategy prioritizes bins based on a combination of:
+    1.  **Best Fit:** Minimizing remaining capacity after placing the item.
+    2.  **Spread:** Encouraging the use of less full bins to maintain diversity.
+    3.  **Adaptive Temperature:** Adjusting the 'softness' of the probability
+        distribution based on the number of available bins.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array where each element represents the
+                         remaining capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, where each element
+        is the priority score for placing the item in the corresponding bin.
+    """
+    valid_bins_mask = bins_remain_cap >= item
+    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]
+    valid_bin_indices = np.where(valid_bins_mask)[0]
+
+    if valid_bins_remain_cap.size == 0:
+        return np.zeros_like(bins_remain_cap)
+
+    # Objective 1: Best Fit (minimize remaining capacity)
+    # Score is the negative of the remaining capacity after placing the item.
+    # Higher (less negative) scores are better.
+    best_fit_scores = -(valid_bins_remain_cap - item)
+
+    # Objective 2: Spread (favor bins that are less utilized overall)
+    # This can be approximated by considering how "full" a bin is relative to its initial capacity.
+    # Assuming bins start with a standard capacity (e.g., 1.0 for normalized problems).
+    # For simplicity, let's use the reciprocal of remaining capacity, but this can be unstable.
+    # A better approach is to use the *inverse* of remaining capacity relative to the *item size*
+    # to penalize bins that are already quite full.
+    # Let's use the ratio of item size to remaining capacity. Smaller ratios indicate
+    # the item takes up a smaller portion of the remaining space, meaning the bin
+    # might be "too large" for this item if it's already mostly empty.
+    # Conversely, a larger ratio means the item fills a larger portion of the remaining space.
+    # We want to slightly penalize large ratios to encourage spreading.
+    # A simple way is to use the negative of this ratio.
+    spread_scores = - (item / valid_bins_remain_cap)
+
+
+    # Combine objectives. A simple weighted sum can be used.
+    # We want to prioritize best fit, so it gets a higher weight.
+    # The spread_scores are slightly negative, encouraging smaller values (less spreading).
+    # Let's adjust spread_scores to be positive for 'good' spread (less full bins).
+    # Higher values mean more empty space, which we want to de-prioritize for spreading.
+    # So we want to minimize the 'emptiness'.
+    # A better spread heuristic: Penalize bins that are *very* full.
+    # Let's consider the inverse of the remaining capacity *after* packing.
+    # A bin that becomes almost full is good for best-fit, but potentially bad for spread.
+    # Let's use a score that favors bins that have *some* remaining space after packing,
+    # but not *too much*.
+    # A score like -(remaining_capacity - item) + k * (remaining_capacity - item) is tricky.
+
+    # Let's try a simpler combination: Best Fit + a penalty for already full bins.
+    # The "fullness" can be measured by the proportion of space already occupied.
+    # If we assume a bin capacity `C` (e.g., normalized to 1.0), then fullness = (C - remaining_cap) / C.
+    # We want to slightly penalize high fullness.
+    # Let's assume a standard bin capacity `max_bin_capacity`. If not provided, we can infer it
+    # or use a default. For online, it's usually fixed. Let's assume it's implicitly known.
+    # For now, we'll stick to relative measures.
+
+    # Refined combined score:
+    # Prioritize minimal remaining capacity (Best Fit)
+    # Add a term that slightly favors bins that are not nearly full after packing.
+    # If `valid_bins_remain_cap - item` is very small (good fit), this new term should be small (low penalty).
+    # If `valid_bins_remain_cap - item` is large (poor fit), this new term should be larger (higher penalty).
+    # This is counter-intuitive for spreading.
+    # Let's re-think spreading: we want to pick bins that are *not* already extremely full,
+    # *unless* the item fits perfectly or very well.
+    # A score that favors bins with more remaining capacity (up to a point) might be good for spreading.
+    # Let's try: score = (best_fit_score) + alpha * (remaining_capacity_after_fit)
+    # This is basically trying to balance best-fit with keeping some space.
+    alpha = 0.2 # Weight for the spread component
+
+    # The remaining capacity *after* placing the item.
+    remaining_after_fit = valid_bins_remain_cap - item
+    combined_scores = best_fit_scores + alpha * remaining_after_fit
+
+    # Adaptive Temperature (Tau)
+    # If there are many bins, we want a softer distribution (higher tau) to explore more options.
+    # If there are few bins, we want a sharper distribution (lower tau) to exploit the best options.
+    num_valid_bins = len(valid_bins_remain_cap)
+    # A simple mapping: High num_bins -> high tau, Low num_bins -> low tau.
+    # Let's map num_bins to a range, e.g., [0.1, 1.0] for tau.
+    # Assume a reasonable maximum number of bins for scaling.
+    max_potential_bins = 100 # Can be adjusted based on expected problem size
+    tau = 0.1 + 0.9 * (num_valid_bins / max_potential_bins)
+    tau = max(0.1, min(tau, 2.0)) # Clamp tau to a reasonable range
+
+    # Apply Softmax with adaptive temperature
+    # Shift scores to avoid numerical overflow/underflow before exponentiation
+    shifted_scores = combined_scores - np.max(combined_scores)
+    exp_scores = np.exp(shifted_scores / tau)
+    probabilities = exp_scores / np.sum(exp_scores)
+
+    # Create the final priority array
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    priorities[valid_bin_indices] = probabilities
+
+    return priorities
+```

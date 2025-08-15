@@ -1,0 +1,51 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines a "Most Full Bin" preference with a "Worst Fit" penalty that adapts based on
+    the item's relative size to the bin's remaining capacity. This heuristic aims to
+    keep fuller bins available for potentially smaller items later, while penalizing
+    bins that would leave excessively large gaps relative to the item being packed.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+    suitable_bin_indices = np.where(suitable_bins_mask)[0]
+
+    # Component 1: "Most Full Bin" preference (inverse of remaining capacity)
+    # We want to prioritize bins with *less* remaining capacity if they can fit the item,
+    # effectively favoring bins that are already quite full.
+    # A higher score here means a higher priority.
+    most_full_score = -suitable_bins_remain_cap
+
+    # Component 2: "Worst Fit" penalty based on relative excess capacity.
+    # We want to penalize bins where (remaining_capacity - item) is large relative to the item size.
+    # This penalty should be *subtracted* from the score.
+    # The penalty is higher for bins that leave a much larger gap *in proportion* to the item.
+    # Use a logarithmic scale to dampen the effect of very large excesses, making it more sensitive
+    # to moderate excesses.
+    # `excess_capacity_ratio`: (remaining_cap - item) / item
+    # We want to penalize bins with a high `excess_capacity_ratio`.
+    # So, we want to subtract a term that increases with this ratio.
+    # A simple form is `log(1 + excess_capacity_ratio)`.
+    
+    excess_capacity_ratio = (suitable_bins_remain_cap - item) / (item + 1e-9)
+    
+    # The penalty function should be monotonic increasing with excess_capacity_ratio.
+    # Using log1p for numerical stability and to moderate the penalty for very small excesses.
+    # We will subtract this penalty from the most_full_score.
+    # A larger penalty_component means a lower final score.
+    penalty_component = np.log1p(excess_capacity_ratio * 0.5) # Scale down the ratio to make penalty less aggressive.
+
+    # Combine scores: Maximize `most_full_score` and minimize `penalty_component`.
+    # This is achieved by `most_full_score - penalty_component`.
+    final_scores = most_full_score - penalty_component
+
+    # Assign the computed scores back to the original priority array
+    priorities[suitable_bin_indices] = final_scores
+
+    return priorities
+```

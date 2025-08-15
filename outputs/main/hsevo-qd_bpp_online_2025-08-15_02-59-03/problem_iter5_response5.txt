@@ -1,0 +1,68 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit (tightest fit) with a penalty for wasted space
+    on other suitable bins, prioritizing exact fits.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_capacities = bins_remain_cap[suitable_bins_mask]
+    
+    # Calculate remaining capacity if item is placed
+    remaining_capacities_after_fit = suitable_capacities - item
+    
+    # Find the minimum remaining capacity among suitable bins
+    min_remaining_capacity = np.min(remaining_capacities_after_fit)
+    
+    # Identify bins that achieve the minimum remaining capacity (tightest fits)
+    tight_fit_indices_local = np.where(remaining_capacities_after_fit == min_remaining_capacity)[0]
+    
+    # Get the global indices of these tightest fitting bins
+    tight_fit_global_indices = np.where(suitable_bins_mask)[0][tight_fit_indices_local]
+    
+    # Assign the highest priority to exact fits (where remaining capacity is 0)
+    exact_fit_mask = (remaining_capacities_after_fit == 0)
+    exact_fit_indices_local = np.where(exact_fit_mask)[0]
+    exact_fit_global_indices = np.where(suitable_bins_mask)[0][exact_fit_indices_local]
+    priorities[exact_fit_global_indices] = 2.0  # Highest priority for exact fits
+
+    # For other tightest fits (but not exact), assign a high priority
+    other_tight_fit_indices_local = tight_fit_indices_local[~exact_fit_mask[tight_fit_indices_local]]
+    other_tight_fit_global_indices = np.where(suitable_bins_mask)[0][other_tight_fit_indices_local]
+    priorities[other_tight_fit_global_indices] = 1.5
+
+    # For remaining suitable bins (not among the tightest fits), assign a priority
+    # inversely proportional to the remaining capacity (smaller is better).
+    # This rewards bins that leave less, but not the absolute least, space.
+    other_suitable_mask_local = ~np.isin(np.arange(len(suitable_capacities)), np.concatenate([tight_fit_indices_local, exact_fit_indices_local]))
+    other_suitable_indices_local = np.where(other_suitable_mask_local)[0]
+    
+    if other_suitable_indices_local.size > 0:
+        other_suitable_global_indices = np.where(suitable_bins_mask)[0][other_suitable_indices_local]
+        
+        # Calculate remaining capacities for these bins
+        other_remaining_capacities = suitable_capacities[other_suitable_indices_local] - item
+        
+        # Assign priority inversely proportional to remaining capacity, scaled down.
+        # Add a small epsilon to avoid division by zero.
+        # Scale it to be between 0 and 1, ensuring it's less than the tightest fits.
+        inverse_priority_scores = 1.0 / (other_remaining_capacities + 1e-6)
+        
+        # Normalize scores so the max is 1.0 for this group
+        max_inv_score = np.max(inverse_priority_scores)
+        if max_inv_score > 0:
+            normalized_scores = inverse_priority_scores / max_inv_score
+        else:
+            normalized_scores = np.zeros_like(inverse_priority_scores)
+        
+        # Assign a score that is high but less than tight fits
+        priorities[other_suitable_global_indices] = 0.5 + 0.4 * normalized_scores # Ranging from 0.5 to 0.9
+
+    return priorities
+```

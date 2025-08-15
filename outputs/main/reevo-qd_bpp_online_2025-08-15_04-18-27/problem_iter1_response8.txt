@@ -1,0 +1,66 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using an Epsilon-Greedy strategy.
+
+    The Epsilon-Greedy strategy balances exploration (trying less optimal bins)
+    and exploitation (choosing the best fitting bins).
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    epsilon = 0.2  # Exploration rate
+
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros(num_bins)
+
+    # Identify bins that can fit the item
+    suitable_bins_indices = np.where(bins_remain_cap >= item)[0]
+
+    if len(suitable_bins_indices) == 0:
+        # No bin can fit the item, return all zeros (or handle as error/new bin creation)
+        return priorities
+
+    # Calculate 'greedy' scores for suitable bins
+    # We prioritize bins that have the least remaining capacity after placing the item
+    # This is a common strategy in BPP to try and fill bins more tightly.
+    greedy_scores = -bins_remain_cap[suitable_bins_indices] + item
+
+    # Normalize greedy scores to be between 0 and 1 (optional but good for consistency)
+    # We take the maximum possible difference to scale
+    if len(suitable_bins_indices) > 1:
+        max_diff = np.max(bins_remain_cap[suitable_bins_indices]) - np.min(bins_remain_cap[suitable_bins_indices])
+        if max_diff > 0:
+            greedy_scores = greedy_scores / (max_diff + item) # Add item to avoid division by zero if all are same
+        else: # All suitable bins have the same remaining capacity
+            greedy_scores = np.zeros_like(greedy_scores) # Assign equal score
+
+    # Apply Epsilon-Greedy:
+    # With probability epsilon, choose a random suitable bin (exploration).
+    # With probability 1-epsilon, choose the bin with the highest greedy score (exploitation).
+
+    if np.random.rand() < epsilon:
+        # Exploration: pick a random suitable bin
+        chosen_bin_index = np.random.choice(suitable_bins_indices)
+        priorities[chosen_bin_index] = 1.0  # High priority for the randomly chosen bin
+    else:
+        # Exploitation: pick the best greedy bin
+        best_bin_index_in_suitable = np.argmax(greedy_scores)
+        chosen_bin_index = suitable_bins_indices[best_bin_index_in_suitable]
+        priorities[chosen_bin_index] = 1.0 # Assign highest priority to the best bin
+
+    # For bins that are not suitable, their priority remains 0.
+    # For suitable bins not chosen by the epsilon-greedy strategy, assign a lower priority.
+    # This makes the chosen bin's priority stand out.
+    for idx in suitable_bins_indices:
+        if idx != chosen_bin_index:
+            priorities[idx] = 0.1 # Lower priority for other suitable bins
+
+
+    return priorities
+```

@@ -1,0 +1,160 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines Best Fit with a penalty for overly large remaining capacities.
+
+    Prioritizes bins that leave the least space after packing (Best Fit),
+    while slightly penalizing bins that have very large capacities initially
+    to encourage using bins that are already somewhat full.
+    """
+    epsilon_small = 1e-9
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+
+    # Identify bins that can fit the item
+    fitting_indices = np.where(bins_remain_cap >= item)[0]
+
+    if fitting_indices.size > 0:
+        # Calculate remaining capacity after fitting the item
+        remaining_after_fit = bins_remain_cap[fitting_indices] - item
+
+        # Calculate a base priority using Best Fit logic: higher for smaller remaining space
+        # This prioritizes bins that will have the least space left.
+        best_fit_priority = -remaining_after_fit
+
+        # Introduce a penalty for bins that are initially "too empty".
+        # If a bin's current remaining capacity is much larger than the item, it's less desirable.
+        # Let's define "too empty" as having remaining capacity significantly larger than the item.
+        # We can penalize bins where `bins_remain_cap` is, for example, more than 2*item.
+        # This encourages using bins that are already closer to being full.
+        penalty_threshold = item * 2.0
+        penalty = np.zeros_like(fitting_indices, dtype=float)
+
+        # Apply penalty to bins where current remaining capacity is large
+        large_capacity_mask = bins_remain_cap[fitting_indices] > penalty_threshold
+        # The penalty should be such that it reduces the priority.
+        # A simple linear penalty could work: -(bins_remain_cap - penalty_threshold)
+        # Or an inverse relationship: -1.0 / (bins_remain_cap + epsilon_small)
+        # Let's use a score that is low if bins_remain_cap is very large.
+        # We can use a scaled inverse: -(bins_remain_cap[fitting_indices] / np.max(bins_remain_cap[fitting_indices]))
+        # Or simply, a negative value proportional to the capacity itself.
+        # Let's try subtracting a scaled version of the original capacity.
+        # This makes bins with very large capacities have lower scores.
+        
+        # We want to prioritize bins that are already somewhat full.
+        # Using `1.0 / (bins_remain_cap[i] + epsilon_small)` for fitting bins
+        # prioritizes bins with small *initial* remaining capacity.
+        # Let's combine this with the "best fit" idea.
+        
+        # Strategy:
+        # 1. Prioritize bins that are "almost full" (low initial `bins_remain_cap`).
+        # 2. Among those, pick the one that results in the tightest fit (Best Fit).
+        
+        # Score = (some value based on initial capacity) + (value based on tightest fit)
+        
+        # Let's use the inverse of initial remaining capacity for "almost full" preference
+        # and the negative of the difference for "best fit" preference.
+        # We can add them, or use one as a primary and the other as a secondary refinement.
+        
+        # Let's prioritize bins that are ALREADY almost full. Small `bins_remain_cap` is good.
+        # Use `1.0 / (bins_remain_cap[i] + epsilon_small)` as the base priority.
+        # This captures the "almost full" aspect by favoring bins with low remaining capacity.
+        
+        initial_almost_full_priority = 1.0 / (bins_remain_cap[fitting_indices] + epsilon_small)
+        
+        # Now, within the "almost full" bins, let's refine using Best Fit (minimize remaining space).
+        # The "best fit" priority is `-remaining_after_fit`.
+        
+        # To combine: We want bins with small `bins_remain_cap` AND small `remaining_after_fit`.
+        # A simple sum or weighted sum could work.
+        # `combined_priority = w1 * initial_almost_full_priority + w2 * best_fit_priority`
+        
+        # Let's try a simpler approach: Prioritize bins that are "almost full" (low initial remaining capacity).
+        # If multiple bins are equally "almost full" (e.g., same small capacity), then pick the best fit.
+        # But the `1/r` score already heavily favors the smallest `r`.
+        
+        # Let's go with a direct interpretation: "Almost Full Fit" means filling bins.
+        # This is achieved by minimizing the space left after packing.
+        # This is precisely Best Fit: maximize `-(bins_remain_cap[i] - item)`.
+        
+        # If we want to emphasize "almost full" by penalizing bins that are *too* empty,
+        # we can modify the Best Fit score.
+        # Let's try a score that favors tight fits but penalizes very large initial capacities.
+        
+        # A score that is high when `remaining_after_fit` is small, AND `bins_remain_cap` is not excessively large.
+        
+        # Let's use `-(remaining_after_fit)` as the core Best Fit score.
+        # Then, subtract a penalty if `bins_remain_cap` is very large.
+        
+        # Penalty: if `bins_remain_cap[i] > item * K`, subtract a penalty.
+        # The penalty should be significant enough to push very large bins down.
+        
+        penalty_factor = 1.0 # Controls how much we penalize large capacities
+        penalty_value = 0.0
+        
+        # Penalize bins whose initial remaining capacity is significantly larger than the item size.
+        # A threshold relative to the item size is reasonable.
+        # Let's say we penalize if `bins_remain_cap > item * 3`.
+        threshold_large_capacity = item * 3.0
+        
+        # Calculate penalty for bins where initial capacity is large
+        large_capacity_indices_relative = np.where(bins_remain_cap[fitting_indices] > threshold_large_capacity)[0]
+        
+        if large_capacity_indices_relative.size > 0:
+            # The penalty should reduce the priority.
+            # Subtract a value proportional to how much larger the capacity is.
+            # The scale of this penalty should be comparable to the best_fit_priority range.
+            
+            # Best fit priorities are typically negative values like -0.1, -0.5, -2.0 etc.
+            # If bins_remain_cap is 100 and item is 1, remaining_after_fit is 99, best_fit_priority is -99.
+            # If we penalize for capacity 100, it should be a large negative number.
+            
+            # Let's subtract a value that scales with the extra capacity.
+            # The difference `bins_remain_cap[fitting_indices] - item` gives the remaining space.
+            # The penalty should be for large `bins_remain_cap`.
+            
+            # Let's try a score structure:
+            # Priority = `-(bins_remain_cap[i] - item)`   (Best Fit term)
+            #          - `f(bins_remain_cap[i])`        (Penalty for large initial capacity)
+            
+            # `f(x)` could be `(x / MaxCap) * Scale` or simply `x / Scale` for large x.
+            
+            # Let's use a simpler heuristic: prioritize bins that are "almost full" (low initial remaining capacity).
+            # If `bins_remain_cap` is small, priority is high.
+            # If `bins_remain_cap` is large, priority is low.
+            # THEN, among bins with similar "almost fullness", pick the best fit.
+            
+            # Score = `1.0 / (bins_remain_cap[i] + epsilon_small)`  (Prioritize small initial capacity)
+            # This is essentially "First Fit Decreasing" idea applied to capacities.
+            
+            # Let's try combining Best Fit with a preference for less "empty" bins.
+            # Priority = `-(bins_remain_cap[i] - item)` (Best Fit term)
+            # Add a term for how "full" the bin is initially. Small `bins_remain_cap` is good.
+            # Add `k * (1.0 / (bins_remain_cap[i] + epsilon_small))`
+            
+            # Let's simplify the objective:
+            # 1. MUST fit: `bins_remain_cap[i] >= item`
+            # 2. Prefer tightest fit: minimize `bins_remain_cap[i] - item`
+            # 3. Prefer bins that are already somewhat full: prefer small `bins_remain_cap[i]`
+            
+            # Consider the score: `priorities[fitting_indices] = -(bins_remain_cap[fitting_indices] - item)`
+            # This is Best Fit. It implicitly favors smaller initial capacities if the item size is fixed.
+            # E.g., if item=3, capacities [4, 5, 10].
+            # Scores: -(4-3)=-1, -(5-3)=-2, -(10-3)=-7.
+            # Picks capacity 4. It has the smallest initial capacity among those that fit and results in least space.
+            
+            # If we want to emphasize "almost full" as in "prefer bins that are already small",
+            # we can use `1.0 / (bins_remain_cap[i] + epsilon_small)`.
+            
+            # Let's try a composite score:
+            # Score = `(1.0 / (bins_remain_cap[fitting_indices] + epsilon_small))`  (Preference for already "almost full" bins)
+            #       `+ 0.5 * (-remaining_after_fit)`                           (Preference for tightest fit)
+            
+            # This prioritizes bins that are initially almost full, and among those, picks the best fit.
+            # The weight `0.5` can be tuned.
+            
+            combined_priority = (1.0 / (bins_remain_cap[fitting_indices] + epsilon_small)) + 0.5 * (-remaining_after_fit)
+            priorities[fitting_indices] = combined_priority
+
+    return priorities
+```

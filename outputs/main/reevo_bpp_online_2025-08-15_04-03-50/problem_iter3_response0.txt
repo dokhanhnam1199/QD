@@ -1,0 +1,105 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined 'Almost Full Fit' strategy.
+
+    This strategy prioritizes bins that can fit the item and, after fitting,
+    will have the least remaining capacity (i.e., the 'tightest' fits).
+    It also introduces a slight bias towards bins that have more overall remaining capacity
+    among those that offer a similarly tight fit, aiming to preserve very tight fits for
+    potentially smaller items later and to explore fuller bins.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins where the item can fit
+    fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity if the item is placed in each fitting bin
+    potential_remaining_cap_fitting = bins_remain_cap[fit_mask] - item
+
+    # The core idea of "Almost Full Fit" is to minimize the remaining capacity after insertion.
+    # So, we want to prioritize bins with smaller `potential_remaining_cap_fitting`.
+    # We can use the inverse of (1 + slack) as a score, where slack is `potential_remaining_cap_fitting`.
+    # This gives higher scores to smaller slacks. A slack of 0 gets a priority of 1.0.
+    # A slack of 1 gets 0.5, etc.
+    # This part directly addresses the "tight fit" preference.
+
+    # To introduce a preference for fuller bins or to break ties in slack,
+    # we can add a secondary criterion. A common approach is to prefer bins
+    # that are already fuller among those with similar slacks.
+    # This can be approximated by using the original `bins_remain_cap` as a factor.
+    # However, a simpler way to break ties is to add a small, increasing value based
+    # on the original remaining capacity, ensuring that if two bins have the same slack,
+    # the one that was originally fuller (and thus has less capacity now) gets a slightly
+    # higher priority if we were to simply maximize `-potential_remaining_cap`.
+
+    # Let's refine the scoring to prioritize smaller `potential_remaining_cap_fitting`
+    # but also provide a subtle bias towards bins that were not excessively large to begin with,
+    # while still favoring tighter fits.
+
+    # Strategy: Prioritize based on `1.0 / (1.0 + slack)`.
+    # To break ties or encourage slightly less full bins when slacks are equal (to save tighter fits),
+    # we can also consider the original `bins_remain_cap`.
+    # A common heuristic for "Best Fit" or variations is to pick the bin with the smallest remaining capacity
+    # *after* insertion. This is `potential_remaining_cap_fitting`.
+    # To maximize this (i.e., get the smallest positive remaining capacity), we can use `-(potential_remaining_cap_fitting)`.
+    # To ensure robustness and avoid extremely large bins being picked if they result in a similar "tightness",
+    # we can also add a small factor related to the original capacity.
+
+    # Let's try a scoring function that prioritizes minimum slack, but with a slight
+    # nudge for bins that were not excessively large.
+    # Consider the score as: (priority for slack) + (small bonus for being less full initially, to break ties in favor of tighter bins).
+    # Or, more simply, maximize `-potential_remaining_cap_fitting`.
+
+    # The prompt reflection mentions "Prioritize fitting bins, favoring those with minimal remaining capacity (tight fits)."
+    # This is achieved by `1.0 / (1.0 + slack)`.
+    # It also suggests "balancing with random exploration for robustness", but this function
+    # is deterministic. "Favoring fuller bins using inverted slack" is captured by `1/(1+slack)` where slack is minimized.
+
+    # Let's re-evaluate based on the reflection: "Prioritize bins that have just enough capacity to fit the item,
+    # with a preference for bins that will have less remaining capacity after the item is added."
+    # This is still `1.0 / (1.0 + slack)`.
+
+    # A common variant to break ties or introduce exploration is to add a random component.
+    # However, for deterministic heuristics, tie-breaking is key.
+    # If multiple bins have the same minimal slack, which one to pick?
+    # Some strategies pick the one with the smallest original capacity (First Fit Decreasing logic),
+    # or the one with the largest original capacity (to consolidate larger bins).
+
+    # Let's use the inverse slack `1.0 / (1.0 + slack)` as the primary score.
+    # For tie-breaking, if slacks are equal, we might prefer the bin that was originally less full
+    # (higher `bins_remain_cap` among those with minimal slack). This helps keep the very tightest
+    # bins available for future very small items.
+    # To implement this, we can add a small value proportional to `bins_remain_cap[fit_mask]`
+    # to the primary score, or use a lexicographical sort implicitly.
+
+    # Score = (1.0 / (1.0 + slack)) + small_epsilon * bins_remain_cap[fit_mask]
+    # This would prioritize smaller slack, and for equal slacks, it would prioritize bins
+    # that originally had more capacity. This seems to align with "balancing with random exploration"
+    # by making choices less extreme in favoring already full bins.
+
+    slack = bins_remain_cap[fit_mask] - item
+    # Primary score: higher for smaller slack
+    primary_score = 1.0 / (1.0 + slack)
+
+    # Secondary score for tie-breaking or introducing slight variation:
+    # Adding a small fraction of the original remaining capacity.
+    # This boosts scores for bins that were less full if they have the same slack.
+    # We use a small multiplier (e.g., 1e-3) to ensure slack is the dominant factor.
+    secondary_score = 1e-3 * bins_remain_cap[fit_mask]
+
+    priorities[fit_mask] = primary_score + secondary_score
+
+    # Ensure that bins that don't fit have a priority of 0.
+    # The initialisation to zeros and `fit_mask` already handle this.
+
+    return priorities
+```

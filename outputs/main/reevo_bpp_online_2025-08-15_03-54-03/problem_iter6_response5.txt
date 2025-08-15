@@ -1,0 +1,76 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin, using a
+    modified Best Fit strategy.
+
+    This strategy prioritizes bins that can accommodate the item and leave the
+    least amount of remaining capacity. It aims to fill bins more efficiently.
+    Similar to Best Fit, it looks for bins where `bins_remain_cap - item` is minimized.
+    However, it also introduces a penalty for bins that have a very large remaining
+    capacity, to encourage filling up existing bins before opening new ones.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority. Bins that cannot fit the
+        item are given a priority of negative infinity.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf)  # Initialize with a very low priority
+
+    # Calculate the remaining capacity if the item is placed in each bin
+    potential_remaining_cap = bins_remain_cap - item
+
+    # Identify bins that can accommodate the item (remaining capacity is non-negative)
+    can_fit_mask = potential_remaining_cap >= 0
+
+    # For bins that can fit the item, assign a priority score.
+    # The primary goal is to minimize the residual capacity, so we use the negative of it.
+    # We add a small bonus to bins that have *some* capacity but not too much,
+    # encouraging the use of partially filled bins over very empty ones.
+    # A simple way to achieve this is to subtract the *log* of the remaining capacity,
+    # or a scaled version of it, which penalizes larger remaining capacities.
+    # Let's use a simple approach: penalize larger residuals more strongly.
+    # We can still use the negative residual as the base priority and then
+    # add a small adjustment based on the absolute remaining capacity.
+    # A common heuristic for online bin packing is to favor bins that are "tightly" filled.
+    # The negative residual captures the "tightness" directly.
+    # For an extra nudge towards slightly fuller bins, we could subtract a term
+    # that increases with the remaining capacity. For simplicity and staying close to BF,
+    # let's refine the negative residual idea:
+    # We want to maximize -(remaining_capacity).
+    # This means we want to minimize remaining_capacity.
+    # The current `priority_v1` already does this. Let's refine its scoring.
+    # Instead of a linear mapping, we can use an inverse relationship with residual.
+    # This would make smaller residuals much more preferable.
+    # E.g., 1 / (residual + epsilon).
+    # However, `priority_v1`'s simple negative residual is generally a strong Best Fit.
+    # Let's consider a slight modification to penalize *very* large remaining capacities
+    # more explicitly. This can be done by subtracting a term that grows with the residual.
+    # For example: -residual - alpha * residual^2, or -residual - alpha * log(residual) for residual > 0.
+    # Or, simply a linear penalty based on the *original* remaining capacity for bins
+    # that fit the item.
+
+    # Let's stick to the principle of minimizing residual capacity as the primary driver.
+    # The reflection suggests prioritizing minimal residual capacity.
+    # `priority_v1` does this with `-potential_remaining_cap`.
+    # Let's consider making the "preference" for smaller residuals stronger.
+    # Using an inverse relationship `1 / (residual + epsilon)` achieves this.
+    # This is similar to `priority_v0` but correctly handles the "can fit" logic
+    # and the negative infinity for non-fitting bins.
+
+    epsilon = 1e-9  # Small constant to avoid division by zero
+
+    if np.any(can_fit_mask):
+        # Calculate priorities for bins that can fit the item
+        # We want to maximize the priority, so smaller remaining capacity should yield higher priority.
+        # Using 1 / (remaining_capacity + epsilon) achieves this.
+        # Larger remaining_capacity -> smaller 1 / (remaining_capacity + epsilon)
+        # Smaller remaining_capacity -> larger 1 / (remaining_capacity + epsilon)
+        # This encourages tighter fits.
+        priorities[can_fit_mask] = 1.0 / (potential_remaining_cap[can_fit_mask] + epsilon)
+
+    return priorities
+```
