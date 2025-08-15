@@ -1,0 +1,123 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Sigmoid Fit Score.
+
+    This heuristic prioritizes bins that, after placing the item, will have a
+    remaining capacity that is neither too large nor too small, aiming to
+    balance bin utilization. The sigmoid function scales this preference.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Calculate the remaining capacity if the item is placed in each bin
+    potential_remaining_caps = bins_remain_cap - item
+
+    # Filter out bins where the item doesn't fit
+    valid_bins_mask = potential_remaining_caps >= 0
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # For valid bins, calculate the sigmoid score
+    # We want to prioritize bins where the remaining capacity is close to 0
+    # after packing the item. A small remaining capacity indicates a good fit.
+    # The sigmoid function's steepness can be tuned with 'k' and its midpoint with 'x0'.
+    # Here, we'll use a strategy where we want to penalize large remaining capacities.
+    # A common approach for Sigmoid Fit is to map the remaining capacity to a score.
+    # We can invert the remaining capacity and apply sigmoid, or use a sigmoid
+    # that saturates for large values.
+
+    # Let's aim to favor bins that are nearly full after placing the item.
+    # A smaller remaining capacity is generally better.
+    # The sigmoid function typically maps values to (0, 1).
+    # We want higher scores for smaller `potential_remaining_caps`.
+    # A common sigmoid form: 1 / (1 + exp(-k * (x - x0)))
+    # If we want higher scores for smaller x, we can use -x in the exponent:
+    # 1 / (1 + exp(k * (x - x0)))
+
+    # We want the ideal scenario to have a remaining capacity of 0.
+    # Let's define 'x0' as a target remaining capacity, perhaps near zero.
+    # Let's set x0 to a small value, say 0.05 * max_bin_capacity (assuming we knew it, or a generic small value).
+    # For simplicity and to avoid external parameters for now, let's consider the absolute value of remaining capacity.
+    # We want the score to be high when potential_remaining_caps is small (close to 0).
+
+    # Strategy: Score based on how close the potential remaining capacity is to 0,
+    # scaled by a factor that emphasizes smaller remaining capacities.
+    # A common sigmoid approach for optimization is to assign a score based on
+    # how "good" a state is. Here, a "good" state is a bin that is almost full.
+
+    # Let's define the sigmoid such that the peak is at 0 remaining capacity.
+    # If potential_remaining_caps is 0, the score should be high.
+    # If potential_remaining_caps is large, the score should be low.
+
+    # A function like `sigmoid(-k * x)` would achieve this:
+    # sigmoid(-k * 0) = 0.5
+    # sigmoid(-k * small_positive) approaches 0
+    # sigmoid(-k * large_positive) approaches 0
+
+    # This means we want to offset the function.
+    # Let's consider the 'fit' aspect. A good fit means `bins_remain_cap - item` is small.
+    # The "Sigmoid Fit Score" can be interpreted as how well the item "fits" into the remaining capacity.
+    # A good fit means `bins_remain_cap - item` is close to zero.
+
+    # Let's use a sigmoid that peaks at the 'best' remaining capacity after packing.
+    # The best remaining capacity is ideally close to zero.
+    # Let's define a reference point. `x0` can be the optimal remaining capacity.
+    # `k` controls the steepness.
+
+    # To keep it simple and self-contained, let's define a characteristic remaining capacity `ideal_residual`
+    # that we'd ideally like to leave in a bin after packing. A small positive value might be good,
+    # to avoid overfilling or leaving too much space. Let's say an ideal residual is around 5-10% of the bin capacity.
+    # However, we don't have bin capacity. So, we focus on `potential_remaining_caps`.
+
+    # Let's directly use the `potential_remaining_caps`. We want small values of this to have high priority.
+    # We can invert the potential remaining capacities for valid bins and apply a sigmoid that increases with its input.
+    # `score = 1 / (1 + exp(-k * (target_value - x)))` where x is `potential_remaining_caps`.
+    # If target_value is 0, and k > 0:
+    # score(0) = 0.5
+    # score(small_pos) < 0.5
+    # score(large_pos) << 0.5
+    # This is the opposite of what we want.
+
+    # Let's try `score = 1 / (1 + exp(k * x))` where x is `potential_remaining_caps`.
+    # If x = 0, score = 0.5
+    # If x = small_pos, score < 0.5
+    # If x = large_pos, score << 0.5
+    # This still gives lower scores for smaller remaining capacities.
+
+    # Alternative perspective: a "good" fit leaves minimal waste. So, `bins_remain_cap - item` should be small.
+    # Let's define a "fit score" directly. The closer `bins_remain_cap - item` is to 0, the higher the score.
+    # Sigmoid for "closeness to zero": we want values near zero to map to high scores.
+    # Consider a score based on `1 - sigmoid(abs(potential_remaining_caps))`.
+    # Or a sigmoid that is high around 0 and drops off.
+
+    # Let's use the standard sigmoid form and map the potential remaining capacity to it.
+    # `score = 1 / (1 + exp(-k * (target_remaining - potential_remaining_caps)))`
+    # If we want to favor bins where `potential_remaining_caps` is *small*, we should set `target_remaining` to a small value.
+    # Let `target_remaining = 0.1 * max_item_size` (as a proxy for optimal residual).
+    # If we don't know `max_item_size`, let's consider relative values.
+    # A common way to use sigmoid for optimization is to define a function that is maximized at the optimum.
+    # If `f(x)` is our objective (e.g., remaining capacity), we want to minimize it.
+    # We can transform this into a score using sigmoid: `score = sigmoid(-k * f(x))`.
+
+    # Let's try to map `potential_remaining_caps` to the sigmoid.
+    # We want higher scores for lower `potential_remaining_caps`.
+    # Use `potential_remaining_caps` as the input `x` to a sigmoid function that *decreases* with `x`.
+    # `f(x) = 1 / (1 + exp(k * x))` is a decreasing sigmoid.
+    # The steepness `k` can be chosen. A larger `k` makes the preference for smaller remaining capacities more pronounced.
+
+    k = 5.0  # Steepness parameter. Higher k means stronger preference for smaller remaining capacities.
+
+    # Apply the decreasing sigmoid function to the potential remaining capacities of valid bins.
+    # For invalid bins, the priority is 0.
+    priorities[valid_bins_mask] = 1.0 / (1.0 + np.exp(k * potential_remaining_caps[valid_bins_mask]))
+
+    # The priority score will be in the range (0, 1) for valid bins, and 0 for invalid bins.
+    # We want the bin with the highest priority score to be chosen.
+
+    return priorities
+```

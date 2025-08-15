@@ -1,0 +1,75 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    This heuristic aims to improve upon previous versions by employing a more sophisticated
+    multi-criteria scoring mechanism that balances tight fitting with bin utilization,
+    while also being more robust to edge cases and offering greater adaptability.
+
+    The strategy prioritizes bins based on:
+    1.  **Tightness of Fit (Primary):** Minimizing the excess capacity (`bins_remain_cap - item`).
+        This is crucial for efficient packing. We use a non-linear penalty for larger gaps.
+    2.  **Current Bin Fullness (Secondary):** Favoring bins that are already more utilized
+        (i.e., have less remaining capacity before packing the current item). This can lead
+        to more balanced bin usage and potentially fewer bins overall.
+    3.  **Adaptability (via parameter):** A parameter (`alpha`) controls the trade-off
+        between prioritizing the absolute tightest fit and encouraging the use of
+        generally fuller bins.
+
+    Scoring Logic:
+    - For bins that can fit the item (`bins_remain_cap >= item`):
+        - Calculate the "gap": `gap = bins_remain_cap - item`. We want to minimize this.
+        - A primary score component is derived from the negative squared gap: `-(gap**2)`.
+          This heavily penalizes larger gaps and gives a diminishing return as the gap
+          approaches zero, making it sensitive to very small positive gaps.
+        - A secondary score component is the negative of the current bin's remaining
+          capacity: `-bins_remain_cap`. This encourages using bins that are already fuller.
+        - The two components are combined using a weighted sum controlled by `alpha`:
+          `score = alpha * (-(gap**2)) + (1 - alpha) * (-bins_remain_cap)`
+          Rearranging and simplifying:
+          `score = alpha * -(bins_remain_cap - item)**2 - (1 - alpha) * bins_remain_cap`
+
+    - For bins that cannot fit the item (`bins_remain_cap < item`):
+        - Assign a very low priority score (e.g., negative infinity) to ensure they are never selected.
+
+    The parameter `alpha` (between 0 and 1) balances these criteria:
+        - `alpha = 1.0`: Focuses solely on minimizing the squared gap (similar to Best Fit but with quadratic penalty).
+        - `alpha = 0.0`: Focuses solely on using the fullest available bins (minimum remaining capacity).
+        - `0 < alpha < 1`: Aims for a balance. A value around 0.7-0.8 might be a good starting point to prioritize tightness while still considering overall fullness.
+
+    This approach provides a more nuanced selection than simple Best Fit by considering
+    both the immediate fit quality and the broader bin utilization context, with an
+    adjustable trade-off parameter.
+    """
+    
+    fit_mask = bins_remain_cap >= item
+    
+    
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    
+    
+    fitting_bins_remain_cap = bins_remain_cap[fit_mask]
+    
+    
+    gap = fitting_bins_remain_cap - item
+    
+    
+    alpha = 0.75 # Tunable parameter: Higher alpha favors tighter fits.
+                 # 0.75 provides a good balance, prioritizing tightness but
+                 # still rewarding more utilized bins when gaps are similar.
+    
+    
+    # Score calculation:
+    # - -(gap**2): Penalizes larger gaps quadratically, favors gaps close to zero.
+    # - -(1 - alpha) * fitting_bins_remain_cap: Rewards fuller bins (smaller remaining capacity).
+    # The overall score is a weighted sum. Maximizing this score means finding bins
+    # with small gaps that are also relatively full.
+    scores = alpha * (- (gap**2)) + (1 - alpha) * (-fitting_bins_remain_cap)
+    
+    
+    priorities[fit_mask] = scores
+    
+    
+    return priorities
+```

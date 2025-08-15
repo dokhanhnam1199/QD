@@ -1,0 +1,93 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit Decreasing (BFD) like logic with a penalty for wasted space
+    and a dynamic exploration factor. Prioritizes bins that offer a good fit,
+    penalizes bins that would leave a large gap, and incorporates a small
+    randomness that decreases over time (simulating an annealing approach for exploration).
+    """
+    n_bins = len(bins_remain_cap)
+    priorities = np.zeros(n_bins, dtype=float)
+
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_indices = np.where(suitable_bins_mask)[0]
+
+    if suitable_bins_indices.size == 0:
+        return priorities  # No bin can fit the item
+
+    # Calculate scores for suitable bins
+    suitable_bin_capacities = bins_remain_cap[suitable_bins_indices]
+    
+    # Objective 1: Best Fit (minimize remaining capacity after packing)
+    # Lower gap is better, so we want to maximize (max_gap - gap)
+    max_gap = np.max(suitable_bin_capacities - item)
+    fit_scores = max_gap - (suitable_bin_capacities - item)
+    
+    # Objective 2: Minimize wasted space (penalize bins with very large remaining capacity before packing)
+    # This encourages packing into bins that are already somewhat full.
+    # We use a negative exponential to penalize larger capacities.
+    # Higher capacity before packing is worse.
+    # Normalization helps to balance the two objectives.
+    
+    # Normalize capacities to be between 0 and 1 for penalty calculation
+    max_capacity = np.max(bins_remain_cap) if np.max(bins_remain_cap) > 0 else 1.0
+    normalized_capacities = suitable_bin_capacities / max_capacity
+    
+    # Penalty for having too much space already (we want bins that are somewhat full)
+    # A simple penalty could be 1 - normalized_capacity, so bins with less capacity get higher penalty
+    # Or even better, use the inverse of the capacity, scaled down.
+    # Let's try to penalize large remaining capacities: lower is better for remaining capacity
+    # so higher remaining capacity is worse.
+    
+    # We want to minimize the remaining capacity before packing the current item
+    # To turn this into a maximization score, we can use: 1 / (1 + remaining_capacity)
+    # Or use a scaling factor:
+    space_penalty_scores = 1.0 / (1.0 + suitable_bin_capacities)
+    
+    # Combine scores - A weighted sum. Weights can be tuned.
+    # For now, give equal weight or slightly more to the fit score.
+    fit_weight = 0.6
+    penalty_weight = 0.4
+    
+    # Normalize fit_scores to be in a similar range as penalty_scores if needed,
+    # or simply combine them. Let's assume they are somewhat comparable or normalize after.
+    
+    # Normalize fit_scores to [0, 1] for consistent combining
+    min_fit_score = np.min(fit_scores)
+    max_fit_score = np.max(fit_scores)
+    if max_fit_score - min_fit_score > 0:
+        normalized_fit_scores = (fit_scores - min_fit_score) / (max_fit_score - min_fit_score)
+    else:
+        normalized_fit_scores = np.ones_like(fit_scores) * 0.5 # Neutral score if all are same
+
+    # Normalize space_penalty_scores to [0, 1]
+    min_penalty_score = np.min(space_penalty_scores)
+    max_penalty_score = np.max(space_penalty_scores)
+    if max_penalty_score - min_penalty_score > 0:
+        normalized_penalty_scores = (space_penalty_scores - min_penalty_score) / (max_penalty_score - min_penalty_score)
+    else:
+        normalized_penalty_scores = np.ones_like(space_penalty_scores) * 0.5 # Neutral score if all are same
+
+    combined_scores = (fit_weight * normalized_fit_scores) + (penalty_weight * normalized_penalty_scores)
+    
+    # Dynamic Exploration: Similar to simulated annealing, reduce exploration over time.
+    # This function doesn't have a direct "time" parameter, so we'll make it
+    # based on the number of available bins. More bins might imply earlier stages.
+    # A simple approach is to use the inverse of the number of suitable bins,
+    # capped at a small value.
+    exploration_factor = 0.1 / (1.0 + len(suitable_bins_indices)) 
+
+    # Add exploration noise
+    exploration_noise = np.random.rand(len(suitable_bins_indices)) * exploration_factor
+    
+    final_scores = combined_scores + exploration_noise
+    
+    # Assign the highest score to the chosen bin
+    best_suitable_bin_idx = np.argmax(final_scores)
+    priorities[suitable_bins_indices[best_suitable_bin_idx]] = 1.0
+
+    return priorities
+```

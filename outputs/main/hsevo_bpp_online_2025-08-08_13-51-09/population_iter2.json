@@ -1,0 +1,112 @@
+[
+  {
+    "stdout_filepath": "problem_iter2_response0.txt_stdout.txt",
+    "code_path": "problem_iter2_code0.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"\n    Combines the 'tight fit' prioritization of inverse difference with a sigmoid\n    function to normalize priorities, favoring bins that are a near-perfect fit\n    while maintaining a reasonable range.\n    \"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    valid_bins_mask = bins_remain_cap >= item\n    \n    if not np.any(valid_bins_mask):\n        return priorities\n\n    valid_bins_cap = bins_remain_cap[valid_bins_mask]\n    \n    # Calculate inverse difference for valid bins: smaller difference is better\n    # Adding a small epsilon to avoid division by zero and extreme values\n    inverse_diff = 1.0 / (valid_bins_cap - item + 1e-9)\n    \n    # Use sigmoid to normalize and shape the priorities.\n    # The sigmoid will map the inverse differences to a [0, 1] range.\n    # We can center the sigmoid around a typical \"good fit\" or use the min/max\n    # of the calculated inverse differences to create a more adaptive scaling.\n    \n    min_inv_diff = np.min(inverse_diff)\n    max_inv_diff = np.max(inverse_diff)\n    \n    # Normalize inverse_diff to [0, 1] before applying sigmoid for more stable results\n    if max_inv_diff - min_inv_diff > 1e-9:\n        normalized_inv_diff = (inverse_diff - min_inv_diff) / (max_inv_diff - min_inv_diff)\n    else:\n        normalized_inv_diff = np.zeros_like(inverse_diff)\n\n    # Apply sigmoid. A sigmoid centered around 0.5 (e.g., 2 * x - 1 for normalized input)\n    # will map [0, 1] to roughly [0, 1], with a steep rise in the middle.\n    # Here, we use a simple sigmoid form that maps values to [0, 1].\n    # A common sigmoid form: 1 / (1 + exp(-k * (x - x0)))\n    # Let's use a simpler form for demonstration, similar to a normalized inverse:\n    # We want smaller differences (larger inverse_diff) to have higher priority.\n    # A high inverse_diff should map to a high sigmoid output.\n    # Using normalized_inv_diff, a higher value means a tighter fit.\n    # Let's use a sigmoid that emphasizes the middle range.\n    \n    # Option 1: Simple sigmoid on normalized inverse difference\n    # This will give higher priority to bins that are \"moderately\" good fits\n    # relative to the best fits.\n    scaled_priorities = 1 / (1 + np.exp(-10 * (normalized_inv_diff - 0.5))) # steep sigmoid\n\n    # Option 2: Direct sigmoid on inverse difference, scaled and shifted.\n    # This approach might be more sensitive to extreme inverse_diff values.\n    # We can scale inverse_diff to a reasonable range for sigmoid.\n    # Let's use the inverse difference directly, but clip extreme values or scale carefully.\n    # For simplicity and robustness, sticking with normalized inverse difference.\n\n    priorities[valid_bins_mask] = scaled_priorities\n    \n    return priorities",
+    "response_id": 0,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 16.0,
+    "cyclomatic_complexity": 3.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response1.txt_stdout.txt",
+    "code_path": "problem_iter2_code1.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines Best Fit with a Sigmoid-based preference for tighter fits.\n\n    Prioritizes bins that fit the item, favoring those with minimal remaining capacity.\n    A sigmoid function is used to smooth the priority for bins with very close fits.\n    \"\"\"\n    available_bins_mask = bins_remain_cap >= item\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n\n    if np.any(available_bins_mask):\n        valid_capacities = bins_remain_cap[available_bins_mask]\n        \n        # Calculate the difference between capacity and item size\n        differences = valid_capacities - item\n        \n        # Use a sigmoid function on the negative differences. \n        # Smaller differences (tighter fits) will result in values closer to 1.\n        # We invert the difference to make smaller differences yield higher sigmoid outputs.\n        # Adding a small epsilon to avoid division by zero if differences are very close to zero.\n        # Scaling factor can be tuned for sensitivity.\n        scaling_factor = 10.0  # More aggressive preference for tight fits\n        # Using negative differences as input for sigmoid to map smaller differences to higher outputs.\n        sigmoided_priorities = 1 / (1 + np.exp(scaling_factor * differences)) \n        \n        priorities[available_bins_mask] = sigmoided_priorities\n\n    return priorities",
+    "response_id": 1,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 10.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response2.txt_stdout.txt",
+    "code_path": "problem_iter2_code2.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"\n    Prioritizes bins based on a combination of 'best fit' and 'least remaining capacity'.\n    It favors bins that closely fit the item while also considering those that will have\n    the least remaining space after packing, encouraging fuller bins.\n    \"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    \n    # Identify bins that can accommodate the item\n    available_bins_mask = bins_remain_cap >= item\n    \n    if not np.any(available_bins_mask):\n        return priorities  # No bins available\n\n    available_caps = bins_remain_cap[available_bins_mask]\n    \n    # --- Heuristic 1: Sigmoid on Fit Ratio (modified) ---\n    # Metric 1: How well the item fits the bin's remaining capacity.\n    # We use item / available_caps to represent how full the bin *will become*.\n    # A smaller ratio means a tighter fit (higher priority).\n    # We invert this for the sigmoid input to favor smaller ratios.\n    fit_ratios = item / available_caps\n    \n    # Sigmoid for fit ratio: -fit_ratios emphasizes smaller ratios.\n    # Scale and shift to center the sigmoid around a 'good fit' point (e.g., ratio close to 0).\n    # Adding a small epsilon to avoid division by zero or log(0) issues if scaling is applied later.\n    sigmoid_fit_input = -fit_ratios * 5.0 # Steepness parameter\n    priorities[available_bins_mask] = 1 / (1 + np.exp(-sigmoid_fit_input))\n\n    # --- Heuristic 11: Inverse Distance (modified for remaining capacity) ---\n    # Metric 2: Prioritize bins with less remaining capacity *after* packing.\n    # This is similar to \"best fit\" by minimizing leftover space.\n    remaining_capacities_after_fit = available_caps - item\n    \n    # Use inverse of remaining capacity, adding a small epsilon to avoid division by zero.\n    # Smaller remaining capacity should lead to higher priority.\n    inverse_remaining_cap = 1.0 / (remaining_capacities_after_fit + 1e-9)\n\n    # Normalize inverse remaining capacities to combine with fit priorities.\n    # This ensures that the remaining capacity metric is on a similar scale.\n    max_inv_rem_cap = np.max(inverse_remaining_cap)\n    if max_inv_rem_cap > 0:\n        normalized_inverse_remaining_cap = inverse_remaining_cap / max_inv_rem_cap\n    else:\n        normalized_inverse_remaining_cap = np.zeros_like(inverse_remaining_cap)\n\n    # --- Combination ---\n    # Combine the two metrics. We can use a weighted sum or a multiplication.\n    # Multiplication can emphasize bins that are good in *both* aspects.\n    # Let's use a weighted sum for more flexibility.\n    \n    # Assign weights to each heuristic. These can be tuned.\n    weight_fit = 0.7\n    weight_remaining = 0.3\n    \n    combined_priorities = (weight_fit * priorities[available_bins_mask] + \n                           weight_remaining * normalized_inverse_remaining_cap)\n\n    # Normalize the final combined priorities to be between 0 and 1,\n    # ensuring the highest priority bin is clearly selected.\n    max_combined_priority = np.max(combined_priorities)\n    if max_combined_priority > 0:\n        priorities[available_bins_mask] = combined_priorities / max_combined_priority\n    else:\n        priorities[available_bins_mask] = np.zeros_like(combined_priorities)\n\n    return priorities",
+    "response_id": 2,
+    "tryHS": false,
+    "obj": 4.11846828879138,
+    "SLOC": 26.0,
+    "cyclomatic_complexity": 4.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response3.txt_stdout.txt",
+    "code_path": "problem_iter2_code3.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines Best Fit with a Sigmoid-based penalty for large remaining capacities.\n\n    Prioritizes bins that closely fit the item, with a smooth penalty for bins\n    that would have a significantly larger remaining capacity after placement.\n    \"\"\"\n    available_bins_mask = bins_remain_cap >= item\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n\n    if np.any(available_bins_mask):\n        valid_capacities = bins_remain_cap[available_bins_mask]\n        \n        # Heuristic 1: \"Best Fit\" component using inverse of difference\n        # Higher score for smaller differences (tighter fit)\n        differences = valid_capacities - item\n        best_fit_scores = 1.0 / (differences + 1e-9)\n\n        # Heuristic 2: Sigmoid applied to the *remaining* capacity after fitting\n        # Penalizes bins that will have a lot of space left, but smoothly.\n        # Centered to give higher scores to smaller remaining capacities.\n        scaling_factor = 10.0 # Tune this to control sensitivity to remaining space\n        potential_remaining_capacities = valid_capacities - item\n        sigmoided_penalty = 1 / (1 + np.exp(scaling_factor * (potential_remaining_capacities - 0.1))) # Penalty for remaining capacity > 0.1\n\n        # Combine scores: Prioritize good fits and penalize large remaining capacities\n        # A simple multiplication or weighted sum can be used. Here, we multiply\n        # to ensure that both conditions (good fit AND small remaining capacity) are met.\n        combined_scores = best_fit_scores * sigmoided_penalty\n\n        priorities[available_bins_mask] = combined_scores\n\n    return priorities",
+    "response_id": 3,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 13.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response4.txt_stdout.txt",
+    "code_path": "problem_iter2_code4.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"\n    Combines Best Fit with an exploration bonus for less full bins.\n\n    Prioritizes bins that offer a tight fit (small remaining capacity) but\n    also encourages exploring bins with more empty space to avoid premature\n    bin exhaustion.\n    \"\"\"\n    epsilon = 0.1\n    priorities = np.full_like(bins_remain_cap, -np.inf)\n\n    suitable_bins_mask = bins_remain_cap >= item\n\n    if np.any(suitable_bins_mask):\n        suitable_bins_cap = bins_remain_cap[suitable_bins_mask]\n\n        # Best Fit component: prioritize bins with minimal remaining capacity after fit\n        # Add a small constant to avoid division by zero.\n        best_fit_score = 1.0 / (suitable_bins_cap - item + 1e-9)\n\n        # Exploration component: bonus for bins with larger remaining capacity\n        # Normalize the bonus to prevent it from dominating the best fit score.\n        # Using min-max scaling on the remaining capacities of suitable bins.\n        if suitable_bins_cap.size > 1:\n            min_cap = np.min(suitable_bins_cap)\n            max_cap = np.max(suitable_bins_cap)\n            normalized_remaining_cap = (suitable_bins_cap - min_cap) / (max_cap - min_cap + 1e-9)\n            exploration_bonus = epsilon * normalized_remaining_cap\n        else:\n            # If only one suitable bin, no exploration bonus needed relative to others\n            exploration_bonus = np.zeros_like(suitable_bins_cap)\n\n        # Combine scores\n        priorities[suitable_bins_mask] = best_fit_score + exploration_bonus\n\n    return priorities",
+    "response_id": 4,
+    "tryHS": false,
+    "obj": 4.198244914240141,
+    "SLOC": 16.0,
+    "cyclomatic_complexity": 3.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response5.txt_stdout.txt",
+    "code_path": "problem_iter2_code5.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"\n    Prioritizes bins by combining a tight fit score (inverse of remaining capacity after fitting)\n    with a diversification bonus for bins with less capacity.\n    This aims to favor bins that are almost full for the current item while also\n    exploring less utilized bins to prevent premature overcrowding.\n    \"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    \n    # Filter bins that can accommodate the item\n    valid_bins_mask = bins_remain_cap >= item\n    valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]\n    \n    if valid_bins_remain_cap.size > 0:\n        # Calculate \"tight fit\" score: inverse of remaining capacity after fitting\n        # A smaller remaining capacity means a tighter fit, hence higher priority.\n        # Add a small epsilon to avoid division by zero.\n        fit_scores = 1.0 / (valid_bins_remain_cap - item + 1e-9)\n        \n        # Calculate a \"diversification bonus\" based on the inverse of the remaining capacity\n        # This slightly favors bins that are less full, promoting exploration.\n        # We use the original remaining capacity here to gauge overall fullness.\n        diversification_bonus = 1.0 / (bins_remain_cap[valid_bins_mask] + 1e-9)\n        \n        # Combine fit score and diversification bonus.\n        # A simple additive combination, scaled to give reasonable influence to both.\n        # The scaling factor can be tuned. Here, we'll give a slight edge to fit_scores.\n        combined_priorities = fit_scores + 0.5 * diversification_bonus\n        \n        # Assign the calculated priorities back to the original array indices\n        priorities[valid_bins_mask] = combined_priorities\n        \n    return priorities",
+    "response_id": 5,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 10.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response6.txt_stdout.txt",
+    "code_path": "problem_iter2_code6.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"\n    Combines Best Fit with an exploration bonus for less full bins.\n\n    Prioritizes bins that are a tight fit (best fit) but also explores\n    less full bins to potentially improve overall packing.\n    \"\"\"\n    epsilon = 0.1\n    priorities = np.full_like(bins_remain_cap, -np.inf)\n\n    suitable_bins_mask = bins_remain_cap >= item\n\n    if np.any(suitable_bins_mask):\n        suitable_bins_cap = bins_remain_cap[suitable_bins_mask]\n\n        # Best Fit component: inverse of remaining capacity after fitting\n        best_fit_scores = 1.0 / (suitable_bins_cap - item + 1e-9)\n\n        # Exploration component: bonus for bins with more remaining capacity (less full)\n        avg_remaining_capacity = np.mean(suitable_bins_cap)\n        exploration_bonus = np.maximum(0, avg_remaining_capacity - suitable_bins_cap) * epsilon\n\n        priorities[suitable_bins_mask] = best_fit_scores + exploration_bonus\n\n    return priorities",
+    "response_id": 6,
+    "tryHS": false,
+    "obj": 4.11846828879138,
+    "SLOC": 11.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response7.txt_stdout.txt",
+    "code_path": "problem_iter2_code7.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"\n    Combines Best Fit (inverse difference) with an exploration bonus\n    for less full bins, inspired by Epsilon-Greedy.\n\n    Args:\n        item: Size of item to be packed.\n        bins_remain_cap: Array of remaining capacities of each bin.\n\n    Returns:\n        Array of priority scores for each bin.\n    \"\"\"\n    epsilon = 0.1\n    priorities = np.full_like(bins_remain_cap, -np.inf)\n    \n    suitable_bins_mask = bins_remain_cap >= item\n    \n    if np.any(suitable_bins_mask):\n        suitable_bins_caps = bins_remain_cap[suitable_bins_mask]\n        \n        # Best Fit component: Prioritize bins with minimal remaining capacity after packing\n        # Using inverse of remaining capacity after fitting for a \"tighter fit\" score\n        best_fit_scores = 1.0 / (suitable_bins_caps - item + 1e-9)\n        \n        # Exploration component: Bonus for bins with more remaining capacity\n        # This encourages trying bins that are not necessarily the tightest fit\n        avg_suitable_cap = np.mean(suitable_bins_caps)\n        exploration_bonus = np.maximum(0, avg_suitable_cap - suitable_bins_caps) * epsilon\n        \n        priorities[suitable_bins_mask] = best_fit_scores + exploration_bonus\n        \n    return priorities",
+    "response_id": 7,
+    "tryHS": false,
+    "obj": 4.11846828879138,
+    "SLOC": 11.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response8.txt_stdout.txt",
+    "code_path": "problem_iter2_code8.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Prioritizes bins using a combination of inverse difference and remaining capacity.\n\n    This heuristic combines the \"best fit\" aspect of inverse difference with a\n    penalty for bins with excessively large remaining capacity, promoting tighter fits.\n    \"\"\"\n    priorities = np.zeros_like(bins_remain_cap, dtype=float)\n    valid_bins_mask = bins_remain_cap >= item\n    \n    if np.any(valid_bins_mask):\n        valid_bins_remain_cap = bins_remain_cap[valid_bins_mask]\n        \n        differences = valid_bins_remain_cap - item\n        \n        # Inverse difference for best fit, scaled by inverse of remaining capacity to penalize large gaps\n        # Adding a small epsilon to the denominator to prevent division by zero\n        scaled_inverse_differences = 1.0 / (differences + 1e-9) / (valid_bins_remain_cap + 1e-9)\n        \n        priorities[valid_bins_mask] = scaled_inverse_differences\n\n    return priorities",
+    "response_id": 8,
+    "tryHS": false,
+    "obj": 4.048663741523748,
+    "SLOC": 9.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  },
+  {
+    "stdout_filepath": "problem_iter2_response9.txt_stdout.txt",
+    "code_path": "problem_iter2_code9.py",
+    "code": "import numpy as np\n\ndef priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:\n    \"\"\"Combines sigmoid fit score with an exploration bonus for diverse bin selection.\n\n    Args:\n        item: Size of item to be added to the bin.\n        bins_remain_cap: Array of remaining capacities for each bin.\n\n    Returns:\n        Array of priority scores for each bin.\n    \"\"\"\n    # Calculate potential remaining capacity for valid bins\n    potential_remaining_cap = bins_remain_cap - item\n    valid_bins_mask = potential_remaining_cap >= 0\n\n    # If no bins can accommodate the item, return zeros\n    if not np.any(valid_bins_mask):\n        return np.zeros_like(bins_remain_cap)\n\n    # Normalize remaining capacities of valid bins for sigmoid calculation\n    valid_capacities = bins_remain_cap[valid_bins_mask]\n    \n    # Use a sigmoid function to get a \"tight fit\" score.\n    # We want bins that leave minimal remaining capacity, so we use the negative\n    # of the remaining capacity. The scaling factor controls steepness.\n    scaling_factor = 2.0\n    tight_fit_scores = 1 / (1 + np.exp(-scaling_factor * (-potential_remaining_cap[valid_bins_mask])))\n\n    # Introduce an exploration bonus: bins with more remaining capacity get a small bonus\n    # to encourage exploring less full bins. Normalize capacities for bonus calculation.\n    # Add a small epsilon to avoid division by zero if a bin is already full (though filtered by valid_bins_mask)\n    exploration_bonus = 0.1 * (valid_capacities / (np.mean(valid_capacities) + 1e-9))\n\n    # Combine tight fit score with exploration bonus.\n    # The exploration bonus is added to the tight fit score.\n    combined_scores = tight_fit_scores + exploration_bonus\n\n    # Initialize priorities with zeros\n    priorities = np.zeros_like(bins_remain_cap)\n    \n    # Assign the combined scores to the valid bins\n    priorities[valid_bins_mask] = combined_scores\n\n    return priorities",
+    "response_id": 9,
+    "tryHS": false,
+    "obj": 4.487435181491823,
+    "SLOC": 13.0,
+    "cyclomatic_complexity": 2.0,
+    "exec_success": true
+  }
+]

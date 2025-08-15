@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes bins based on a combination of tightest fit and overall bin fullness.
+    Uses a sigmoid function to provide graded priorities for suitable bins.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if np.any(suitable_bins_mask):
+        suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+        
+        # Metric 1: Tightest fit (inverse of remaining capacity after packing)
+        # Smaller remaining capacity is better (tighter fit)
+        gaps = suitable_bins_caps - item
+        
+        # Avoid division by zero or very small numbers for bins with zero remaining capacity
+        inverse_proximity = 1.0 / (gaps + 1e-9)
+        
+        # Normalize inverse proximity to a [0, 1] range for the sigmoid
+        # Max value corresponds to the tightest fit, min to the loosest fit among suitable bins
+        min_inv_prox = np.min(inverse_proximity)
+        max_inv_prox = np.max(inverse_proximity)
+        
+        if max_inv_prox == min_inv_prox: # All suitable bins have the same tightness
+            normalized_proximity = np.ones_like(inverse_proximity) * 0.5 
+        else:
+            normalized_proximity = (inverse_proximity - min_inv_prox) / (max_inv_prox - min_inv_prox)
+            
+        # Metric 2: Fullness of the bin (inverse of remaining capacity before packing)
+        # Higher fullness is generally better to keep smaller bins for smaller items
+        fullness_scores = 1.0 / (suitable_bins_caps + 1e-9)
+        
+        # Normalize fullness scores
+        min_fullness = np.min(fullness_scores)
+        max_fullness = np.max(fullness_scores)
+        
+        if max_fullness == min_fullness: # All suitable bins have the same fullness
+            normalized_fullness = np.ones_like(fullness_scores) * 0.5
+        else:
+            normalized_fullness = (fullness_scores - min_fullness) / (max_fullness - min_fullness)
+            
+        # Combine metrics using sigmoid for graded preference
+        # We want high proximity score (tight fit) and high fullness score to have higher priority
+        # Sigmoid with a positive slope centered around 0.5 will map higher combined scores to higher priorities
+        combined_score = normalized_proximity * 0.7 + normalized_fullness * 0.3 # Weighted combination
+        
+        # Apply sigmoid to create graded priorities between 0 and 1
+        # A temperature parameter could be added here for tuning (e.g., sigmoid(k * (combined_score - 0.5)))
+        sigmoid_priorities = 1 / (1 + np.exp(-10 * (combined_score - 0.5))) 
+        
+        priorities[suitable_bins_mask] = sigmoid_priorities
+        
+    return priorities
+```

@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined Best Fit strategy.
+
+    This strategy prioritizes bins that have the smallest remaining capacity after packing the item,
+    provided the item fits. Bins that cannot accommodate the item receive a priority of 0.
+    The priority score is designed such that bins with a remaining capacity closer to zero
+    receive higher scores. A sigmoid function is used to provide a smooth ranking.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+    
+    # For bins that can fit the item, calculate the remaining capacity after packing
+    potential_remaining_cap = bins_remain_cap - item
+    
+    # We want to prioritize bins with the smallest non-negative remaining capacity.
+    # This is a "Best Fit" approach. To translate this into a priority score
+    # where higher is better, we can use a function that decreases as
+    # `potential_remaining_cap` increases for `potential_remaining_cap >= 0`.
+    # A sigmoid function of the form `1 / (1 + exp(k * x))` is decreasing if `k > 0`.
+    # Let `x = potential_remaining_cap`.
+    # The larger `potential_remaining_cap` is, the smaller the score will be.
+    # The ideal case is `potential_remaining_cap = 0`, which gives a score of 0.5.
+    # Larger positive remaining capacity gives scores less than 0.5, approaching 0.
+    # This accurately ranks bins by their "tightness" of fit among eligible bins.
+    
+    # A steepness parameter controls how quickly the priority drops as remaining capacity increases.
+    # A higher steepness means a stronger preference for tighter fits.
+    steepness = 10.0 # Tunable parameter, higher means more preference for tighter fits
+
+    # Calculate the argument for the sigmoid function for eligible bins.
+    # We use `potential_remaining_cap` directly.
+    exponent_args = steepness * potential_remaining_cap[can_fit_mask]
+    
+    # To avoid numerical overflow/underflow with np.exp, clip the exponent arguments.
+    # Values like exp(700) or exp(-700) can cause issues. A range of [-30, 30] is usually safe.
+    clipped_exponent_args = np.clip(exponent_args, -30.0, 30.0)
+    
+    # Calculate the priority scores using the sigmoid function for eligible bins.
+    # The score will be between (0, 1). Higher scores mean a better fit.
+    priorities[can_fit_mask] = 1.0 / (1.0 + np.exp(clipped_exponent_args))
+    
+    # Bins that cannot fit the item (can_fit_mask is False) retain their initial priority of 0.
+    
+    return priorities
+```

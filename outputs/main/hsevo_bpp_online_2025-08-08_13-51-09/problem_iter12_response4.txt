@@ -1,0 +1,306 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+    num_suitable_bins = suitable_bins_caps.shape[0]
+
+    # Metric 1: Best Fit (revisited)
+    # Focus on the *relative* remaining capacity after placement.
+    # Smaller relative remaining capacity is better (tighter fit).
+    # Use inverse of (1 + relative remaining capacity) to give higher scores to tighter fits.
+    # Added a small constant to the denominator to avoid division by zero and to differentiate very tight fits.
+    remaining_after_placement = suitable_bins_caps - item
+    relative_remaining = remaining_after_placement / suitable_bins_caps # How much capacity is left relative to the bin's current state
+    best_fit_scores = 1.0 / (1.0 + relative_remaining + 1e-6) # Higher score for smaller relative_remaining
+
+    # Metric 2: Fill Level Favorability
+    # Favor bins that are neither too empty nor too full. This promotes better space utilization.
+    # We can define a "target fill level". Let's assume a target fill level that is high but leaves some room, e.g., 80-90%.
+    # We can use a Gaussian-like function centered around a desired fill ratio.
+    # Let's assume bin capacity is implicitly normalized to 1.0 for this metric, and item size is also normalized.
+    # The actual capacity of the bin might be more relevant. Let's use remaining capacity relative to a hypothetical maximum bin capacity (e.g., 1.0 for normalized context, or inferable).
+    # For simplicity and adaptability, let's consider the ratio of *item size* to the *bin's remaining capacity*.
+    # A higher ratio means the item makes a bigger dent in the remaining capacity.
+    # We want to avoid bins that are almost empty, as a small item would leave them very inefficiently filled.
+    # A bin that is mostly full and can still accommodate the item is also less desirable for exploration.
+    # Let's score based on how much capacity is *already used* (1 - normalized remaining capacity).
+    # This encourages using bins that have some items already.
+    # Max capacity of a bin isn't explicitly given, assume it's large enough to hold any item.
+    # Let's use the item size relative to the *current remaining capacity* of the bin.
+    # If item/suitable_bins_caps is high, it means the item is a large fraction of what's left -> good for utilization.
+    # If item/suitable_bins_caps is low, it means the item is small compared to what's left -> might leave it too empty.
+    # We want to reward bins where the item fills a significant portion of the *remaining* space.
+    fill_score_component = item / (suitable_bins_caps + 1e-6)
+    # We also want to reward bins that are not excessively empty. Let's use the inverse of normalized remaining capacity.
+    # Normalized remaining capacity: suitable_bins_caps / MAX_BIN_CAPACITY (assume MAX_BIN_CAPACITY=1 for normalized context)
+    # So, 1 - suitable_bins_caps is a measure of "fill level". We want to prioritize bins with moderate fill levels.
+    # Let's combine these: prefer bins where the item fits snugly, and the bin isn't too empty.
+    # A bin is "good" if `suitable_bins_caps` is not too large, and `item` is not too small relative to it.
+    # Let's define a "gap score" based on `suitable_bins_caps - item`. Small gaps are good.
+    gap_scores = suitable_bins_caps - item
+    # We want to penalize bins that are too empty, meaning `suitable_bins_caps` is large.
+    # Let's consider the inverse of the *absolute* remaining capacity. Larger remaining capacity = lower score.
+    # And also the inverse of `gap_scores`. Smaller gaps = higher score.
+    # Combine `1 / (gap_scores + epsilon)` with `1 / (suitable_bins_caps + epsilon)`.
+    # This is effectively prioritizing bins with small remaining capacity after placement AND small total capacity.
+    # This seems too restrictive. Let's rethink.
+
+    # Metric 2 (Revised): Balanced Fill
+    # Aim for bins that are "moderately full" but also accommodate the item well.
+    # Consider the ratio of item size to bin capacity.
+    # `item / bin_capacity`. This is not directly available.
+    # Let's use `item / suitable_bins_caps` as a proxy for how much of the *current remaining space* the item occupies.
+    # High values are good (item fills a lot). Low values are bad (item is small relative to space).
+    # Also, consider the *absolute* remaining capacity after placement: `suitable_bins_caps - item`.
+    # Small absolute remaining capacity is good (tight fit). Large absolute remaining capacity is bad.
+    # Let's combine these: higher score if `item / suitable_bins_caps` is high AND `suitable_bins_caps - item` is low.
+    # This is somewhat redundant with Best Fit.
+
+    # Let's introduce a metric for "bin efficiency" or "fairness".
+    # Metric 2 (New): Bin Efficiency Prioritization
+    # Prioritize bins that have capacity close to the item size, but slightly larger.
+    # This helps consolidate items without leaving excessive "slack".
+    # We are looking for `suitable_bins_caps` that are "just enough".
+    # This can be modeled as `1 / (suitable_bins_caps - item + epsilon)` BUT we also want to avoid very large capacities.
+    # Let's use a metric that is high when `suitable_bins_caps` is close to `item`.
+    # We can use a Gaussian-like function centered around `item`.
+    # The "variance" of this Gaussian could adapt to the item size. Larger items might tolerate larger gaps.
+    # Let's keep it simpler: reward bins where `suitable_bins_caps` is "just above" `item`.
+    # This means `suitable_bins_caps - item` should be small and positive.
+    # `1 / (suitable_bins_caps - item + epsilon)` is similar to best-fit.
+
+    # Let's try a simpler, more direct approach for diversification and better space utilization.
+    # Metric 2: Space Utilization Fairness
+    # We want to use bins that have a reasonable amount of space left but are not excessively empty.
+    # A bin that is almost full and can fit the item is good.
+    # A bin that is almost empty and can fit the item is less good (leaves a lot of slack).
+    # Let's focus on the "fill state" of the bin *before* placing the item.
+    # We need to infer the "original" capacity or the "current fill".
+    # If we assume a fixed bin capacity (e.g., 1.0 for normalization), then `1 - suitable_bins_caps` is the "fill ratio".
+    # We want to avoid bins that are very empty (fill ratio close to 0).
+    # Let's define a "fill penalty": higher penalty for very empty bins.
+    # `fill_penalty = max(0, 0.5 - (1 - suitable_bins_caps))` -> penalize bins where remaining capacity > 0.5
+    # This is inverted. We want to *reward* bins that are not too empty.
+    # Let's consider `1 - suitable_bins_caps` as "current fill".
+    # We can use a function that peaks at a moderate fill level, e.g., 0.7-0.9.
+    # A simple sigmoid-like function can achieve this.
+    # `fill_score = 1 / (1 + exp(-(fill_ratio - target_fill) / steepness))`
+    # Let's use a simpler approach: reward bins whose remaining capacity is not too large.
+    # Inverse of remaining capacity: `1 / (suitable_bins_caps + epsilon)`.
+    # This prioritizes bins that are more full.
+    # However, this is counter to "exploration" or giving smaller items space.
+
+    # Let's try to balance "tight fit" with "not too empty".
+    # Metric 2: Optimized Capacity Usage
+    # Prioritize bins where the remaining capacity is just enough for the item,
+    # AND the bin wasn't excessively empty to begin with.
+    # Consider `suitable_bins_caps` relative to the item size.
+    # We want `suitable_bins_caps` to be slightly larger than `item`.
+    # Let's score based on the inverse of `suitable_bins_caps` (favoring fuller bins) and also penalize very large `suitable_bins_caps`.
+    # Consider the ratio: `item / suitable_bins_caps`. High is good.
+    # And the gap: `suitable_bins_caps - item`. Low is good.
+    # Let's combine them: `(item / suitable_bins_caps) * (1 / (suitable_bins_caps - item + epsilon))`
+    # This might become unstable if `suitable_bins_caps` is very close to `item`.
+
+    # Rethinking the goal: dynamic adaptation and avoiding suboptimal choices early on.
+    # Instead of multiple, possibly conflicting metrics with complex weighting, let's try a more robust, adaptive metric.
+    # A common issue is creating many nearly empty bins or very full bins.
+    # We want to find a balance.
+    # Let's consider the "waste" created by placing the item.
+    # Waste = `suitable_bins_caps - item`. Lower waste is better (Best Fit).
+    # However, if a bin has very little capacity remaining overall, even a small waste might be significant.
+    # Let's consider the "quality" of the bin itself.
+    # Metric 2: Quality-Aware Best Fit
+    # Prioritize bins that offer a good fit, but also consider the overall "quality" of the bin.
+    # A "quality" bin might be one that is not too empty, nor too full,
+    # and has already accommodated a few items (though we don't have this info directly).
+    # Let's proxy "quality" by the *inverse* of the remaining capacity.
+    # A bin with less remaining capacity is "more full" and might be considered of higher quality in terms of utilization.
+    # So, we want to reward:
+    # 1. Small gap (`suitable_bins_caps - item` is small).
+    # 2. High initial fill (small `suitable_bins_caps`).
+    # This can be combined as: `1 / (suitable_bins_caps - item + epsilon) * (1 / (suitable_bins_caps + epsilon))`.
+    # This effectively prioritizes bins that have *just enough* capacity and are already quite full.
+
+    # Let's try to be more nuanced. What if the item is very small?
+    # A very small item should preferably go into a bin that has a moderate amount of remaining capacity,
+    # to avoid making it too empty.
+    # What if the item is very large?
+    # A very large item should ideally go into a bin that has a capacity *just* over the item size.
+    # This suggests a weight that adapts not just to the item size, but also to the distribution of `suitable_bins_caps`.
+
+    # Metric 2: Adaptive Fit Quality
+    # We want to favor bins where `suitable_bins_caps` is slightly larger than `item`.
+    # Let's consider the "excess capacity" `excess = suitable_bins_caps - item`.
+    # We want `excess` to be small.
+    # Additionally, we want to avoid using bins that are already extremely full or extremely empty.
+    # Let's define a "bin desirability" based on its remaining capacity `suitable_bins_caps`.
+    # High desirability for bins with moderate remaining capacity (e.g., 50% to 80% full).
+    # Let's simplify and focus on the "slack" created.
+    # `slack = suitable_bins_caps - item`.
+    # We want `slack` to be small.
+    # However, if `suitable_bins_caps` is already very small, a small `slack` might be undesirable.
+    # Let's try a score that combines the inverse of `suitable_bins_caps` (favoring fuller bins)
+    # and penalizes large slack.
+    # Consider `score = (1 - suitable_bins_caps) / (suitable_bins_caps - item + epsilon)`
+    # This would be high if the bin is quite full AND the slack is small.
+    # It might be unstable if `suitable_bins_caps` is small.
+
+    # Let's introduce a penalty for bins that are *too* empty relative to the item.
+    # If `suitable_bins_caps` is much larger than `item`, it might lead to poor packing.
+    # A metric for "over-capacity": `max(0, suitable_bins_caps - item - target_slack)`
+    # where `target_slack` could be a small constant or a fraction of `item`.
+    # Let's aim for a specific target remaining capacity after placement, say `target_rem`.
+    # `target_rem` could be related to the item size, e.g., `0.1 * item` or `0.2 * BIN_CAPACITY`.
+    # For simplicity, let's make `target_rem` a small constant like 0.1.
+    # Then, we penalize bins where `suitable_bins_caps - item` is much larger than `target_rem`.
+    # `penalty = max(0, (suitable_bins_caps - item) - target_rem)`
+    # The score would be `1 / (penalty + 1)`.
+
+    # Metric 2: Balanced Slack Minimization
+    # Prioritize bins that minimize slack, but also penalize placing items in very empty bins
+    # where the item occupies a small fraction of the remaining capacity.
+    # Let `slack = suitable_bins_caps - item`. We want small slack.
+    # Consider the ratio `item / suitable_bins_caps`. We want this to be reasonably high.
+    # A combination could be: `(1 / (slack + epsilon)) * (item / (suitable_bins_caps + epsilon))`
+    # This score is high when slack is small AND item occupies a good portion of bin's remaining capacity.
+
+    # Let's try to integrate the "exploration" idea more subtly.
+    # Exploration might mean not always picking the absolute "best" fit if it means creating a very specialized bin.
+    # We want to keep options open.
+    # This might mean slightly favoring bins that are neither too full nor too empty.
+
+    # Metric 2 (Re-Revisited): Dynamic Target Fit
+    # The "ideal" remaining capacity after placement might depend on the item size and the overall bin fullness.
+    # If a bin is very full, we want the item to fit snugly (small residual capacity).
+    # If a bin is quite empty, we might want the item to fill a larger portion of it.
+    # Let's try a score that rewards bins where `suitable_bins_caps - item` is minimized,
+    # but with a twist: the "penalty" for slack depends on how "full" the bin is.
+    # Let's use the inverse of `suitable_bins_caps` to represent "fullness".
+    # `fullness_score = 1 / (suitable_bins_caps + epsilon)`.
+    # We want to penalize slack `suitable_bins_caps - item`.
+    # Combine: `score = fullness_score / (suitable_bins_caps - item + epsilon)`
+    # This would prioritize bins that are full and have small slack.
+
+    # Let's go with a simpler, more interpretable combination that balances tight fits and bin usage.
+    # Metric 2: Fill State Aware Best Fit
+    # We want a tight fit (Best Fit) and we want to avoid using bins that are too empty.
+    # `best_fit_contribution = 1.0 / (suitable_bins_caps - item + 1e-6)`
+    # How to penalize bins that are too empty?
+    # We can use `1 - suitable_bins_caps` as a proxy for "fill level".
+    # We want to avoid bins where `suitable_bins_caps` is large.
+    # So, we want to reward bins with low `suitable_bins_caps`.
+    # Let's try `fill_awareness = 1.0 / (suitable_bins_caps + 1e-6)`.
+    # This rewards fuller bins.
+    # Combining them: `score = best_fit_contribution * fill_awareness`
+    # `score = (1.0 / (suitable_bins_caps - item + 1e-6)) * (1.0 / (suitable_bins_caps + 1e-6))`
+    # This prioritizes bins that are both nearly full and have just enough capacity for the item.
+
+    # Let's normalize the components to ensure comparability.
+    # Metric 1: Best Fit (again, but more robust)
+    # Prioritize bins that leave minimum remaining capacity.
+    # `remaining_capacity = suitable_bins_caps - item`
+    # `best_fit_score = 1.0 / (remaining_capacity + 1e-6)`
+    # Normalize this score by the maximum possible best fit score.
+    remaining_capacity = suitable_bins_caps - item
+    best_fit_scores = 1.0 / (remaining_capacity + 1e-6)
+
+    # Metric 2: Bin Fullness Prioritization
+    # Prioritize bins that are already more full. This encourages consolidating items.
+    # Use inverse of remaining capacity as a proxy for fullness.
+    # `fullness_score = 1.0 / (suitable_bins_caps + 1e-6)`
+    # Normalize this score by the maximum possible fullness score.
+    fullness_scores = 1.0 / (suitable_bins_caps + 1e-6)
+
+    # Metric 3: Item Size Ratio
+    # For smaller items, it's often beneficial to place them in bins that are not too empty,
+    # to avoid creating many sparsely filled bins.
+    # For larger items, it's crucial to find a good fit.
+    # Let's consider the ratio of the item size to the bin's remaining capacity.
+    # `item_ratio = item / suitable_bins_caps`. A higher ratio means the item makes a larger dent.
+    # This metric is good for smaller items in moderately full bins.
+    # For very large items, this ratio might be close to 1.
+    item_ratio_scores = item / (suitable_bins_caps + 1e-6)
+
+    # Normalization of components
+    # Normalize Best Fit scores: higher score for tighter fits.
+    if np.max(best_fit_scores) > 1e-9:
+        norm_best_fit = best_fit_scores / np.max(best_fit_scores)
+    else:
+        norm_best_fit = np.zeros_like(best_fit_scores)
+
+    # Normalize Fullness scores: higher score for fuller bins.
+    if np.max(fullness_scores) > 1e-9:
+        norm_fullness = fullness_scores / np.max(fullness_scores)
+    else:
+        norm_fullness = np.zeros_like(fullness_scores)
+
+    # Normalize Item Ratio scores: higher score for items filling more of the bin's remaining capacity.
+    if np.max(item_ratio_scores) > 1e-9:
+        norm_item_ratio = item_ratio_scores / np.max(item_ratio_scores)
+    else:
+        norm_item_ratio = np.zeros_like(item_ratio_scores)
+
+    # Adaptive Weighting Strategy:
+    # The importance of each metric can depend on the item's size relative to the bin capacity.
+    # Assume a standard bin capacity (e.g., 1.0 for normalization purposes if item is scaled).
+    # If `item` is large (close to 1.0), 'Best Fit' and 'Fullness' are critical.
+    # If `item` is small, 'Item Ratio' and 'Fullness' are important to avoid waste.
+
+    # Let's define weights based on the item's size relative to the *average* suitable bin capacity.
+    # This provides a context for the item.
+    avg_suitable_cap = np.mean(suitable_bins_caps)
+    if avg_suitable_cap > 1e-9:
+        item_vs_avg_cap_ratio = item / avg_suitable_cap
+    else:
+        item_vs_avg_cap_ratio = 0.5 # Default if no suitable bins or very small capacity
+
+    # Weights adjustment:
+    # If item is large relative to average capacity, emphasize Best Fit and Fullness.
+    # If item is small relative to average capacity, emphasize Item Ratio and Fullness.
+
+    # Base weights, can be tuned.
+    w_bf = 0.4
+    w_f = 0.4
+    w_ir = 0.2
+
+    # Adjust weights dynamically.
+    # Example: if item is large, increase weight for BF and F.
+    if item_vs_avg_cap_ratio > 1.0: # Item is larger than average remaining capacity
+        w_bf += 0.2 * (item_vs_avg_cap_ratio - 1.0) # Boost BF for large items
+        w_f += 0.1 * (item_vs_avg_cap_ratio - 1.0) # Boost F for large items
+        w_ir -= 0.3 * (item_vs_avg_cap_ratio - 1.0) # Decrease IR for large items
+    else: # Item is smaller than average remaining capacity
+        w_ir += 0.3 * (1.0 - item_vs_avg_cap_ratio) # Boost IR for small items
+        w_f += 0.1 * (1.0 - item_vs_avg_cap_ratio) # Boost F for small items
+        w_bf -= 0.2 * (1.0 - item_vs_avg_cap_ratio) # Decrease BF for small items
+
+    # Ensure weights are non-negative and sum to 1 (or close enough, then re-normalize).
+    w_bf = max(0, w_bf)
+    w_f = max(0, w_f)
+    w_ir = max(0, w_ir)
+
+    total_w = w_bf + w_f + w_ir
+    if total_w > 1e-9:
+        w_bf /= total_w
+        w_f /= total_w
+        w_ir /= total_w
+    else: # Fallback to equal weights if something goes wrong
+        w_bf, w_f, w_ir = 1/3, 1/3, 1/3
+
+    # Combine normalized scores with dynamic weights
+    combined_scores = (w_bf * norm_best_fit +
+                       w_f * norm_fullness +
+                       w_ir * norm_item_ratio)
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```

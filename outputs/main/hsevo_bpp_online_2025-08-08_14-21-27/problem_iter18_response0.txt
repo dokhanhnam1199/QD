@@ -1,0 +1,85 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    fittable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(fittable_bins_mask):
+        return priorities
+
+    fittable_bins_remain_cap = bins_remain_cap[fittable_bins_mask]
+
+    # Component 1: Best Fit (BF) - Prioritize bins that leave minimal remaining capacity.
+    # Higher score for smaller remaining capacity after fitting.
+    # Add epsilon to avoid division by zero.
+    best_fit_scores = 1.0 / (fittable_bins_remain_cap - item + 1e-9)
+
+    # Component 2: First Fit Decreasing (FFD) influence - Prioritize bins that are already more full.
+    # This encourages using existing partially filled bins.
+    # Calculated as (bin_capacity - remaining_capacity) / bin_capacity.
+    # We use the inverse of remaining capacity as a proxy for fullness, scaled.
+    # Normalize by the maximum possible remaining capacity (which is the bin capacity, assuming a standard bin size, or maximum initial capacity if variable).
+    # For simplicity, let's assume a fixed bin capacity of 1.0, so fullness is 1 - remaining_capacity.
+    # For fittable bins, fullness is (1.0 - fittable_bins_remain_cap)
+    # A simple measure of "how full" a bin is, relative to other fittable bins.
+    # High value for bins that are already quite full (low remaining capacity).
+    fullness_scores = (1.0 - fittable_bins_remain_cap)
+    if np.max(fullness_scores) > 1e-9:
+        fullness_scores = fullness_scores / np.max(fullness_scores)
+    else:
+        fullness_scores = np.zeros_like(fittable_bins_remain_cap)
+
+
+    # Component 3: Adaptive Bonus (AB) - Penalize leaving large gaps, but adaptively.
+    # Using log1p to penalize smaller gaps less severely than larger gaps.
+    # Aims to encourage packing items without creating too many small, unusable spaces.
+    # We want smaller leftover space to be better, so we use the negative of the log.
+    # Add 1 to prevent log(0) and ensure positive values.
+    leftover_space = fittable_bins_remain_cap - item
+    adaptive_scores = -np.log1p(leftover_space)
+    if np.max(adaptive_scores) > 1e-9:
+        adaptive_scores = adaptive_scores / np.max(adaptive_scores)
+    else:
+        adaptive_scores = np.zeros_like(fittable_bins_remain_cap)
+
+    # Component 4: Item Size Consideration (ISC) - Larger items might need more consideration.
+    # Give a slight bonus to bins that can accommodate larger items with more remaining space,
+    # to reserve tighter fits for smaller items later.
+    # This is a counter-balance to pure Best Fit.
+    # This bonus is higher for bins with more remaining capacity *after* fitting the item.
+    # Normalize remaining capacity after fit.
+    remaining_after_fit = fittable_bins_remain_cap - item
+    item_size_scores = remaining_after_fit
+    if np.max(item_size_scores) > 1e-9:
+        item_size_scores = item_size_scores / np.max(item_size_scores)
+    else:
+        item_size_scores = np.zeros_like(fittable_bins_remain_cap)
+
+
+    # Combine components with adaptive weights.
+    # Weights can be tuned. For now, we'll use fixed weights, but this could be made adaptive
+    # based on item size or current bin states.
+    # BF is generally strong. Fullness helps utilize bins. Adaptive balances gaps. ISC reserves space.
+    # Let's give BF the highest weight. Fullness and Adaptive are secondary. ISC is a smaller factor.
+    w_bf = 1.0
+    w_fullness = 0.6
+    w_adaptive = 0.3
+    w_item_size = 0.2
+
+    combined_scores = (w_bf * best_fit_scores +
+                       w_fullness * fullness_scores +
+                       w_adaptive * adaptive_scores +
+                       w_item_size * item_size_scores)
+
+    # Normalize the combined scores to a [0, 1] range.
+    max_score = np.max(combined_scores)
+    if max_score > 1e-9:
+        priorities[fittable_bins_mask] = combined_scores / max_score
+    else:
+        # If all scores are zero (e.g., only one fittable bin and it's a perfect fit),
+        # assign a small uniform priority.
+        priorities[fittable_bins_mask] = 0.1
+
+    return priorities
+```

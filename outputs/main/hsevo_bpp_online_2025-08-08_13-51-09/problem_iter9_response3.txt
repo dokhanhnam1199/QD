@@ -1,0 +1,62 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+
+    # Metric 1: Modified Best Fit - Prioritize bins that leave a small but not necessarily zero residual capacity.
+    # This aims to avoid leaving extremely small, unusable gaps.
+    remaining_after_placement = suitable_bins_caps - item
+    # Penalize very small residuals (e.g., < 10% of item size) slightly less than larger residuals.
+    # Reward residuals that are substantial enough to be potentially useful for future small items.
+    # We use a function that is high for residuals close to a "sweet spot" and decreases as it deviates.
+    # A quadratic function centered around a target residual (e.g., 20% of item size) can work.
+    target_residual = item * 0.2
+    best_fit_scores = np.exp(-((remaining_after_placement - target_residual) / (target_residual + 1e-6))**2)
+
+    # Metric 2: Exploration Bonus (Refined) - Favor bins that have a significant amount of remaining capacity,
+    # but also consider the "quality" of the space. Bins that are nearly full are still good for consolidation.
+    # We can use a sigmoid-like function to reward bins with moderate to high remaining capacity,
+    # but also give a slight boost to bins that are already quite full (consolidated).
+    min_cap_all = np.min(bins_remain_cap)
+    max_cap_all = np.max(bins_remain_cap)
+
+    if max_cap_all - min_cap_all > 1e-6:
+        normalized_caps = (suitable_bins_caps - min_cap_all) / (max_cap_all - min_cap_all)
+    else:
+        normalized_caps = np.ones_like(suitable_bins_caps) * 0.5
+
+    # Exploration score: favors moderately full bins (e.g., 30-70% full) and very full bins.
+    # Using a combination of a linear increase and a slight boost for higher capacities.
+    exploration_scores = normalized_caps * 0.6 + (normalized_caps**2) * 0.4
+
+    # Metric 3: Bin Age/Usage - Prioritize bins that have been used more recently or have been filled to a greater extent over time.
+    # This is an implicit metric. In an online setting, we can approximate this by looking at the
+    # "age" or number of items placed in a bin. For this function, we'll use remaining capacity as a proxy for "emptiness"
+    # and inversely relate it to "usage". Bins with less remaining capacity are considered "more used".
+    # We can factor this in by slightly boosting bins that are less empty (more filled).
+    # This is already somewhat captured by the Best Fit metric. Let's add a subtle bias for bins with less remaining capacity overall.
+    # Lower remaining capacity (i.e., higher usage) should get a slight preference.
+    usage_scores = 1.0 - normalized_caps
+    usage_scores = usage_scores / (np.max(usage_scores) + 1e-6) # Normalize to [0, 1]
+
+    # Combine scores with adjusted weights. Focus on balancing fit and exploration.
+    # 60% for Best Fit (nuanced), 30% for Exploration (rewarding moderate to high capacity), 10% for Usage.
+    # The interaction between these is more nuanced: Best Fit finds the tightest, Exploration uses less full bins,
+    # Usage encourages consolidation.
+    combined_scores = 0.6 * best_fit_scores + 0.3 * exploration_scores + 0.1 * usage_scores
+
+    # Ensure scores are within [0, 1] and handle potential NaNs or Infs
+    combined_scores = np.nan_to_num(combined_scores, nan=0.0, posinf=1.0, neginf=0.0)
+    combined_scores = np.clip(combined_scores, 0.0, 1.0)
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```

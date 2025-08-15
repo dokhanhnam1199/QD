@@ -1,0 +1,90 @@
+import numpy as np
+
+def priority_v2(
+    item: float,
+    bins_remain_cap: np.ndarray,
+    best_fit_epsilon: float = 2.9912051178172043e-05,
+    exploration_target_fill_ratio: float = 0.7621827717383103,
+    exploration_spread_factor: float = 0.15415017386999666,
+    uniformity_penalty_threshold: float = 0.3260866298041638,
+    uniformity_penalty_multiplier: float = 8.88500368016664,
+    item_size_for_weight_transition: float = 0.4090472953616366,
+    weight_best_fit_scale: float = 0.19654445062164866,
+    weight_exploration_scale: float = 0.3142842299424705,
+    weight_uniformity_scale: float = 0.19780210600446368,
+    score_normalization_epsilon: float = 6.193073912000104e-05) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+
+    # Metric 1: Best Fit - score based on how tightly the item fits
+    remaining_after_placement = suitable_bins_caps - item
+    best_fit_scores = np.log1p(1.0 / (remaining_after_placement + best_fit_epsilon))
+
+    # Metric 2: Exploration Bonus
+    max_suitable_cap = np.max(suitable_bins_caps)
+    if max_suitable_cap > score_normalization_epsilon:
+        normalized_suitable_caps = suitable_bins_caps / max_suitable_cap
+        exploration_scores = np.exp(-((normalized_suitable_caps - exploration_target_fill_ratio)**2) / exploration_spread_factor)
+    else:
+        exploration_scores = np.zeros_like(suitable_bins_caps)
+
+    # Metric 3: Uniformity Bonus
+    normalized_suitable_caps_for_uniformity = suitable_bins_caps / np.max(suitable_bins_caps) if np.max(suitable_bins_caps) > score_normalization_epsilon else np.zeros_like(suitable_bins_caps)
+    fill_level = 1.0 - normalized_suitable_caps_for_uniformity
+    uniformity_scores = np.where(fill_level < uniformity_penalty_threshold, fill_level * uniformity_penalty_multiplier, fill_level)
+    uniformity_scores = np.clip(uniformity_scores, 0, 1)
+
+    # Normalize scores
+    if np.max(best_fit_scores) > score_normalization_epsilon:
+        normalized_best_fit = best_fit_scores / np.max(best_fit_scores)
+    else:
+        normalized_best_fit = np.zeros_like(best_fit_scores)
+
+    if np.max(exploration_scores) > score_normalization_epsilon:
+        normalized_exploration = exploration_scores / np.max(exploration_scores)
+    else:
+        normalized_exploration = np.zeros_like(exploration_scores)
+
+    if np.max(uniformity_scores) > score_normalization_epsilon:
+        normalized_uniformity = uniformity_scores / np.max(uniformity_scores)
+    else:
+        normalized_uniformity = np.zeros_like(uniformity_scores)
+
+    # Dynamic weighting
+    # Normalize item size relative to a hypothetical maximum bin capacity for weighting logic
+    # Assuming item_size_for_weight_transition relates to a normalized item size (0 to 1)
+    item_size_normalized_for_weight = item / 1.0 # Assuming max bin capacity is 1.0 for this normalization
+
+    weight_best_fit = 0.5 + weight_best_fit_scale * item_size_normalized_for_weight
+    weight_exploration = 0.3 - weight_exploration_scale * item_size_normalized_for_weight
+    weight_uniformity = 0.2 - weight_uniformity_scale * item_size_normalized_for_weight
+
+    # Ensure weights are not negative and sum to 1
+    weight_best_fit = max(0, weight_best_fit)
+    weight_exploration = max(0, weight_exploration)
+    weight_uniformity = max(0, weight_uniformity)
+
+    total_weight = weight_best_fit + weight_exploration + weight_uniformity
+    if total_weight > score_normalization_epsilon:
+        weight_best_fit /= total_weight
+        weight_exploration /= total_weight
+        weight_uniformity /= total_weight
+    else:
+        # Fallback if all weights are zero (should not happen with current logic but good practice)
+        weight_best_fit = 1/3
+        weight_exploration = 1/3
+        weight_uniformity = 1/3
+
+
+    combined_scores = (weight_best_fit * normalized_best_fit +
+                       weight_exploration * normalized_exploration +
+                       weight_uniformity * normalized_uniformity)
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities

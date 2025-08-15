@@ -1,0 +1,76 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using a strategy that
+    balances fitting the item well (exploitation) with leaving space for future items
+    and potentially using less full bins (exploration).
+
+    This version aims to prioritize bins that leave a small, positive remainder,
+    which is often a good heuristic for BPP. It also incorporates an exploration
+    component by occasionally favoring bins that are not necessarily the "best" fit,
+    to avoid getting stuck in local optima.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    epsilon = 0.1  # Probability of exploration
+    num_bins = len(bins_remain_cap)
+
+    # Calculate potential remainders for bins where the item fits.
+    potential_remainders = bins_remain_cap - item
+
+    # Identify bins where the item can fit.
+    fitting_bins_mask = potential_remainders >= 0
+
+    # Calculate exploitation scores: prioritize bins with small positive remainders.
+    # A score of 1/(remainder + small_constant) means smaller remainders get higher scores.
+    # For bins that don't fit, assign a very low score (-infinity) to ensure they are not chosen.
+    exploitation_scores = np.full_like(bins_remain_cap, -np.inf)
+
+    # For bins that fit, calculate a score based on the remainder.
+    # We want to reward bins that leave a small, positive remainder.
+    # A simple heuristic is 1 / (remainder + epsilon) for small remainders.
+    # For exact fits (remainder = 0), this gives a high score.
+    # For very small remainders, it also gives high scores.
+    # As remainder increases, the score decreases.
+    # Adding a small constant `1e-9` to the denominator for numerical stability and to avoid division by zero.
+    exploitation_scores[fitting_bins_mask] = 1.0 / (potential_remainders[fitting_bins_mask] + 1e-9)
+
+    # Normalize exploitation scores to be between 0 and 1.
+    # This makes it easier to combine with exploration scores.
+    # If no bins fit, all scores remain -inf, and normalization will result in zeros.
+    max_exploitation_score = np.max(exploitation_scores[fitting_bins_mask]) if np.any(fitting_bins_mask) else 0
+    if max_exploitation_score > 0:
+        normalized_exploitation_scores = exploitation_scores / max_exploitation_score
+    else:
+        normalized_exploitation_scores = np.zeros_like(exploitation_scores) # If no bins fit, all normalized scores are 0
+
+    # Introduce exploration: with probability epsilon, pick a random bin among those that fit.
+    # With probability (1 - epsilon), pick the bin with the highest exploitation score.
+
+    # Generate random scores for exploration. We want to give a chance to bins that
+    # might not be the "best" according to the greedy criterion.
+    # We can generate random values and then pick among fitting bins.
+    exploration_scores = np.random.rand(num_bins)
+
+    # Combine exploitation and exploration using an epsilon-greedy approach.
+    # With probability epsilon, we use random exploration scores.
+    # With probability (1 - epsilon), we use normalized exploitation scores.
+
+    # First, create a mask for exploration choice.
+    explore_mask = np.random.rand(num_bins) < epsilon
+
+    # For bins chosen for exploration, use their random exploration score, but only if they fit.
+    # If a bin is chosen for exploration but doesn't fit, its priority should be very low.
+    # For bins chosen for exploitation, use their normalized exploitation score, but only if they fit.
+    # If a bin is chosen for exploitation but doesn't fit, its priority should be very low.
+    priorities = np.where(explore_mask & fitting_bins_mask, exploration_scores,
+                          np.where(~explore_mask & fitting_bins_mask, normalized_exploitation_scores, -np.inf))
+
+
+    return priorities
+```

@@ -1,0 +1,92 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    A priority function for the online bin packing problem using a Sigmoid Fit Score strategy.
+
+    This function assigns a priority to each bin based on how well an item fits,
+    considering the remaining capacity of the bin and the item's size. It
+    aims to place items into bins such that the remaining capacity is minimized
+    without exceeding the bin's capacity. The sigmoid function is used to
+    "sharpen" the preference for bins that are a good fit, giving higher
+    priority to bins with remaining capacity just slightly larger than the item.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A NumPy array where each element is the remaining
+                         capacity of a bin.
+
+    Returns:
+        A NumPy array of the same size as `bins_remain_cap`, where each element
+        is the priority score for placing the `item` into the corresponding bin.
+    """
+    # Calculate the difference between bin remaining capacity and item size.
+    # If item doesn't fit, this will be negative.
+    diff = bins_remain_cap - item
+
+    # We only want to consider bins where the item fits.
+    # For bins where the item does not fit (diff < 0), assign a very low priority.
+    # We can represent this by assigning a very large negative number, or simply 0
+    # if we handle the fitting outside this function.
+    # Here, we'll use a large negative number to strongly disincentivize these bins.
+    priorities = np.full_like(bins_remain_cap, -1e9) # Initialize with a very low value
+
+    # Find indices of bins where the item fits (diff >= 0)
+    fit_indices = np.where(diff >= 0)[0]
+
+    # For bins where the item fits, calculate a priority score using a sigmoid function.
+    # The sigmoid function squashes values between 0 and 1.
+    # We want to prioritize bins where `diff` is small (but non-negative).
+    # A common sigmoid is 1 / (1 + exp(-x)).
+    # To prioritize small non-negative diffs, we can use -diff as the input to sigmoid.
+    # This way, diff=0 maps to 1, diff=1 maps to ~0.37, diff=2 maps to ~0.12, etc.
+    # This favors a "tight fit".
+
+    if len(fit_indices) > 0:
+        fits = diff[fit_indices]
+        # Scale the difference to control the steepness of the sigmoid.
+        # A smaller scale_factor makes the sigmoid steeper around 0.
+        # Let's choose a scale_factor that maps a typical "good fit" range
+        # to a noticeable range of the sigmoid.
+        # Example: if diff can range from 0 to 5 (e.g., bin capacity 10, item 5-10),
+        # we might want diff=0 to be very high priority, diff=2 medium, diff=5 low.
+        # Using -fits / scale_factor:
+        # if scale_factor = 1, diff=0 -> 0, diff=1 -> -1, diff=2 -> -2
+        # Sigmoid(0)=0.5, Sigmoid(-1)~0.27, Sigmoid(-2)~0.12. This prioritizes the tightest fit.
+        # If we want to penalize empty space, maybe a different formulation is better.
+        # Let's re-think: We want HIGHER priority for bins that are a "good fit".
+        # A good fit means `item <= bins_remain_cap`.
+        # Among those that fit, we want to maximize `bins_remain_cap - item`
+        # or perhaps minimize `bins_remain_cap`.
+        # The "Sigmoid Fit Score" implies using sigmoid for fitness.
+        # If we use `bins_remain_cap / capacity`, that's an option.
+        # Or we can focus on `diff`. A small `diff` is good.
+
+        # Let's try to make the priority proportional to how much capacity is left,
+        # but capped by sigmoid.
+        # Maybe `sigmoid(k * (bins_remain_cap - item))` where k is positive.
+        # If item=5, capacity=10, remaining=5. diff=0. priority=sigmoid(k*0) = 0.5
+        # If item=5, capacity=12, remaining=7. diff=2. priority=sigmoid(k*2)
+        # If item=5, capacity=7, remaining=2. diff=-3. priority=sigmoid(k*-3)
+        # This doesn't work well with negative diffs.
+
+        # Let's use a common strategy for "best fit": sort by remaining capacity
+        # and pick the first one that fits. Our priority should reflect this.
+        # The ideal scenario is `bins_remain_cap == item`.
+        # Let's try sigmoid on `-(bins_remain_cap - item)` = `item - bins_remain_cap`.
+        # For bins that fit: `bins_remain_cap >= item`. `item - bins_remain_cap <= 0`.
+        # We want the most negative value of `item - bins_remain_cap` (i.e., smallest diff).
+        # So we want to maximize `-(item - bins_remain_cap) = bins_remain_cap - item`.
+        # Let's try sigmoid applied to the *negative* difference, scaled appropriately.
+
+        # Scale the difference so that a small positive difference (good fit) maps to a
+        # region where sigmoid changes rapidly, giving higher priority.
+        # A factor of 1/item might be reasonable, or a fixed parameter.
+        # Let's use a fixed parameter for simplicity, say 1.0.
+        scale_factor = 1.0
+        scaled_diff = -fits / scale_factor
+        priorities[fit_indices] = 1 / (1 + np.exp(scaled_diff))
+
+    return priorities
+```

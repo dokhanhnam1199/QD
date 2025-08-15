@@ -1,0 +1,64 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using an adjusted Sigmoid Best Fit.
+
+    This heuristic prioritizes bins that have the smallest remaining capacity
+    that is still sufficient to hold the item. It uses a sigmoid function to
+    assign a score, aiming to penalize bins with significant excess capacity.
+    This version slightly adjusts the sigmoid scaling to give a slightly higher
+    base priority to exact fits compared to the previous version.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    if np.any(can_fit_mask):
+        # For bins that can fit the item, calculate the 'slack' (excess capacity)
+        # slack = remaining_capacity - item_size
+        slack = bins_remain_cap[can_fit_mask] - item
+
+        # We want to prioritize bins with minimal slack.
+        # A sigmoid function is suitable for this.
+        # The function `1 / (1 + exp(k * slack))` gives scores between 0 and 0.5.
+        # To ensure exact fits (slack=0) get a higher priority, we can shift this scale.
+        # A common approach is `0.5 + 0.5 * (1 / (1 + exp(-k * slack)))` which maps
+        # slack=0 to 1, and larger slack towards 0.
+        # Or, we can use a slightly different sigmoid argument to influence the scoring.
+        # Let's stick to penalizing slack, but perhaps with a steeper drop or a different scaling.
+
+        # Using a strategy that assigns higher values to smaller slacks.
+        # `exp(-k * slack)` is high for small slack and low for large slack.
+        # We can add a base value to ensure even large slacks have some minimal priority if they fit.
+        # A better approach is to map slack to a score where 0 slack is max, and large slack is min.
+        # Consider a function `f(slack) = exp(-k * slack)`.
+        # For slack = 0, f(0) = 1 (max)
+        # For slack > 0, f(slack) < 1 (decreasing)
+        # To normalize and ensure we are between 0 and 1, we can do `f(slack) / max_f_value`.
+        # The maximum value of `exp(-k * slack)` for slack >= 0 is 1 (when slack=0).
+        # So, `exp(-k * slack)` directly serves as a priority score.
+
+        sensitivity = 2.0  # Controls the steepness of the exponential decay for slack. Higher means faster drop.
+
+        # Calculate the priority score based on the inverse exponential of slack.
+        # Add a small epsilon to the slack to avoid potential issues with exp(0) if we were to shift it,
+        # but for exp(-k*slack), slack=0 is fine.
+        # We clip slack to a reasonable maximum to prevent underflow in exp if slack is extremely large.
+        # A very large slack should result in a priority very close to zero.
+        clipped_slack = np.clip(slack, 0, 1000.0) # Cap slack to avoid extreme exp values
+
+        # The priority score is higher for smaller slack.
+        # `np.exp(-sensitivity * clipped_slack)` gives values between (0, 1].
+        # 1 for exact fit (slack=0), and approaches 0 for large slack.
+        priorities[can_fit_mask] = np.exp(-sensitivity * clipped_slack)
+
+    return priorities
+```

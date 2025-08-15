@@ -1,0 +1,55 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit (proximity) with a "Fill Ratio" bonus for bins that are already well-utilized.
+    This encourages using bins that are both a good fit and already contain a significant amount of items.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Calculate the remaining capacity for bins that can fit the item
+    remaining_capacity_after_fit = bins_remain_cap[can_fit_mask] - item
+    
+    # Calculate a "proximity score" (Best Fit): higher score for smaller remaining capacity
+    # Using 1 / (1 + residual_capacity) gives a score between (0, 1]. 0 residual is 1.
+    proximity_score = 1.0 / (1.0 + remaining_capacity_after_fit)
+    
+    # Calculate a "fill ratio score": higher score for bins that are already more full.
+    # This is (bin_capacity - remaining_capacity) / bin_capacity.
+    # Assuming a default bin capacity of 1.0 for calculating fill ratio if not provided.
+    # In a real scenario, bin_capacity would be a known constant.
+    bin_capacity = 1.0 
+    current_fill_ratio = (bin_capacity - bins_remain_cap[can_fit_mask]) / bin_capacity
+    fill_ratio_score = current_fill_ratio
+    
+    # Combine scores: Multiply proximity score by fill ratio score.
+    # This prioritizes bins that are both a good fit AND already well-utilized.
+    # A bin that has high fill ratio and leaves minimal residual will get the highest score.
+    combined_score = proximity_score * fill_ratio_score
+
+    # Handle cases where combined_score might be 0 if fill_ratio is 0 and proximity is also low.
+    # For example, if an item fits in a nearly empty bin, fill_ratio is near 0.
+    # We want to ensure that even in such cases, the proximity score is still considered.
+    # If fill_ratio is 0, the combined_score becomes 0. We can add a small epsilon or
+    # simply use max(proximity_score, combined_score) if we want proximity to always dominate empty bins.
+    # A simpler approach: if fill_ratio is 0, the combined score is 0. This might disincentivize
+    # using an empty bin, even if it's a perfect fit.
+    # Let's ensure that if fill_ratio is 0, we still assign the proximity score.
+    # A small additive factor can help prevent zero scores if both are low but not zero.
+    # Or, more robustly, ensure proximity is at least considered.
+    
+    # If fill_ratio is 0 (meaning the bin was empty), the combined_score will be 0.
+    # In such cases, we should still consider the proximity score.
+    # We can ensure the score is at least the proximity score when the fill ratio is zero.
+    priorities[can_fit_mask] = np.maximum(combined_score, proximity_score * (current_fill_ratio > 1e-9))
+    
+    # Add a small epsilon to all valid priorities to ensure no zero scores if all bins are valid fits.
+    # This also helps break ties in a consistent manner.
+    priorities[can_fit_mask] += 1e-6
+
+    return priorities
+```

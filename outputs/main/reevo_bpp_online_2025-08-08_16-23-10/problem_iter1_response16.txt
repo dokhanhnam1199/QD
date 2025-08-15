@@ -1,0 +1,769 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Sigmoid Fit Score.
+
+    The Sigmoid Fit Score strategy prioritizes bins that leave a remaining capacity
+    closest to half of the bin's capacity after packing the item. This aims to
+    balance the usage of bins and leave room for future items.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # A very small epsilon to avoid division by zero or issues with sigmoid at large values
+    epsilon = 1e-9
+
+    # Calculate the remaining capacity if the item is placed in each bin
+    potential_remaining_cap = bins_remain_cap - item
+
+    # We want to find bins where potential_remaining_cap is close to 0 (perfect fit)
+    # and also bins where potential_remaining_cap is significantly larger than the item
+    # but not too large that it wastes space.
+    # The sigmoid function can help us model this.
+    # Let's map the "desirability" to a range.
+    # A perfect fit (potential_remaining_cap = 0) should be highly desirable.
+    # A very small remaining capacity (potential_remaining_cap < 0) is not possible.
+    # A very large remaining capacity (potential_remaining_cap >> item) might be less desirable than a tight fit.
+
+    # We'll use a sigmoid function. The input to the sigmoid will be related to
+    # how "close" the remaining capacity is to some ideal value.
+    # Let's aim for the ideal remaining capacity to be 0 (perfect fit).
+    # The sigmoid function `1 / (1 + exp(-x))` has an output between 0 and 1.
+    # A larger input `x` results in a value closer to 1.
+    # We want a high score when potential_remaining_cap is small and positive.
+    # So, we can use `1 / (1 + exp(-k * (ideal - x)))` where `ideal=0`.
+    # This means `1 / (1 + exp(k * x))` which is `1 / (1 + exp(-k * (-x)))`.
+    # If `x` is the potential_remaining_cap, then `k*x` can be our sigmoid input.
+    # A positive `x` means there's still space. We want smaller `x` to be better.
+    # So, we want the sigmoid argument to be larger when `x` is small.
+    # This suggests using `exp(-k * x)`.
+
+    # Let's normalize the potential remaining capacity to be in a range where
+    # sigmoid can effectively distinguish between good and bad fits.
+    # The maximum possible remaining capacity is the original bin capacity (assuming
+    # bins_remain_cap reflects this when no item is present).
+    # However, we don't have the original bin capacity. We only have remaining.
+    # A simpler approach might be to consider the 'waste' or 'tightness'.
+
+    # Strategy: Use a sigmoid where the input is a scaled version of the
+    # potential remaining capacity. We want bins with smaller potential_remaining_cap
+    # to have higher scores (closer to 1), indicating a tighter fit.
+    # However, we also need to consider that the item must fit.
+    # Bins where potential_remaining_cap < 0 are invalid.
+
+    valid_bins_mask = potential_remaining_cap >= 0
+
+    # For valid bins, we want to prioritize those with smaller remaining capacity.
+    # A simple approach is to invert the remaining capacity and scale it.
+    # Or, use a sigmoid function that squashes larger positive values towards 0.
+    # Sigmoid: 1 / (1 + exp(-x))
+    # We want higher score for smaller positive remaining capacity.
+    # Let's transform potential_remaining_cap to something like `-k * potential_remaining_cap`.
+    # A higher score (closer to 1) means we want to pack into that bin.
+
+    # Let's try to map the remaining capacity `r` to a score `s`.
+    # We want:
+    # - `s` close to 1 for small positive `r` (tight fit)
+    # - `s` close to 0 for large positive `r` (wasteful fit)
+    # - `s` = 0 for `r` < 0 (cannot fit)
+
+    # The function `exp(-k*r)` would give higher values for smaller `r`.
+    # Let's use `sigmoid(k * (max_waste - r))`.
+    # Where `max_waste` is some target or a value that shifts the sigmoid.
+    # If we don't know the original bin size, we can't establish a clear "waste".
+
+    # Let's redefine the score: We want bins with remaining capacity `r` such that
+    # `item` fits and `r` is minimized. This is the "Best Fit" heuristic.
+    # The Sigmoid Fit Score could be an extension.
+
+    # Consider a sigmoid centered around a "good" remaining capacity, perhaps near 0.
+    # The sigmoid `1 / (1 + exp(k * (x - c)))` where `x` is potential_remaining_cap.
+    # If `c` is the ideal remaining capacity (e.g., 0), and `k` controls steepness.
+    # For `x < c`, the score is high. For `x > c`, the score is low.
+
+    # Let's use a sigmoid on the *negative* of the potential remaining capacity.
+    # `f(x) = 1 / (1 + exp(-x))`
+    # We want `f(some_func(potential_remaining_cap))`
+    # If `some_func(r) = -r`, then for small `r` (good), `-r` is large negative, sigmoid is near 0. This is wrong.
+    # If `some_func(r) = r`, then for small `r` (good), sigmoid is near 0.5 or less. This is wrong.
+
+    # Let's consider the complementary sigmoid: `1 - (1 / (1 + exp(-x))) = exp(-x) / (1 + exp(-x))` which is `1 / (1 + exp(x))`.
+    # This function gives values near 1 for large negative `x`, and near 0 for large positive `x`.
+    # If we use `1 / (1 + exp(k * potential_remaining_cap))`:
+    # - Small `potential_remaining_cap` (good) -> large negative `k * potential_remaining_cap` -> score near 1.
+    # - Large `potential_remaining_cap` (bad) -> large positive `k * potential_remaining_cap` -> score near 0.
+    # This seems like a good candidate for "Best Fit"-like behavior.
+
+    # We need to choose a scaling factor `k`. A larger `k` makes the transition steeper.
+    # A reasonable `k` could be related to the inverse of the typical item size or bin capacity,
+    # but without that information, we can pick a general value.
+    # Let's try k=1 for now.
+
+    # Handle cases where item cannot fit. For these, priority is 0.
+    priorities = np.zeros_like(bins_remain_cap)
+
+    # Calculate scores for bins where the item fits
+    # We want to prioritize bins with smaller remaining capacity *after* packing.
+    # Let's map the remaining capacity `r` to a priority score.
+    # We want higher priority for smaller `r` (where `r >= 0`).
+    # Consider the function `g(r) = 1 / (1 + exp(k * r))`
+    # For `r=0` (perfect fit), `g(0) = 1 / (1 + 1) = 0.5`.
+    # For `r > 0` and small, `g(r)` is slightly less than 0.5.
+    # For `r > 0` and large, `g(r)` approaches 0.
+
+    # This is good if we want to differentiate between tight fits and loose fits,
+    # but it doesn't give a strong preference for the tightest fit if there are multiple
+    # tight fits.
+
+    # Let's reconsider the "ideal" remaining capacity.
+    # The goal of bin packing is to minimize the number of bins.
+    # For an online algorithm, a good strategy is to try and make fits as tight as possible
+    # to leave larger spaces available for larger items.
+    # So, the "best fit" strategy minimizes `bins_remain_cap[i] - item`.
+
+    # How to use Sigmoid to implement Best Fit?
+    # Sigmoid is monotonic. We want a function that is decreasing with `bins_remain_cap[i] - item`.
+    # `f(x) = 1 / (1 + exp(k * x))` where `x` is `bins_remain_cap[i] - item`.
+    # `k` controls the steepness. A larger `k` means the preference for smaller `x` is stronger.
+
+    # We need to choose a suitable value for `k`.
+    # If the item size `item` is very small relative to `bins_remain_cap`, then `bins_remain_cap[i] - item`
+    # is close to `bins_remain_cap[i]`. If `k` is too large, the scores might saturate too quickly.
+    # If `k` is too small, the sigmoid is too flat, and it's almost a random choice.
+
+    # Let's consider the "waste" which is `bins_remain_cap[i] - item`.
+    # We want to minimize waste.
+    # We can normalize the waste relative to something. If we knew the original bin capacity `C`,
+    # we could normalize by `C`. Without `C`, we can normalize by the sum of remaining capacities
+    # or the maximum remaining capacity, but that might be unstable.
+
+    # A simple approach: Use sigmoid directly on the remaining capacity.
+    # Let `r = bins_remain_cap[i] - item`.
+    # If `r < 0`, it's invalid (priority 0).
+    # If `r >= 0`, we want higher scores for smaller `r`.
+    # Let's use `score = exp(-k * r)`. This gives higher scores for smaller `r`.
+    # However, this score can be arbitrarily large if `r` is very negative.
+    # We need to clip or use a bounded function like sigmoid.
+
+    # Let's use `score = 1 / (1 + exp(k * r))` where `r = bins_remain_cap[i] - item`.
+    # A higher `k` means a stronger preference for smaller `r`.
+    # A suitable `k` could be `1.0 / mean(bins_remain_cap)` or `1.0 / max(bins_remain_cap)` or similar,
+    # but this requires knowing these values or estimating them.
+    # For a general-purpose heuristic, a fixed moderate `k` is often used. Let's try `k=1`.
+    # We need to be careful about potential_remaining_cap being zero or very close to zero.
+    # If `potential_remaining_cap[i] = 0`, then `exp(k * 0) = 1`, score is 0.5. This is fine.
+
+    # Consider the inverse of remaining capacity as a score for positive values:
+    # For `r = bins_remain_cap[i] - item`:
+    # If `r < 0`, priority is 0.
+    # If `r == 0`, priority is high (perfect fit).
+    # If `r > 0` and small, priority is high.
+    # If `r > 0` and large, priority is low.
+
+    # Let's use the sigmoid function `f(x) = 1 / (1 + exp(-x))`
+    # We want to map `r` such that small `r` maps to large `x`.
+    # So, let `x = -k * r`.
+    # `score = 1 / (1 + exp(k * r))`.
+    # Where `r` is `potential_remaining_cap`.
+
+    # We need to apply this only to valid bins.
+    # Let's scale `k` perhaps by a small factor to avoid extreme values.
+    # A factor related to item size might be useful if item sizes vary greatly.
+    # E.g., `k = 1.0 / item` or `k = 1.0 / np.mean(bins_remain_cap)` etc.
+    # Without specific context on typical capacities or item sizes,
+    # let's use a tunable parameter `steepness`.
+    steepness = 5.0  # Adjust this to control how strongly small remaining capacity is favored
+
+    # For valid bins, calculate the sigmoid score.
+    # We want smaller `potential_remaining_cap` to result in higher scores.
+    # The function `1 / (1 + exp(steepness * r))` does this.
+    # Where `r = potential_remaining_cap`.
+
+    # To prevent potential numerical issues with large exponents,
+    # we can add a small epsilon if needed, or clip values.
+    # However, `np.exp` usually handles large inputs by returning inf,
+    # which leads to division by inf (0) or division of 1 by (1+inf) which is 0.
+    # And for very negative inputs, exp(very_negative) -> 0, so 1/(1+0) = 1.
+
+    # Let's ensure `potential_remaining_cap` doesn't cause overflow in `exp`.
+    # The exponent is `steepness * potential_remaining_cap`.
+    # If `potential_remaining_cap` is large and positive, exponent is large positive, exp is inf, score is 0.
+    # If `potential_remaining_cap` is large and negative, exponent is large negative, exp is 0, score is 1.
+    # But `potential_remaining_cap` cannot be arbitrarily negative, it's `bins_remain_cap - item`.
+    # The minimum value is when `bins_remain_cap` is small.
+
+    # Let's cap the `potential_remaining_cap` for the sigmoid calculation to avoid issues
+    # if `bins_remain_cap` values are extremely small or `item` is very large.
+    # A reasonable cap could be related to the item size itself. If remaining capacity
+    # is much larger than the item, it's likely a loose fit.
+    # Let's clip `potential_remaining_cap` to a reasonable range, e.g., [-item, max_bin_capacity].
+    # Without `max_bin_capacity`, let's use the maximum value of `bins_remain_cap` in the current set
+    # as a proxy for scale.
+
+    # A simpler approach: calculate directly for valid bins.
+    # For valid bins (potential_remaining_cap >= 0):
+    # Score = 1 / (1 + exp(steepness * potential_remaining_cap))
+    # This will give scores between ~0 (for large remaining) and 0.5 (for zero remaining).
+    # This is a bit counter-intuitive if we want "high score = high priority".
+
+    # Let's try a function that maps small positive `r` to high scores.
+    # `score = exp(-k * r)` could work if we bound the input or scale it.
+
+    # Alternative Sigmoid strategy:
+    # Prioritize bins where the remaining capacity is "just enough" or slightly more than the item.
+    # This is "Best Fit" heuristic.
+    # We want to maximize a function that is high when `bins_remain_cap[i] - item` is small and non-negative.
+    # The function `sigmoid(alpha - beta * (bins_remain_cap[i] - item))` can do this.
+    # If `bins_remain_cap[i] - item` is small, then `alpha - beta * small_positive` is large, sigmoid is near 1.
+    # If `bins_remain_cap[i] - item` is large, then `alpha - beta * large_positive` is small, sigmoid is near 0.
+    # `alpha` shifts the sigmoid center. `beta` controls steepness.
+
+    # Let's try to simplify this. We are essentially ranking based on `bins_remain_cap[i] - item`.
+    # The heuristic is "prioritize bins with smallest non-negative remaining capacity".
+
+    # A Sigmoid Fit Score can be formulated as prioritizing fits that leave a remainder close to 0.
+    # Let `r = bins_remain_cap[i] - item`.
+    # We want to map `r` to a priority `p` such that:
+    # p = 0 if r < 0
+    # p is high for r close to 0
+    # p is low for r large
+
+    # The sigmoid function `1 / (1 + exp(x))` is good for this if `x` is `k * r`.
+    # Higher `k` means stronger preference for smaller `r`.
+    # We need to ensure `x` doesn't cause overflow for `exp`.
+    # If `r` is large positive, `x` is large positive, `exp(x)` is inf, `1/(1+inf)` is 0.
+    # If `r` is zero, `x` is zero, `exp(x)` is 1, `1/(1+1)` is 0.5.
+    # If `r` is negative, `x` is negative, `exp(x)` is small, `1/(1+small)` is close to 1.
+
+    # This means `1 / (1 + exp(k * r))` gives higher priority to bins that cannot fit the item
+    # if we don't handle the `r < 0` case.
+
+    # Let's make the score represent how "good" the fit is, from 0 (worst) to 1 (best).
+    # A perfect fit (`r=0`) should have the highest score.
+    # A large `r` should have a low score.
+    # `r < 0` is invalid, score 0.
+
+    # Consider `score = exp(-k * r)`. This is maximized at `r=0`.
+    # But it's not bounded by 1 and can grow large.
+    # To bound it, we can use `tanh`. `tanh(x)` goes from -1 to 1.
+    # `tanh(k * r)`:
+    #   - large negative r -> -1
+    #   - r=0 -> 0
+    #   - large positive r -> 1
+    # We want high score for small positive `r`.
+
+    # Let's try mapping the difference `bins_remain_cap[i] - item` to a "fit quality".
+    # `fit_quality = - (bins_remain_cap[i] - item)`. Higher is better.
+    # Then use sigmoid on a scaled version.
+    # `score = 1 / (1 + exp(-k * fit_quality))`
+    # `score = 1 / (1 + exp(k * (bins_remain_cap[i] - item)))`
+    # This is the same as `1 / (1 + exp(k * r))`.
+
+    # The range of `bins_remain_cap` and `item` is important for choosing `k`.
+    # If the range of `bins_remain_cap[i] - item` is large, `k` might need to be smaller.
+    # If the range is small, `k` can be larger.
+
+    # Let's assume a typical scenario where item sizes and bin capacities are positive floats.
+    # We want to favor bins where `bins_remain_cap[i] - item` is small and non-negative.
+
+    # Using `np.clip` on the exponent argument to `np.exp` can prevent overflow.
+    # The exponent is `steepness * potential_remaining_cap`.
+    # Max positive value for `potential_remaining_cap` could be, say, `max(bins_remain_cap)`.
+    # Min value could be `-item`.
+    # Let's cap the exponent to a range like [-10, 10].
+
+    # Calculate the exponent values for valid bins
+    exponent_values = steepness * potential_remaining_cap[valid_bins_mask]
+
+    # Clip exponent values to avoid overflow/underflow issues in exp
+    # A range of [-20, 20] for the exponent is usually safe for standard float types.
+    # exp(20) is ~4.8e8, exp(-20) is ~2e-9.
+    clipped_exponent_values = np.clip(exponent_values, -20, 20)
+
+    # Calculate the sigmoid scores for valid bins using the clipped exponents
+    # The function `1 / (1 + exp(x))` gives higher values for smaller `x`.
+    # We want higher values for smaller `potential_remaining_cap`.
+    # So, we want `x` to be `-k * potential_remaining_cap`.
+    # Let's rewrite: `score = 1 / (1 + exp(steepness * potential_remaining_cap))`
+    # For small `potential_remaining_cap` (e.g., 0.1), `exp(steepness * 0.1)` is large, score is small. This is not what we want.
+
+    # We need a function that gives higher scores for smaller positive `r`.
+    # The function `1 / (1 + exp(-steepness * r))` increases as `r` decreases.
+    # If `r` is small positive, `-steepness * r` is small negative, exp is close to 0, score is ~1.
+    # If `r` is large positive, `-steepness * r` is large negative, exp is close to 0, score is ~1. This is not right.
+
+    # Let's go back to the `1 / (1 + exp(k * r))` formulation.
+    # This function `f(r) = 1 / (1 + exp(k * r))` is DECREASING in `r`.
+    # So, smaller `r` (good) leads to higher `f(r)`.
+    # If `r = 0` (perfect fit), `f(0) = 0.5`.
+    # If `r` is slightly positive, `f(r)` is slightly less than 0.5.
+    # If `r` is large positive, `f(r)` approaches 0.
+    # If `r` is slightly negative, `f(r)` is slightly more than 0.5.
+    # If `r` is very negative, `f(r)` approaches 1.
+
+    # This implies that bins that CANNOT fit the item (`r < 0`) would get the HIGHEST priority if we use this directly.
+    # This is exactly the opposite of what we want.
+
+    # How to achieve:
+    # Priority = 0 for r < 0
+    # Priority = high for r = 0
+    # Priority = medium for small positive r
+    # Priority = low for large positive r
+
+    # Consider the "gap" heuristic: Prioritize bins with `bins_remain_cap[i] >= item`.
+    # Among these, select the one with minimum `bins_remain_cap[i] - item`.
+    # This is "Best Fit".
+
+    # Let's try a sigmoid centered at 0 with a negative slope.
+    # `sigmoid(center - steepness * value)`
+    # We want value = `bins_remain_cap[i] - item`.
+    # We want high scores when `value` is small and positive.
+    # Let `value = bins_remain_cap[i] - item`.
+    # Let `score = sigmoid(C - k * value)` where `k > 0`.
+    # Example: `sigmoid(x) = 1 / (1 + exp(-x))`
+    # `score = 1 / (1 + exp(-(C - k * value))) = 1 / (1 + exp(-C + k * value))`
+    # If `value` is small positive, `k*value` is small positive. `-C + k*value` is large negative (if C is large). exp->0, score->1.
+    # If `value` is large positive, `k*value` is large positive. `-C + k*value` is large positive. exp->inf, score->0.
+
+    # This seems correct. We need to choose `C` and `k`.
+    # `C` can be thought of as a threshold for how "loose" a fit is acceptable.
+    # If we want to prioritize fits that are "just enough", `C` could be related to 0.
+    # `k` determines the sensitivity to the difference.
+
+    # Let's set `C = 0` and `k = steepness`.
+    # `score = 1 / (1 + exp(steepness * (bins_remain_cap[i] - item)))`
+    # This is the function we analyzed that was decreasing.
+    # It gives:
+    #   - r < 0 => score > 0.5 (approaching 1)
+    #   - r = 0 => score = 0.5
+    #   - r > 0 => score < 0.5 (approaching 0)
+
+    # This means it strongly prefers bins that CANNOT fit the item, which is WRONG.
+
+    # The problem is applying sigmoid directly to remaining capacity.
+    # A true Sigmoid Fit Score for Best Fit might involve fitting a sigmoid to
+    # the points `(r, priority_for_r)`.
+
+    # Let's simplify the objective: Among valid bins, we want the one with minimal `bins_remain_cap[i] - item`.
+    # This is like finding the minimum.
+    # We can use sigmoid to create a "soft" minimum.
+
+    # A different approach: The sigmoid could represent the probability of selecting a bin.
+    # We want higher probability for bins that are "tight".
+    # Let's use `1 / (1 + exp(-k * (target_rem_cap - actual_rem_cap)))`
+    # Where `target_rem_cap` is the ideal remaining capacity. Ideally 0.
+    # `actual_rem_cap` is `bins_remain_cap[i] - item`.
+
+    # Score = `1 / (1 + exp(-k * (0 - (bins_remain_cap[i] - item))))`
+    # Score = `1 / (1 + exp(k * (bins_remain_cap[i] - item)))`
+
+    # This is the same decreasing function. The core issue is that negative remainders
+    # are treated as "very good fits" by this function's structure.
+
+    # How about creating a piecewise score?
+    # For `r < 0`: score = 0
+    # For `r >= 0`: score = `sigmoid(k * (MaxPossibleDiff - r))` where MaxPossibleDiff is some large value.
+    # Or `sigmoid(k * (-r))`?
+    # `1 / (1 + exp(-k * (-r))) = 1 / (1 + exp(k * r))`. Still the decreasing function.
+
+    # Let's use a sigmoid to rank the "goodness" of the remaining space.
+    # The more remaining space `r`, the less desirable the bin might be for a tight packing strategy.
+    # Consider mapping `r` to `score = sigmoid(gain - steepness * r)`
+    # Let `gain` be some offset.
+    # If we set `gain = 0`, we have `sigmoid(-steepness * r) = 1 / (1 + exp(steepness * r))`.
+
+    # What if the sigmoid is applied to the inverse of the remaining capacity?
+    # `score = 1 / (1 + exp(-k * (1.0 / (potential_remaining_cap + epsilon))))`
+    # For `r` near 0, `1/r` is large positive. `score` approaches 1.
+    # For `r` large, `1/r` is near 0. `score` approaches 0.5.
+    # This looks promising!
+
+    # Let's define the priority:
+    # For bins where `potential_remaining_cap >= 0`:
+    # Let `value = potential_remaining_cap`.
+    # We want high score for small `value`.
+    # Consider `score = 1 / (1 + exp(-k * (C - value)))` where `k > 0`.
+    # To make it prefer small `value`, we need `k` and `C` to be tuned.
+    # If `C = 0`, score is `1 / (1 + exp(k * value))`. This is decreasing.
+
+    # Let's use a simpler sigmoid transformation for "best fit" behavior:
+    # For bins where `potential_remaining_cap >= 0`, we want to score them based on how small `potential_remaining_cap` is.
+    # This is equivalent to ranking them from smallest `potential_remaining_cap` to largest.
+
+    # The Sigmoid Fit Score strategy aims to find a sweet spot in remaining capacity,
+    # or to strongly favor tight fits.
+
+    # Let's try prioritizing based on `1 - sigmoid(k * remaining_capacity)`.
+    # If `remaining_capacity` is small positive, `k*r` is small positive, sigmoid is >0.5. `1-sigmoid` is <0.5. Bad.
+    # If `remaining_capacity` is large positive, `k*r` is large positive, sigmoid is near 1. `1-sigmoid` is near 0. Good. This is favoring loose fits.
+
+    # It seems the interpretation of "Sigmoid Fit Score" needs to be clear.
+    # If it's about "how close to a perfect fit (remainder=0)", then `1/(1+exp(k*(r-0)))` is decreasing, so smallest `r` gives highest score.
+
+    # Let's define the score more concretely:
+    # The priority score for a bin `i` should be high if `bins_remain_cap[i] >= item` AND `bins_remain_cap[i] - item` is minimized.
+    # Let `r = bins_remain_cap[i] - item`.
+    # We want a function `f(r)` such that:
+    # f(r) = 0 for r < 0
+    # f(r) is decreasing for r >= 0.
+
+    # Let's try a sigmoid on `k * (large_value - r)`
+    # Consider the score to be a transformed version of `potential_remaining_cap`.
+    # We want small non-negative `potential_remaining_cap` to get high scores.
+    # Let `score_raw = -potential_remaining_cap`. Higher `score_raw` is better.
+    # Then apply sigmoid: `score = 1 / (1 + exp(-k * score_raw))`
+    # `score = 1 / (1 + exp(k * potential_remaining_cap))`
+    # Again, this favors negative `potential_remaining_cap` which means item doesn't fit.
+
+    # Let's adjust the target. The goal is to have a small, but potentially non-zero, remaining capacity.
+    # This can leave room for items of slightly different sizes, or perhaps encourage future fits.
+    # However, for "Best Fit", we want remainder exactly 0.
+
+    # Consider the objective: maximize `1 / (1 + exp(k * (r - C)))` for `r >= 0`.
+    # This function is maximized when `r - C` is minimized (most negative).
+    # If `C = 0`, then maximized when `r` is most negative.
+
+    # Let's try mapping `potential_remaining_cap` to a priority.
+    # The closer `potential_remaining_cap` is to `item`'s original size, the better. No, this is First Fit Decreasing.
+    # The closer `potential_remaining_cap` is to 0, the better.
+
+    # A reasonable "Sigmoid Fit Score" could be based on how well the item fills the bin relative to its remaining capacity.
+    # For valid bins: `bins_remain_cap[i] >= item`
+    # Score based on `bins_remain_cap[i] - item`.
+    # We want to give high scores to bins with `bins_remain_cap[i] - item` close to 0.
+
+    # Let's use `sigmoid(gain - k * difference)` where `difference = bins_remain_cap[i] - item`.
+    # `sigmoid(x) = 1 / (1 + exp(-x))`
+    # `score = 1 / (1 + exp(-(gain - k * difference)))`
+    # `score = 1 / (1 + exp(k * difference - gain))`
+
+    # Let `k = steepness`.
+    # If we want a "perfect fit" to be ideal, we want `difference = 0` to have the highest score.
+    # `score(0) = 1 / (1 + exp(-gain))`
+    # If `difference > 0`, `k*difference` is larger positive. `score` will be less than `score(0)`.
+    # If `difference < 0` (item does not fit), we want score = 0.
+    # The function `1 / (1 + exp(k * difference - gain))` needs to be 0 for `difference < 0`.
+    # This means `k * difference - gain` should be very large positive for `difference < 0`.
+    # Let's set `gain = k * target_difference`. If target is 0, `gain = 0`.
+    # `score = 1 / (1 + exp(k * difference))`
+    # This function is decreasing, but `difference < 0` gives higher scores than `difference = 0`.
+
+    # The core issue is that sigmoid is monotonic. We need to apply it to a quantity that is ranked correctly.
+    # The ranking we want is: (small `r` >= 0) > (large `r` >= 0) > ( `r` < 0)
+
+    # Let's modify the sigmoid's input:
+    # For valid bins, calculate `priorities[i] = sigmoid(-k * potential_remaining_cap[i])`
+    # `sigmoid(-x) = 1 - sigmoid(x)`.
+    # So `priorities[i] = 1 - sigmoid(k * potential_remaining_cap[i])`
+    # `priorities[i] = 1 - 1 / (1 + exp(k * potential_remaining_cap[i]))`
+    # `priorities[i] = exp(k * potential_remaining_cap[i]) / (1 + exp(k * potential_remaining_cap[i]))`
+    # This is also `sigmoid(-k * potential_remaining_cap[i])`.
+
+    # Let `r = potential_remaining_cap`.
+    # `sigmoid(-k * r)`:
+    #   - If `r` is small positive (good fit), `-k*r` is small negative. sigmoid is < 0.5.
+    #   - If `r` is large positive (bad fit), `-k*r` is large negative. sigmoid is close to 0.
+    #   - If `r` is zero, `-k*r` is zero. sigmoid is 0.5.
+    #   - If `r` is negative (cannot fit), `-k*r` is positive. sigmoid is > 0.5.
+
+    # This still ranks negative remaining capacities as "better" than 0 remaining capacity.
+
+    # The "Sigmoid Fit Score" could be a way to smooth the ranking.
+    # Let's use a function that prioritizes minimum `potential_remaining_cap` among valid bins.
+    # The score for a bin should be `f(potential_remaining_cap)`.
+    # `f` should be decreasing for `potential_remaining_cap >= 0`.
+
+    # A simple approach is to use a large sigmoid value for small `r`.
+    # What if we map `potential_remaining_cap` to `r_mapped = C - k * potential_remaining_cap`?
+    # Then apply sigmoid: `score = sigmoid(r_mapped)`.
+    # For `potential_remaining_cap` close to 0, we want `r_mapped` to be large positive.
+    # This implies `C` should be large, or `-k` should be large positive. So `k` is negative.
+    # But we used `k>0` for steepness.
+
+    # Let's invert the interpretation. Let's say `score = sigmoid(k * (C - potential_remaining_cap))`
+    # If `potential_remaining_cap` is small, `C - potential_remaining_cap` is large, sigmoid -> 1.
+    # If `potential_remaining_cap` is large, `C - potential_remaining_cap` is small, sigmoid -> low.
+    # This seems correct for valid bins!
+
+    # We need to handle invalid bins (score = 0).
+    # And we need to choose `C` and `k`.
+    # Let `k = steepness`.
+    # A good choice for `C` would be something that represents a "neutral" point.
+    # If `C=0`, then `score = sigmoid(k * (-potential_remaining_cap)) = 1 / (1 + exp(k * potential_remaining_cap))`
+    # This is the decreasing function we already analyzed.
+
+    # Let's adjust the scaling and shift.
+    # The goal is that for `potential_remaining_cap >= 0`:
+    # small values get scores close to 1.
+    # large values get scores close to 0.
+
+    # Let `y = potential_remaining_cap`.
+    # Consider a function like `exp(-k * y)`. This is decreasing.
+    # Let's scale and shift it within sigmoid:
+    # `score = sigmoid(alpha + beta * y)` where `beta` is negative.
+    # `score = sigmoid(alpha - beta_abs * y)` where `beta_abs > 0`.
+    # `score = 1 / (1 + exp(-(alpha - beta_abs * y)))`
+    # `score = 1 / (1 + exp(beta_abs * y - alpha))`
+    # This is `1 / (1 + exp(k * (y - alpha/k)))`.
+    # So it's `1 / (1 + exp(k * (y - C)))`. Where `C = alpha/k`.
+
+    # This means `1 / (1 + exp(k * (potential_remaining_cap - C)))` is a decreasing function.
+    # It will give high scores for small `potential_remaining_cap`.
+    # We need to set `C` and `k`.
+    # Let `k = steepness`.
+    # If `C` is the target "best fit" remaining capacity, which is 0.
+    # Then `score = 1 / (1 + exp(steepness * potential_remaining_cap))`
+    # This function gives:
+    # r = 0 -> score = 0.5
+    # r > 0 -> score < 0.5
+    # r < 0 -> score > 0.5
+
+    # So, to make it work, we must explicitly set scores to 0 for invalid bins.
+    # For valid bins, the score `1 / (1 + exp(steepness * potential_remaining_cap))`
+    # will rank bins with smaller `potential_remaining_cap` higher.
+
+    # Let's implement this.
+    # The "strength" of preference for tighter fits will be controlled by `steepness`.
+
+    priorities = np.zeros_like(bins_remain_cap)
+
+    # Find bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+    potential_remaining_cap = bins_remain_cap - item
+
+    # For bins that can fit the item, calculate the sigmoid priority score.
+    # The function 1 / (1 + exp(steepness * remaining_capacity)) gives higher scores for smaller remaining_capacity.
+    # A steepness of, say, 5.0 means the score will drop significantly as remaining capacity increases beyond a small value.
+
+    # Calculate exponent argument. Use potential_remaining_cap for valid bins.
+    exponent_args = steepness * potential_remaining_cap[can_fit_mask]
+
+    # Clip exponent arguments to prevent overflow/underflow.
+    # Values too large positive (e.g., > 700 for double precision exp) result in 0.
+    # Values too large negative (e.g., < -700) result in 1.
+    # A range of [-20, 20] for the argument of `exp` usually gives reasonable output.
+    clipped_exponent_args = np.clip(exponent_args, -30, 30) # Slightly larger range for safety
+
+    # Calculate the priority scores for valid bins.
+    # Using the formulation that gives higher priority to smaller remaining capacity:
+    # score = 1 / (1 + exp(steepness * r))
+    # Where r = potential_remaining_cap.
+    # For r = 0, score = 0.5. For r > 0, score < 0.5. For r << 0, score >> 0.5.
+    # This is NOT the desired behavior for "best fit".
+
+    # Let's try the opposite sigmoid's input.
+    # `score = 1 / (1 + exp(-steepness * r))`
+    # This function `g(r) = 1 / (1 + exp(-k*r))` is INCREASING in `r`.
+    #   - r = 0 -> score = 0.5
+    #   - r > 0 -> score > 0.5
+    #   - r < 0 -> score < 0.5
+
+    # This means it favors bins with *larger* remaining capacity. This is "Worst Fit".
+
+    # The "Sigmoid Fit Score" strategy needs to assign higher scores to bins
+    # where `bins_remain_cap[i] - item` is small and non-negative.
+
+    # Let's define the score based on the "tightness" of the fit.
+    # Tightness: `1.0 / (potential_remaining_cap + epsilon)` for `potential_remaining_cap >= 0`.
+    # This gives a large score for `r` near 0.
+    # Then apply sigmoid to this mapped value.
+    # Let `scaled_tightness = k * (1.0 / (potential_remaining_cap + epsilon))`
+    # Score = `sigmoid(scaled_tightness)` = `1 / (1 + exp(-scaled_tightness))`
+    # Score = `1 / (1 + exp(-k / (potential_remaining_cap + epsilon)))`
+
+    # Let's test this.
+    # `r` is `potential_remaining_cap`.
+    # If `r` is very small positive (e.g., 1e-5):
+    #   `1.0 / (r + epsilon)` is large positive.
+    #   `-k / (r + epsilon)` is large negative.
+    #   `exp(...)` is close to 0.
+    #   `score` is close to 1. (GOOD)
+    # If `r` is large positive (e.g., 100):
+    #   `1.0 / (r + epsilon)` is close to 0.
+    #   `-k / (r + epsilon)` is close to 0.
+    #   `exp(...)` is close to 1.
+    #   `score` is close to 0.5. (OK, but we want lower score for larger `r`).
+
+    # This seems to prioritize smaller remaining capacities well.
+    # We need to ensure `epsilon` is small enough and chosen wisely.
+
+    # Let's refine: `steepness` controls the slope.
+    # `priorities = 1 / (1 + exp(-steepness / (potential_remaining_cap + epsilon)))`
+
+    # Handling invalid bins:
+    # For `can_fit_mask[i] == False`, priority is 0.
+
+    priorities = np.zeros_like(bins_remain_cap)
+    epsilon = 1e-9  # Small value to prevent division by zero
+
+    # Calculate remaining capacity only for bins where item can fit
+    valid_bins_mask = bins_remain_cap >= item
+    potential_remaining_cap_valid = bins_remain_cap[valid_bins_mask] - item
+
+    # For valid bins, calculate a measure of "tightness"
+    # `tightness_measure = 1.0 / (potential_remaining_cap_valid + epsilon)`
+    # This value is large when `potential_remaining_cap_valid` is small.
+
+    # Apply sigmoid to a scaled version of this tightness measure.
+    # The sigmoid `1 / (1 + exp(-x))` increases with `x`.
+    # We want score to increase with tightness.
+    # Let `x = steepness * tightness_measure`.
+    # `score = 1 / (1 + exp(-steepness * (1.0 / (potential_remaining_cap_valid + epsilon))))`
+
+    # Let's test `steepness = 5.0`.
+    # `r = 0.01` (small positive remaining capacity)
+    #   `tightness = 1.0 / (0.01 + 1e-9) approx 100`
+    #   `x = 5.0 * 100 = 500`
+    #   `exp(-500)` is very close to 0.
+    #   `score = 1 / (1 + 0) = 1`. (Excellent score)
+
+    # `r = 10.0` (larger remaining capacity)
+    #   `tightness = 1.0 / (10.0 + 1e-9) approx 0.1`
+    #   `x = 5.0 * 0.1 = 0.5`
+    #   `exp(-0.5) approx 0.606`
+    #   `score = 1 / (1 + 0.606) approx 0.623`. (Decent score, lower than 1)
+
+    # `r = 0.0` (perfect fit)
+    #   `tightness = 1.0 / (0.0 + 1e-9) = 1e9` (very large)
+    #   `x = 5.0 * 1e9` (very large)
+    #   `exp(-x)` is extremely close to 0.
+    #   `score = 1`.
+
+    # This formulation seems robust for prioritizing bins with the smallest non-negative remaining capacity.
+    # `steepness` controls how aggressively we penalize larger remaining capacities.
+
+    # Handle potential overflow in `exp` if `steepness / (potential_remaining_cap + epsilon)` is very large negative.
+    # This happens if `potential_remaining_cap` is large positive.
+    # If `steepness / (potential_remaining_cap + epsilon)` becomes very small negative, exp is ~1, score is 0.5.
+    # If it becomes very large negative, exp is ~0, score is 1. This is the issue.
+
+    # Let's ensure the argument to `exp` is within a safe range.
+    # The argument is `-steepness / (potential_remaining_cap + epsilon)`.
+    # If `potential_remaining_cap` is small positive, the argument is large negative.
+    # If `potential_remaining_cap` is large positive, the argument is small negative.
+
+    # Let `arg = -steepness / (potential_remaining_cap_valid + epsilon)`
+    # If `arg` is very negative (e.g., < -30), `exp(arg)` -> 0, score -> 1.
+    # If `arg` is very positive (e.g., > 30), `exp(arg)` -> inf, score -> 0.
+
+    # We want scores to be high for small `potential_remaining_cap`.
+    # This means `arg` should be large negative. This gives score near 1.
+    # For larger `potential_remaining_cap`, `arg` becomes less negative or even positive.
+    # If `arg` is close to 0, score is 0.5.
+    # If `arg` is positive, score is < 0.5.
+
+    # So, `score = 1 / (1 + exp(arg))` where `arg = -steepness * (1.0 / (potential_remaining_cap_valid + epsilon))`.
+    # Let's clip `arg` to avoid overflow/underflow for `exp`.
+    # We want to avoid `arg` becoming extremely large negative or extremely large positive.
+    # `arg` can be very large negative if `potential_remaining_cap_valid` is close to 0.
+    # `arg` is close to 0 if `potential_remaining_cap_valid` is very large.
+
+    # If `potential_remaining_cap_valid` is close to zero, `1.0 / (potential_remaining_cap_valid + epsilon)` is large.
+    # Then `arg` is large negative. `exp(arg)` is near 0. `score` is near 1. (Good)
+    # If `potential_remaining_cap_valid` is very large, `1.0 / (potential_remaining_cap_valid + epsilon)` is close to zero.
+    # Then `arg` is close to 0. `exp(arg)` is near 1. `score` is near 0.5. (This means larger remaining capacity gets score 0.5, which is not strictly worse than optimal 0.5 for perfect fit).
+
+    # To make larger remaining capacities get lower scores, we might need to modify this.
+    # Perhaps `score = 1 / (1 + exp(k * potential_remaining_cap))` but inverted or shifted.
+
+    # Let's use the previous formulation that seemed to work:
+    # `score = 1 / (1 + exp(-k * (C - value)))`
+    # where `value = potential_remaining_cap`.
+    # `score = 1 / (1 + exp(k * value - C))`
+
+    # We want higher scores for smaller `value`.
+    # This function is decreasing if `k > 0`.
+
+    # Let `k = steepness`.
+    # We need `C` to position the sigmoid.
+    # If we set `C` to a value that makes `k * C` equal to the "median" difference, or related to typical differences.
+
+    # Let's try to use `sigmoid(k * (max_diff - r))` where `max_diff` is a large constant or max possible diff.
+    # If `r=0`, `sigmoid(k*max_diff)` -> 1.
+    # If `r=max_diff`, `sigmoid(0)` -> 0.5.
+    # If `r > max_diff`, `sigmoid(-ve)` -> <0.5.
+
+    # The function should prioritize smallest `r >= 0`.
+    # Let `f(r)` be the priority score for `r`.
+    # `f(0)` highest, `f(large_r)` lower.
+
+    # Let's consider the function `1 / (1 + exp(-k * r))` but on a transformed `r`.
+    # If we transform `r` such that it's large positive when `r` is small, and small negative when `r` is large.
+    # This is what `1.0 / (r + epsilon)` does, but the range might not be ideal for sigmoid.
+
+    # Let's cap `potential_remaining_cap` for the "good" range.
+    # Say, anything greater than `item * 2` is considered "very loose".
+
+    # Let's retry the formulation that promotes small positive remainders.
+    # `score = 1 / (1 + exp(k * (r - C)))` where `k>0`.
+    # This is a decreasing function. To get high scores for small `r`, we need `r-C` to be small (most negative).
+    # This means `C` should be the target value, and if `r` is below `C`, score is high.
+    # The ideal target is `r = 0`. So `C = 0`.
+    # `score = 1 / (1 + exp(k * r))`.
+
+    # Re-evaluation of `1 / (1 + exp(k * r))` for `r = bins_remain_cap - item`.
+    # `k > 0`.
+    # `r < 0` (invalid fit): `k*r` is negative. `exp(k*r)` is < 1. `1 / (1 + exp)` is > 0.5. (high priority)
+    # `r = 0` (perfect fit): `k*r` is 0. `exp(0) = 1`. `1 / (1 + 1) = 0.5`. (medium priority)
+    # `r > 0` (loose fit): `k*r` is positive. `exp(k*r)` is > 1. `1 / (1 + exp)` is < 0.5. (low priority)
+
+    # This function, `1 / (1 + exp(k * r))`, strongly prefers bins that CANNOT fit the item.
+    # This is the opposite of "Best Fit".
+
+    # We need a score that increases as `r` decreases for `r >= 0`.
+    # And is 0 for `r < 0`.
+
+    # Let's define a transformation:
+    # `transformed_r = -r` for `r >= 0`
+    # `transformed_r = very_small_number` for `r < 0`
+    # Then apply `sigmoid(k * transformed_r)`.
+
+    # `transformed_r` for valid bins: `-potential_remaining_cap_valid`
+    # For invalid bins, `potential_remaining_cap_valid` is not applicable.
+    # For valid bins `r >= 0`: We want `f(r)` to be decreasing.
+    # `f(r) = 1 / (1 + exp(k * r))` works.
+    # BUT we need to ensure that bins where `r < 0` get score 0.
+
+    # Let's combine:
+    # For `i` where `bins_remain_cap[i] < item`: `priorities[i] = 0.0`
+    # For `i` where `bins_remain_cap[i] >= item`:
+    #   `r = bins_remain_cap[i] - item`
+    #   `priorities[i] = 1 / (1 + exp(steepness * r))`
+
+    # This seems to be the most sensible application of the sigmoid to achieve "Best Fit" ranking.
+    # `steepness` controls how sharply the priority drops as remaining capacity increases.
+    # A higher `steepness` means a stronger preference for tight fits.
+
+    priorities = np.zeros_like(bins_remain_cap)
+    steepness = 5.0  # Tunable parameter for sigmoid steepness
+
+    # Identify bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate remaining capacity for these valid bins
+    potential_remaining_cap_valid = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate the sigmoid score for valid bins.
+    # The function `1 / (1 + exp(x))` decreases as `x` increases.
+    # We want higher scores for smaller `potential_remaining_cap_valid`.
+    # So, we use `x = steepness * potential_remaining_cap_valid`.
+    # This means the scores are higher for smaller `potential_remaining_cap_valid`.
+
+    exponent_args = steepness * potential_remaining_cap_valid
+
+    # Clip arguments to exp to prevent overflow/underflow.
+    # If `exponent_args` is large positive (>30), exp -> inf, score -> 0.
+    # If `exponent_args` is large negative (<-30), exp -> 0, score -> 1.
+    clipped_exponent_args = np.clip(exponent_args, -30.0, 30.0)
+
+    # Calculate the priority scores for valid bins.
+    priorities[can_fit_mask] = 1.0 / (1.0 + np.exp(clipped_exponent_args))
+
+    return priorities
+
+```

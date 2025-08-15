@@ -1,0 +1,84 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+    num_suitable_bins = len(suitable_bins_caps)
+
+    # Metric 1: Modified Best Fit - Prioritize bins that leave minimal but positive remaining space.
+    # We want to penalize bins that leave a very large gap, but also not over-penalize bins that are almost full.
+    # Using the inverse of the remaining capacity, but capping the maximum remaining space to avoid extreme penalties.
+    max_gap_consideration = 1.0 # Assume a typical maximum gap we'd want to consider, e.g., 1.0 if bin capacity is 1.0
+    capped_remaining_after_placement = np.minimum(suitable_bins_caps - item, max_gap_consideration)
+    # Avoid division by zero and heavily favor bins with very little remaining space.
+    best_fit_scores = 1.0 / (capped_remaining_after_placement + 1e-6)
+
+    # Metric 2: "Tightness" or "Sufficiency" Score - Reward bins where the item fills a significant portion of the *current* remaining capacity.
+    # This encourages using bins that are already somewhat filled rather than almost empty ones.
+    # This is complementary to exploration.
+    # Score is item_size / current_remaining_capacity
+    sufficiency_scores = item / (suitable_bins_caps + 1e-6)
+    # Clamp scores to prevent excessively high values for bins with very little capacity left.
+    sufficiency_scores = np.clip(sufficiency_scores, 0, 3.0) # Cap at 3.0, meaning item is 3x the remaining capacity (unlikely but safe)
+
+    # Metric 3: "Bin Longevity" or "Future-proofing" Score - Favor bins that have a larger absolute remaining capacity *after* placement.
+    # This is the opposite of best fit, aiming to keep more options open for future items.
+    # We want to reward larger remaining capacities, but not to the point where it ignores good fits.
+    # Normalize by the maximum possible remaining capacity (e.g., original bin capacity, assume 1.0 for normalization)
+    # Or, normalize by the maximum remaining capacity among *all* bins (not just suitable ones) to give context.
+    # Let's use a proxy for the maximum possible capacity, e.g., the largest initial capacity encountered or a fixed large value.
+    # For simplicity, assume a conceptual "full bin capacity" of 1.0 for normalization.
+    conceptual_full_capacity = 1.0
+    bin_longevity_scores = (suitable_bins_caps - item) / conceptual_full_capacity
+    bin_longevity_scores = np.clip(bin_longevity_scores, 0, 1.0)
+
+
+    # Normalize scores for each metric to be in a [0, 1] range
+    def normalize_scores(scores):
+        max_score = np.max(scores)
+        if max_score > 1e-6:
+            return scores / max_score
+        return np.zeros_like(scores)
+
+    norm_best_fit = normalize_scores(best_fit_scores)
+    norm_sufficiency = normalize_scores(sufficiency_scores)
+    norm_longevity = normalize_scores(bin_longevity_scores)
+
+    # Combine scores with adaptive weights.
+    # Weights are influenced by the item's size relative to a typical bin capacity (assume 1.0 for normalization).
+    # Heuristic:
+    # - If item is large (e.g., > 0.5), prioritize fitting it well (Best Fit) and using existing partially filled bins (Sufficiency). Longevity is less critical.
+    # - If item is small (e.g., < 0.3), prioritize keeping bins open (Longevity) and fitting into less full bins (balancing fill). Sufficiency is less critical.
+    # - For medium items, balance all three.
+
+    item_norm = item # assuming item is already scaled appropriately relative to bin capacity
+
+    # Define weight functions that transition smoothly
+    # Weight for Best Fit increases with item size
+    w_bf = 0.4 + 0.4 * item_norm
+    # Weight for Sufficiency also increases with item size, but peaks earlier
+    w_suf = 0.3 + 0.3 * (1 - np.exp(-5 * item_norm))
+    # Weight for Longevity decreases with item size
+    w_lon = 0.3 - 0.3 * item_norm
+
+    # Ensure weights sum to 1
+    total_w = w_bf + w_suf + w_lon
+    w_bf /= total_w
+    w_suf /= total_w
+    w_lon /= total_w
+
+    # Weighted sum of normalized scores
+    combined_scores = (w_bf * norm_best_fit +
+                       w_suf * norm_sufficiency +
+                       w_lon * norm_longevity)
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```

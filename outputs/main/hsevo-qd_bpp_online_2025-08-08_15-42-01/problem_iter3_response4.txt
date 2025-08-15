@@ -1,0 +1,53 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+    
+    can_fit_mask = bins_remain_cap >= item
+    
+    if np.sum(can_fit_mask) == 0:
+        return priorities
+
+    valid_bins_capacities = bins_remain_cap[can_fit_mask]
+    
+    # Exploitation: Prioritize bins that result in the least remaining capacity (tightest fit).
+    # Introduce a bonus for bins that become nearly full (e.g., >= 90% utilization after packing).
+    # This encourages creating space for larger items later.
+    tight_fit_scores = -(valid_bins_capacities - item)
+    
+    # Bonus for bins that will have remaining capacity between 0 and 10% of the bin's original capacity.
+    # The original capacity of the bin is `bins_remain_cap - valid_bins_capacities + item`
+    original_capacities = bins_remain_cap - valid_bins_capacities + item
+    remaining_after_fit = valid_bins_capacities - item
+    
+    high_utilization_bonus = 5.0 # Higher bonus for high utilization
+    high_utilization_mask = (remaining_after_fit / original_capacities) < 0.1
+    tight_fit_scores[high_utilization_mask] += high_utilization_bonus
+
+    # Exploration: Instead of purely random, slightly perturb the "best" fits
+    # to encourage exploration of near-optimal solutions.
+    # This is a form of "intelligent exploration" rather than purely random.
+    # We will explore by adding a small random noise to the tight fit scores.
+    exploration_noise = np.random.normal(0, 0.5, size=len(valid_bins_capacities))
+    
+    # Combine exploitation (tight fit) and intelligent exploration
+    # We'll use a deterministic approach here for simplicity, prioritizing tight fits
+    # but slightly favoring bins that might have been overlooked by pure greedy.
+    # The idea is to have a more structured exploration than epsilon-greedy.
+    
+    # Sort the tight_fit_scores and introduce a small "randomness" based on rank
+    # Bins with better tight fits will have lower (more negative) scores.
+    sorted_indices = np.argsort(tight_fit_scores)
+    ranked_scores = np.arange(len(tight_fit_scores)) * 0.1 # Rank-based score
+    
+    # Combine tight fit scores with rank-based exploration
+    # Prioritize tight fits, but slightly boost bins that are not the absolute tightest
+    # This encourages trying slightly less optimal fits that might open up better future options.
+    combined_scores = tight_fit_scores + ranked_scores
+
+    priorities[can_fit_mask] = combined_scores
+    
+    return priorities
+```

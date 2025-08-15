@@ -1,0 +1,247 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Exact Fit First strategy.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Heuristic for Exact Fit First: Prioritize bins that are an exact fit
+    # or very close to an exact fit.
+    
+    # Calculate the difference between bin capacity and item size
+    diff = bins_remain_cap - item
+    
+    # Bins that are a perfect fit (diff == 0) get the highest priority.
+    # Bins that are a very close fit (small positive diff) get high priority.
+    # Bins that are not a good fit (larger diff or negative diff) get low priority.
+    
+    # Assign high priority to bins that can fit the item
+    can_fit = bins_remain_cap >= item
+    
+    # For bins that can fit, we want to prioritize those that result in the least remaining space.
+    # This encourages using up space efficiently.
+    # We can use a score inversely proportional to the remaining capacity after placing the item.
+    # A smaller remaining capacity means a higher score.
+    
+    # Calculate the remaining capacity if the item is placed in the bin
+    remaining_capacity_after_fit = bins_remain_cap - item
+    
+    # Avoid division by zero or negative values if an item doesn't fit
+    # For bins that can fit, assign a priority score.
+    # We want bins that have just enough space to be prioritized.
+    # A good heuristic is to give a high score when `remaining_capacity_after_fit` is close to 0.
+    # A simple approach is to use `1 / (1 + remaining_capacity_after_fit)` which maps
+    # 0 remaining space to a priority of 1, and larger remaining space to smaller priorities.
+    # We can add a small epsilon to avoid division by zero in edge cases, though `bins_remain_cap >= item` handles it.
+    
+    # Let's refine: higher priority for smaller remaining capacity.
+    # A score like `1.0 / (remaining_capacity_after_fit + 1e-6)` works, but can lead to
+    # very large numbers.
+    # A more stable approach is to invert the rank of remaining capacity or use a Gaussian-like function.
+    
+    # A simpler strategy for Exact Fit First:
+    # Prioritize bins where `bins_remain_cap - item` is minimized (but non-negative).
+    # Let's give a score of 1 if it's an exact fit, and a decreasing score based on how much
+    # "extra" space is left.
+    
+    # Option 1: Higher score for smaller difference (closer to 0)
+    # For bins that can fit: assign priority based on `bins_remain_cap - item`
+    # Higher priority for smaller `bins_remain_cap - item`
+    # We can use a function like `max_capacity - (bins_remain_cap - item)`
+    # or simply the negative of the difference if we normalize or cap scores.
+    
+    # Let's assign priorities:
+    # 1. Exact fits get the highest priority (e.g., a large constant).
+    # 2. Then, bins with the smallest positive remaining capacity.
+    # 3. Finally, bins that can fit but leave larger remaining capacity.
+    
+    # Let's try a scoring mechanism:
+    # For bins that can fit: priority = some_large_number - (bins_remain_cap - item)
+    # This rewards smaller remaining space.
+    
+    # Let's create a priority value for each bin that can fit the item.
+    # We want to prioritize bins that leave the LEAST amount of remaining space.
+    # So, a smaller `bins_remain_cap - item` should yield a higher priority.
+    # A simple way is to use `np.max(bins_remain_cap) - (bins_remain_cap - item)`
+    # or `1.0 / (bins_remain_cap - item + epsilon)`
+    
+    # Let's use the inverse of the remaining capacity after placing the item.
+    # Smallest remaining capacity gets highest score.
+    
+    # Calculate scores for bins that can accommodate the item.
+    # Add a small epsilon to avoid division by zero if `bins_remain_cap == item`.
+    # Although, exact fit (0 difference) is the primary goal.
+    
+    # To give the absolute highest priority to an exact fit:
+    # Assign a very high score for exact fits.
+    # Then, for non-exact fits, assign a score based on the remaining capacity.
+    
+    # Define a high score for exact fits
+    exact_fit_score = 1000.0
+    
+    # Calculate scores for bins that can fit the item
+    scores_for_fitting_bins = np.where(bins_remain_cap >= item, bins_remain_cap - item, np.inf)
+    
+    # Assign a very high score to bins that are an exact fit (difference is 0)
+    # For other fitting bins, the score is `bins_remain_cap - item`.
+    # We want smaller `bins_remain_cap - item` to be prioritized, so we should
+    # invert this relationship, e.g., `1 / (diff + epsilon)` or similar.
+    
+    # Let's use a score that is higher for smaller `bins_remain_cap - item`
+    # `max_possible_diff - diff` could work if we know max_possible_diff.
+    # Or, use `1.0 / (diff + 1)` where diff is `bins_remain_cap - item`.
+    # This maps diff=0 to priority 1, diff=1 to priority 0.5, etc.
+    
+    # Let's refine the priority:
+    # Exact fits are paramount.
+    # If no exact fit, choose the bin that leaves the least excess capacity.
+    
+    # Score for bins that can fit:
+    # For bins where `bins_remain_cap - item == 0`, assign highest priority.
+    # For bins where `bins_remain_cap - item > 0`, assign a priority based on `bins_remain_cap - item`.
+    # We want smaller positive differences to have higher priority.
+    
+    # Let's use the inverse of the remaining space as priority.
+    # priority = 1 / (remaining_space + 1) where remaining_space = bins_remain_cap - item
+    # This means a difference of 0 gives priority 1, difference of 1 gives 0.5, etc.
+    
+    # Consider a penalty for not being an exact fit.
+    # Or, assign a score based on the "closeness" to an exact fit.
+    
+    # Let's use a score that is high for exact fits, and then decreases as the remaining space increases.
+    
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Condition for bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    
+    # For bins that can fit, calculate the remaining capacity after placing the item
+    remaining_capacities_after_fit = bins_remain_cap[can_fit_mask] - item
+    
+    # Calculate priorities for these fitting bins.
+    # We want to prioritize bins with smaller remaining capacity.
+    # A good mapping is `1.0 / (remaining_capacities_after_fit + 1.0)` which results in values between 0 and 1.
+    # Exact fits (remaining_capacities_after_fit == 0) get a priority of 1.0.
+    # Other fits get values less than 1.0.
+    
+    # To make exact fits even more dominant, we can multiply by a large factor or add a bonus.
+    
+    # Let's use a simple heuristic:
+    # Priority = 1.0 if exact fit
+    # Priority = 1.0 / (remaining_capacity + 1.0) for other fitting bins
+    # Where remaining_capacity = bins_remain_cap - item
+    
+    # Assign priority of 0 initially to all bins
+    priorities[:] = 0.0
+    
+    # Identify bins that can fit the item
+    fitting_bins_indices = np.where(bins_remain_cap >= item)[0]
+    
+    # If there are fitting bins
+    if fitting_bins_indices.size > 0:
+        # Calculate remaining capacity for fitting bins
+        remaining_caps = bins_remain_cap[fitting_bins_indices] - item
+        
+        # Assign priorities:
+        # Exact fits get a higher priority (e.g., 1.0)
+        # For other fitting bins, assign a priority that is inversely related to the remaining capacity.
+        # Let's use 1.0 - (remaining_cap / some_max_cap_or_1.0) for a linear decrease.
+        # Or `1.0 / (remaining_cap + 1.0)` which is `1.0` for exact fit and decreases.
+        
+        # Let's try assigning a priority based on the inverse of the remaining capacity + 1
+        # Higher value means better fit.
+        # Exact fit (remaining_cap = 0) -> priority = 1.0
+        # Remaining cap = 1 -> priority = 0.5
+        # Remaining cap = 5 -> priority = 1/6
+        
+        # We want the "best" fit to be chosen.
+        # Let's consider the "waste" (remaining capacity). We want to minimize waste.
+        
+        # Heuristic: prioritize bins where `bins_remain_cap - item` is smallest non-negative.
+        
+        # Calculate the difference for all bins that can fit
+        diffs = bins_remain_cap[fitting_bins_indices] - item
+        
+        # Assign priorities:
+        # Higher priority for smaller differences.
+        # A simple inverse relationship: `1.0 / (diff + epsilon)` or a bounded value.
+        
+        # Let's assign priority:
+        # exact_fit_priority = 1.0
+        # general_fit_priority = 1.0 - (diff / max_possible_bin_size) (if max_possible_bin_size is known)
+        
+        # A robust way for exact fit first:
+        # Identify exact fits. Give them a high, unique priority.
+        # For non-exact fits, sort them by the smallest positive remaining capacity.
+        
+        # Let's combine these:
+        # Assign priority = -diff. The minimum diff will have the maximum priority.
+        # For exact fits (diff=0), this gives 0.
+        # For diffs > 0, these are negative.
+        # We want exact fits to be highest, so we can add a large constant.
+        
+        # Option: give exact fits priority 1.0, and other fits a priority < 1.0.
+        # For bins that fit:
+        # priority = (max_remaining_capacity_among_fitting_bins - (bins_remain_cap[i] - item)) / max_remaining_capacity_among_fitting_bins
+        # This normalizes priorities to be between 0 and 1.
+        
+        # Let's create a score that is higher for smaller remaining capacity.
+        # Score = 1 / (1 + remaining_capacity)
+        # For exact fits (remaining_capacity = 0), score is 1.0.
+        # For remaining_capacity = 1, score is 0.5.
+        # For remaining_capacity = 5, score is 1/6.
+        
+        # We can also consider how "tight" the fit is as a secondary criterion if exact fits aren't available.
+        
+        # Let's try this:
+        # If an exact fit exists, assign it the highest possible priority.
+        # If multiple exact fits exist, any of them is fine.
+        # If no exact fit, assign priorities based on how close the remaining capacity is to the item size.
+        
+        # Let's simplify: assign a priority to each bin.
+        # For each bin:
+        # If bin can fit the item:
+        #   Calculate remaining space `r = bins_remain_cap[i] - item`.
+        #   Assign a priority based on `r`. We want small `r` to have high priority.
+        #   Example: priority = 1.0 / (r + 1.0)
+        # Else (bin cannot fit):
+        #   priority = 0.0
+        
+        # To make "exact fit first" more pronounced:
+        # Priority = 1.0 for exact fits (r=0).
+        # Priority = 1.0 - (r / max_possible_remaining_capacity) for other fits.
+        
+        # Let's use a score that emphasizes exact fits strongly:
+        # A score that is 1.0 for exact fit and decreases as difference increases.
+        # Example: score = exp(-k * (bins_remain_cap[i] - item)) for some k.
+        # Or simply: score = 1.0 - (bins_remain_cap[i] - item) / MAX_CAPACITY.
+        
+        # Let's define a scoring function that prioritizes minimal non-negative difference.
+        # For bins that can fit: `priority = C - (bins_remain_cap - item)` where C is a large constant.
+        # This ensures smaller differences are ranked higher.
+        
+        # Let's assign priority values.
+        # For each bin that can fit:
+        # priority = 1.0 / (1.0 + (bins_remain_cap[i] - item))
+        # This gives a priority of 1.0 for exact fits, and values between 0 and 1 for others.
+        # Bins that cannot fit will have priority 0.
+        
+        priorities[fitting_bins_indices] = 1.0 / (1.0 + remaining_capacities_after_fit)
+        
+        # To ensure exact fits are strictly preferred if they exist, we can add a bonus to them.
+        # For instance, multiply the priority of exact fits by a large factor.
+        exact_fit_indices = fitting_bins_indices[remaining_capacities_after_fit == 0]
+        if exact_fit_indices.size > 0:
+            priorities[exact_fit_indices] *= 100.0 # Give a significant boost to exact fits
+            
+    return priorities
+
+```

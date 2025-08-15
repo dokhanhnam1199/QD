@@ -1,0 +1,164 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    available_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(available_bins_mask):
+        return np.zeros_like(bins_remain_cap)
+
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    available_bins_remain_cap = bins_remain_cap[available_bins_mask]
+    
+    # Heuristic: Prioritize bins that leave the least remaining capacity after packing the item.
+    # This encourages tighter packing and potentially leaves larger bins for future larger items.
+    # We use inverse of remaining capacity to make higher values more preferred.
+    # Adding a small epsilon to the denominator to avoid division by zero.
+    remaining_capacity_after_packing = available_bins_remain_cap - item
+    
+    # To favor tighter fits, we want to maximize the remaining capacity after packing.
+    # However, the original priority_v1 used inverse_distances = available_bins_cap / (available_bins_cap - item + 1e-9)
+    # which favors bins where the item takes up a larger proportion of the *original* capacity.
+    # Let's try a heuristic that directly rewards a small remaining capacity after packing,
+    # making it more likely that the remaining capacity is "just enough" for smaller items.
+    # We can use the negative of the remaining capacity after packing as a priority,
+    # and then take the negative of that again to make higher scores better.
+    # Or, more simply, use 1 / (remaining_capacity_after_packing + epsilon) for higher values
+    # for smaller remaining capacities.
+    
+    # Let's consider a balanced approach: prioritize bins where the item fills a significant portion,
+    # but also consider the absolute remaining capacity.
+    # One way is to consider the ratio of item size to bin capacity, and penalize bins that are too large.
+    
+    # A refined heuristic could be to give a higher score to bins that have a remaining capacity
+    # that is 'just enough' for the current item, or for a "typical" future item.
+    # Without knowledge of future items, a simple heuristic is to prioritize bins that are
+    # closest to fitting the item perfectly.
+    
+    # Let's try a heuristic that favors bins where the remaining capacity *after* packing
+    # is minimized. This leads to tighter packing.
+    # The priority will be inversely proportional to the remaining capacity after packing.
+    # A larger value means a better fit (less wasted space).
+    
+    # Option 1: Inverse of remaining capacity after packing.
+    # priority_score = 1.0 / (remaining_capacity_after_packing + 1e-9)
+    
+    # Option 2: Favor bins that are "almost full" after packing.
+    # This is similar to Option 1. Let's consider the original priority_v1 logic again:
+    # inverse_distances = available_bins_cap / (available_bins_cap - item + 1e-9)
+    # This favors bins where `available_bins_cap` is close to `item`.
+    # Let's try to optimize for bins that have the smallest *absolute* remaining capacity after packing.
+    # This means `available_bins_remain_cap - item` should be small and positive.
+    
+    # We want to maximize the value of `1 / (available_bins_remain_cap - item + epsilon)`.
+    # This prioritizes bins where `available_bins_remain_cap - item` is small.
+    
+    # Let's try a heuristic that prioritizes bins that, after packing, have a remaining capacity
+    # that is as small as possible but still non-negative.
+    # The priority will be inversely proportional to the remaining capacity after packing.
+    # A smaller remaining capacity after packing implies a tighter fit.
+    
+    # Calculate the remaining capacity *after* placing the item
+    remaining_capacity_after_packing = available_bins_remain_cap - item
+    
+    # Assign priorities based on the inverse of the remaining capacity after packing.
+    # Higher priority for smaller remaining capacity.
+    # Adding a small epsilon to avoid division by zero.
+    # We consider the value `1 / (remaining_capacity_after_packing + epsilon)` as priority.
+    # This ensures that bins with the smallest positive remaining capacity get the highest score.
+    
+    # Let's reconsider the problem context: Online BPP.
+    # We want to make a decision now without knowing future items.
+    # A common strategy is "Best Fit" which is to find the bin that leaves the minimum remaining capacity.
+    # This is exactly what `1 / (remaining_capacity_after_packing + epsilon)` aims to do.
+    
+    # Let's try to improve upon the "Best Fit" idea.
+    # What if we also consider the *original* capacity of the bin?
+    # A bin that is already quite full might be better to use for a smaller item if it leaves a small gap.
+    # A very large bin might be better saved for a potentially larger item later.
+    
+    # Let's try a heuristic that combines the "tightness" of the fit with the "size" of the bin.
+    # We want to penalize using very large bins for small items if a tighter fit is available.
+    
+    # Consider the ratio: `(available_bins_remain_cap - item) / available_bins_remain_cap`.
+    # This ratio represents the *proportion* of remaining capacity after packing.
+    # We want this proportion to be small, ideally close to 0.
+    # So, we can take the inverse of this proportion: `available_bins_remain_cap / (available_bins_remain_cap - item + epsilon)`.
+    # This is similar to the original v1, but we are directly using remaining capacity after packing.
+    
+    # Let's refine the Best Fit idea. We want to minimize `remaining_capacity_after_packing`.
+    # So, a higher priority should be given to bins with smaller `remaining_capacity_after_packing`.
+    # We can use `1.0 / (remaining_capacity_after_packing + epsilon)`.
+    
+    # Let's also consider the original v1's behavior: `available_bins_cap / (available_bins_cap - item + 1e-9)`.
+    # This prioritizes bins where `available_bins_cap` is close to `item`.
+    # This is effectively prioritizing bins that are almost full *before* packing.
+    
+    # Let's try to combine the idea of "smallest remaining capacity after packing"
+    # with a penalty for using very large bins.
+    
+    # Heuristic idea: Priority = 1 / (remaining_capacity_after_packing + epsilon) - penalty for large bins
+    # The penalty for large bins could be proportional to the bin's original capacity.
+    # So, priority = 1 / (remaining_capacity_after_packing + epsilon) - alpha * available_bins_remain_cap
+    # We want to maximize this.
+    
+    # Let's simplify:
+    # The core idea of "Best Fit" is to minimize `remaining_capacity_after_packing`.
+    # This is achieved by maximizing `1.0 / (remaining_capacity_after_packing + epsilon)`.
+    
+    # What if we consider the "waste" relative to the item size?
+    # Waste = `remaining_capacity_after_packing`
+    # Relative waste = `remaining_capacity_after_packing / item`
+    # We want to minimize relative waste.
+    # So, priority could be `item / (remaining_capacity_after_packing + epsilon)`.
+    
+    # Let's compare:
+    # v1: `available_bins_cap / (available_bins_cap - item + epsilon)`
+    # Best Fit (conceptually): `1.0 / (available_bins_remain_cap - item + epsilon)`
+    # Alternative Best Fit: `item / (available_bins_remain_cap - item + epsilon)`
+    
+    # The original v1 favors bins where the item takes a large *proportion* of the bin's current capacity.
+    # This might be good if we want to quickly fill up bins.
+    
+    # Let's try a version that prioritizes bins that are "almost full" but not excessively so.
+    # A bin that has capacity `C` and we are packing item `i`.
+    # Remaining capacity after packing is `C-i`.
+    # We want `C-i` to be small and positive.
+    
+    # Consider the "slack" or "residual capacity" `C - i`.
+    # We want to minimize this slack.
+    # The priority should be inversely related to this slack.
+    # Priority = `1.0 / (slack + epsilon)`
+    
+    # Let's try this directly.
+    
+    slack = available_bins_remain_cap - item
+    
+    # We want to maximize the priority. High priority for small slack.
+    # Priority = 1.0 / (slack + epsilon)
+    # This is the "Best Fit" heuristic.
+    
+    # Let's try to add a component that considers the "tightness" relative to the item's size.
+    # If a bin has a very large capacity, even if the slack is small in absolute terms,
+    # it might be a suboptimal choice.
+    
+    # Idea: Prioritize bins that offer a good balance of a small slack AND are not excessively large.
+    # A simple way to penalize large bins: divide by the bin's original capacity.
+    # Priority = (1.0 / (slack + epsilon)) / available_bins_remain_cap
+    # This can be simplified to:
+    # Priority = 1.0 / ((slack + epsilon) * available_bins_remain_cap)
+    # This prioritizes small slack and small original capacity.
+    
+    # Let's consider the scenario:
+    # Bin A: Capacity = 10, Remaining = 3. Item = 2. Slack = 1. Priority ~ 1/1 = 1.
+    # Bin B: Capacity = 100, Remaining = 3. Item = 2. Slack = 1. Priority ~ 1/100 = 0.01.
+    # This heuristic `1.0 / ((slack + epsilon) * available_bins_remain_cap)` would choose Bin A.
+    
+    # This heuristic aims to find the "tightest fit" among bins that are not excessively large.
+    
+    priorities[available_bins_mask] = 1.0 / ((slack + 1e-9) * available_bins_remain_cap)
+    
+    return priorities
+
+```

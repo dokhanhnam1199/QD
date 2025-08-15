@@ -1,0 +1,140 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes bins for the online Bin Packing Problem.
+    This strategy prioritizes exact fits, then near fits using a soft-max approach
+    for exploration among near-fitting bins, and penalizes bins with very large remaining capacities.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array containing the remaining capacity of each bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, where each element
+        represents the priority score for placing the item in the corresponding bin.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    num_bins = len(bins_remain_cap)
+
+    # Identify bins that can accommodate the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit the item
+
+    fitting_bins_indices = np.where(can_fit_mask)[0]
+    fitting_bins_remain_cap = bins_remain_cap[fitting_bins_indices]
+    remaining_after_placement = fitting_bins_remain_cap - item
+
+    # Assign very high priority for exact fits
+    exact_fit_mask_subset = (remaining_after_placement == 0)
+    exact_fit_indices = fitting_bins_indices[exact_fit_mask_subset]
+    priorities[exact_fit_indices] = 100.0
+
+    # Handle near fits with a softmax for exploration.
+    # Lower remaining capacity should lead to a higher score.
+    near_fit_mask_subset = ~exact_fit_mask_subset
+    near_fit_indices_subset = fitting_bins_indices[near_fit_mask_subset]
+
+    if np.any(near_fit_mask_subset):
+        near_fit_remaining = remaining_after_placement[near_fit_mask_subset]
+
+        # Calculate scores for near fits. We want to prioritize smaller remaining capacities.
+        # Using negative remaining capacity: smaller capacity -> less negative score -> higher priority.
+        # Add a small constant to ensure scores are not zero for softmax, and to keep them lower than exact fits.
+        # We also want to penalize bins with very large remaining capacity if they are not exact fits.
+        # A simple way is to make the priority decrease as remaining capacity increases beyond a certain point.
+        # Let's use a transformation that is high for small remaining, and tapers off.
+        # A negative exponential function could work: exp(-k * remaining_capacity)
+        # Or, simply use the negative remaining capacity and apply softmax.
+        # Let's ensure the scores are positive for softmax, and scale them.
+        
+        # Calculate "desirability" for near fits: higher for smaller remaining capacity.
+        # We can use a scale where 0 remaining capacity is best, and it degrades.
+        # Let's map the remaining capacities to a desirability score.
+        # Smallest remaining capacity should get highest score among near fits.
+        # Max value for near fits to avoid extreme values in exp
+        max_near_fit_remaining = np.max(near_fit_remaining) if near_fit_remaining.size > 0 else 0
+        
+        # Calculate scores that are higher for smaller remaining capacity.
+        # We scale by a factor to ensure they are less than exact fits.
+        # A simple approach: -(remaining_capacity).
+        # To make it suitable for softmax and exploration, we want values that differentiate.
+        # Let's consider the inverse of remaining capacity (plus a small epsilon to avoid division by zero).
+        # Or more simply, negative of remaining capacity, shifted and scaled.
+
+        # We want values that increase as remaining capacity decreases.
+        # `near_fit_remaining` values are >= 0.
+        # Let's transform `near_fit_remaining` into "fitness scores" where higher is better.
+        # Score = max_remaining_if_near_fit - current_remaining_if_near_fit
+        # This makes exact fits (0 remaining) have the highest score among near fits.
+        # But we already handled exact fits separately with a fixed high score.
+        # For near fits, we want to prioritize smaller `near_fit_remaining`.
+        
+        # Let's use -near_fit_remaining as base scores. Add a base value to shift it.
+        # A base value like 10.0 could be used.
+        # Score = 10.0 - near_fit_remaining
+        
+        # The problem is that `near_fit_remaining` can vary widely.
+        # If we want to use softmax for exploration, we need scores that can be exponentiated.
+        # Let's use the negative of remaining capacity as the base score.
+        # We need to scale and shift these to be positive for softmax and to be distinct from exact fits.
+        
+        # Calculate base priorities: prioritize smaller remaining capacity.
+        # We want to assign higher scores to bins with smaller `near_fit_remaining`.
+        # Let's use `-near_fit_remaining` as the raw score.
+        # To make it suitable for softmax, we can shift and scale it.
+        # Example: shift to make all values positive, then scale.
+        
+        # Calculate values that are higher for smaller remaining capacity.
+        # If remaining capacity is 0.1, score is higher than if it's 0.5.
+        # Let's try `1 / (near_fit_remaining + epsilon)`.
+        epsilon_small = 1e-6
+        near_fit_scores_for_softmax = 1.0 / (near_fit_remaining + epsilon_small)
+        
+        # Normalize these scores using softmax for exploration.
+        # Softmax will give higher probabilities to bins with smaller remaining capacity (larger scores).
+        temperature = 1.0  # Tunable parameter for exploration control
+
+        # Shift scores to prevent numerical underflow/overflow in exp
+        max_score = np.max(near_fit_scores_for_softmax)
+        shifted_scores = near_fit_scores_for_softmax - max_score
+        
+        exp_scores = np.exp(shifted_scores / temperature)
+        sum_exp_scores = np.sum(exp_scores)
+
+        if sum_exp_scores > 0:
+            softmax_probabilities = exp_scores / sum_exp_scores
+        else:
+            # Fallback to uniform probability if all scores are ~0 or -inf
+            softmax_probabilities = np.ones_like(exp_scores) / len(exp_scores)
+
+        # Scale these probabilities to a range that is lower than exact fits but reflects preference.
+        # For example, map probabilities to a range like [50, 90].
+        # Higher probability for smaller remaining capacity -> higher scaled score.
+        # The softmax probabilities range from ~0 to 1.
+        scaled_near_fit_priorities = 50.0 + softmax_probabilities * 40.0 # Range [50, 90)
+
+        priorities[near_fit_indices_subset] = scaled_near_fit_priorities
+
+    # Bins that can fit but were not assigned exact fit or near fit priority (shouldn't happen with current logic)
+    # or bins that could fit but had issues in scoring, will remain -np.inf.
+    # However, to be safe, we can assign a baseline priority to any bin that can fit but wasn't covered.
+    # This could happen if `near_fit_mask_subset` is empty, and `exact_fit_mask_subset` is also empty,
+    # but `can_fit_mask` is True. In this case, the item is smaller than remaining capacity but not an exact fit,
+    # and no other near fits were processed.
+    # This implies `near_fit_remaining` was empty. This scenario should be covered by the `if np.any(near_fit_mask_subset):` block.
+
+    # Any bin that *can* fit but has no priority assigned yet should get a default low priority.
+    # For example, any remaining `can_fit_mask` that are not `exact_fit_indices` and not `near_fit_indices_subset`.
+    # This should logically not occur given how near_fit_mask_subset is derived.
+    # If a bin can fit, it's either an exact fit or a near fit.
+    
+    # Let's ensure that any bin that *can* fit has at least a minimal positive priority if not an exact fit.
+    # This default priority should be lower than any near-fit priority.
+    default_low_priority = 1.0
+    unassigned_fitting_bins = np.where(can_fit_mask & (priorities == -np.inf))[0]
+    priorities[unassigned_fitting_bins] = default_low_priority
+
+    return priorities
+```

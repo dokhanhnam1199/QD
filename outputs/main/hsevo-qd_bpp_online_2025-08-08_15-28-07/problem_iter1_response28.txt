@@ -1,0 +1,52 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    # Prioritize bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    
+    # For bins that can fit the item, prioritize those with the least remaining capacity
+    # to encourage tighter packing (First Fit Decreasing like behavior)
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    
+    if fitting_bins_remain_cap.size > 0:
+        # Calculate priorities for fitting bins: higher priority for less remaining capacity
+        # We use a transformation to ensure priorities are positive and spread out
+        # Adding 1 to avoid division by zero if remaining capacity is 0, though this is unlikely
+        # when `can_fit_mask` is true and item > 0.
+        # A small epsilon is added to the denominator to avoid potential division by zero,
+        # although with `can_fit_mask` and `item > 0` this is less of a concern.
+        # The priority is inversely proportional to remaining capacity.
+        inverse_remaining_cap = 1 / (fitting_bins_remain_cap + 1e-9)
+        
+        # Normalize priorities to be between 0 and 1 (or a similar range)
+        # Using a scaled inverse to ensure higher priority for tighter fits
+        # A simple heuristic: scale the inverse remaining capacity
+        # A small constant is subtracted to ensure that perfectly filled bins are slightly preferred.
+        # The maximum possible value of inverse_remaining_cap is when remaining_cap is smallest.
+        # We want to map smaller remaining_cap to higher priority.
+        # A simple scaling: (max_inverse - current_inverse) / (max_inverse - min_inverse) if we had a range.
+        # A simpler approach is just to use the inverse itself as the priority, and perhaps scale it.
+        # Let's try a heuristic that prioritizes bins where the item fills a significant portion of the remaining space.
+        # This means (item / bins_remain_cap[i]) should be high for bins where bins_remain_cap[i] is small.
+        
+        # Let's use the 'Best Fit' heuristic as the greedy choice: smallest remaining capacity that fits the item.
+        # The priority should reflect this. A bin with just enough space should have higher priority.
+        # So, the priority is inversely proportional to (remaining_capacity - item)
+        # Which is equivalent to prioritizing bins with smallest (remaining_capacity - item).
+        
+        # The amount of space "left over" after placing the item
+        space_left_over = fitting_bins_remain_cap - item
+        
+        # We want to prioritize bins where space_left_over is minimized.
+        # The priority should be high for small space_left_over.
+        # So, priority is inversely proportional to (space_left_over + epsilon)
+        priorities[can_fit_mask] = 1 / (space_left_over + 1e-9)
+        
+        # Further adjustment: If the item perfectly fills a bin, this is highly desirable.
+        # Give a bonus to bins where remaining_capacity == item.
+        perfect_fit_mask = (fitting_bins_remain_cap - item) < 1e-9
+        priorities[can_fit_mask][perfect_fit_mask] *= 2 # Boost priority for perfect fits
+
+    return priorities
+```

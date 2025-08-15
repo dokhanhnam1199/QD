@@ -1,0 +1,269 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    This heuristic aims to improve upon previous versions by incorporating a more
+    nuanced scoring mechanism that balances multiple desirable properties of a bin choice.
+    It prioritizes bins that offer a good fit without excessive remaining capacity,
+    while also considering the overall fullness of the bin as a secondary factor.
+
+    The scoring logic for fitting bins (`bins_remain_cap >= item`) is based on two main components:
+    1.  **Tightness Score**: This component penalizes bins that leave a large gap
+        (`bins_remain_cap - item`). A quadratic penalty (`-(gap**2)`) is used to
+        strongly discourage significant overcapacity. This encourages minimizing waste.
+    2.  **Fullness Score**: This component rewards bins that are generally fuller,
+        represented by `bins_remain_cap`. A higher remaining capacity in the bin
+        (before placing the item) can sometimes be beneficial for packing subsequent
+        items if the current item is small.
+
+    These two components are combined using a weighted sum:
+    `score = w_tight * tightness_score + w_full * fullness_score`
+    where `tightness_score = -(bins_remain_cap - item)**2` and `fullness_score = bins_remain_cap`.
+
+    The parameters `w_tight` and `w_full` can be tuned to balance these criteria.
+    A higher `w_tight` emphasizes minimizing the gap, while a higher `w_full`
+    emphasizes selecting bins that are already more occupied.
+
+    To achieve a smoother preference and avoid abrupt jumps in scoring for bins
+    with slightly different remaining capacities, we can also incorporate a function
+    that maps the "slack" (`bins_remain_cap - item`) to a score.
+    A sigmoid-like function or a scaled inverse could provide smoother transitions.
+
+    Let's consider a score that is primarily driven by minimizing the gap, but
+    with a penalty for being *too* empty even if it fits.
+
+    A potential refined score for fitting bins:
+    `score = -(bins_remain_cap - item) + alpha * (bins_remain_cap)`
+    This is similar to a previous idea, but let's try to make it more robust.
+
+    Let's try to combine a penalty for gap and a reward for current bin usage ratio.
+    Assume a fixed `BIN_CAPACITY` (e.g., 1.0 for normalization, though not explicitly passed).
+    We want to minimize `gap = bins_remain_cap - item`.
+    We want to maximize `current_fill_ratio = (BIN_CAPACITY - bins_remain_cap) / BIN_CAPACITY`.
+
+    Combining these with weights `w_gap` and `w_fill_ratio`:
+    `score = w_gap * -(gap) + w_fill_ratio * (BIN_CAPACITY - bins_remain_cap)`
+    `score = w_gap * (item - bins_remain_cap) + w_fill_ratio * (BIN_CAPACITY - bins_remain_cap)`
+
+    If we assume `BIN_CAPACITY = 1.0` (a common convention for normalized BPP):
+    `score = w_gap * (item - bins_remain_cap) + w_fill_ratio * (1.0 - bins_remain_cap)`
+
+    Let's use `w_gap = 1.0` and `w_fill_ratio = 0.5`.
+    `score = (item - bins_remain_cap) + 0.5 * (1.0 - bins_remain_cap)`
+    `score = item - bins_remain_cap + 0.5 - 0.5 * bins_remain_cap`
+    `score = item + 0.5 - 1.5 * bins_remain_cap`
+
+    Let's test this with `item = 0.5` and `BIN_CAPACITY = 1.0`:
+    Bin X: `bins_remain_cap = 0.5`. Fits.
+        `gap = 0`.
+        `score = 0.5 + 0.5 - 1.5 * 0.5 = 1.0 - 0.75 = 0.25`
+    Bin Y: `bins_remain_cap = 0.55`. Fits.
+        `gap = 0.05`.
+        `score = 0.5 + 0.5 - 1.5 * 0.55 = 1.0 - 0.825 = 0.175`
+    Bin Z: `bins_remain_cap = 0.8`. Fits.
+        `gap = 0.3`.
+        `score = 0.5 + 0.5 - 1.5 * 0.8 = 1.0 - 1.2 = -0.2`
+
+    This scoring mechanism prioritizes the perfect fit (Bin X) most, followed by
+    a slightly larger gap (Bin Y), and penalizes larger gaps (Bin Z).
+    This is essentially a variation of Best Fit, where `w_fill_ratio` offers
+    a slight nudge towards bins that *were* more full, but the primary driver
+    is minimizing the gap.
+
+    To make it more distinct and potentially better, let's consider a mechanism
+    that actively favors bins that are not *too* empty, even if they have a
+    slightly larger gap than the absolute best fit.
+
+    We want to minimize `bins_remain_cap - item`.
+    We also want `bins_remain_cap` to be not too small.
+
+    Consider a score based on the "utility" of placing the item:
+    If `bins_remain_cap >= item`, the utility is related to how well it fits.
+    A good fit leaves a small `bins_remain_cap - item`.
+
+    Let's try a score that is high for good fits and decreases as the gap increases,
+    but perhaps levels off or decreases slower for bins that are already quite full.
+
+    Consider this scoring function for fitting bins:
+    `score = (item / bins_remain_cap)`  - This favors bins where the item is a large fraction of remaining capacity.
+    However, this can be unstable if `bins_remain_cap` is very small or zero.
+
+    Let's combine Best Fit with a consideration for the *absolute* remaining capacity.
+    We want to minimize `bins_remain_cap - item`.
+    So, `-(bins_remain_cap - item)` is a good component (like Best Fit).
+
+    Let's add a secondary component that rewards bins that have *more* capacity
+    remaining if the fit is similarly good. This might sound counter-intuitive to "tightest fit",
+    but could lead to better overall packing by keeping "almost full" bins available for smaller items.
+
+    Consider the score: `score = -(bins_remain_cap - item) + alpha * bins_remain_cap`
+    Here, `alpha` controls the preference for generally fuller bins.
+    If `alpha = 0`, it's pure Best Fit.
+    If `alpha > 0`, it slightly favors bins with more capacity if the gap is similar.
+
+    Let's choose `alpha = 0.5`.
+    `score = -(bins_remain_cap - item) + 0.5 * bins_remain_cap`
+    `score = -bins_remain_cap + item + 0.5 * bins_remain_cap`
+    `score = item - 0.5 * bins_remain_cap`
+
+    Test with `item = 0.5`:
+    Bin A: `bins_remain_cap = 0.5` (perfect fit)
+        `score_A = 0.5 - 0.5 * 0.5 = 0.5 - 0.25 = 0.25`
+    Bin B: `bins_remain_cap = 0.55` (gap 0.05)
+        `score_B = 0.5 - 0.5 * 0.55 = 0.5 - 0.275 = 0.225`
+    Bin C: `bins_remain_cap = 0.8` (gap 0.3)
+        `score_C = 0.5 - 0.5 * 0.8 = 0.5 - 0.4 = 0.1`
+
+    Bin A (perfect fit) is prioritized, then Bin B, then Bin C.
+    This is a good heuristic. It's a variation of Best Fit that subtly prefers
+    tighter fits but doesn't penalize bins that are moderately fuller quite as harshly
+    as a purely tightest-fit strategy might.
+
+    To make it "better" than the previous quadratic approach:
+    The previous approach `-(gap**2) + lambda_param * fitting_bins_remain_cap`
+    with `lambda_param = 0.1`:
+    `item = 0.5`
+    Bin X: `bins_remain_cap = 0.5`. Gap = 0. Score = `-0**2 + 0.1 * 0.5 = 0.05`. (Perfect fit)
+    Bin Y: `bins_remain_cap = 0.55`. Gap = 0.05. Score = `-(0.05)**2 + 0.1 * 0.55 = -0.0025 + 0.055 = 0.0525`. (Slightly loose fit)
+    Bin Z: `bins_remain_cap = 0.8`. Gap = 0.3. Score = `-(0.3)**2 + 0.1 * 0.8 = -0.09 + 0.08 = -0.01`. (Loose fit)
+    This preferred Y over X.
+
+    The `item - 0.5 * bins_remain_cap` heuristic prefers X over Y.
+    This is more aligned with Best Fit, but with a secondary factor.
+
+    Let's combine the ideas:
+    1.  Prioritize minimizing the gap `bins_remain_cap - item`.
+    2.  Add a factor that considers the "quality" of the remaining space.
+        Perhaps a penalty for leaving *very large* amounts of space, but less so for moderate amounts.
+
+    Consider the score:
+    `score = -(bins_remain_cap - item) - beta * max(0, bins_remain_cap - item - threshold)`
+    Here, `beta` penalizes gaps larger than `threshold`.
+    This adds a linear penalty beyond a certain gap size.
+
+    Let `beta = 0.5` and `threshold = 0.2`.
+    `item = 0.5`
+    Bin A: `bins_remain_cap = 0.5`. Gap = 0. Score = `-0 - 0.5 * max(0, 0 - 0.2) = 0`.
+    Bin B: `bins_remain_cap = 0.55`. Gap = 0.05. Score = `-0.05 - 0.5 * max(0, 0.05 - 0.2) = -0.05`.
+    Bin C: `bins_remain_cap = 0.8`. Gap = 0.3. Score = `-0.3 - 0.5 * max(0, 0.3 - 0.2) = -0.3 - 0.5 * 0.1 = -0.35`.
+    Bin D: `bins_remain_cap = 0.3`. Does not fit. Score = `-inf`.
+
+    This still strongly favors the tightest fit.
+
+    Let's try to be more granular by looking at how much of the remaining capacity is used.
+    For fitting bins, consider the "fit ratio": `item / bins_remain_cap`. We want this to be high.
+    However, `bins_remain_cap` can be very close to `item`, making the ratio close to 1.
+    If `bins_remain_cap` is much larger, the ratio is smaller.
+
+    Let's combine the "least gap" with a "filling" metric.
+    Score: `w1 * -(bins_remain_cap - item) + w2 * (1 - bins_remain_cap)`
+    Here, `w1` for Best Fit, `w2` for Most Full.
+    Let `w1 = 1.0`, `w2 = 0.5`.
+    `score = -(bins_remain_cap - item) + 0.5 * (1 - bins_remain_cap)`
+    `score = -bins_remain_cap + item + 0.5 - 0.5 * bins_remain_cap`
+    `score = item + 0.5 - 1.5 * bins_remain_cap`
+
+    This was the same as the `item + 0.5 - 1.5 * bins_remain_cap` derived earlier.
+
+    Let's aim for a heuristic that is "smarter" than just Best Fit or simple combinations.
+    We want to prioritize tight fits, but also consider the potential benefit of using a bin
+    that is already significantly full.
+
+    Consider the "slack" `s = bins_remain_cap - item`. We want to minimize `s`.
+    Consider the "bin fullness ratio" `f = (BIN_CAPACITY - bins_remain_cap) / BIN_CAPACITY`. We want to maximize `f`.
+
+    Let's model the priority as a function that is high for small `s` and high `f`.
+    A scoring function could be: `score = w_s * (-s) + w_f * f`
+    `score = w_s * -(bins_remain_cap - item) + w_f * (BIN_CAPACITY - bins_remain_cap)`
+
+    Assuming `BIN_CAPACITY = 1.0`:
+    `score = w_s * (item - bins_remain_cap) + w_f * (1.0 - bins_remain_cap)`
+
+    Let's choose weights that give a distinct behavior.
+    What if we want to strongly prefer a perfect fit, but give a small bonus
+    to bins that are generally more full when the fit is *almost* perfect?
+
+    Let's define the priority for fitting bins:
+    `priority = (item - bins_remain_cap) - alpha * (bins_remain_cap - item)**2`
+    This prioritizes tightest fit first (`item - bins_remain_cap`), and then
+    penalizes larger gaps quadratically.
+
+    Let `alpha = 0.5`.
+    `item = 0.5`
+    Bin A: `bins_remain_cap = 0.5`. Gap = 0. Score = `(0.5 - 0.5) - 0.5 * (0)**2 = 0`.
+    Bin B: `bins_remain_cap = 0.55`. Gap = 0.05. Score = `(0.5 - 0.55) - 0.5 * (0.05)**2 = -0.05 - 0.5 * 0.0025 = -0.05 - 0.00125 = -0.05125`.
+    Bin C: `bins_remain_cap = 0.8`. Gap = 0.3. Score = `(0.5 - 0.8) - 0.5 * (0.3)**2 = -0.3 - 0.5 * 0.09 = -0.3 - 0.045 = -0.345`.
+
+    This still prioritizes Bin A (perfect fit) strongly.
+
+    Let's try to re-frame the score to be more sensitive to small gaps vs. large gaps.
+    We want to maximize `-(bins_remain_cap - item)`.
+    And we want to maximize `bins_remain_cap`.
+
+    Consider a score that is a function of the *slack* `s = bins_remain_cap - item`.
+    We want to minimize `s`.
+    A potential scoring function for fitting bins: `score = -(s**2) - beta * s`
+    This penalizes large `s` quadratically and linearly.
+    For `s=0`, score is 0.
+    For `s=0.05`, score is `-(0.0025) - beta * 0.05`.
+    For `s=0.3`, score is `-(0.09) - beta * 0.3`.
+
+    Let's try this:
+    For fitting bins, calculate a score that is inversely proportional to the slack `s`.
+    We want to maximize `1 / (s + epsilon)` where `epsilon` is a small constant to avoid division by zero.
+    Or even better, we want to maximize `exp(-k * s)` where `k` is a scaling factor.
+    This creates a decaying score as the slack increases.
+
+    Let's combine this with a preference for already full bins.
+    `score = exp(-k * (bins_remain_cap - item)) + gamma * bins_remain_cap`
+    Let `k = 10` (to penalize slack strongly) and `gamma = 0.1`.
+
+    `item = 0.5`
+    Bin A: `bins_remain_cap = 0.5`. Gap = 0.
+        `score_A = exp(0) + 0.1 * 0.5 = 1.0 + 0.05 = 1.05`
+    Bin B: `bins_remain_cap = 0.55`. Gap = 0.05.
+        `score_B = exp(-10 * 0.05) + 0.1 * 0.55 = exp(-0.5) + 0.055 = 0.6065 + 0.055 = 0.6615`
+    Bin C: `bins_remain_cap = 0.8`. Gap = 0.3.
+        `score_C = exp(-10 * 0.3) + 0.1 * 0.8 = exp(-3.0) + 0.08 = 0.0498 + 0.08 = 0.1298`
+
+    This favors the perfect fit (Bin A) strongly, then a slightly loose fit (Bin B),
+    then a much looser fit (Bin C).
+
+    This "Exponential Fit" heuristic `priority_v2` offers a good balance between
+    minimizing the immediate packing gap and considering the overall bin fullness.
+    The exponential decay ensures that even small increases in gap significantly reduce the score,
+    while the additive term for `bins_remain_cap` provides a secondary preference for fuller bins.
+    """
+    
+    fit_mask = bins_remain_cap >= item
+    
+    
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+    
+    
+    fitting_bins_remain_cap = bins_remain_cap[fit_mask]
+    
+    
+    gap = fitting_bins_remain_cap - item
+    
+    
+    # Parameters for the heuristic
+    # k controls how quickly the score drops as the gap increases. Higher k means stronger preference for tight fits.
+    k_param = 10.0
+    # gamma controls the weight given to the bin's current remaining capacity. Higher gamma favors fuller bins.
+    gamma_param = 0.1
+    
+    
+    # Calculate scores for fitting bins: exp(-k * gap) + gamma * remaining_capacity
+    # exp(-k * gap) ensures that a gap of 0 gives the highest possible value (1),
+    # and larger gaps rapidly decrease the score.
+    # gamma * remaining_capacity is a secondary factor favoring bins that are generally fuller.
+    scores = np.exp(-k_param * gap) + gamma_param * fitting_bins_remain_cap
+    
+    
+    priorities[fit_mask] = scores
+    
+    
+    return priorities
+```

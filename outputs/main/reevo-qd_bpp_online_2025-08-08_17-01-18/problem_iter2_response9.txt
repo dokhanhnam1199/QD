@@ -1,0 +1,77 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Epsilon-Greedy.
+
+    The strategy favors bins that are a "good fit" for the item (i.e., leaving
+    a small remaining capacity), but with a probability epsilon, it assigns a
+    consistent exploration score to encourage trying less optimal bins.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    epsilon = 0.2  # Probability of exploration
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros(num_bins)
+
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_indices = np.where(suitable_bins_mask)[0]
+
+    if len(suitable_bins_indices) == 0:
+        return priorities  # No bin can fit the item
+
+    # --- Exploitation Component (Good Fit) ---
+    # Calculate a score based on how well the item fits.
+    # We want to prioritize bins that leave minimal remaining capacity.
+    # Score = 1 / (remaining_capacity - item + epsilon)
+    # A smaller difference means a higher score.
+    fit_scores = 1.0 / (bins_remain_cap[suitable_bins_indices] - item + 1e-6)
+
+    # Normalize fit_scores to a 0-1 range to represent the "exploitation" priority.
+    # Higher score means better fit.
+    if fit_scores.max() > fit_scores.min():
+        exploitation_priorities = (fit_scores - fit_scores.min()) / (fit_scores.max() - fit_scores.min())
+    else:
+        exploitation_priorities = np.ones(len(suitable_bins_indices)) # All fits are equally good
+
+    # Assign the exploitation priorities to the suitable bins
+    priorities[suitable_bins_indices] = exploitation_priorities
+
+    # --- Exploration Component ---
+    # With probability epsilon, overwrite the exploitation priority with a
+    # consistent, lower exploration score for a random subset of suitable bins.
+    # This encourages exploration of bins that might not be the immediate best fit.
+    exploration_score = 0.1 # A fixed low score for exploration
+
+    # Determine which suitable bins will be subject to exploration
+    num_suitable = len(suitable_bins_indices)
+    explore_indices_in_suitable = np.random.choice(
+        num_suitable,
+        size=int(np.ceil(epsilon * num_suitable)),
+        replace=False
+    )
+    
+    # Get the actual indices in the original bins_remain_cap array
+    bins_to_explore_indices = suitable_bins_indices[explore_indices_in_suitable]
+
+    # Assign the exploration score to these bins
+    priorities[bins_to_explore_indices] = exploration_score
+
+    # Ensure that bins that cannot fit the item have zero priority
+    priorities[~suitable_bins_mask] = 0
+
+    # Optional: Normalize final priorities if a specific range is required by downstream logic.
+    # For now, we return the scores as calculated, where higher means more preferred.
+    # A simple max-min normalization can be applied if needed:
+    # if priorities.max() > priorities.min():
+    #     final_priorities = (priorities - priorities.min()) / (priorities.max() - priorities.min())
+    # else:
+    #     final_priorities = np.ones(num_bins) * 0.5
+    # return final_priorities
+
+    return priorities
+```

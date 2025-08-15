@@ -1,0 +1,40 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines tight-fitting preference with a Softmax-based distribution.
+    Favors bins with minimal remaining capacity after placement, using Softmax
+    to create a graded priority, encouraging exploration of good fits.
+    """
+    eligible_bins_mask = bins_remain_cap >= item
+    eligible_capacities = bins_remain_cap[eligible_bins_mask]
+
+    if eligible_capacities.size == 0:
+        return np.zeros_like(bins_remain_cap)
+
+    # Prioritize tighter fits: smaller (capacity - item) is better.
+    # We use the negative difference for Softmax, so smaller differences
+    # lead to larger (more positive) exponents.
+    # This is inspired by Heuristic 7 (Softmax on negative differences).
+    differences = eligible_capacities - item
+    scores = -differences
+
+    # Use Softmax to generate a probability distribution over eligible bins.
+    # This creates graded priorities, favoring tighter fits more strongly.
+    # Stability trick: subtract max score before exponentiating.
+    # This is the core of Heuristic 7.
+    if np.max(scores) - np.min(scores) > 1e6: # Heuristic for numerical stability if scores vary extremely
+        scaled_scores = (scores - np.min(scores)) / (np.max(scores) - np.min(scores) + 1e-9)
+    else:
+        scaled_scores = scores
+
+    exp_scores = np.exp(scaled_scores - np.max(scaled_scores))
+    priorities = exp_scores / np.sum(exp_scores)
+
+    # Map priorities back to the original bin structure
+    full_priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    full_priorities[eligible_bins_mask] = priorities
+
+    return full_priorities
+```

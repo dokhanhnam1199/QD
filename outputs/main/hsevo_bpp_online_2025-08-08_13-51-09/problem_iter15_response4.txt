@@ -1,0 +1,101 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+
+    # Metric 1: Best Fit - favors bins where the remaining capacity is minimized after placing the item.
+    # We use the inverse of the remaining capacity plus a small epsilon to avoid division by zero,
+    # effectively prioritizing bins with less slack.
+    remaining_after_placement = suitable_bins_caps - item
+    best_fit_scores = 1.0 / (remaining_after_placement + 1e-9)
+
+    # Metric 2: First Fit Decreasing-like - prioritizes bins that have been used more, encouraging fuller bins.
+    # This is approximated by looking at how much space is *not* remaining.
+    # We consider the capacity of the bin relative to the item size. Bins that can accommodate the item
+    # and have a larger capacity relative to the item are considered "more utilized" in this context.
+    # This metric aims to balance the bins by filling up larger available spaces that are still suitable.
+    # We use a score that increases with the ratio of bin capacity to item size, but capped to avoid extreme values.
+    # This encourages packing into bins that can take the item with relative ease, without being excessively large.
+    utilization_scores = np.clip(suitable_bins_caps / item, 0, 5) # Cap to prevent overly favoring very large bins
+
+    # Metric 3: Evenness/Spread - aims to distribute items somewhat evenly.
+    # This can be achieved by favoring bins that are "moderately" filled, meaning they are not too empty and not too full.
+    # We can use a Gaussian-like function centered around a target fill level.
+    # A simple heuristic is to favor bins whose remaining capacity is neither too small (best-fit already handles this)
+    # nor too large (which would be heavily penalized by utilization_scores).
+    # We'll define a "sweet spot" for remaining capacity, e.g., roughly 25-50% of the item's size.
+    # Or, more robustly, relative to the bin's *original* capacity, if that were known or estimable.
+    # Without original capacity, we can use remaining capacity relative to the item size to indicate "slack".
+    # We want bins with a moderate amount of slack, not too little (best fit) and not too much.
+    # Let's use a score that peaks when remaining_after_placement is roughly equal to the item size.
+    # This means the bin was about twice the item's size.
+    # Using a Gaussian centered at `item` for `remaining_after_placement`.
+    center = item
+    spread = max(item * 2, 0.1) # Adjust spread based on item size, with a minimum
+    evenness_scores = np.exp(-0.5 * ((remaining_after_placement - center) / spread)**2)
+
+
+    # Normalize scores to be in a comparable range [0, 1]
+    # Robust normalization using median and IQR for outliers, or simple max normalization if values are well-behaved.
+    # Max normalization is simpler and often sufficient.
+
+    if np.max(best_fit_scores) > 1e-9:
+        normalized_best_fit = best_fit_scores / np.max(best_fit_scores)
+    else:
+        normalized_best_fit = np.zeros_like(best_fit_scores)
+
+    if np.max(utilization_scores) > 1e-9:
+        normalized_utilization = utilization_scores / np.max(utilization_scores)
+    else:
+        normalized_utilization = np.zeros_like(utilization_scores)
+
+    if np.max(evenness_scores) > 1e-9:
+        normalized_evenness = evenness_scores / np.max(evenness_scores)
+    else:
+        normalized_evenness = np.zeros_like(evenness_scores)
+
+
+    # Combine scores with dynamic weights.
+    # The weights are adjusted based on the item size.
+    # For smaller items, we might favor utilization and evenness to distribute them.
+    # For larger items, best fit becomes more critical.
+
+    # Normalize item size against a typical maximum capacity (e.g., 1.0 or an average bin capacity).
+    # Assuming a normalized item size is already provided or can be estimated.
+    # If item is not normalized, consider `item / max_expected_capacity`. Let's assume `item` is already scaled.
+    item_normalized_scale = item # Or item / max_bin_capacity if max_bin_capacity is known
+
+    # Weights that balance the metrics.
+    # More weight on best_fit for larger items.
+    # More weight on utilization and evenness for smaller items.
+    weight_best_fit = 0.3 + 0.6 * item_normalized_scale
+    weight_utilization = 0.4 - 0.3 * item_normalized_scale
+    weight_evenness = 0.3 - 0.1 * item_normalized_scale
+
+    # Ensure weights are non-negative and sum to 1 (or close to it).
+    # Clip weights to be within [0, 1] and re-normalize if necessary.
+    weights = np.array([weight_best_fit, weight_utilization, weight_evenness])
+    weights = np.clip(weights, 0, 1)
+    weights /= np.sum(weights)
+
+    final_weights = {
+        'best_fit': weights[0],
+        'utilization': weights[1],
+        'evenness': weights[2]
+    }
+
+    combined_scores = (final_weights['best_fit'] * normalized_best_fit +
+                       final_weights['utilization'] * normalized_utilization +
+                       final_weights['evenness'] * normalized_evenness)
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```

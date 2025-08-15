@@ -1,0 +1,90 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines 'Best Fit' with a 'Not Too Empty' preference using a sigmoid.
+
+    Prioritizes bins that minimize remaining space (Best Fit), while also
+    favoring bins that aren't excessively empty using a sigmoid.
+    """
+    # Ensure item size is positive for calculations.
+    if item <= 1e-9:
+        # If item is negligible, all bins are equally "good".
+        # Prioritize less filled bins to leave room for larger items later.
+        # A score inversely proportional to remaining capacity.
+        # Use sigmoid on negative capacity to get decreasing score for increasing capacity.
+        # Add a small epsilon to avoid division by zero or log(0).
+        return 1 / (1 + np.exp(5 * (bins_remain_cap + 1e-9)))
+
+    # Mask for bins that can fit the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Initialize priorities to zero.
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # --- Component 1: Best Fit (Minimize Remaining Space) ---
+    # Calculate remaining space after placing the item.
+    remaining_space = bins_remain_cap - item
+
+    # Use a sigmoid to give higher priority to smaller remaining spaces.
+    # The sigmoid `1 / (1 + exp(-k * x))` increases with x.
+    # We want to increase priority as `remaining_space` decreases.
+    # So, use `x = -remaining_space`.
+    # `k_fit` controls the sensitivity to tightness. Higher k means tighter fit preference.
+    k_fit = 8.0
+    # Apply to bins that can fit.
+    best_fit_scores = 1 / (1 + np.exp(-k_fit * (-remaining_space[can_fit_mask])))
+    
+    # --- Component 2: Not Too Empty (Preference for bins that are somewhat full) ---
+    # This component aims to give a slight boost to bins that are not excessively empty,
+    # even if they are not the absolute tightest fit.
+    # Use the ratio of remaining capacity to item size.
+    ratios = bins_remain_cap[can_fit_mask] / item
+    
+    # We want to favor bins where `ratios` is around 1.0 to 1.5.
+    # Use a sigmoid centered around an "ideal ratio" to give a moderate boost.
+    ideal_ratio = 1.1  # Prefer bins with ~10% extra capacity.
+    k_slack = 4.0      # Controls the width of the boost.
+
+    # Sigmoid that peaks around ideal_ratio:
+    # sigmoid_part1 favors ratios > ideal_ratio
+    # sigmoid_part2 favors ratios < ideal_ratio
+    sigmoid_part1 = 1 / (1 + np.exp(-k_slack * (ratios - ideal_ratio)))
+    sigmoid_part2 = 1 / (1 + np.exp(k_slack * (ratios - ideal_ratio)))
+    not_too_empty_scores = sigmoid_part1 * sigmoid_part2
+
+    # --- Combine Scores ---
+    # Combine Best Fit scores with the "Not Too Empty" boost.
+    # A simple multiplication or addition can work. Multiplication emphasizes bins that are good on both criteria.
+    # Let's use multiplication, as a very poor fit (low best_fit_score) should dominate.
+    # Ensure scores are within a reasonable range (e.g., [0, 1]) if needed, though multiplication naturally handles this if inputs are in [0,1].
+    
+    # The `best_fit_scores` already capture the "fit" quality, including the preference for minimal remaining space.
+    # The `not_too_empty_scores` add a secondary preference for bins that aren't overly large.
+    # A simple additive approach might work better here to ensure that the "best fit" (low remaining space) isn't overly penalized if it's a bit more empty than another bin that's less of a "best fit".
+    
+    # Let's try a weighted sum. Best Fit is primary. "Not Too Empty" is secondary.
+    # Normalize the "Not Too Empty" scores to ensure they contribute as a secondary factor.
+    # The product `sigmoid_part1 * sigmoid_part2` naturally ranges from 0 to ~0.25 (at peak).
+    # Let's rescale `not_too_empty_scores` to be more comparable to `best_fit_scores`.
+    # The peak of `sigmoid_part1 * sigmoid_part2` is at `ideal_ratio`, where both are 0.5, so product is 0.25.
+    # Let's scale it up to have a similar magnitude to `best_fit_scores`.
+    rescaled_not_too_empty_scores = not_too_empty_scores * 2.0 # Scale up to roughly match magnitude of best_fit_scores
+
+    # Combine by adding the secondary preference to the primary "Best Fit" score.
+    # This ensures that primary criterion (tight fit) is maintained, and secondary criterion (not too empty) refines selection.
+    combined_scores = best_fit_scores + rescaled_not_too_empty_scores
+    
+    # Assign the combined scores back to the original array.
+    priorities[can_fit_mask] = combined_scores
+
+    # Normalize priorities to be in the range [0, 1] if needed, although this is often implicitly handled.
+    # The maximum possible value of `best_fit_scores` is 1. The max of `rescaled_not_too_empty_scores` is ~2.0.
+    # So combined scores can reach ~3.0. For typical heuristics, raw scores are fine.
+    # If normalization is desired:
+    # max_priority = np.max(priorities)
+    # if max_priority > 1e-9:
+    #     priorities /= max_priority
+
+    return priorities
+```

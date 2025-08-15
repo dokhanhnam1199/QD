@@ -1,0 +1,99 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined Sigmoid Fit Score with tie-breaking.
+
+    This heuristic aims to prioritize bins that offer the "best fit" for the item.
+    A "best fit" is defined as a bin where the remaining capacity is only slightly
+    larger than the item's size. This strategy tries to fill bins as much as possible
+    without leaving excessive empty space, thereby minimizing fragmentation.
+
+    The priority is calculated using a sigmoid function. The function is designed
+    to peak when the remaining capacity (`bins_remain_cap`) is precisely equal to
+    the item's size (or very close to it), and the priority decreases as the
+    remaining capacity deviates. However, bins where the item doesn't fit at all
+    are assigned a zero priority.
+
+    Tie-breaking is introduced by slightly perturbing the priority scores for
+    bins with identical sigmoid scores. This is done by adding a small, random
+    value based on the bin's original index. This encourages exploration.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array where each element is the remaining capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as `bins_remain_cap`, containing the priority
+        score for each bin. Higher scores indicate a more desirable bin for the item.
+    """
+
+    def sigmoid(x, steepness=10.0, center=0.0):
+        """A custom sigmoid function that can be shifted and scaled."""
+        return 1 / (1 + np.exp(-steepness * (x - center)))
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins where the item can fit.
+    fits_mask = bins_remain_cap >= item
+
+    if np.any(fits_mask):
+        # Calculate the excess capacity for fitting bins.
+        excess_capacities = bins_remain_cap[fits_mask] - item
+
+        # We want to prioritize bins where `excess_capacities` are small.
+        # The sigmoid function peaks when its argument is 0.
+        # We can define the ideal scenario as `excess_capacities` being close to 0.
+        # A value of `excess_capacities = 0` gives a sigmoid score of 0.5.
+        # Larger `excess_capacities` lead to scores < 0.5.
+        # Smaller (but positive) `excess_capacities` lead to scores > 0.5.
+        # To achieve the stated goal of prioritizing "slightly larger" remaining capacity,
+        # we can shift the sigmoid center.
+        # Let's say we prefer a small positive residual, e.g., `ideal_residual = 0.05`.
+        # The argument for sigmoid would be `steepness * (ideal_residual - excess_capacities)`.
+        # This means the score is highest (approaching 1) when `excess_capacities` is
+        # slightly less than `ideal_residual`, and scores around 0.5 when `excess_capacities`
+        # is equal to `ideal_residual`.
+
+        ideal_residual = 0.05  # Target residual capacity for the best fit.
+        steepness = 15.0       # Controls the sharpness of the priority drop-off.
+
+        # Calculate the argument for the sigmoid.
+        # The further `excess_capacities` is from `ideal_residual`, the lower the priority.
+        argument_values = steepness * (ideal_residual - excess_capacities)
+
+        # Calculate base priorities using the sigmoid function.
+        base_priorities = sigmoid(argument_values, steepness=steepness)
+
+        # Tie-breaking mechanism: Add a small, scaled random noise based on the original bin index.
+        # This encourages exploring different bins that might have similar priority scores.
+        # We use a small factor to ensure the tie-breaking doesn't override the primary heuristic.
+        tie_breaking_factor = 1e-4
+        num_fitting_bins = len(excess_capacities)
+        if num_fitting_bins > 0:
+            # Generate random noise based on the indices of the fitting bins.
+            # Using np.arange(num_fitting_bins) as a base for noise generation.
+            noise = np.random.randn(num_fitting_bins) * tie_breaking_factor
+            priorities[fits_mask] = base_priorities + noise
+        else:
+            # This case should ideally not be reached if np.any(fits_mask) is true,
+            # but as a safeguard, if there are no fitting bins, priorities remain zero.
+            pass # priorities is already initialized to zeros
+
+    # Normalize priorities using softmax to get probabilities,
+    # making the scores relative to each other.
+    # This can be useful if the selection mechanism expects probabilities or relative weights.
+    # However, for a direct priority score where higher is better, normalization might not be strictly needed.
+    # If we want to select the highest score, raw scores are fine.
+    # If we were to sample based on these scores, softmax would be more appropriate.
+    # For this problem, we assume direct selection of the highest score is intended.
+    # If softmax is desired for selection:
+    # if np.sum(priorities) > 0:
+    #     priorities = np.exp(priorities) / np.sum(np.exp(priorities))
+    # else:
+    #     # If all priorities are zero (e.g., no item fits), distribute probability equally
+    #     # or handle as per selection strategy. Here, we keep them zero.
+    #     pass
+
+    return priorities
+```

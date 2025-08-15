@@ -1,0 +1,99 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+    
+    # Metric 1: Best Fit - score based on how tightly the item fits
+    # Uses inverse of remaining capacity plus a small constant to avoid division by zero
+    # and to ensure that smaller remaining capacities get higher scores.
+    remaining_after_placement = suitable_bins_caps - item
+    best_fit_scores = 1.0 / (remaining_after_placement + 1e-6)
+
+    # Metric 2: Exploration - score based on the "openness" of the bin.
+    # Favors bins with a good amount of remaining capacity, but not so much that it's "wasted".
+    # We use a scaled inverse of remaining capacity, capping it to avoid extremely high scores for very empty bins.
+    # The scaling factor (e.g., 10.0) can be tuned. The addition of `item` before inversion
+    # helps to ensure that bins with little remaining capacity (relative to the item) don't dominate.
+    exploration_scores = np.clip(10.0 * (1.0 / (suitable_bins_caps + 1e-6)), 0, 5.0)
+
+    # Metric 3: Capacity Utilization - score based on how full the bin is *before* this item.
+    # This is approximated by (max_capacity - remaining_capacity). For simplicity,
+    # we can use a reference maximum capacity (e.g., 1.0) or an adaptive max capacity.
+    # Let's use the average remaining capacity of all suitable bins as a reference point
+    # for what a "typical" suitable bin looks like. Bins closer to this average are favored.
+    
+    # Using bin capacity relative to item size as a proxy for fill state when item is placed
+    # Maximize fill state = minimize remaining capacity after placement
+    # To incentivize utilization of partially filled bins, we can also consider how much
+    # capacity is already used. Let's use the inverse of remaining capacity, but
+    # penalize bins that are too empty relative to the item.
+    
+    # Consider the "slack" ratio: (bin_capacity - item) / bin_capacity. We want to minimize this.
+    # Or, consider (bin_capacity - item) / item. Small values are good for best fit.
+    # For uniformity, let's focus on bins that are not too empty.
+    # We can reward bins whose remaining capacity is closer to the *average* remaining capacity
+    # of all suitable bins, up to a certain point.
+    
+    if len(suitable_bins_caps) > 1:
+        avg_suitable_cap = np.mean(suitable_bins_caps)
+        # Score based on proximity to the average remaining capacity.
+        # Use a Gaussian-like function centered around the average.
+        uniformity_scores = np.exp(-((suitable_bins_caps - avg_suitable_cap)**2) / (2 * (avg_suitable_cap**2 + 1e-6)))
+    else:
+        uniformity_scores = np.ones_like(suitable_bins_caps) # If only one suitable bin, uniformity doesn't apply strongly.
+
+    # Normalize scores to be in a comparable range [0, 1]
+    # Robust normalization: scale by max, but add epsilon to avoid division by zero and ensure scores are not all zero if max is zero.
+    max_bf = np.max(best_fit_scores)
+    normalized_best_fit = best_fit_scores / (max_bf + 1e-6)
+
+    max_exp = np.max(exploration_scores)
+    normalized_exploration = exploration_scores / (max_exp + 1e-6)
+
+    max_uni = np.max(uniformity_scores)
+    normalized_uniformity = uniformity_scores / (max_uni + 1e-6)
+
+    # Dynamic weighting:
+    # Weighting based on item size relative to a typical bin capacity.
+    # Assume a reference bin capacity (e.g., 1.0 if items are normalized, or a typical large value).
+    # Let's use the maximum remaining capacity among suitable bins as a reference for "large".
+    
+    # If item is large relative to available space, prioritize fitting it tightly (Best Fit).
+    # If item is small, explore more and try to fill bins moderately (Exploration, Uniformity).
+    
+    # A simple dynamic weighting scheme:
+    # Normalize item size by the maximum remaining capacity found among suitable bins.
+    max_suitable_cap_overall = np.max(bins_remain_cap) # Use overall max for consistent scaling
+    if max_suitable_cap_overall > 1e-6:
+        normalized_item_size = item / max_suitable_cap_overall
+    else:
+        normalized_item_size = 0.5 # Default if no capacity
+
+    # Weights that shift based on item size.
+    # When item is larger (closer to 1), BF gets more weight.
+    # When item is smaller (closer to 0), Exploration and Uniformity get more weight.
+    weight_best_fit = 0.4 + 0.5 * normalized_item_size
+    weight_exploration = 0.3 * (1.0 - normalized_item_size)
+    weight_uniformity = 0.3 * (1.0 - normalized_item_size * 0.5) # Slightly less penalty for uniformity with large items
+
+    # Ensure weights sum to approximately 1, or re-normalize
+    total_weight = weight_best_fit + weight_exploration + weight_uniformity
+    weight_best_fit /= total_weight
+    weight_exploration /= total_weight
+    weight_uniformity /= total_weight
+    
+    combined_scores = (weight_best_fit * normalized_best_fit +
+                       weight_exploration * normalized_exploration +
+                       weight_uniformity * normalized_uniformity)
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```

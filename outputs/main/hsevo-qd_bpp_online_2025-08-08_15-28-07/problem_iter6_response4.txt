@@ -1,0 +1,450 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    available_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(available_bins_mask):
+        return np.zeros_like(bins_remain_cap)
+
+    available_bins_cap = bins_remain_cap[available_bins_mask]
+    
+    # Calculate a score based on how "tight" the fit is, but also consider the remaining capacity
+    # A bin that is almost full but can still fit the item might be good.
+    # Also, a bin with a lot of remaining capacity might be good if it's much larger than the item
+    # to potentially accommodate future larger items.
+    
+    # Option 1: Prioritize bins that leave the least remaining space after packing
+    tight_fit_score = 1.0 / (available_bins_cap - item + 1e-9)
+
+    # Option 2: Prioritize bins that have a good amount of remaining capacity for future items,
+    # but not excessively large to avoid fragmentation.
+    # We can use a sigmoid-like function or a scaled version of remaining capacity.
+    # Let's consider a penalty for very large remaining capacities.
+    # Normalize remaining capacity relative to bin capacity (assuming max bin capacity is known or estimated)
+    # For simplicity, let's assume a nominal bin capacity if not provided, or infer from max available.
+    # If we don't have a global bin capacity, we can normalize by the maximum possible capacity in the current set.
+    max_potential_capacity = np.max(bins_remain_cap) if bins_remain_cap.size > 0 else 1.0
+    normalized_remaining_cap = (available_bins_cap - item) / (max_potential_capacity + 1e-9)
+    
+    # A simple approach: score is high if remaining capacity is small, and also if it's reasonably large.
+    # We can combine the two ideas.
+    # Let's try a score that is high for tight fits and also for bins that are not too full but offer significant space.
+
+    # Metric 1: Tightness of fit (inverse of remaining space)
+    tightness = 1.0 / (available_bins_cap - item + 1e-9)
+
+    # Metric 2: Benefit of future packing (remaining capacity, but penalized if excessively large)
+    # Let's use a "quality" score for remaining capacity. A bin that has a lot of space but not too much is good.
+    # We can model this as a concave function of remaining space.
+    # For example, we can use sqrt or log of remaining space, scaled.
+    # Let's use a scaled remaining capacity, but penalize very large capacities.
+    # A simple way to penalize very large capacities is to divide by a power of the remaining capacity.
+    # Or, consider the ratio of remaining capacity to item size.
+    remaining_space_ratio = (available_bins_cap - item) / (item + 1e-9)
+    # A high ratio means a lot of extra space relative to the item. We might want to favour moderate ratios.
+    # Let's try a score that increases with remaining space up to a point, then decreases.
+    # A simple function: remaining_space / (remaining_space + C)
+    future_packing_benefit = (available_bins_cap - item) / (available_bins_cap - item + 0.5 * item + 1e-9) # Hybrid approach
+
+    # Combine metrics: Prioritize tightness, but also consider future packing benefit.
+    # A weighted sum might work, or a product if we want to ensure both are somewhat met.
+    # Let's try a combination that favors tight fits but gives a boost to bins with substantial remaining space.
+    
+    # A simple combination: (tightness score) * (1 + future_packing_benefit_boost)
+    # The boost should be smaller for very large remaining capacities.
+    
+    # Let's define a priority as a balance between minimizing wasted space AND maximizing future capacity.
+    # Consider the ratio of item size to remaining capacity.
+    # High score if item size is close to remaining capacity (tight fit) AND if remaining capacity is not excessively large.
+    
+    # Let's re-evaluate based on the hint: "shift focus from a priori simplicity to a posteriori performance" and "avoid over-reliance on 'tight fit' or 'almost full' metaphors."
+    # This suggests we should consider a more holistic view. What if we score bins based on how well they absorb the *current* item and *potentially* future items?
+    # We want to find a bin that is "good enough" for the current item and leaves a "good enough" state for future items.
+    
+    # Let's try a score that favors bins that are not too full, not too empty, and provide a good balance.
+    # A score that is maximized when remaining_cap is `item` and also when `remaining_cap` is some moderate value.
+    # This can be achieved by looking at the relative remaining capacity.
+
+    # Consider the inverse of the *wasted space* if the item is placed.
+    # Wasted space = remaining_cap - item
+    # Score for wasted space: 1 / (wasted_space + epsilon)
+    
+    # Consider the *opportunity cost* of placing the item in this bin.
+    # If we place the item, the remaining capacity becomes `remaining_cap - item`.
+    # A good bin is one that, after placing the item, still has a useful amount of capacity for future items.
+    
+    # Let's try a heuristic that tries to keep bins "balanced".
+    # Score based on how close the remaining capacity is to the item size,
+    # and also how close it is to some "ideal" intermediate capacity.
+
+    # For each available bin, calculate a score.
+    # The score should reflect the "goodness" of placing the item in this bin.
+
+    # Consider the remaining capacity *after* placing the item: `next_remaining_cap = available_bins_cap - item`
+    # A good `next_remaining_cap` is one that is small (tight fit) OR is a "comfortable" size for future items.
+    # Let's try to penalize bins that become very empty after placement.
+    
+    # Score function idea: prioritize bins where `available_bins_cap` is close to `item`.
+    # AND also, among those that are close, favor those that don't leave *too little* capacity.
+    
+    # Let's try to directly model the "goal alignment" with performance.
+    # A bin is good if placing the item in it leads to a state that is "better" for the overall packing.
+    # This is hard to do directly in an online setting without lookahead.
+
+    # Let's try a metric that favors bins that are "almost full" but also bins that are "moderately full".
+    # We can use a Gaussian-like shape centered around some target remaining capacity.
+    # However, the "target" capacity depends on the items seen so far and their distribution.
+
+    # Let's try a simpler approach: a score that is high when the bin is "just right".
+    # "Just right" could mean:
+    # 1. The item fits well (small gap).
+    # 2. After fitting, the remaining capacity is still useful, not too small, not too large.
+
+    # Let's define a score based on the *relative* remaining capacity.
+    # Relative remaining capacity = (bin_remain_cap - item) / item
+    # If this ratio is small (close to 0), it's a tight fit.
+    # If this ratio is moderate, it's a good space for future items.
+    
+    # Consider the score as a function of `gap = available_bins_cap - item`
+    # We want to minimize `gap`. But we also don't want `gap` to be extremely small if it means the bin is very nearly full.
+    
+    # Let's try a score that is higher for bins where `available_bins_cap` is closer to `item`,
+    # but with a penalty if the `available_bins_cap` is much larger than `item`.
+    
+    # New idea: Score based on the "potential future utility" of the bin.
+    # If we place `item`, the remaining capacity is `available_bins_cap - item`.
+    # A high score for this remaining capacity is desired.
+    # What is a good remaining capacity? Not too small, not too large.
+    # Let's consider the ratio `(available_bins_cap - item) / some_reference_capacity`.
+    # If `some_reference_capacity` is the bin's total capacity, we don't have it.
+    # If we use `item` as reference: `(available_bins_cap - item) / item`.
+    # This ratio is good if it's small (tight fit) or if it's moderate.
+    
+    # Let's try a composite score.
+    # Score 1: Inverse of residual capacity (favors tight fit)
+    tight_fit_score = 1.0 / (available_bins_cap - item + 1e-9)
+    
+    # Score 2: Favor bins that leave a "comfortable" residual capacity.
+    # Let's consider a target residual capacity, perhaps related to the average item size seen so far.
+    # Without history, let's consider a fixed "good" residual capacity, say 0.5 * bin_capacity.
+    # Since we don't know bin capacity, let's use `item` as a proxy or normalize by max capacity.
+    
+    # Let's simplify: Focus on the state *after* packing.
+    # We want the remaining capacity `R = available_bins_cap - item` to be "good".
+    # A good `R` is one that is not too small (so it's not wasted) and not too large (so it's not inefficiently used).
+    # This suggests a peak at some intermediate `R`.
+    
+    # Consider the ratio `available_bins_cap / item`.
+    # If `available_bins_cap / item` is close to 1, it's a tight fit.
+    # If `available_bins_cap / item` is large, it means the bin is much larger than the item.
+
+    # Let's try to create a score that peaks at a certain relative fullness.
+    # Example: A bin is "best" when its remaining capacity is `item`, but it's also good if the remaining capacity is `2*item`.
+    # We can use a function like `f(x) = x / (x + C)` for some constant C, where `x` is the remaining capacity *after* packing.
+    # `f(R) = R / (R + C)`
+    # This function increases with R, but plateaus. It doesn't have a peak.
+    
+    # How about a score that rewards being close to `item` but penalizes being too far from `item` in either direction?
+    # This is getting complex. Let's go back to a simpler, but improved version.
+
+    # Priority v1: `available_bins_cap / (available_bins_cap - item + 1e-9)`
+    # This is equivalent to `(available_bins_cap - item + item) / (available_bins_cap - item + 1e-9)`
+    # Which is `1 + item / (available_bins_cap - item + 1e-9)`
+    # This clearly favors smaller `available_bins_cap - item`. So it's a tight-fit heuristic.
+
+    # Let's try to incorporate a secondary objective: leaving substantial capacity.
+    # We want `available_bins_cap - item` to be small, but not too small.
+    # Consider the metric: `item / available_bins_cap`.
+    # This is high if the item is a large fraction of the bin's current capacity.
+    
+    # Let's try a score that is a harmonic mean of how well the item fits and how much capacity is left.
+    # Metric 1: How well the item fits (inverse of gap)
+    gap = available_bins_cap - item
+    fit_score = 1.0 / (gap + 1e-9)
+
+    # Metric 2: How much capacity is left relative to the item size (encourages leaving space)
+    # We want this to be moderate. Let's use `residual_capacity / item`.
+    # A high value here is good, but maybe too high is bad.
+    # Let's try `item / (residual_capacity + item)` - this is high when residual capacity is small.
+    # Let's try `residual_capacity / (residual_capacity + item)` - this is high when residual capacity is large.
+    # Let's call this `future_utility_score`.
+    
+    # A balanced approach might be to favor bins where the item takes up a significant portion,
+    # but not so much that no useful space is left.
+    # Let's try prioritizing bins where `available_bins_cap` is close to `item` AND also close to some "optimal" remaining capacity.
+    
+    # Let's define an "optimal" remaining capacity as `item`.
+    # We want `available_bins_cap - item` to be close to 0.
+    # But we also want `available_bins_cap - item` to be not too small, e.g., at least `0.1 * item`.
+    
+    # Let's try a score that is a combination of two factors:
+    # 1. Tightness: `1 / (available_bins_cap - item + epsilon)`
+    # 2. Residual capacity utility: `(available_bins_cap - item) / (available_bins_cap - item + C)` for some C.
+    # Let C be related to the item size, e.g., `C = 0.5 * item`.
+    
+    residual_capacity = available_bins_cap - item
+    
+    # Factor 1: Favor tight fits (smaller residual capacity)
+    tightness_factor = 1.0 / (residual_capacity + 1e-9)
+
+    # Factor 2: Favor useful residual capacity (not too small, not too large).
+    # Let's use a logistic-like function that rewards moderate residual capacity.
+    # A common approach in evolutionary algorithms is to use fitness functions that are shaped.
+    # For example, if we want to maximize `residual_capacity`, a simple `residual_capacity` works.
+    # If we want to minimize it, `1/residual_capacity` works.
+    # If we want it to be around a certain value, we can use a Gaussian.
+    # Let's try to make it peak when `residual_capacity` is proportional to `item`.
+    # For example, peak when `residual_capacity = 0.5 * item`.
+    # A function like `exp(- (residual_capacity - target_residual)^2 / sigma^2)`
+    # `target_residual = 0.5 * item`
+    # `sigma = 0.5 * item` (makes the peak relatively broad)
+    
+    target_residual = 0.5 * item
+    # Using a sigmoid-like function to reward a balance:
+    # Reward bins that have a residual capacity that's not too small and not too large.
+    # Let's consider the ratio `residual_capacity / item`.
+    # We want this ratio to be not close to 0 and not excessively large.
+    # A function that is high for ratios around 0.5 to 1.5 might be good.
+    
+    # Let's re-think "contextual" and "performance-driven".
+    # Contextual means it should adapt to the current state.
+    # Performance-driven means it should try to optimize the outcome.
+    
+    # Let's consider a metric that looks at the efficiency of the bin.
+    # If we place the item, the "fullness" of the bin becomes `item / available_bins_cap`.
+    # We want this to be high (close to 1) for a tight fit.
+    # However, this doesn't consider future items.
+    
+    # Let's try a heuristic that tries to "fill" bins to a certain level, but not overfill them.
+    # This implies we want `available_bins_cap` to be close to `item`.
+    
+    # Let's try a score that combines the inverse gap with the inverse of the capacity if it's too large.
+    # `score = (1 / (gap + eps)) * f(available_bins_cap)` where f penalizes large capacities.
+    # Or, a score that is high when `available_bins_cap` is `item` and also when `available_bins_cap` is something like `2 * item`.
+    
+    # Consider the "density" of the fit.
+    # For a bin with remaining capacity `C`, and item size `I`:
+    # Score could be `I / C` (tightness)
+    # Or `I / (C - I + eps)` (inverse residual space)
+    
+    # Let's consider the "quality" of the remaining space.
+    # After packing, remaining space is `R = C - I`.
+    # We want `R` to be "useful".
+    # A heuristic: `score = (1 + R) / (1 + R + I)` ? This is `(1+R) / (1+C)`.
+    # This function increases with R, so it favors larger residual capacities.
+    
+    # Let's try to penalize bins that become "too empty".
+    # If `available_bins_cap - item` is very small, it's good for tightness.
+    # If `available_bins_cap - item` is very large, it might be inefficient.
+    
+    # Let's try a score that is proportional to `item / available_bins_cap` (how much of the current capacity is used)
+    # and inversely proportional to `(available_bins_cap - item)` (residual space).
+    
+    # How about we reward bins that have a remaining capacity that is a multiple of the item size?
+    # This is too specific.
+    
+    # Let's consider a score that is a geometric mean of tightness and residual utility.
+    # Tightness score: `item / available_bins_cap`
+    # Residual utility score: `(available_bins_cap - item) / available_bins_cap`
+    # Geometric mean: `sqrt( (item / available_bins_cap) * ((available_bins_cap - item) / available_bins_cap) )`
+    # This is `sqrt( item * (available_bins_cap - item) ) / available_bins_cap`
+    # This metric is maximized when `item = available_bins_cap / 2`.
+    # So it favors bins that are exactly half-full. This is a strong preference.
+
+    # Let's try a score that combines the tight fit aspect with a more forgiving residual capacity.
+    # Consider `residual_capacity = available_bins_cap - item`.
+    # Score = `(1 + item) / (residual_capacity + item + 1e-9)`
+    # This is `(1 + item) / available_bins_cap`
+    # This metric prioritizes bins where the item is a large fraction of the current capacity.
+    # It's similar to "First Fit Decreasing" idea of packing larger items first.
+    
+    # Let's try to combine tightness with a penalty for *very* little remaining space.
+    # Score = `1 / (residual_capacity + epsilon)` BUT penalize if `residual_capacity < some_threshold`.
+    
+    # How about a score that favors bins that leave a `residual_capacity` that is "just enough" to pack another item of average size?
+    # Without average size, let's consider `residual_capacity` relative to `item`.
+    
+    # Let's try to define the "best" bin as one that, after packing, leaves a remaining capacity `R` such that `R` is "close" to `item`.
+    # This means `available_bins_cap - item` is close to `item`, so `available_bins_cap` is close to `2 * item`.
+    # This heuristic is called "Best Fit".
+    
+    # Let's try to create a "contextual" score.
+    # What if we reward bins that have a remaining capacity `C` such that `C` is slightly larger than `item`?
+    # The "gap" is `C - item`. We want this to be small.
+    # What if we add a bonus for bins that are not too empty *after* packing?
+    
+    # Let's consider the ratio `available_bins_cap / item`.
+    # If this ratio is 1, it's a perfect fit (but leaves 0 space).
+    # If this ratio is 1.1, it leaves 0.1 * item space.
+    # If this ratio is 2, it leaves `item` space.
+    
+    # Let's try to reward bins that are not too close to `item` and not too far from `item`.
+    # A score that peaks when `available_bins_cap` is around `1.5 * item` or `2 * item`.
+    
+    # Let's try a score that is a combination of fitting the current item well and leaving enough space.
+    # Score for bin `i` with remaining capacity `C_i`:
+    # `priority_i = f(C_i, item)`
+    
+    # Consider `priority_i = C_i / item`. This favors larger bins.
+    # Consider `priority_i = item / C_i`. This favors bins that are almost full.
+    
+    # Let's try to balance these.
+    # `priority_i = (item / C_i) * (1 - item / C_i)` ? This peaks when `item/C_i = 0.5`, so `C_i = 2 * item`.
+    # This is a "Best Fit" type heuristic but focused on the bin's *current* capacity relative to item.
+
+    # Let's refine this. We want to maximize `item / available_bins_cap` (tightness)
+    # AND we want to maximize `(available_bins_cap - item) / available_bins_cap` (residual space)
+    
+    # Let's try a weighted sum of these two factors.
+    # `w1 * (item / available_bins_cap) + w2 * ((available_bins_cap - item) / available_bins_cap)`
+    # `w1 * (item / C) + w2 * (C - item) / C`
+    # `(w1 * item + w2 * C - w2 * item) / C`
+    # `((w1 - w2) * item + w2 * C) / C`
+    
+    # If `w1 > w2`, this favors bins with higher `item / C`. So it favors tighter fits.
+    # If `w2 > w1`, this favors bins with higher `C`.
+    # If `w1 = w2`, this becomes `item / C`.
+    
+    # Let's try a different approach:
+    # A score that is high if `available_bins_cap` is "just enough" for the item,
+    # and also high if `available_bins_cap` is "plenty" for the item.
+    
+    # Let's define a score as the inverse of the "wasted potential".
+    # Wasted potential could be the gap `(available_bins_cap - item)`.
+    # But we also don't want bins to be too empty.
+    
+    # Let's try a heuristic that aims to leave a residual capacity that is "useful".
+    # A useful residual capacity could be one that can fit at least half of the current item, or the smallest item seen so far.
+    # Without history, let's try to ensure the residual capacity is at least `0.1 * item` and not excessively large.
+
+    # Let's try the "Most Fitting" heuristic, where we pick the bin with the smallest `available_bins_cap - item`.
+    # This is what v1 is trying to do, but with a specific form.
+    
+    # Let's try to combine "Best Fit" (minimize gap) with a penalty for leaving too little space.
+    # Score = `1 / (gap + epsilon)` (favors small gap)
+    # Penalty for small gap: `1 / (max(0, residual_capacity - threshold) + epsilon)`
+    # Let `threshold = 0.2 * item`.
+    
+    residual_capacity = available_bins_cap - item
+    
+    # Score is high if `residual_capacity` is small (tight fit).
+    # Score is also somewhat high if `residual_capacity` is moderate.
+    # Score is low if `residual_capacity` is extremely small or extremely large.
+    
+    # Let's use a function that rewards `residual_capacity` being in a certain range.
+    # A Gaussian-like shape centered on a "good" residual capacity.
+    # What is a good residual capacity? Maybe `item` or `0.5 * item`.
+    # Let's try to make it peak when `residual_capacity` is proportional to `item`.
+    
+    # Score = `item / (residual_capacity + item + 1e-9)`
+    # This is `item / available_bins_cap`. This favors bins where the item is a large fraction of the current capacity.
+    # This is like "tightest fit" relative to current capacity.
+    
+    # Let's try to be "contextual".
+    # Consider the ratio `available_bins_cap / item`.
+    # If this ratio is very close to 1, it's a tight fit.
+    # If this ratio is 2, it means after packing, the remaining capacity is `item`. This is a good state.
+    # If this ratio is very large, it means a lot of wasted space.
+    
+    # Let's define a score that tries to match `available_bins_cap` to `2 * item`.
+    # Score = `1 / (abs(available_bins_cap - 2 * item) + epsilon)`
+    # This favors bins where the *current* capacity is twice the item size.
+    # This is a bit of a "lookahead" idea, assuming an item of size `item` will be packed next.
+    
+    # Let's try to achieve a balance between tight fit and leaving some residual space.
+    # Score = `(item / available_bins_cap) * ( (available_bins_cap - item) / available_bins_cap )` (geometric mean idea)
+    # This peaks when `available_bins_cap = 2 * item`.
+    # Let's scale it to avoid issues with very small capacities.
+    
+    # Let's try: `item / (available_bins_cap - item + item/2 + 1e-9)`
+    # This is `item / (available_bins_cap - item/2 + 1e-9)`
+    # If `available_bins_cap` is close to `item`, this score is high.
+    # If `available_bins_cap` is close to `2*item`, this score is `item / (1.5*item) = 2/3`.
+    # If `available_bins_cap` is very large, this score approaches 0.
+    
+    # Let's try a score that directly targets a "good" remaining capacity.
+    # Suppose we want to leave `item` capacity remaining. Then `available_bins_cap` should be `2 * item`.
+    # Suppose we want to leave `0.5 * item` capacity remaining. Then `available_bins_cap` should be `1.5 * item`.
+    
+    # Let's try a function that rewards being close to `2 * item`.
+    # `priority = 1.0 / (abs(available_bins_cap - 2 * item) + 1e-9)`
+    # This is like "Best Fit for a bin that's twice the item size".
+    
+    # Let's try to combine tight fit with this "ideal residual" idea.
+    # Tight fit score: `1.0 / (residual_capacity + 1e-9)`
+    # Ideal residual score: `1.0 / (abs(residual_capacity - item) + 1e-9)`
+    
+    # Weighted sum: `w1 * (1.0 / (residual_capacity + 1e-9)) + w2 * (1.0 / (abs(residual_capacity - item) + 1e-9))`
+    # Let `w1 = 0.5`, `w2 = 0.5`. This is an average of "tightest fit" and "best fit for residual = item".
+    
+    # Let's test this idea: `priority = 0.5 * (1.0 / (residual_capacity + 1e-9)) + 0.5 * (1.0 / (abs(residual_capacity - item) + 1e-9))`
+    
+    # Another approach: Focus on the efficiency of the bin.
+    # Efficiency can be measured by how much of the *current* capacity is used by the item.
+    # `efficiency = item / available_bins_cap`
+    # We want this to be high (close to 1).
+    # However, this doesn't account for leaving space.
+    
+    # Let's try a score that is high when `available_bins_cap` is slightly larger than `item`.
+    # Let's use a function that is high for `available_bins_cap - item` in a range, say `[0.1*item, 0.5*item]`.
+    
+    # Final approach idea: Reward bins that provide a good trade-off between filling current item and leaving space.
+    # Consider the ratio `available_bins_cap / item`.
+    # If this ratio is close to 1, it's a tight fit.
+    # If this ratio is close to 2, it means the remaining space is equal to the item size.
+    # Let's try a function that is high for ratios near 1 and near 2.
+    
+    # Consider the function `f(x) = x / (x + C)`. This increases and plateaus.
+    # Consider `f(x) = 1 / (x + C)`. This decreases.
+    
+    # Let's try a score that is high for bins that are "almost full" but not so empty afterwards.
+    # Consider `score = available_bins_cap / (item + available_bins_cap)`.
+    # This is `1 / (1 + item / available_bins_cap)`.
+    # This score is high when `item / available_bins_cap` is high (tight fit).
+    # It's also somewhat high when `item / available_bins_cap` is moderate.
+    # E.g., if `available_bins_cap = 2 * item`, score = `2*item / (item + 2*item) = 2/3`.
+    # If `available_bins_cap = 1.1 * item`, score = `1.1*item / (item + 1.1*item) = 1.1/2.1 ~ 0.52`.
+    # If `available_bins_cap = 1.5 * item`, score = `1.5*item / (item + 1.5*item) = 1.5/2.5 = 0.6`.
+    # This score peaks when `available_bins_cap` is large relative to `item`. It favors leaving more space.
+    
+    # Let's try to invert the focus. What if we prioritize bins that leave a "good" residual capacity?
+    # Let `R = available_bins_cap - item`.
+    # We want `R` to be not too small, not too large.
+    # Let's try a score that is high for `R` when `R` is proportional to `item`.
+    # Example: `R = 0.5 * item`.
+    # So, `available_bins_cap - item = 0.5 * item` => `available_bins_cap = 1.5 * item`.
+    
+    # Let's try a score that rewards bins where `available_bins_cap` is approximately `1.5 * item`.
+    # `score = 1.0 / (abs(available_bins_cap - 1.5 * item) + 1e-9)`
+    
+    # What if we try to balance the "tight fit" with this "ideal residual" idea?
+    # Tightness: `1.0 / (available_bins_cap - item + 1e-9)`
+    # Ideal Residual Match: `1.0 / (abs(available_bins_cap - 1.5 * item) + 1e-9)`
+    
+    # Let's average them:
+    # `priority = 0.5 * (1.0 / (available_bins_cap - item + 1e-9)) + 0.5 * (1.0 / (abs(available_bins_cap - 1.5 * item) + 1e-9))`
+    # This heuristic attempts to balance filling the current item snugly with leaving a good amount of space for future items.
+
+    residual_capacity = available_bins_cap - item
+    
+    # Heuristic 1: Tight fit (smaller residual capacity is better)
+    tightness_score = 1.0 / (residual_capacity + 1e-9)
+    
+    # Heuristic 2: "Ideal" residual capacity. We hypothesize that leaving about 50% of the item's size as residual capacity is good.
+    # This means `residual_capacity = 0.5 * item`.
+    # So, `available_bins_cap - item = 0.5 * item`, which means `available_bins_cap = 1.5 * item`.
+    # We want to be close to this value.
+    ideal_residual = 0.5 * item
+    ideal_residual_score = 1.0 / (np.abs(residual_capacity - ideal_residual) + 1e-9)
+    
+    # Combine the two scores. A simple average for a balanced approach.
+    # This aims to prioritize bins that are both tight fits and leave a reasonable amount of space.
+    priorities = 0.5 * tightness_score + 0.5 * ideal_residual_score
+    
+    # Ensure the priorities are applied to the original bins_remain_cap array structure.
+    final_priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    final_priorities[available_bins_mask] = priorities
+    
+    return final_priorities
+```

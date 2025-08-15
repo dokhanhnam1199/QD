@@ -1,0 +1,72 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using a balanced
+    non-linear function that favors tight fits but allows looser fits to be
+    considered moderately.
+
+    This heuristic aims to combine the "Best Fit" tendency (prioritizing bins
+    with minimal remaining capacity after packing) with a "Worst Fit" aspect
+    (not completely discarding bins with large remaining capacity).
+
+    The priority is calculated using a function that decays smoothly but
+    less aggressively for larger remaining capacities. The proposed function is
+    `exp(-k_high * g / (1 + alpha * g))`, where `g` is the remaining capacity
+    after packing the item.
+
+    - `k_high`: Controls the steepness of the priority drop for small remaining capacities (tight fits).
+                A higher value strongly favors very tight fits.
+    - `alpha`: Controls how much the decay rate slows down for larger remaining capacities (looser fits).
+               A higher value means looser fits retain more priority.
+
+    The score for a bin is 0 if the item cannot fit. For bins that can fit:
+    - If `g` is close to 0 (tight fit), the score is close to `exp(0) = 1`.
+    - As `g` increases, the term `g / (1 + alpha * g)` increases slower than `g` itself,
+      making the exponent less negative and the score decay more slowly than a simple exponential.
+    - The effective decay rate transitions from `k_high` to `k_high / (1 + alpha * g)`. As `g` becomes large,
+      this approaches `k_high / (alpha * g)`, effectively slowing down the decay.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Scores are non-negative, with higher scores indicating higher priority.
+        Scores range from near 0 for very loose fits up to 1 for perfect fits.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Tunable parameters:
+    # `tight_fit_steepness`: Controls initial decay rate for tight fits. Higher means stronger preference.
+    # `loose_fit_decay_rate`: Controls how much the decay rate slows for looser fits. Higher means looser fits are more considered.
+    tight_fit_steepness = 10.0  # Corresponds to k_high
+    loose_fit_decay_rate = 0.5  # Corresponds to alpha
+
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity for bins that can fit the item.
+    # This represents the "gap" or "slack" after packing.
+    remaining_capacity_after_packing = bins_remain_cap[can_fit_mask] - item
+
+    # Use the proposed function: exp(-k_high * g / (1 + alpha * g))
+    k_high = tight_fit_steepness
+    alpha = loose_fit_decay_rate
+
+    # Calculate the exponent argument. Ensure it's numerically stable.
+    # The denominator (1 + alpha * g) is always >= 1 for non-negative g and alpha.
+    denominator = 1.0 + alpha * remaining_capacity_after_packing
+    exponent_args = -k_high * remaining_capacity_after_packing / denominator
+
+    # Clip exponent arguments to prevent overflow/underflow in np.exp.
+    # Values between -30 and 30 are generally safe for exp.
+    # The minimum value of the exponent is -k_high / alpha (as remaining_capacity_after_packing -> infinity).
+    # For k_high=10, alpha=0.5, this is -20, which is well within safe limits.
+    clipped_exponent_args = np.clip(exponent_args, -30.0, 30.0)
+
+    # Calculate the priority scores for the valid bins.
+    priorities[can_fit_mask] = np.exp(clipped_exponent_args)
+
+    return priorities
+```

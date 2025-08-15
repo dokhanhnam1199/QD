@@ -1,0 +1,91 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit (tightness) with a utilization bonus and adaptive exploration.
+    Prioritizes bins that are tightly fit, somewhat utilized, and less frequently chosen.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 0.1  # Exploration probability
+
+    can_fit_mask = bins_remain_cap >= item
+    suitable_bins_indices = np.where(can_fit_mask)[0]
+
+    if suitable_bins_indices.size == 0:
+        return priorities
+
+    # --- Exploitation: Combine Tightness and Utilization ---
+    fitting_bins_capacities = bins_remain_cap[suitable_bins_indices]
+
+    # Tightness score: Lower remaining capacity after packing is better.
+    # We want to maximize this score, so we invert the remaining capacity.
+    remaining_after_packing = fitting_bins_capacities - item
+    
+    # Add a small epsilon to avoid division by zero if a bin is perfectly filled
+    # and to give a slight preference to bins that are not perfectly filled.
+    tightness_score = 1.0 / (remaining_after_packing + 1e-6)
+
+    # Utilization bonus: Reward bins that are already partially filled.
+    # A higher current fill level (lower remaining capacity) gets a higher bonus.
+    # We invert the current remaining capacity.
+    utilization_bonus = 1.0 / (fitting_bins_capacities + 1e-6)
+
+    # Combine scores: Weighted sum of tightness and utilization.
+    # We normalize the components first to ensure they are on a similar scale.
+    
+    # Normalize tightness: Higher score is better, scale to [0, 1]
+    if np.max(tightness_score) > 0:
+        normalized_tightness = tightness_score / np.max(tightness_score)
+    else:
+        normalized_tightness = np.zeros_like(tightness_score)
+
+    # Normalize utilization bonus: Higher score is better, scale to [0, 1]
+    if np.max(utilization_bonus) > 0:
+        normalized_utilization = utilization_bonus / np.max(utilization_bonus)
+    else:
+        normalized_utilization = np.zeros_like(utilization_bonus)
+        
+    # Combine using weights. Let's give slightly more weight to tightness.
+    exploitation_scores = 0.6 * normalized_tightness + 0.4 * normalized_utilization
+
+    # --- Exploration: Epsilon-Greedy ---
+    exploration_scores = np.zeros_like(suitable_bins_indices, dtype=float)
+    
+    if np.random.rand() < epsilon:
+        # Choose a random suitable bin
+        chosen_bin_idx_in_suitable = np.random.choice(len(suitable_bins_indices))
+        exploration_scores[chosen_bin_idx_in_suitable] = 1.0
+    else:
+        # If not exploring randomly, assign priorities based on exploitation scores
+        exploration_scores = exploitation_scores
+        
+    # Combine exploration and exploitation: add a small uniform exploration boost
+    # to all fitting bins to ensure they are considered.
+    # A simple way is to add a constant value to all, then normalize.
+    # Alternative: let exploration scores override exploitation if random choice is made.
+    
+    # Let's use a blended approach:
+    # Base priorities are exploitation scores. If random choice made, override with uniform high priority.
+    if np.random.rand() < epsilon:
+        final_scores = np.zeros_like(suitable_bins_indices, dtype=float)
+        # Give a uniform high score to a randomly chosen bin
+        random_choice_idx = np.random.randint(len(suitable_bins_indices))
+        final_scores[random_choice_idx] = 1.0
+    else:
+        # Otherwise, use the exploitation scores
+        final_scores = exploitation_scores
+
+    # Assign these final scores to the overall priorities array
+    priorities[suitable_bins_indices] = final_scores
+
+    # Normalize the final priorities to be in [0, 1] range
+    max_priority = np.max(priorities)
+    if max_priority > 0:
+        priorities /= max_priority
+        
+    # Ensure no bin that can't fit gets a priority
+    priorities[~can_fit_mask] = 0.0
+
+    return priorities
+```

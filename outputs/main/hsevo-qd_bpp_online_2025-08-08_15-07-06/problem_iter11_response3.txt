@@ -1,0 +1,54 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines tight fit prioritization with a penalty for excessive remaining capacity,
+    using a non-linear scoring function and adaptive temperature.
+    """
+    fit_mask = bins_remain_cap >= item
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    
+    if np.any(fit_mask):
+        eligible_capacities = bins_remain_cap[fit_mask]
+        gaps = eligible_capacities - item
+        
+        # Adapt temperature to the item size and available bins' capacities.
+        # A simple adaptive strategy: higher temperature for larger items or wider capacity distributions.
+        # Here, we use a base temperature and slightly adjust it.
+        base_temperature = 0.5
+        # Normalize item size relative to a typical bin capacity (assuming 1.0 for simplicity)
+        normalized_item_size = item / 1.0 
+        # Consider variance of capacities if available, or use a fixed factor
+        temperature = base_temperature * (1 + 0.2 * normalized_item_size) 
+        
+        # Score: Maximize -(gap - penalty_factor * (1/capacity))
+        # The gap is minimized by `exp(-gap/T)`.
+        # We want to penalize bins that leave *too much* space, but not just the absolute gap.
+        # Consider the ratio of remaining capacity to the item size: `eligible_capacities / item`.
+        # A high ratio means a lot of empty space relative to the item. We want to penalize this.
+        # Let's invert this ratio and use it as a bonus: `item / eligible_capacities`.
+        # For numerical stability and to avoid division by zero, we can use `item / (eligible_capacities + epsilon)`
+        # or a small constant if item is also very small.
+        
+        # Combined score: exp(-gap / temperature) * (1 + alpha * (item / (eligible_capacities + epsilon)))
+        # This gives high scores for tight fits (small gap) and boosts bins that are generally fuller.
+        
+        epsilon = 1e-9
+        alpha = 0.2 # Weight for the fullness bonus
+
+        # Calculate the core "best fit" score: higher for smaller gaps
+        best_fit_score = np.exp(-gaps / temperature)
+        
+        # Calculate a bonus for bins that are already fuller (lower eligible_capacities)
+        # This encourages using bins that are closer to being full, not just the tightest fit.
+        # The `item / (eligible_capacities + epsilon)` term is higher for smaller eligible_capacities.
+        fullness_bonus = 1 + alpha * (item / (eligible_capacities + epsilon))
+        
+        # Combine the scores: multiply them. A tight fit with a fuller bin gets a higher score.
+        combined_scores = best_fit_score * fullness_bonus
+        
+        priorities[fit_mask] = combined_scores
+        
+    return priorities
+```

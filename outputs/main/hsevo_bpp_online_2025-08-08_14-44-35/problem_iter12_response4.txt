@@ -1,0 +1,80 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, bin_count: int) -> np.ndarray:
+    """
+    Combines a weighted sum of multiple objectives:
+    1. Best Fit (tightest fit): Minimizes the remaining capacity after packing.
+    2. First Fit Decreasing (FFD) tendency: Prioritizes bins that have been used less recently (implicitly by favoring bins with larger remaining capacity, assuming they were filled later or are new).
+    3. Adaptive Exploration: Uses an epsilon-greedy approach where epsilon decreases over time or based on packing success.
+
+    This version aims for a more balanced approach by considering multiple factors.
+    """
+    
+    # --- Parameters ---
+    # Weights for combining objectives
+    weight_best_fit = 0.6
+    weight_ffd_tendency = 0.3
+    
+    # Exploration parameters - can be made adaptive in a more complex implementation
+    # For simplicity, we'll use a fixed epsilon here, but it could be a parameter
+    # or dynamically adjusted based on the number of bins used or items packed.
+    epsilon = 0.05  # Probability of exploration
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_indices = np.where(suitable_bins_mask)[0]
+
+    if suitable_bins_indices.size == 0:
+        return priorities  # No bin can fit the item
+
+    # --- Exploration Phase ---
+    if np.random.rand() < epsilon:
+        chosen_bin_index = np.random.choice(suitable_bins_indices)
+        priorities[chosen_bin_index] = 1.0
+        return priorities
+
+    # --- Exploitation Phase: Multi-objective scoring ---
+    
+    # Objective 1: Best Fit (minimize gap)
+    # Calculate the 'gap' or remaining capacity after fitting the item
+    gaps = bins_remain_cap[suitable_bins_indices] - item
+    # Normalize gaps to be between 0 and 1 for consistent weighting
+    # Smallest gap should have highest score. So we invert and normalize.
+    # Add a small epsilon to avoid division by zero if all gaps are the same.
+    max_gap = np.max(gaps)
+    min_gap = np.min(gaps)
+    
+    if max_gap == min_gap:
+        best_fit_scores = np.ones_like(gaps) * 0.5 # Neutral score if all gaps are equal
+    else:
+        best_fit_scores = 1.0 - (gaps - min_gap) / (max_gap - min_gap)
+
+    # Objective 2: First Fit Decreasing tendency (favor bins with more remaining capacity)
+    # This encourages using partially filled bins before opening new ones, 
+    # and also helps in packing larger items first into potentially larger remaining capacity bins.
+    # Normalize remaining capacities to be between 0 and 1.
+    remaining_caps_suitable = bins_remain_cap[suitable_bins_indices]
+    max_rem_cap = np.max(remaining_caps_suitable)
+    min_rem_cap = np.min(remaining_caps_suitable)
+    
+    if max_rem_cap == min_rem_cap:
+        ffd_scores = np.ones_like(remaining_caps_suitable) * 0.5 # Neutral score if all remaining capacities are equal
+    else:
+        ffd_scores = (remaining_caps_suitable - min_rem_cap) / (max_rem_cap - min_rem_cap)
+
+    # Combine scores using weighted sum
+    combined_scores = (weight_best_fit * best_fit_scores) + (weight_ffd_tendency * ffd_scores)
+    
+    # Find the bin with the highest combined score among suitable bins
+    best_fit_in_suitable_idx_in_subset = np.argmax(combined_scores)
+    
+    # Get the original index of this best-fitting bin
+    best_overall_bin_index = suitable_bins_indices[best_fit_in_suitable_idx_in_subset]
+    
+    priorities[best_overall_bin_index] = 1.0
+
+    return priorities
+```

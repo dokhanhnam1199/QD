@@ -1,0 +1,82 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using an improved hybrid strategy.
+
+    This strategy enhances the "Best Fit" by considering the "waste" more directly.
+    It also introduces a "Diversity" factor to prefer bins that have more space
+    remaining after the item is placed, aiming to leave larger contiguous spaces
+    for potentially larger future items. A small stochastic element is kept for
+    exploration.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Determine which bins can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit, return all zeros
+
+    fitting_bins_caps = bins_remain_cap[can_fit_mask]
+
+    # Strategy 1: Best Fit (Minimized Waste)
+    # Calculate the remaining capacity after fitting the item.
+    # Higher priority for bins with smaller remaining capacity (less waste).
+    waste = fitting_bins_caps - item
+    # Use a value that increases as waste decreases. Adding 1 to avoid division by zero.
+    best_fit_scores = 1.0 / (1.0 + waste)
+
+    # Strategy 2: Diversity (Maximized Remaining Space after fit)
+    # Prioritize bins that leave more space after packing the item.
+    # This is beneficial for consolidating smaller items and leaving larger
+    # contiguous spaces for potentially larger future items.
+    # We want to maximize (fitting_bins_caps - item). Higher score for larger values.
+    # Normalize to prevent extreme values and ensure it plays well with best_fit_scores.
+    # Add a small epsilon to avoid log(0) or division by zero if fitting_bins_caps - item is 0.
+    max_possible_remaining = np.max(bins_remain_cap) - item if np.max(bins_remain_cap) >= item else 1
+    diversity_scores = np.log1p(waste) / np.log1p(max_possible_remaining) if max_possible_remaining > 0 else np.zeros_like(waste)
+
+
+    # Strategy 3: Exploration (Stochastic Element)
+    # Add a small random component to encourage trying different bins.
+    exploration_factor = 0.05
+    random_scores = np.random.rand(len(fitting_bins_caps)) * exploration_factor
+
+    # Combine scores. Prioritize bins that are a good fit AND leave good remaining space.
+    # The weights are tuned to balance the two primary strategies.
+    # We normalize the scores before combining to ensure they are on a similar scale.
+    # Normalizing best_fit_scores: higher is better (less waste)
+    # Normalizing diversity_scores: higher is better (more remaining space)
+
+    # Normalize best_fit_scores (higher is better, closer to 1)
+    if np.max(best_fit_scores) > 0:
+        normalized_best_fit = best_fit_scores / np.max(best_fit_scores)
+    else:
+        normalized_best_fit = best_fit_scores
+
+    # Normalize diversity_scores (higher is better)
+    if np.max(diversity_scores) > 0:
+        normalized_diversity = diversity_scores / np.max(diversity_scores)
+    else:
+        normalized_diversity = diversity_scores
+
+    # Weighted sum of normalized scores
+    combined_scores = (0.6 * normalized_best_fit) + (0.4 * normalized_diversity) + random_scores
+
+    # Assign the calculated scores to the corresponding bins
+    priorities[can_fit_mask] = combined_scores
+
+    # Ensure bins that cannot fit have a priority of 0
+    priorities[~can_fit_mask] = 0
+
+    return priorities
+```

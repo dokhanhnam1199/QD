@@ -1,0 +1,71 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, epsilon: float = 0.00026500328615111657,
+                  best_fit_lower_bound_weight: float = 0.1655701008055302, best_fit_upper_bound_weight: float = 0.9721473926631168,
+                  exploration_lower_bound_weight: float = 0.04234925584873156, exploration_upper_bound_weight: float = 0.8146733224369169,
+                  weight_adjustment_factor: float = 0.3694691271324563) -> np.ndarray:
+    """
+    Combines a refined best-fit metric that penalizes both extreme remaining capacities
+    with a dynamic weighting strategy that adapts to item size relative to bin availability.
+
+    Args:
+        item (float): The size of the item to be placed.
+        bins_remain_cap (np.ndarray): A numpy array representing the remaining capacity of each bin.
+        epsilon (float): A small constant to prevent division by zero.
+        best_fit_lower_bound_weight (float): The minimum weight for the best-fit metric.
+        best_fit_upper_bound_weight (float): The maximum weight for the best-fit metric.
+        exploration_lower_bound_weight (float): The minimum weight for the exploration metric.
+        exploration_upper_bound_weight (float): The maximum weight for the exploration metric.
+        weight_adjustment_factor (float): A factor to adjust weights based on item size.
+
+    Returns:
+        np.ndarray: A numpy array of priorities for each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+    
+    # Metric 1: Refined Best Fit (using log of inverse residual)
+    remaining_after_placement = suitable_bins_caps - item
+    best_fit_scores = np.log1p(1.0 / (remaining_after_placement + epsilon))
+
+    # Metric 2: Exploration/Spread (using log of current remaining capacity)
+    exploration_scores = np.log1p(suitable_bins_caps)
+
+    # Normalize scores to be in a comparable range [0, 1] for combining.
+    max_best_fit = np.max(best_fit_scores)
+    normalized_best_fit = best_fit_scores / max_best_fit if max_best_fit > epsilon else np.zeros_like(best_fit_scores)
+
+    max_exploration = np.max(exploration_scores)
+    normalized_exploration = exploration_scores / max_exploration if max_exploration > epsilon else np.zeros_like(exploration_scores)
+
+    # Dynamic Weighting
+    max_suitable_cap = np.max(suitable_bins_caps)
+    relative_item_size = item / (max_suitable_cap + epsilon)
+
+    # Weight for Best Fit
+    weight_best_fit = 0.5 + weight_adjustment_factor * relative_item_size
+    weight_best_fit = np.clip(weight_best_fit, best_fit_lower_bound_weight, best_fit_upper_bound_weight)
+
+    # Weight for Exploration
+    weight_exploration = 0.5 - weight_adjustment_factor * relative_item_size
+    weight_exploration = np.clip(weight_exploration, exploration_lower_bound_weight, exploration_upper_bound_weight)
+
+    # Ensure weights sum to 1
+    total_weight = weight_best_fit + weight_exploration
+    if total_weight < epsilon:
+        total_weight = 1.0
+    
+    weight_best_fit /= total_weight
+    weight_exploration /= total_weight
+
+    combined_scores = (weight_best_fit * normalized_best_fit +
+                       weight_exploration * normalized_exploration)
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities

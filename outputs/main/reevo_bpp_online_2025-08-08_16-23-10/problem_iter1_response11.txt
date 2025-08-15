@@ -1,0 +1,110 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Best Fit.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Best Fit strategy: prioritize bins that have just enough space for the item.
+    # A higher priority score means the bin is a better fit.
+
+    # Initialize priorities to a low value (e.g., negative infinity) to indicate
+    # that bins that cannot fit the item have no priority.
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate the "remaining space after packing"
+    # This is the key to Best Fit: we want the smallest remaining space.
+    # We'll use this as a primary factor for priority.
+    remaining_space = bins_remain_cap[can_fit_mask] - item
+
+    # Assign priorities:
+    # A higher priority means a better fit.
+    # We want to minimize the remaining space, so we can invert it.
+    # A common way to do this is to use the negative of the remaining space,
+    # or 1 / (remaining_space + epsilon) to avoid division by zero if remaining_space is 0.
+    # Let's use the negative of remaining_space. The smallest (most negative)
+    # remaining space will result in the highest (least negative) priority score.
+    # For instance, if remaining spaces are [0.1, 0.05, 0.2], the priorities would be [-0.1, -0.05, -0.2].
+    # -0.05 is the highest priority.
+
+    # To make it more intuitive that higher is better, we can transform
+    # the priority so that the "best fit" (smallest remaining space) yields
+    # the highest score. We can achieve this by subtracting the remaining space
+    # from a large number (e.g., the maximum possible remaining space, which is the bin capacity itself,
+    # or a large constant, or just its inverse if we handle zero remaining space carefully).
+
+    # A simple way to prioritize smallest remaining space is to assign a score
+    # inversely proportional to the remaining space. However, directly using
+    # 1 / remaining_space can cause issues if remaining_space is 0.
+    # A more robust approach for Best Fit is to assign a penalty based on how much
+    # "worse" the fit is. The best fit has zero penalty.
+
+    # Let's assign priority based on the remaining capacity after placing the item.
+    # The best fit is the bin with the minimum remaining capacity after placing the item.
+    # We can score this by taking the negative of the remaining space.
+    # So, remaining_space = bins_remain_cap[can_fit_mask] - item
+    # priority = -remaining_space
+    # The highest priority will correspond to the smallest (least negative) value.
+
+    # Example: item = 0.4, bins_remain_cap = [0.6, 0.5, 1.0, 0.3]
+    # can_fit_mask = [True, True, True, False]
+    # bins_remain_cap[can_fit_mask] = [0.6, 0.5, 1.0]
+    # remaining_space = [0.2, 0.1, 0.6]
+    # For Best Fit, we want the bin with remaining space 0.1 (the second bin).
+
+    # To make the highest priority score represent the best fit:
+    # We want the smallest `remaining_space`. So, `1 / (remaining_space + epsilon)` works.
+    # Or, a simpler and more stable approach: Assign priority `bin_cap - item` if it fits.
+    # The higher this value, the less "tight" the fit.
+    # For Best Fit, we want the *smallest* `bin_cap - item`.
+    # So, we can assign priority as `- (bin_cap - item)`. The largest negative value is best.
+    # Or, a common heuristic is to assign priority based on the negative of the difference,
+    # or `1 / (difference + small_epsilon)`.
+    # Let's use the negative of the remaining space directly. Higher (less negative) is better.
+
+    # Let's refine: Higher priority means better fit.
+    # Best Fit aims to minimize `bins_remain_cap - item`.
+    # So, bins with smaller `bins_remain_cap - item` should get higher priority.
+    # We can map the difference `d = bins_remain_cap[can_fit_mask] - item` to a priority.
+    # A simple mapping: `priority = -d`. This means smallest `d` gives least negative priority.
+    # To ensure the highest priority is clearly the "best" fit, we can transform this.
+    # For example, `priority = 1.0 / (d + epsilon)` where epsilon is a small positive number.
+    # This makes `d=0` give the highest priority.
+
+    # A common and effective way for Best Fit is to use the reciprocal of the
+    # remaining space *after* fitting the item. This rewards bins that are almost full.
+    # We need to avoid division by zero.
+    epsilon = 1e-9
+    priorities[can_fit_mask] = 1.0 / (remaining_space + epsilon)
+
+    # Another common strategy for Best Fit: Prioritize bins that leave the *least* space.
+    # This means we want to minimize `bins_remain_cap - item`.
+    # So, we can give a priority that is inversely proportional to `bins_remain_cap - item`.
+    # Let's try assigning a high score to bins that have the smallest remaining capacity after fitting.
+    #
+    # We want to maximize `priority`.
+    # Best Fit wants to minimize `bins_remain_cap - item`.
+    #
+    # So, a priority function `P(bin) = 1 / (bins_remain_cap[bin] - item)` would work if `bins_remain_cap[bin] - item > 0`.
+    # If `bins_remain_cap[bin] - item == 0`, this is the perfect fit.
+    #
+    # Let's consider the differences:
+    # differences = bins_remain_cap[can_fit_mask] - item
+    # The bin with the minimum difference is the best fit.
+    # To make the smallest difference result in the highest priority:
+    # `priorities[can_fit_mask] = -differences`  (Smallest diff becomes largest negative, which is still not intuitive for "highest priority")
+    # `priorities[can_fit_mask] = 1.0 / (differences + epsilon)` (Smallest diff gives largest positive priority)
+    #
+    # Let's stick with the reciprocal of the remaining space after packing, as it's a strong indicator of "best fit".
+
+    return priorities
+```

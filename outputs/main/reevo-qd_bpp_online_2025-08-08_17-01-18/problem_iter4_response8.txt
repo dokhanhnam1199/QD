@@ -1,0 +1,82 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using an enhanced Almost Full Fit strategy.
+
+    This strategy prioritizes bins that, after placing the item, will have the least
+    remaining capacity among bins that can still accommodate the item. This aims
+    to fill bins as much as possible before opening new ones.
+    To mitigate getting stuck in local optima, a small probability `epsilon` is used
+    to introduce randomness and explore less optimal, but potentially better fitting,
+    bins in the long run.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Bins that cannot accommodate the item will have a priority of 0.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros(num_bins, dtype=float)
+    epsilon = 0.1  # Probability for exploration
+
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_indices = np.where(suitable_bins_mask)[0]
+
+    if len(suitable_bins_indices) == 0:
+        return priorities  # No bin can fit the item
+
+    # --- Exploitation Component (Almost Full Fit) ---
+    # Prioritize bins that leave the minimum remaining capacity after placing the item.
+    # A smaller remaining capacity means a "better fit" or a bin that becomes "more full".
+    # We use the inverse of the remaining capacity plus a small epsilon to avoid division by zero
+    # and ensure higher scores for tighter fits.
+    remaining_after_placement = bins_remain_cap[suitable_bins_indices] - item
+    epsilon_fit = 1e-6  # Small epsilon for numerical stability
+    fit_scores = 1.0 / (remaining_after_placement + epsilon_fit)
+
+    # Normalize fit_scores to a 0-1 range for a consistent priority scale.
+    # Higher normalized score means a better fit (less remaining capacity).
+    if fit_scores.max() > fit_scores.min():
+        exploitation_priorities = (fit_scores - fit_scores.min()) / (fit_scores.max() - fit_scores.min())
+    else:
+        # If all fits are equally good (e.g., only one suitable bin), assign max priority.
+        exploitation_priorities = np.ones(len(suitable_bins_indices))
+
+    # Assign the calculated exploitation priorities to the suitable bins
+    priorities[suitable_bins_indices] = exploitation_priorities
+
+    # --- Exploration Component ---
+    # With probability epsilon, we assign a lower, consistent exploration score
+    # to a random subset of suitable bins. This encourages trying bins that
+    # might not be the immediate best fit according to the "Almost Full Fit" criteria.
+    exploration_score = 0.05  # A fixed low score to encourage exploration
+
+    # Determine how many suitable bins to explore
+    num_suitable = len(suitable_bins_indices)
+    num_explore = int(np.ceil(epsilon * num_suitable))
+
+    if num_explore > 0:
+        # Randomly select indices within the suitable_bins_indices array
+        explore_indices_in_suitable = np.random.choice(
+            num_suitable,
+            size=min(num_explore, num_suitable), # Ensure we don't ask for more than available
+            replace=False
+        )
+        
+        # Get the actual indices in the original bins_remain_cap array
+        bins_to_explore_indices = suitable_bins_indices[explore_indices_in_suitable]
+
+        # Assign the exploration score to these selected bins, potentially overwriting
+        # their exploitation priority.
+        priorities[bins_to_explore_indices] = exploration_score
+
+    # Ensure bins that cannot fit the item still have zero priority
+    priorities[~suitable_bins_mask] = 0
+
+    return priorities
+```

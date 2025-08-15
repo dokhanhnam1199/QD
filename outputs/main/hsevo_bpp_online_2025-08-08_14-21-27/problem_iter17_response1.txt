@@ -1,0 +1,51 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit's tightness with a balanced preference for bins that are
+    not excessively empty after packing. This aims for efficient packing while
+    keeping options open for future items.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    fittable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(fittable_bins_mask):
+        return priorities
+
+    fittable_bins_remain_cap = bins_remain_cap[fittable_bins_mask]
+    residual_capacity = fittable_bins_remain_cap - item
+
+    # Component 1: Best Fit (tightness)
+    # Higher score for smaller residual capacity.
+    # Using inverse with epsilon for numerical stability.
+    best_fit_score = 1.0 / (residual_capacity + 1e-9)
+
+    # Component 2: "Bin Fullness Preference"
+    # Favor bins that are already somewhat full, meaning they have less remaining capacity.
+    # This discourages leaving many bins nearly empty.
+    # Higher score for smaller fittable_bins_remain_cap.
+    bin_fullness_score = 1.0 / (fittable_bins_remain_cap + 1e-9)
+
+    # Combine scores using a weighted additive approach.
+    # Weight for Best Fit (tightness) is primary.
+    # Weight for Bin Fullness is secondary, to encourage using less empty bins.
+    w_best_fit = 1.0
+    w_bin_fullness = 0.5
+
+    combined_scores = (w_best_fit * best_fit_score) + (w_bin_fullness * bin_fullness_score)
+
+    # Normalize the combined scores for the fittable bins to be in a comparable range (e.g., 0 to 1).
+    # This prevents one component from dominating solely due to its scale.
+    max_score = np.max(combined_scores)
+    if max_score > 1e-9:
+        normalized_scores = combined_scores / max_score
+    else:
+        # If all scores are very small (e.g., all residuals are huge), assign a minimal uniform priority.
+        normalized_scores = np.full_like(combined_scores, 0.1)
+
+    # Assign the calculated priorities to the fittable bins.
+    priorities[fittable_bins_mask] = normalized_scores
+
+    return priorities
+```

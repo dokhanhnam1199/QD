@@ -1,0 +1,57 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines tightest-fit preference with a penalty for excessive remaining capacity,
+    and introduces a limited epsilon-greedy exploration for diverse bin selection.
+    """
+    epsilon = 0.1
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+    
+    can_fit_mask = bins_remain_cap >= item
+    
+    if np.sum(can_fit_mask) == 0:
+        return priorities
+
+    valid_bins_capacities = bins_remain_cap[can_fit_mask]
+    remaining_after_fit = valid_bins_capacities - item
+
+    # Exploitation: Prioritize bins with minimal remaining capacity (tight fit)
+    # Negative scores ensure higher remaining capacity (smaller value) gets a higher score
+    tight_fit_score = -remaining_after_fit
+    
+    # Penalty for large wasted space: Penalize bins that leave a lot of capacity after fitting.
+    # This encourages using bins more fully. Max value is for normalization.
+    max_remaining_capacity = np.max(bins_remain_cap)
+    if max_remaining_capacity > 0:
+        waste_penalty = -(remaining_after_fit / max_remaining_capacity) * 10.0 # Scaled penalty
+    else:
+        waste_penalty = np.zeros_like(remaining_after_fit)
+
+    # Bonus for near-perfect fits: Reward bins that will be almost full
+    perfect_fit_bonus = 1.0 # A small bonus for bins that will be very tight
+    near_perfect_fit_threshold = 0.05 # Threshold for considering a fit "near-perfect"
+    near_perfect_fit_bonus_val = 0.5
+    
+    fit_bonus = np.zeros_like(remaining_after_fit)
+    perfect_fit_mask = np.isclose(remaining_after_fit, 0.0, atol=1e-9)
+    near_perfect_mask = (remaining_after_fit > 0) & (remaining_after_fit <= near_perfect_fit_threshold)
+
+    fit_bonus[perfect_fit_mask] = perfect_fit_bonus
+    fit_bonus[near_perfect_mask] = near_perfect_fit_bonus_val
+
+    # Combine exploitation scores
+    combined_exploitation_scores = tight_fit_score + waste_penalty + fit_bonus
+
+    # Exploration: Random scores for a subset of valid bins using epsilon-greedy
+    exploration_scores = np.random.rand(len(valid_bins_capacities))
+
+    # Decide whether to use exploration score or exploitation score
+    use_exploration = np.random.rand(len(valid_bins_capacities)) < epsilon
+    final_scores = np.where(use_exploration, exploration_scores, combined_exploitation_scores)
+
+    priorities[can_fit_mask] = final_scores
+    
+    return priorities
+```

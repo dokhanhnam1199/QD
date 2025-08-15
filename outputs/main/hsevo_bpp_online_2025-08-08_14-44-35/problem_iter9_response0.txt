@@ -1,0 +1,58 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines a modified Best Fit (prioritizing bins with a smaller, non-linear gap)
+    with a dynamic exploration strategy that favors less-utilized bins.
+    """
+    epsilon = 0.1  # Probability of exploration
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_indices = np.where(suitable_bins_mask)[0]
+
+    if suitable_bins_indices.size == 0:
+        return priorities  # No bin can fit the item
+
+    # Dynamic Exploration: Favor bins that are less utilized (higher remaining capacity)
+    if np.random.rand() < epsilon:
+        # Calculate a score for exploration: higher score for more remaining capacity
+        exploration_scores = bins_remain_cap[suitable_bins_indices]
+        # Apply a non-linear scaling (e.g., log) to emphasize differences in larger capacities
+        # Add a small constant to avoid log(0) if a bin has exactly the item size
+        exploration_scores = np.log1p(exploration_scores - item + 1) 
+        exploration_scores /= np.sum(exploration_scores) # Normalize to form a probability distribution
+        chosen_bin_index = np.random.choice(suitable_bins_indices, p=exploration_scores)
+        priorities[chosen_bin_index] = 1.0
+    else:
+        # Exploitation phase: Modified Best Fit strategy
+        suitable_bins_capacities = bins_remain_cap[suitable_bins_indices]
+        # Calculate the 'gap' or remaining capacity after fitting the item
+        gaps = suitable_bins_capacities - item
+        
+        # Prioritize bins with smaller gaps, but also consider the absolute remaining capacity.
+        # This encourages tighter fits but also favors bins that were already quite empty
+        # if the gap is similar.
+        # Using a ratio or a weighted sum can be effective.
+        # Here, we use a simple heuristic: a score that is high for small gaps,
+        # but also rewards bins with larger initial remaining capacity if gaps are comparable.
+        
+        # Score = 1 / (gap + 1) + (remaining_capacity / max_remaining_capacity)
+        # Adding 1 to gap to avoid division by zero if gap is 0.
+        # Normalizing remaining_capacity to prevent it from dominating the score.
+        max_total_capacity = np.max(bins_remain_cap) # Assuming a general max capacity or using the max available
+        if max_total_capacity == 0: # Handle case where all bins have 0 capacity (shouldn't happen if suitable bins exist)
+            max_total_capacity = 1
+            
+        modified_scores = (1.0 / (gaps + 1e-6)) + (suitable_bins_capacities / (max_total_capacity + 1e-6))
+        
+        # Find the index within the 'suitable_bins_indices' array that has the maximum modified score
+        best_fit_in_suitable_idx = np.argmax(modified_scores)
+        # Get the original index of this best-fitting bin
+        best_fit_original_idx = suitable_bins_indices[best_fit_in_suitable_idx]
+        priorities[best_fit_original_idx] = 1.0
+
+    return priorities
+```

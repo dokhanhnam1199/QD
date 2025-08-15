@@ -1,0 +1,85 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines tightest fit with a dynamically adjusted exploration bias
+    towards less utilized bins to balance exploitation and exploration.
+    """
+    epsilon = 1e-9
+    exploration_prob = 0.20  # Increased exploration for better diversity
+
+    can_fit_mask = bins_remain_cap >= item
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    if not np.any(can_fit_mask):
+        return priorities
+
+    valid_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    valid_bin_indices = np.where(can_fit_mask)[0]
+    num_fitting_bins = len(valid_bins_remain_cap)
+
+    # --- Core Heuristic: Tightest Fit ---
+    # Prioritize bins that minimize remaining capacity after packing.
+    remaining_after_packing = valid_bins_remain_cap - item
+    tight_fit_scores = 1.0 / (remaining_after_packing + epsilon)
+
+    # --- Adaptive Utilization Score ---
+    # Prefer bins that are less utilized (higher remaining capacity).
+    # This acts as a soft bias against overly full bins.
+    # Normalize by the max possible remaining capacity to get a relative fill level.
+    # High score means less utilized.
+    utilization_scores = valid_bins_remain_cap / np.max(bins_remain_cap + epsilon)
+
+    # --- Combined Exploitation Score ---
+    # Weighted sum: Tight fit is primary, utilization is secondary.
+    # Give more weight to tight fit as it directly minimizes waste.
+    combined_exploitation_scores = 0.7 * tight_fit_scores + 0.3 * utilization_scores
+
+    # Normalize exploitation scores to [0, 1]
+    max_exploitation_score = np.max(combined_exploitation_scores)
+    if max_exploitation_score > epsilon:
+        normalized_exploitation_scores = combined_exploitation_scores / max_exploitation_score
+    else:
+        normalized_exploitation_scores = np.zeros_like(combined_exploitation_scores)
+
+    # --- Dynamic Exploration ---
+    # With a certain probability, introduce randomness.
+    # Bias exploration towards bins that are less utilized (lower utilization_scores).
+    random_exploration_scores = np.random.rand(num_fitting_bins)
+
+    # Scale random scores: Boost scores for less utilized bins (higher utilization_scores).
+    # The boost factor should be higher for bins with lower utilization_scores.
+    # We want to explore bins that are "average" or less utilized.
+    # Invert the utilization score for boosting: higher value means more under-utilized.
+    under_utilization_factor = 1.0 / (1.0 - utilization_scores + epsilon)
+    
+    # Combine random score with the under-utilization factor.
+    # Higher under_utilization_factor means higher boost for exploration.
+    scaled_random_scores = random_exploration_scores * under_utilization_factor
+
+    # Normalize these scaled random scores to [0, 1]
+    max_scaled_random_score = np.max(scaled_random_scores)
+    if max_scaled_random_score > epsilon:
+        normalized_exploration_scores = scaled_random_scores / max_scaled_random_score
+    else:
+        normalized_exploration_scores = np.zeros_like(scaled_random_scores)
+
+    # --- Final Priority Calculation ---
+    # Blend exploitation and exploration scores using the exploration probability.
+    alpha = exploration_prob
+    final_scores_unnormalized = (1 - alpha) * normalized_exploitation_scores + alpha * normalized_exploration_scores
+
+    # Normalize the final blended scores to ensure they are in a [0, 1] range.
+    max_final_score = np.max(final_scores_unnormalized)
+    if max_final_score > epsilon:
+        priorities[valid_bin_indices] = final_scores_unnormalized / max_final_score
+    else:
+        # Fallback if all scores are zero or near-zero
+        priorities[valid_bin_indices] = final_scores_unnormalized
+
+    # Ensure priorities are non-negative.
+    priorities[priorities < 0] = 0
+
+    return priorities
+```

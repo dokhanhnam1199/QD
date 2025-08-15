@@ -1,0 +1,181 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Softmax-Based Fit.
+
+    The priority is calculated based on how well an item fits into a bin.
+    A higher priority is given to bins where the remaining capacity is just enough
+    or slightly more than the item size. A large surplus capacity is penalized.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # We only consider bins that can actually fit the item
+    # For bins that cannot fit, their priority will be effectively zero after softmax.
+    # However, to avoid issues with log(0) or division by zero, we can set a very small capacity
+    # or filter them out conceptually. For simplicity in softmax, we will give them a very low score.
+
+    # Calculate the "fitness score" for each bin.
+    # We want to penalize bins that have significantly more space than needed.
+    # A simple approach is to use the ratio of remaining capacity to item size.
+    # We are looking for a ratio close to 1.
+    # A large ratio (bin_remain_cap >> item) is bad.
+    # A ratio slightly > 1 is good.
+    # A ratio < 1 is impossible.
+
+    # To make it work with softmax, we want higher values for better fits.
+    # Let's define a score that is high when bin_remain_cap is close to item,
+    # and decreases as bin_remain_cap grows larger than item.
+
+    # Consider bins that can accommodate the item.
+    valid_bins_mask = bins_remain_cap >= item
+    
+    # Initialize priorities to a very low value for invalid bins.
+    priorities = np.full_like(bins_remain_cap, -np.inf) 
+
+    # For valid bins, calculate a score.
+    # A score of 1 / (bin_remain_cap - item + 1) would give higher scores to smaller remaining capacities.
+    # Adding 1 to the denominator to avoid division by zero if remaining capacity == item.
+    # This score is high when remaining capacity is close to item size, and decreases as it increases.
+    # We want to avoid very large remaining capacities.
+    # Let's scale this score. We can use a term like `1 / (gap + epsilon)` where gap is `bins_remain_cap - item`.
+    # A small gap is good. A large gap is bad.
+    # We can use `exp(-(bins_remain_cap - item) / scale)` or similar for a decaying score.
+    # For softmax, a simpler approach might be to aim for values that differentiate.
+    # Let's try `-(bins_remain_cap - item)`. This gives higher values to smaller gaps.
+    # We need to ensure the output of this calculation is not too sensitive or too uniform.
+    
+    # Let's consider the gap: `bins_remain_cap - item`.
+    # A small gap is good. A large gap is bad.
+    # We want to maximize the value when gap is small.
+    # Let's try a score that is `-(gap)^2` or similar.
+    # Or even simpler: `1.0 / (gap + 1.0)` which maps smaller gaps to higher values.
+    
+    # Using `1.0 / (bins_remain_cap - item + 1e-6)` might be problematic if `item` is very large relative to `bins_remain_cap`.
+    # Let's use a score based on the "waste": `bins_remain_cap - item`.
+    # We want to minimize waste.
+    # Let's use an exponential decay on the waste, but inverted.
+    # A high score for low waste. `exp(-waste / temperature)`.
+    # For softmax, `exp(score)` is used. So we need `score` to be high for low waste.
+    # `score = -(bins_remain_cap - item)` or `score = - (bins_remain_cap - item)**2`
+    # Let's try `score = -(bins_remain_cap - item)`. This prioritizes bins with minimal remaining capacity.
+
+    # Softmax requires exp(score). We want scores to be positive for the exponential.
+    # So let's shift the scores to be positive, or use a transformation that results in positive values.
+    # Consider the inverse of the "waste": `1 / (waste + epsilon)`.
+    # Or simply use the negative waste directly, and `np.exp` will handle it.
+
+    # Let's use `score = -(bins_remain_cap - item)`. This means smaller gaps get higher scores.
+    # If we want to prioritize bins with *just* enough space, this is reasonable.
+    # A larger gap results in a more negative score.
+    # When softmax is applied, `-inf` scores will be zero.
+    
+    # Let's refine the scoring. We want the ratio `item / bins_remain_cap` to be as close to 1 as possible, but only when `bins_remain_cap >= item`.
+    # Consider the inverse of the remaining capacity: `1.0 / bins_remain_cap`. This prioritizes fuller bins (smaller remaining capacity), which is good if `item` fits.
+    # Let's combine this with the condition.
+    # A potential score for valid bins: `item / bins_remain_cap`. This is > 1 for perfect fit if `bins_remain_cap == item`, and approaches 0 for very large `bins_remain_cap`.
+    # Let's use `1.0 / (bins_remain_cap - item + 1e-6)` to prioritize bins with minimal surplus.
+    # This value is large when `bins_remain_cap - item` is small.
+
+    # Let's use the ratio of item size to bin capacity, but adjusted.
+    # We are interested in bins where `bins_remain_cap` is close to `item`.
+    # Let's assign a score that is high when `bins_remain_cap - item` is small.
+    # Consider `score = - (bins_remain_cap - item)**2`. This gives a parabolic penalty for larger gaps.
+    # The peak is at `bins_remain_cap == item`.
+
+    # A simple way to make it suitable for softmax is to use `exp(score)`
+    # So, we need `score` to be higher for preferred bins.
+    # Preferred bins are those with `bins_remain_cap` closest to `item`.
+    # `score = - (bins_remain_cap - item)`.
+    # The maximum score for `bins_remain_cap = item` would be 0.
+    # If `bins_remain_cap > item`, score becomes negative.
+    
+    # Let's use `bins_remain_cap - item` and invert it.
+    # A bin with `bins_remain_cap = 10` and `item = 5` has a gap of 5.
+    # A bin with `bins_remain_cap = 6` and `item = 5` has a gap of 1.
+    # We want to prioritize the second bin.
+    # So, a smaller gap should result in a higher score.
+    # Let's try `score = 1.0 / (bins_remain_cap - item + epsilon)`.
+    # Or `score = - (bins_remain_cap - item)`.
+
+    # Let's try a simple heuristic that prioritizes bins with the smallest *remaining* capacity that can still fit the item.
+    # This is often called "Best Fit".
+    # For Softmax-Based Fit, we can transform this preference into scores.
+    # We want bins where `bins_remain_cap` is small (but >= item) to have high scores.
+    # Consider the transformed scores `scores = -bins_remain_cap` for valid bins.
+    # This will give higher scores to bins with less remaining capacity.
+
+    scores = np.zeros_like(bins_remain_cap)
+    valid_indices = np.where(bins_remain_cap >= item)[0]
+    
+    # Assign a score that prioritizes bins with smaller remaining capacity.
+    # We want `bins_remain_cap` to be small. So, `scores = -bins_remain_cap` would achieve this.
+    # However, the actual values of `bins_remain_cap` might vary widely.
+    # Let's consider the "waste" again: `waste = bins_remain_cap - item`.
+    # We want to minimize waste.
+    # `score = -waste` or `score = -waste**2`.
+    # Let's use a function that is high for small waste.
+    # `score = 1.0 / (waste + 1.0)` - this works well when `waste` is small and non-negative.
+    # Example:
+    # waste = 0, score = 1.0
+    # waste = 1, score = 0.5
+    # waste = 5, score = 0.16
+    # waste = 10, score = 0.09
+
+    # Apply this scoring to valid bins.
+    waste = bins_remain_cap[valid_indices] - item
+    scores[valid_indices] = 1.0 / (waste + 1e-6) # Adding epsilon for numerical stability
+
+    # Now, apply softmax to convert these scores into probabilities/priorities.
+    # Softmax function: `exp(score) / sum(exp(scores))`
+    # For selection, we just need the `exp(score)` part, as the denominator is constant for all bins.
+    # `np.exp(scores)` will give us the relative priorities.
+    
+    # If we want to directly use the scores that are higher for better fits,
+    # then the scores themselves can be used, and softmax will normalize them.
+    # Let's use a score that reflects "how close" the remaining capacity is to the item size.
+    # A good fit has `bins_remain_cap` slightly larger than `item`.
+    # Let's consider `-(bins_remain_cap - item)`.
+    
+    # A different approach: penalize large remaining capacities.
+    # If `bins_remain_cap < item`, it's not a valid bin, score is effectively 0.
+    # For `bins_remain_cap >= item`:
+    # We want a high score when `bins_remain_cap` is close to `item`.
+    # Let's use `score = -(bins_remain_cap - item)`.
+    
+    # Example: item = 5
+    # Bin 1: remain_cap = 5, score = -(5-5) = 0
+    # Bin 2: remain_cap = 7, score = -(7-5) = -2
+    # Bin 3: remain_cap = 10, score = -(10-5) = -5
+    # Bin 4: remain_cap = 3, score = -inf (or very low)
+    
+    # `np.exp([0, -2, -5, -inf])` would be approximately `[1.0, 0.135, 0.0067, 0.0]`
+    # This gives higher probability to bin 1 (exact fit), then bin 2, then bin 3.
+    # This aligns with a "Best Fit" strategy transformed for softmax.
+
+    priorities = np.full_like(bins_remain_cap, -np.inf) # Initialize with negative infinity for softmax to yield 0 priority
+    valid_mask = bins_remain_cap >= item
+    
+    # For valid bins, calculate the score. We want bins with smaller `bins_remain_cap - item` to have higher scores.
+    # Let the score be the negative of the excess capacity.
+    excess_capacity = bins_remain_cap[valid_mask] - item
+    scores_for_valid_bins = -excess_capacity
+    
+    priorities[valid_mask] = scores_for_valid_bins
+
+    # The `np.exp(priorities)` will produce values where higher is better.
+    # Softmax is implicitly applied when selecting the bin with the maximum *logit* (score).
+    # If we need the probabilities, we'd divide by sum(exp(priorities)).
+    # For a priority function that returns scores for `np.argmax`, simply returning `np.exp(priorities)` is common.
+    # Or, even simpler, just return the scores themselves if the selection mechanism uses `np.argmax` on raw scores.
+    # The request implies returning scores for each bin, and the bin with highest priority score is selected.
+    # So, `np.exp(scores)` directly gives the desired output.
+
+    return np.exp(priorities)
+
+```

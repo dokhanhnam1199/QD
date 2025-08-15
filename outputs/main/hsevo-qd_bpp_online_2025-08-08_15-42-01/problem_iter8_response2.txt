@@ -1,0 +1,61 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines tightest fit with adaptive exploration for online bin packing."""
+
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        return priorities
+
+    valid_bins_indices = np.where(can_fit_mask)[0]
+    valid_bins_capacities = bins_remain_cap[can_fit_mask]
+
+    # Exploitation: Prioritize bins that result in the tightest fit.
+    # Add a bonus for perfect fits to minimize immediate waste.
+    remaining_after_fit = valid_bins_capacities - item
+    tight_fit_scores = -remaining_after_fit
+    perfect_fit_bonus = 0.5  # Stronger bonus for perfect fits
+    tight_fit_scores[np.abs(remaining_after_fit) < 1e-9] += perfect_fit_bonus
+
+    # Exploration: Select a subset of "good enough" bins to explore,
+    # not just the absolute best. This balances immediate gains with
+    # potential future benefits.
+    epsilon = 0.1  # Probability of exploration for selected candidates
+
+    # Identify exploration candidates:
+    # 1. Top K tightest fits.
+    # 2. Bins with moderate remaining capacity (not too full, not too empty).
+    sorted_indices_tight = np.argsort(tight_fit_scores)[::-1]
+    num_valid_bins = len(valid_bins_capacities)
+    num_explore_candidates = max(1, int(num_valid_bins * 0.25))  # Explore top 25%
+
+    exploration_candidate_mask = np.zeros(num_valid_bins, dtype=bool)
+    exploration_candidate_mask[sorted_indices_tight[:num_explore_candidates]] = True
+
+    moderate_capacity_threshold_upper = np.percentile(valid_bins_capacities, 75)
+    moderate_capacity_threshold_lower = np.percentile(valid_bins_capacities, 25)
+    moderate_capacity_mask = (valid_bins_capacities > item) & \
+                             (valid_bins_capacities < moderate_capacity_threshold_upper) & \
+                             (valid_bins_capacities > moderate_capacity_threshold_lower)
+    exploration_candidate_mask[moderate_capacity_mask] = True
+
+    # Generate exploration scores (small random values)
+    exploration_scores = np.random.rand(num_valid_bins) * 0.02
+
+    # Combine exploitation and exploration scores
+    combined_scores = np.copy(tight_fit_scores)
+    
+    # With probability epsilon, apply exploration score to candidates
+    use_exploration_for_candidates = np.random.rand(num_valid_bins) < epsilon
+    
+    # Apply exploration scores only to the identified exploration candidates that are chosen for exploration
+    explore_mask_for_candidates = exploration_candidate_mask & use_exploration_for_candidates
+    combined_scores[explore_mask_for_candidates] = exploration_scores[explore_mask_for_candidates]
+
+    priorities[valid_bins_indices] = combined_scores
+
+    return priorities
+```

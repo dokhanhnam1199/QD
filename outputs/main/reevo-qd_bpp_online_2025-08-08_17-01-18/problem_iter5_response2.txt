@@ -1,0 +1,163 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined priority strategy.
+
+    This heuristic prioritizes bins based on several factors:
+    1.  **Tight Fit:** Prioritizes bins that have just enough remaining capacity for the item,
+        minimizing waste.
+    2.  **Bin Scarcity:** Prefers bins that have less remaining capacity overall, making them
+        "scarcer" and potentially needing to be filled to capacity sooner.
+    3.  **Earlier Bin Preference (Tie-breaking):** If multiple bins offer similar priority,
+        bins that appear earlier in the `bins_remain_cap` array are slightly preferred.
+    4.  **Probabilistic Exploration (Softmax):** Uses Softmax to convert scores into probabilities,
+        allowing for probabilistic selection. This balances exploitation (choosing the best fit)
+        with exploration (trying less optimal bins occasionally).
+
+    The scoring mechanism combines the tight-fit score with a scarcity factor.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A NumPy array representing the remaining capacity of each bin.
+
+    Returns:
+        A NumPy array of the same size as `bins_remain_cap`, representing the
+        probability (or weighted priority) of selecting each bin. Bins that cannot
+        fit the item will have a probability of 0.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros(num_bins, dtype=float)
+
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities  # No bin can fit the item
+
+    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+    suitable_bins_indices = np.where(suitable_bins_mask)[0]
+
+    # --- Scoring Components ---
+
+    # 1. Tight Fit Score (Sigmoid-based, similar to v1 but adjusted for Softmax)
+    # We want a score that is high for tight fits and decreases as capacity increases.
+    # A score close to 1 for perfect fit, decreasing towards 0.
+    # Let's use `1 / (1 + exp(k * (capacity - item)))`
+    # For perfect fit (capacity - item = 0), score = 0.5
+    # For capacity - item > 0, score decreases.
+    # To work well with Softmax, scores should be non-negative.
+    # We can shift the sigmoid output: `sigmoid_score = 1 / (1 + exp(k * mismatch))`.
+    # A perfect fit gives 0.5. A slightly larger fit gives slightly less than 0.5.
+    # Let's ensure scores are always positive. Maybe add a small constant or use a different transformation.
+    # Alternative: `exp(-k * mismatch)`. Perfect fit = exp(0) = 1. Larger mismatch = smaller score.
+    # This aligns better with Softmax. Let's use this.
+    k_tightness = 5.0  # Sensitivity to tightness. Higher k -> stronger preference for tight fits.
+    mismatch = suitable_bins_cap - item
+    
+    # Cap exponent to prevent overflow/underflow issues with exp, especially for large k or mismatch
+    max_exponent_val = 700.0 # exp(700) is very large
+    min_exponent_val = -700.0 # exp(-700) is very close to 0
+    
+    tightness_scores = np.exp(-k_tightness * mismatch)
+    
+    # Ensure scores are within a reasonable range if needed, though exp(-x) is usually fine.
+    # For robustness, one could clamp the argument to exp.
+    # capped_exponent = np.clip(-k_tightness * mismatch, min_exponent_val, max_exponent_val)
+    # tightness_scores = np.exp(capped_exponent)
+
+
+    # 2. Bin Scarcity Score
+    # Prioritize bins with less remaining capacity. A simple inverse relationship works.
+    # Add a small epsilon to avoid division by zero if a bin somehow has 0 capacity.
+    epsilon = 1e-6
+    scarcity_scores = 1.0 / (suitable_bins_cap + epsilon)
+    
+    # Normalize scarcity scores to be in a similar range or complement tightness score.
+    # Let's combine them additively, scaled appropriately.
+    # We want tight fit to dominate, but scarcity to break ties or influence choices.
+    # A simple weighted sum: `score = w1 * tightness + w2 * scarcity`
+    # Or, since both are positive and indicate preference, we can multiply them
+    # if we want them to be strong together, or add if we want them to be independent factors.
+    # Let's try combining them additively, scaled to avoid one dominating too much.
+    
+    # Normalize scores before combining to manage scales:
+    # Max possible tightness score is 1 (perfect fit). Min depends on max mismatch.
+    # Max possible scarcity score is 1/epsilon. Min is 1/max_capacity.
+    # This suggests scarcity might dominate if not scaled.
+    
+    # Let's scale scarcity by the inverse of the typical bin capacity or by a factor.
+    # A simpler approach: add a "bonus" for being scarce.
+    # Consider the total capacity of suitable bins. A bin with less capacity is scarcer.
+    # Let's scale scarcity scores based on the mean capacity of suitable bins.
+    # Or, we can think of scarcity as a "bonus" for having less space.
+    # Let's try making scarcity a multiplier for tightness, but capped.
+    # Or, add scarcity as a bonus.
+    
+    # Let's use additive combination with some scaling for scarcity.
+    # Scarcity score: Higher for less capacity.
+    # We want to favor bins that are nearly full.
+    # Consider the remaining capacity relative to the item size.
+    # Alternative scarcity: `1.0 - (suitable_bins_cap / max_possible_capacity)`
+    # Or simply use the inverse: `1.0 / suitable_bins_cap`
+    
+    # Let's normalize the scarcity scores to be between 0 and 1.
+    min_cap = np.min(suitable_bins_cap)
+    max_cap = np.max(suitable_bins_cap)
+    
+    if max_cap - min_cap > epsilon: # Avoid division by zero if all capacities are the same
+        normalized_scarcity = (suitable_bins_cap - min_cap) / (max_cap - min_cap)
+        # Invert for scarcity: higher score for less capacity
+        scarcity_bonus = 1.0 - normalized_scarcity
+    else:
+        scarcity_bonus = np.ones_like(suitable_bins_cap) * 0.5 # All bins equally scarce/plentiful
+
+    # 3. Combine tightness and scarcity
+    # Weighted sum: prioritize tightness, add scarcity as a secondary factor.
+    weight_tightness = 1.0
+    weight_scarcity = 0.3 # Give scarcity a moderate influence
+    
+    combined_scores = (weight_tightness * tightness_scores) + (weight_scarcity * scarcity_bonus)
+
+    # 4. Tie-breaking (Earlier Bin Preference)
+    # Add a small bonus based on index.
+    # The index itself can be used, scaled down.
+    index_bonus_scale = 0.01
+    index_bonus = suitable_bins_indices * index_bonus_scale
+    
+    final_scores = combined_scores + index_bonus
+
+    # Apply Softmax to get probabilities
+    # Softmax is `exp(score) / sum(exp(scores))`
+    # We need to handle potential large values in `final_scores` causing `exp` overflow.
+    # A common trick is to subtract the maximum score before exponentiating.
+    # `exp(x_i - max(x)) / sum(exp(x_j - max(x)))`
+    # This doesn't change the resulting probabilities.
+    
+    if final_scores.size > 0:
+        max_score = np.max(final_scores)
+        # Ensure scores passed to exp are not excessively large after subtraction
+        # Although subtracting max should handle it, numerical stability can be an issue.
+        # Let's cap the intermediate values before exp.
+        
+        shifted_scores = final_scores - max_score
+        # Cap shifted scores to prevent exp overflow even after subtraction if differences are large
+        # A value like 50-100 is usually safe.
+        capped_shifted_scores = np.clip(shifted_scores, -100.0, 100.0)
+        
+        exp_scores = np.exp(capped_shifted_scores)
+        sum_exp_scores = np.sum(exp_scores)
+        
+        if sum_exp_scores > 0:
+            probabilities = exp_scores / sum_exp_scores
+        else:
+            # This case should ideally not happen if scores are finite, but for safety:
+            probabilities = np.ones_like(exp_scores) / len(exp_scores) if len(exp_scores) > 0 else np.array([])
+    else:
+        probabilities = np.array([])
+
+    # Place the calculated probabilities back into the main priorities array
+    priorities[suitable_bins_mask] = probabilities
+
+    return priorities
+```

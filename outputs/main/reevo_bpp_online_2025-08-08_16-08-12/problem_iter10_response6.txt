@@ -1,0 +1,68 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes bins for the online Bin Packing Problem, favoring exact fits and minimal slack,
+    with temperature-controlled exploration.
+
+    This heuristic prioritizes bins that can fit the item. Among fitting bins,
+    it assigns the highest priority to exact fits (zero remaining capacity after packing).
+    For bins that don't offer an exact fit, it assigns priority based on the
+    inverse of the slack (remaining capacity after packing), scaled by a temperature
+    parameter. A higher temperature leads to smoother priority distributions,
+    increasing the chance of selecting bins that are not the absolute best fit.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array containing the remaining capacity of each bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, where each element
+        represents the priority score for placing the item in the corresponding bin.
+        Bins that cannot fit the item will have a priority of 0.
+    """
+    temperature = 1.0  # Tunable parameter for exploration
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros(num_bins, dtype=float)
+
+    # Identify bins that have enough capacity to fit the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bins can fit the item, return all zeros.
+    if not np.any(can_fit_mask):
+        return priorities
+
+    # Calculate the slack for bins that can fit the item.
+    # Slack is the remaining capacity after placing the item.
+    slack = bins_remain_cap[can_fit_mask] - item
+
+    # Assign priorities:
+    # - Highest priority for exact fits (slack == 0)
+    # - For non-exact fits, priority is inversely proportional to slack, scaled by temperature.
+    #   Use exp(-slack / temperature) to give higher priority to smaller slack.
+
+    # Separate exact fits to give them maximum priority
+    exact_fit_indices_in_subset = np.where(slack == 0)[0]
+    priorities[can_fit_mask][exact_fit_indices_in_subset] = 1e6  # High priority for exact fits
+
+    # Calculate priorities for bins with positive slack
+    positive_slack_indices_in_subset = np.where(slack > 0)[0]
+    positive_slack_values = slack[positive_slack_indices_in_subset]
+
+    # Use exp(-slack / temperature) for exploration. Smaller slack gets higher priority.
+    # Adding a small epsilon to slack in the denominator of exp argument could be done,
+    # but using the slack value directly in the exponent is more standard for this type of scaling.
+    # `np.exp(-value / temperature)`: as `value` (slack) decreases, `np.exp` increases.
+    scaled_priorities = np.exp(-positive_slack_values / temperature)
+    
+    # Apply these scaled priorities to the corresponding bins
+    priorities[can_fit_mask][positive_slack_indices_in_subset] = scaled_priorities
+
+    # Normalize priorities to be between 0 and 1 (optional, but good practice)
+    # If only exact fits exist, max_priority would be 1e6. If only positive slack,
+    # max_priority would be from the exp calculation. If no bins fit, it's 0.
+    max_priority = np.max(priorities)
+    if max_priority > 0:
+        priorities /= max_priority
+
+    return priorities
+```

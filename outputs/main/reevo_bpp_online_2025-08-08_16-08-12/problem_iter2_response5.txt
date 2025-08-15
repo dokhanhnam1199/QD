@@ -1,0 +1,84 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a Softmax-Based Best Fit strategy.
+
+    This heuristic prioritizes bins that have a remaining capacity closest to the item size,
+    aiming for the "best fit". It calculates a fitness score based on the gap between
+    the remaining capacity and the item size, preferring smaller non-negative gaps.
+    The softmax function is then used to convert these fitness scores into priorities.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Calculate the "gap" for bins that can fit the item.
+    # We want to minimize this gap (i.e., find the best fit).
+    gaps = bins_remain_cap - item
+
+    # Initialize fitness scores. Bins that cannot fit the item will have a very low score.
+    # Using a large negative number to ensure they are not picked by softmax unless absolutely necessary.
+    fitness_scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins that can accommodate the item.
+    can_fit_mask = (gaps >= 0)
+    valid_gaps = gaps[can_fit_mask]
+
+    if np.any(can_fit_mask):
+        # For bins that can fit, we want to assign higher scores to smaller gaps.
+        # A common approach is to use an exponential decay function based on the gap.
+        # The 'temperature' parameter controls the sharpness of the distribution.
+        # A smaller temperature leads to a stronger preference for the best fit.
+        # We can set a temperature based on the average remaining capacity, or a fixed value.
+        # A small positive temperature ensures that the scores are not excessively large or small.
+        # Let's use a temperature that is related to the typical capacity values.
+        # If bins_remain_cap is empty or all zeros, use a default temperature.
+        non_zero_caps = bins_remain_cap[bins_remain_cap > 0]
+        if non_zero_caps.size > 0:
+            temperature = np.mean(non_zero_caps) / 2.0 # Heuristic for temperature
+            temperature = max(temperature, 1e-3) # Ensure temperature is positive
+        else:
+            temperature = 1.0 # Default temperature if no positive capacities
+
+        # Calculate fitness scores: exp(-gap / temperature). Smaller gap = higher score.
+        # We use a scaled version of the gap to control the spread of the exponential.
+        scaled_gaps = valid_gaps / temperature
+        positive_scores = np.exp(-scaled_gaps)
+
+        fitness_scores[can_fit_mask] = positive_scores
+
+    # Handle the case where no bins can fit the item.
+    # In this scenario, all fitness scores are -np.inf. Softmax would result in NaNs.
+    # A reasonable fallback is to assign uniform probabilities, as any bin choice is equally "bad".
+    if not np.any(np.isfinite(fitness_scores)):
+        return np.ones_like(bins_remain_cap) / len(bins_remain_cap)
+
+    # Apply Softmax to convert fitness scores into probabilities (priorities).
+    # Shift scores to avoid numerical issues with very small/large exponents in exp().
+    # Subtracting the maximum finite score from all scores does not change the softmax output
+    # but can help prevent overflow/underflow issues.
+    finite_mask = np.isfinite(fitness_scores)
+    if np.any(finite_mask):
+        max_finite_score = np.max(fitness_scores[finite_mask])
+        shifted_scores = fitness_scores - max_finite_score
+    else:
+        shifted_scores = fitness_scores # Should not happen due to the check above, but for safety
+
+    # Compute the exponentiated scores. Replace -inf with 0 to avoid exp(-inf) = 0 issues
+    # which might incorrectly lead to a sum of zero if all were -inf.
+    exp_scores = np.where(np.isfinite(shifted_scores), np.exp(shifted_scores), 0)
+
+    sum_exp_scores = np.sum(exp_scores)
+
+    # If the sum is zero (e.g., all original scores were -inf, or numerical issues),
+    # fall back to uniform distribution.
+    if sum_exp_scores == 0:
+        return np.ones_like(bins_remain_cap) / len(bins_remain_cap)
+    else:
+        priorities = exp_scores / sum_exp_scores
+        return priorities
+```

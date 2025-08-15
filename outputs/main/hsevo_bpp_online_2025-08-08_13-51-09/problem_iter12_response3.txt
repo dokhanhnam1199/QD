@@ -1,0 +1,142 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+
+    # Metric 1: Best Fit (Refined) - Score based on the tightness of the fit.
+    # Using the reciprocal of the remaining capacity after placement.
+    # This naturally prioritizes bins where the remaining space is minimized.
+    # Add a small epsilon to avoid division by zero for perfect fits and to differentiate near-perfect fits.
+    remaining_after_placement = suitable_bins_caps - item
+    # Using 1 / (1 + remaining_capacity) to ensure positive scores and to slightly favor bins with less remaining space.
+    # This is similar to log1p but less sensitive to very small remaining spaces.
+    best_fit_scores = 1.0 / (1.0 + remaining_after_placement)
+
+    # Metric 2: Gap Exploitation - Reward bins that have a significant amount of remaining capacity
+    # but not so much that the item feels "lost".
+    # This metric aims to utilize larger "gaps" effectively without being overly greedy.
+    # We can score based on the ratio of item size to remaining capacity in the bin.
+    # A higher ratio means the item fills a larger portion of the remaining space, which is good for utilizing larger gaps.
+    # Add a small epsilon to the denominator to avoid division by zero.
+    gap_exploitation_scores = item / (suitable_bins_caps + 1e-6)
+    # Clip scores to avoid excessively high values if item is much larger than bin capacity (though this shouldn't happen with suitable_bins_mask).
+    gap_exploitation_scores = np.clip(gap_exploitation_scores, 0, 2.0) # Cap at 2.0 as a reasonable max ratio.
+
+
+    # Metric 3: Bin Fill Similarity - Aim to make bins have similar fill levels to promote better packing density.
+    # This means preferring bins that are already somewhat full, or bins where adding this item
+    # will bring its fill level closer to other partially filled bins.
+    # A proxy for "already somewhat full" is the inverse of remaining capacity relative to a baseline (e.g., max capacity, or average capacity).
+    # Let's normalize remaining capacity by the maximum possible capacity of *any* bin (assuming a global max capacity, e.g., 1.0 for normalized problems).
+    # If a global max is not available, we can use the maximum of all bins' initial capacities.
+    # For this example, let's assume a standard bin capacity of 1.0 as a reference.
+    # The "fill level" of a suitable bin would be (1.0 - remaining_capacity) / 1.0.
+    # We want to favor bins with fill levels that are not too close to 0 (very empty) and not too close to 1 (almost full, but not best fit).
+    # A Gaussian-like function centered around a moderate fill level (e.g., 0.6) is suitable.
+    # Let's use the inverse of remaining capacity relative to the item size itself. This measures how "tight" the current remaining space is relative to the item.
+    # If the remaining capacity is much larger than the item, the ratio is small, meaning the item is small relative to the space.
+    # If remaining capacity is close to item size, the ratio is near 1, meaning the item is a good fit for the *remaining* space.
+    # We want to favor bins where the item takes up a good fraction of the remaining space.
+    # A higher score for item / remaining_capacity (if remaining_capacity > item) is desired.
+    # This is essentially a variation of best fit, but focuses on the item's proportion of the *remaining* space.
+    # Let's re-think this: Bin Fill Similarity. We want bins to be filled to a similar degree *after* placement.
+    # This implies we want to pick bins that are not too empty and not too full.
+    # Let's consider the "unused potential" of a bin. This is the remaining capacity.
+    # We want to pick bins with *moderate* remaining capacity.
+    # Let's normalize the remaining capacity by the item's size. A ratio around 1 is ideal (best fit).
+    # For similarity, we want to avoid extreme remaining capacities.
+    # Consider `remaining_after_placement / item`. We want this to be moderate.
+    # A good heuristic is to penalize bins with very small or very large `remaining_after_placement`.
+    # Let's use `1 - exp(-k * (remaining_after_placement / item))` for values where remaining_after_placement > 0.
+    # A simpler approach: consider the 'fullness' of the bin.
+    # Fullness is approximately (BinCapacity - remaining_capacity) / BinCapacity.
+    # Let's use the current remaining capacity to infer a "fill state".
+    # Consider `(item / suitable_bins_caps)` as a measure of how much the item contributes to filling the *current gap*.
+    # A higher value here means the item is a larger portion of the available space, which can be good for utilizing larger gaps.
+    # Let's focus on making bins more "balanced".
+    # We can score bins based on how much they "resemble" an average fill level.
+    # Average fill level can be estimated by (TotalItemSize / NumberOfBins) / BinCapacity.
+    # For online, this is harder. Let's try to encourage bins to be moderately filled, not too empty, not too full.
+    # Use a score that is high for intermediate remaining capacities.
+    # Let's try a sigmoid-like function on the inverse of remaining capacity.
+    # The "emptiness" of the bin is roughly `suitable_bins_caps`.
+    # We want to penalize very small `suitable_bins_caps` (already full) and very large `suitable_bins_caps` (very empty).
+    # Let's use the inverse of remaining capacity scaled by item size.
+    # `suitable_bins_caps / item` ratio. We want this to be moderate.
+    # If `suitable_bins_caps / item` is very small, bin is almost full. If very large, bin is very empty.
+    # Let's use a bell-shaped curve centered around a desired ratio, say 2 (meaning remaining capacity is twice the item size).
+    # This encourages bins that are not too full, not too empty.
+    desired_ratio = 2.0
+    current_ratio = suitable_bins_caps / item
+    # Gaussian-like function: exp(-((ratio - desired_ratio)^2) / variance)
+    # Variance controls the width of the bell curve. A smaller variance means we are pickier.
+    variance = 1.0 # Tunable parameter
+    bin_fill_similarity_scores = np.exp(-((current_ratio - desired_ratio)**2) / (2 * variance))
+
+
+    # Normalize scores to be in a comparable range [0, 1] for combining.
+    # Avoid division by zero if all scores for a metric are zero.
+    max_best_fit = np.max(best_fit_scores)
+    normalized_best_fit = best_fit_scores / max_best_fit if max_best_fit > 1e-6 else np.zeros_like(best_fit_scores)
+
+    max_gap_exploitation = np.max(gap_exploitation_scores)
+    normalized_gap_exploitation = gap_exploitation_scores / max_gap_exploitation if max_gap_exploitation > 1e-6 else np.zeros_like(gap_exploitation_scores)
+
+    max_bin_fill_similarity = np.max(bin_fill_similarity_scores)
+    normalized_bin_fill_similarity = bin_fill_similarity_scores / max_bin_fill_similarity if max_bin_fill_similarity > 1e-6 else np.zeros_like(bin_fill_similarity_scores)
+
+    # Combine scores with dynamic weights.
+    # The weights should adapt based on the item's size relative to the *average* remaining capacity
+    # or the *maximum* remaining capacity among suitable bins.
+    # Let's use the maximum remaining capacity as a reference for "how open" the bins are.
+    max_suitable_cap = np.max(suitable_bins_caps)
+
+    # If item is large relative to max suitable capacity, prioritize best fit.
+    # If item is small relative to max suitable capacity, prioritize gap exploitation and fill similarity.
+    # Define a threshold for "large" item. Let's use 0.5 * max_suitable_cap.
+    # Normalize item size by max_suitable_cap to get a relative size.
+    relative_item_size = item / (max_suitable_cap + 1e-6)
+
+    # Weighting scheme:
+    # Best Fit is always important, especially for larger items.
+    # Gap Exploitation is good for items that can fill up larger available spaces.
+    # Bin Fill Similarity aims for balanced bins.
+
+    # Weight for Best Fit: increases with item size relative to available space.
+    weight_best_fit = 0.4 + 0.5 * relative_item_size
+    weight_best_fit = np.clip(weight_best_fit, 0.4, 0.9) # Ensure it's not too dominant for small items.
+
+    # Weight for Gap Exploitation: decreases with item size, favors smaller items filling larger gaps.
+    weight_gap_exploitation = 0.4 - 0.3 * relative_item_size
+    weight_gap_exploitation = np.clip(weight_gap_exploitation, 0.1, 0.4)
+
+    # Weight for Bin Fill Similarity: generally useful, moderate weight.
+    weight_bin_fill_similarity = 0.2 # Constant or slightly adjusted
+
+    # Ensure weights sum to 1 (approximately, or re-normalize if needed)
+    # A simpler approach for weights that sum to 1:
+    total_weight = weight_best_fit + weight_gap_exploitation + weight_bin_fill_similarity
+    # If total_weight is 0 (unlikely here), set to 1.
+    if total_weight < 1e-6:
+        total_weight = 1.0
+
+    weight_best_fit /= total_weight
+    weight_gap_exploitation /= total_weight
+    weight_bin_fill_similarity /= total_weight
+
+
+    combined_scores = (weight_best_fit * normalized_best_fit +
+                       weight_gap_exploitation * normalized_gap_exploitation +
+                       weight_bin_fill_similarity * normalized_bin_fill_similarity)
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```

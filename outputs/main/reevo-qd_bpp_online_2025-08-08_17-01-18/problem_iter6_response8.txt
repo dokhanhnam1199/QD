@@ -1,0 +1,93 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray, temperature: float = 1.0) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a softmax-based heuristic.
+
+    This heuristic prioritizes bins that can accommodate the item, with a stronger
+    preference for "tight fits" (bins with remaining capacity close to the item size).
+    It also incorporates a "scarcity" factor, favoring bins that are closer to being full
+    among those that can fit the item. The `temperature` parameter controls the
+    exploration vs. exploitation trade-off. Higher temperatures lead to more uniform
+    probabilities (more exploration), while lower temperatures focus on the best-fitting
+    bins (more exploitation). Bins that are too small for the item receive a priority of 0.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+        temperature: Controls the sharpness of the softmax distribution. Must be positive.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score (probability) of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit the item
+
+    fitting_bins_cap = bins_remain_cap[can_fit_mask]
+
+    # --- Scoring Components ---
+
+    # 1. Tight Fit Score: Prioritize bins where remaining capacity is close to item size.
+    #    We want a score that is high when `fitting_bins_cap - item` is small and positive.
+    #    Using `1.0 / (1.0 + (fitting_bins_cap - item))` maps small positive wasted space to values close to 1.
+    #    A perfect fit (wasted_space = 0) results in a score of 1.0.
+    wasted_space = fitting_bins_cap - item
+    tightness_scores = 1.0 / (1.0 + wasted_space)
+
+    # 2. Scarcity Score: Prioritize bins that have less remaining capacity overall among fitting bins.
+    #    We use the inverse of the remaining capacity. To avoid division by zero and
+    #    to make it comparable to tightness_scores, we can normalize it.
+    #    A simple approach is to map the minimum fitting capacity to a higher score.
+    #    We want a score that is high for small `fitting_bins_cap`.
+    #    Let's use a score inversely proportional to capacity, but capped to avoid extreme values.
+    #    `1.0 / (fitting_bins_cap + epsilon)` is a common way.
+    #    To make scarcity a secondary factor, we can scale it.
+    #    Consider scarcity as `1.0 - normalized_capacity`. High scarcity means low capacity.
+    #    Normalize capacity to [0, 1] range for fitting bins.
+    min_cap = np.min(fitting_bins_cap)
+    max_cap = np.max(fitting_bins_cap)
+    epsilon_cap = 1e-9 # for stable division
+
+    if max_cap - min_cap > epsilon_cap: # Avoid division by zero if all capacities are the same
+        normalized_capacity = (fitting_bins_cap - min_cap) / (max_cap - min_cap)
+        # Scarcity is higher for lower capacity, so invert normalized capacity.
+        scarcity_scores = 1.0 - normalized_capacity
+    else:
+        # If all fitting bins have the same capacity, scarcity is uniform.
+        scarcity_scores = np.ones_like(fitting_bins_cap) * 0.5
+
+    # 3. Combine Scores: Weighted sum of tightness and scarcity.
+    #    Prioritize tightness, with scarcity as a secondary preference.
+    weight_tightness = 1.0
+    weight_scarcity = 0.4  # Scarcity has a moderate influence
+    combined_scores = (weight_tightness * tightness_scores) + (weight_scarcity * scarcity_scores)
+
+    # Apply Softmax to get probabilities.
+    if temperature <= 0:
+        raise ValueError("Temperature must be positive.")
+
+    # Scale scores by temperature to control distribution sharpness.
+    # Subtract max score before exponentiation for numerical stability.
+    max_score = np.max(combined_scores)
+    scaled_scores = (combined_scores - max_score) / temperature
+
+    # Ensure scores passed to exp are within a safe range (e.g., [-100, 100])
+    scaled_scores = np.clip(scaled_scores, -100.0, 100.0)
+
+    exp_scores = np.exp(scaled_scores)
+    sum_exp_scores = np.sum(exp_scores)
+
+    if sum_exp_scores > 0:
+        probabilities = exp_scores / sum_exp_scores
+    else:
+        # Fallback for extreme cases, though unlikely with clipping.
+        probabilities = np.ones_like(exp_scores) / len(exp_scores)
+
+    # Assign probabilities to the original priorities array
+    priorities[can_fit_mask] = probabilities
+
+    return priorities
+```

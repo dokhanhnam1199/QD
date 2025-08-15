@@ -1,0 +1,212 @@
+[Prior reflection]
+Prioritize tight fits using non-linear functions on surplus. Tune steepness/parameters for balanced preference. Consider decay rates. Experiment with simpler metrics too; directness can outperform complexity. Balance item/bin proportions.
+
+[Code]
+def priority_v1(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+
+    """
+    Returns priority with which we want to add item to each bin using Sigmoid Best Fit.
+
+    This heuristic prioritizes bins that can accommodate the item and have the smallest
+    remaining capacity after packing (Best Fit strategy). The priority is calculated
+    using a sigmoid function to provide a smooth ranking, strongly favoring tighter fits.
+
+    The score for a bin is 0 if the item cannot fit. For bins that can fit, the score
+    is calculated as 1 / (1 + exp(steepness * (remaining_capacity - item))).
+    This function is monotonically decreasing with respect to (remaining_capacity - item),
+    meaning smaller non-negative remaining capacities get higher scores.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Scores range from 0 (cannot fit or very loose fit) to 1 (perfect or near-perfect fit).
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    steepness = 5.0  # Tunable parameter: higher values mean stronger preference for tight fits.
+
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity for bins that can fit the item.
+    # If a bin can fit, the remaining capacity after packing is: bins_remain_cap[i] - item
+    potential_remaining_cap_valid = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate the exponent argument for the sigmoid function.
+    # We want to prioritize smaller `potential_remaining_cap_valid`.
+    # The function `1 / (1 + exp(x))` is decreasing in `x`.
+    # To make it decrease as `potential_remaining_cap_valid` increases, we set `x = steepness * potential_remaining_cap_valid`.
+    # A small `potential_remaining_cap_valid` (tight fit) results in a smaller `x`, thus a higher score.
+    # A large `potential_remaining_cap_valid` (loose fit) results in a larger `x`, thus a lower score.
+    exponent_args = steepness * potential_remaining_cap_valid
+
+    # Clip the exponent arguments to prevent potential overflow/underflow in np.exp.
+    # Values like +/- 700 can cause issues. A range like [-30, 30] is generally safe.
+    # For very negative args, exp -> 0, score -> 1. For very positive args, exp -> inf, score -> 0.
+    clipped_exponent_args = np.clip(exponent_args, -30.0, 30.0)
+
+    # Calculate the priority scores for the valid bins using the sigmoid function.
+    # priorities[can_fit_mask] will be populated with scores between ~0.5 (for perfect fit) and ~0 (for very loose fits).
+    # Scores for bins that cannot fit remain 0.
+    priorities[can_fit_mask] = 1.0 / (1.0 + np.exp(clipped_exponent_args))
+
+    return priorities
+
+[Improved code]
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin.
+
+    This heuristic balances prioritizing tight fits with a preference for
+    bins that have a significant amount of remaining capacity relative to the item size,
+    aiming for a more direct and potentially robust strategy.
+
+    The score for a bin is 0 if the item cannot fit. For bins that can fit,
+    the priority is calculated as:
+    (remaining_capacity - item) / (bins_remain_cap + epsilon) + item / (bins_remain_cap + epsilon)
+
+    This attempts to:
+    1. Penalize large surpluses (first term: smaller values are better).
+    2. Reward bins that are already quite full relative to the item being added (second term: larger values are better).
+    The `epsilon` prevents division by zero.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 1e-9  # Small value to prevent division by zero.
+
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the surplus capacity for bins that can fit the item.
+    # Surplus is defined as remaining_capacity - item. We want to minimize this.
+    surplus = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate a penalty based on the surplus. A linear penalty is simple and direct.
+    # This term is smaller for tighter fits.
+    penalty_term = surplus / (bins_remain_cap[can_fit_mask] + epsilon)
+
+    # Calculate a reward based on how full the bin is relative to the item.
+    # This term is larger for bins that are already substantially full.
+    reward_term = item / (bins_remain_cap[can_fit_mask] + epsilon)
+
+    # Combine the terms. We want to minimize penalty and maximize reward.
+    # A simple sum might not be ideal; let's aim for a score that is higher for good fits.
+    # A simple Best Fit priority would be inversely related to surplus.
+    # Let's try a score that prioritizes bins that are 'just right' for the item,
+    # and also considers how much capacity is left.
+    # A simpler approach: Prioritize bins where the remaining capacity after packing is minimized.
+    # Let's re-evaluate. The original sigmoid focused on minimizing `remaining_capacity - item`.
+    # A simpler approach would be to directly use the "Best Fit" principle:
+    # highest priority for the bin that leaves the smallest remaining capacity.
+    # The score could be the inverse of the remaining capacity after packing.
+    # To avoid issues with zero remaining capacity, we can add a small constant or use `1 / (1 + surplus)`.
+
+    # Direct Best Fit score: Higher score means smaller surplus.
+    # `1 / (1 + surplus)` yields scores between 1 (surplus=0) and ~0 (large surplus).
+    best_fit_scores = 1.0 / (1.0 + surplus)
+
+    # Alternatively, consider the ratio of item size to current capacity.
+    # Larger items in larger bins might be preferable to avoid fragmentation.
+    # This is related to "Worst Fit Decreasing" ideas, but for online.
+    # Let's stick to prioritizing tight fits, but maybe with a more direct metric.
+    # The original sigmoid amplifies the difference. A simpler approach could be linear or inverse.
+
+    # Let's try a different non-linear approach.
+    # Prioritize bins with small surplus, but also consider the ratio of item to bin capacity.
+    # A bin that is almost full and can fit the item is good.
+    # A bin that is very empty and can fit the item might lead to fragmentation.
+
+    # Revised strategy: Prioritize bins that result in a small *relative* surplus.
+    # Relative surplus = (remaining_capacity - item) / initial_remaining_capacity
+    # This also doesn't feel right for strict BPP. We want smallest number of bins.
+
+    # Let's go back to the idea of minimizing `remaining_capacity - item`.
+    # A simple inverse: `1.0 / (surplus + epsilon)` would prioritize tight fits.
+    # But we need to consider bins that *can* fit.
+
+    # Let's reconsider the reflection: "directness can outperform complexity. Balance item/bin proportions."
+    # A simple "Best Fit" approach: The priority is inversely proportional to the remaining capacity *after* packing.
+    # Priority = 1 / (bins_remain_cap[i] - item + epsilon)
+    # This strongly favors the tightest fit.
+
+    # Let's implement a direct "Best Fit" priority.
+    # The highest priority should go to the bin that, after packing, has the LEAST remaining capacity.
+    # So, priority is inversely related to `bins_remain_cap[i] - item`.
+    # If `bins_remain_cap[i] - item` is small and positive (tight fit), priority is high.
+    # If `bins_remain_cap[i] - item` is large (loose fit), priority is low.
+
+    # Let's use a simple inverse relationship, ensuring values are positive.
+    # `1.0 / (surplus + epsilon)` where surplus = `bins_remain_cap[i] - item`.
+    # This directly rewards smaller surpluses.
+    priorities[can_fit_mask] = 1.0 / (surplus + epsilon)
+
+    # Add a slight preference for bins that are already quite full *before* packing the item.
+    # This might help consolidate items but could also lead to fragmentation if not careful.
+    # Let's try a simple additive term: `item / (bins_remain_cap[can_fit_mask] + epsilon)`.
+    # This term increases as `bins_remain_cap` decreases for a given `item`.
+    # It encourages packing into bins that are already mostly occupied.
+
+    # Let's combine the "tightest fit" idea with "prefer fuller bins".
+    # Score = (1 / (surplus + epsilon)) + (item / (bins_remain_cap[can_fit_mask] + epsilon))
+    # This might over-prioritize very full bins where surplus is also small.
+
+    # Re-thinking reflection: "Balance item/bin proportions."
+    # Maybe prioritize bins that have a capacity *close* to the item size,
+    # rather than just minimizing absolute surplus.
+    # Priority ~ 1 / (abs(bins_remain_cap[i] - item) + epsilon) -- This is like Nearest Fit. Not ideal.
+
+    # Let's stick to Best Fit principle, but perhaps with a decay.
+    # Consider `1 / (1 + steepness * surplus)` from v1, but with different `steepness` or transformation.
+    # What if we prioritize based on `item / bins_remain_cap[i]`? Higher ratio means bin is more "full" relative to item.
+    # This is more like First Fit Decreasing logic, but for online choice of bin.
+
+    # Let's go with a direct interpretation of "Best Fit" using inverse of surplus.
+    # The priority is how much "waste" is left. We want to minimize waste.
+    # Priority = 1 / (remaining_capacity_after_packing + epsilon)
+    # This is equivalent to `1 / (surplus + epsilon)`.
+
+    # Let's try a slightly different non-linear function.
+    # Consider `exp(-k * surplus)`. This is similar to sigmoid but simpler.
+    # As surplus increases, score decreases.
+    k = 2.0 # Tunable parameter for steepness.
+    priorities[can_fit_mask] = np.exp(-k * surplus)
+
+    # Let's refine this: ensure that very tight fits (small surplus) get the highest scores.
+    # `exp(-k * surplus)` maps [0, inf) to (0, 1]. Surplus=0 gets 1.
+    # This is good. It's a direct preference for minimum surplus.
+
+    # Let's incorporate the "balance item/bin proportions" by penalizing very empty bins that fit the item.
+    # For bins that can fit, let's consider `item / bins_remain_cap[i]`.
+    # A higher ratio means the bin is relatively fuller for this item.
+    # A simple approach: `priority = exp(-k * surplus) * (1 + item / bins_remain_cap[can_fit_mask])`
+    # This multiplies the tight-fit score by a factor that prefers fuller bins.
+
+    # Let's try to directly penalize "large empty bins being used".
+    # If `bins_remain_cap[i]` is very large, even if `surplus` is small, it might not be the best.
+    # Consider the ratio `item / bins_remain_cap[i]`.
+    # Maybe `priority = exp(-k * surplus) * (item / bins_remain_cap[can_fit_mask])`?
+    # This would heavily favor bins that are already almost full and have a small surplus.
+    # What if item is large? `item / bins_remain_cap[i]` could be close to 1.
+    # What if item is small? `item / bins_remain_cap[i]` would be small.
+
+    # Let's try a simpler, more direct approach inspired by "balance item/bin proportions" and "directness".
+    # Prioritize bins that have a remaining capacity that is "just enough" for the item.
+    # This is Best Fit. The direct metric is `bins_remain_cap[i] - item`. Minimize this.
+    # Priority = 1 / (bins_remain_cap[i] - item + epsilon) -- This is like inverse of waste.
+    # Let's test this simple inverse:
+    priorities[can_fit_mask] = 1.0 / (bins_remain_cap[can_fit_mask] - item + epsilon)
+
+    # This directly gives the highest score to the bin with the smallest non-negative surplus.
+    # It's a pure Best Fit strategy.
+
+    return priorities
+```

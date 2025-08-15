@@ -1,0 +1,319 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using a refined
+    Sigmoid Fit Score combined with scarcity.
+
+    This heuristic prioritizes bins that offer the "tightest fit" for an incoming item,
+    while also considering how "scarce" or full a bin is. A tighter fit means the bin
+    has just enough remaining capacity to accommodate the item, minimizing wasted space.
+    Scarcity is considered by giving higher priority to bins that are already relatively full
+    (i.e., have less remaining capacity).
+
+    The scoring is based on a combined approach:
+    1.  **Fit Score (Sigmoid-based):** Similar to `priority_v1`, this part favors bins
+        where `remaining_capacity` is close to `item`. The score is:
+        `fit_score = 1 / (1 + exp(k_fit * (remaining_capacity - item)))`
+        This score is high when `remaining_capacity` is just slightly larger than `item`.
+
+    2.  **Scarcity Score (Inverse Capacity):** This part rewards bins that have less
+        remaining capacity overall. A simple way to represent scarcity is the inverse
+        of the remaining capacity. However, to avoid division by zero and to normalize,
+        we can use a scaled inverse or a monotonic function of inverse capacity.
+        A simple approach is to assign a higher score to bins with *smaller* remaining capacities.
+        Let's use `1 / (1 + remaining_capacity)` as a base for scarcity, which
+        decreases as capacity increases.
+
+    3.  **Combined Score:** The two scores are combined using weights.
+        `priority = w_fit * fit_score + w_scarcity * scarcity_score`
+        We want bins that are a good fit AND are scarce.
+
+    Let's refine the scarcity component. Instead of just inverse capacity, we want to
+    prioritize bins that are *almost full*. A bin that is almost full and can fit the item
+    is often a good candidate (e.g., First Fit Decreasing strategy).
+    Consider the "emptiness" or "used capacity". If bins have a maximum capacity `C`,
+    then used capacity is `C - remaining_capacity`. A higher used capacity means more scarcity.
+    However, we only have `bins_remain_cap`.
+
+    Let's consider scarcity as how *little* capacity is left. A bin with `R` remaining
+    capacity is scarcer than a bin with `R'` if `R < R'`.
+    A function that reflects this: `scarcity_factor = 1 / (1 + bins_remain_cap)`.
+    This factor is higher for smaller `bins_remain_cap`.
+
+    Combining them:
+    `priority = w_fit * sigmoid(remaining_capacity - item) + w_scarcity * (1 / (1 + remaining_capacity))`
+
+    The sigmoid score is high for tight fits. The scarcity score is high for low remaining capacity.
+    We want *both*.
+
+    Let's reconsider the combination.
+    We want to pick a bin `j` for item `i`.
+    Bin `j` has remaining capacity `r_j`. Item `i` has size `s_i`.
+    We only consider bins where `r_j >= s_i`.
+
+    **Fit:** Prefer `r_j` close to `s_i`. This means `r_j - s_i` should be small and non-negative.
+    The sigmoid score `1 / (1 + exp(k * (r_j - s_i)))` gives high values for small `r_j - s_i`.
+
+    **Scarcity:** Prefer bins with small `r_j`. This means `1 / (1 + r_j)` should be high.
+
+    **Unified Score:** We can combine these.
+    `score_j = w_fit * sigmoid(r_j - s_i) + w_scarcity * (1 / (1 + r_j))`
+
+    However, this might over-prioritize very small bins that are not a good fit.
+    Let's try to make scarcity *conditional* on being a good fit.
+
+    Alternative: Use Softmax.
+    The problem asks for a priority *score* for *each* bin.
+    A simpler combination could be to multiply relevant factors or add them with weights.
+
+    Let's stick to the structure of `priority_v1` and modify the score calculation to incorporate scarcity.
+    The original `priority_v1`'s score was higher for better fits.
+    To add scarcity, we want to boost the score of bins that have *less* remaining capacity,
+    given they can fit the item.
+
+    Consider the inverse of the remaining capacity of *suitable* bins as a scarcity metric.
+    Let `r_j` be the remaining capacity of a suitable bin.
+    A smaller `r_j` means more scarcity.
+    The scarcity contribution could be proportional to `1 / r_j` (careful with `r_j=0`, though not applicable here as `r_j >= item` and `item > 0`).
+    Or, a scaled version: `(MaxCapacity - r_j) / MaxCapacity` representing fullness. We don't have `MaxCapacity`.
+
+    Let's use `1 / (1 + r_j)` as a simple scarcity proxy.
+    The total score for a suitable bin `j`:
+    `priority_j = weight_fit * sigmoid_score_j + weight_scarcity * (1 / (1 + r_j))`
+
+    We need to normalize or scale these terms so they are comparable.
+    The sigmoid score is between 0 and 1.
+    The scarcity term `1 / (1 + r_j)` can vary. If `r_j` is small (e.g., 1), score is 0.5. If `r_j` is large (e.g., 100), score is ~0.01.
+    This term naturally favors smaller capacities.
+
+    Let's define the weights `w_fit` and `w_scarcity`.
+    `k_fit` controls the sensitivity of the fit.
+    `k_scarcity` could control how much scarcity matters.
+    Perhaps a different function for scarcity?
+    What if we use the *relative* scarcity among suitable bins?
+
+    Let's try a weighted sum:
+    `priority = w_fit * sigmoid_score + w_scarcity * scarcity_contribution`
+
+    **Scarcity Contribution:**
+    For suitable bins `j`, let `r_j` be remaining capacity.
+    We want higher score if `r_j` is smaller.
+    Let's consider `1 / (1 + r_j)` as the raw scarcity value.
+    To make it comparable to sigmoid scores, we could normalize it.
+    If `r_j` ranges from `item` to `max_possible_remaining_capacity`, the `1/(1+r_j)` will range.
+
+    A simpler approach: modify the sigmoid's target.
+    Instead of `r_j - item`, consider how "full" the bin becomes.
+    If a bin has `r_j` remaining capacity and we put `item` in it, the new remaining capacity is `r_j - item`.
+    The *degree of fit* can be seen as `r_j - item`.
+    The *scarcity* can be seen as `r_j` itself.
+
+    Let's try to capture "Best Fit" and "Least Full" (most scarce).
+    "Best Fit": minimize `r_j - item`.
+    "Least Full": minimize `r_j`.
+
+    Consider the objective: find `j` that minimizes `f(r_j, item)` where `f` is some penalty function.
+    For Best Fit: `f(r_j, item) = r_j - item`.
+    For Least Full: `f(r_j, item) = r_j`.
+
+    We want to balance these.
+    A common way to combine objectives: `alpha * (r_j - item) + beta * r_j`.
+    Or, `alpha * (r_j - item) + beta * (BinCapacity - r_j)`. We don't have BinCapacity.
+
+    Let's reconsider the reflection: "Combine "best fit" with "scarcity" using a unified score."
+    "Tunable weights and Softmax temperature for adaptive exploration/exploitation."
+
+    The current `priority_v1` uses a sigmoid. The output is a probability-like score.
+    If we want to combine with scarcity, we can add a scarcity term to the exponent or add to the score itself.
+
+    Let's try adding a term to the score:
+    `score_j = sigmoid_score_j + w_scarcity * scarcity_term_j`
+
+    Where `sigmoid_score_j = 1 / (1 + np.exp(k_fit * (r_j - item)))`.
+    And `scarcity_term_j` should be higher for smaller `r_j`.
+    Let's use `scarcity_term_j = 1 / (1 + r_j)`.
+
+    So, `priority_j = (1 / (1 + np.exp(k_fit * (r_j - item)))) + w_scarcity * (1 / (1 + r_j))`
+
+    This combined score needs to be carefully weighted.
+    The sigmoid score is between 0 and 1.
+    The scarcity term `1/(1+r_j)` is also positive.
+    If `r_j` is very small (e.g., 0.1), scarcity term is `1/1.1 ~ 0.9`.
+    If `r_j` is large (e.g., 100), scarcity term is `1/101 ~ 0.01`.
+
+    Let's scale the scarcity term to be in a similar range or adjust weights.
+    Alternatively, let the weights be dynamic.
+
+    Consider Softmax: The output of a priority function is often used to select a bin,
+    e.g., using sampling proportional to priority.
+    If the priorities are `p_1, p_2, ..., p_n`, then probability of picking bin `i` is `p_i / sum(p_k)`.
+    Softmax function: `P(pick bin i) = exp(score_i / temperature) / sum(exp(score_k / temperature))`
+    This implies the scores themselves don't need to sum to 1, but their exponentiated versions do.
+
+    Let's define `score_i` as the *utility* of placing item `i` into bin `j`.
+    Utility = `w_fit * fit_quality(r_j, s_i) + w_scarcity * scarcity(r_j)`
+
+    Fit Quality: Higher if `r_j - s_i` is small and non-negative.
+    Let `fit_quality(r_j, s_i) = - (r_j - s_i)` if `r_j >= s_i`, else negative infinity.
+    Or, use the sigmoid: `sigmoid(k * (r_j - s_i))` which is ~1 for perfect fit, decreases as `r_j` grows.
+
+    Scarcity: Higher if `r_j` is small.
+    Let `scarcity(r_j) = -r_j`. We want to maximize this. Or use `1/(1+r_j)`.
+
+    Let's stick to the `priority_v1` structure and modify the score calculation.
+    The original score was `1 / (1 + exp(k * (r_j - item)))`.
+    We want to increase priority for bins with *smaller* `r_j`.
+
+    Consider the term `k * (r_j - item)`. For a good fit, this is close to 0.
+    If `r_j` is smaller, `r_j - item` is smaller. This increases the sigmoid score.
+    This seems to implicitly incorporate some scarcity preference.
+
+    Let's add a term that directly penalizes larger remaining capacities.
+    Maybe use a different function for scarcity.
+
+    How about:
+    `priority_j = sigmoid_score_j * scarcity_factor_j`
+    Where `sigmoid_score_j = 1 / (1 + np.exp(k_fit * (r_j - item)))`
+    And `scarcity_factor_j` should be high for small `r_j`.
+    Let `scarcity_factor_j = 1 / (1 + r_j)`.
+
+    So, `priority_j = (1 / (1 + np.exp(k_fit * (r_j - item)))) * (1 / (1 + r_j))`
+    This might decrease priority too much for bins that are good fits but have slightly larger remaining capacities.
+
+    Let's go back to additive combination.
+    `priority_j = w_fit * sigmoid_score_j + w_scarcity * scarcity_score_j`
+
+    We need to define `scarcity_score_j`.
+    It should be high for small `r_j`.
+    Let's use a function that is monotonically decreasing with `r_j`.
+    A simple one is `1 / (1 + r_j)`.
+
+    However, the reflection mentions "adaptive exploration/exploitation". Softmax temperature relates to this.
+    The output of the priority function is a set of scores. These scores are then used, possibly with Softmax, to select a bin.
+    So, the function itself should output the scores that capture the combined heuristic.
+
+    Let's define the score as:
+    `score = BaseScore + BonusForScarcity`
+    `BaseScore` is the sigmoid score from `v1`.
+    `BonusForScarcity` should be higher for smaller `r_j`.
+
+    Let `k_fit = 5.0` (from v1).
+    Let `w_scarcity = 0.5` (tunable).
+
+    `fit_score = 1 / (1 + np.exp(k_fit * (r_j - item)))`
+
+    Scarcity term: `scarcity_term = 1 / (1 + r_j)`
+    This term is between (0, 1]. Higher for smaller `r_j`.
+
+    Combined score: `combined_score_j = fit_score_j + w_scarcity * scarcity_term_j`
+
+    Example:
+    item = 3
+    bins_remain_cap = [5, 7, 3, 10]
+
+    Bin 0: r=5. Fit_score = 1/(1+exp(5*(5-3))) = 1/(1+exp(10)) ~ 0.
+             Scarcity_term = 1/(1+5) = 1/6 ~ 0.167.
+             Combined = 0 + 0.5 * 0.167 = 0.0835
+
+    Bin 1: r=7. Fit_score = 1/(1+exp(5*(7-3))) = 1/(1+exp(20)) ~ 0.
+             Scarcity_term = 1/(1+7) = 1/8 = 0.125.
+             Combined = 0 + 0.5 * 0.125 = 0.0625
+
+    Bin 2: r=3. Fit_score = 1/(1+exp(5*(3-3))) = 1/(1+exp(0)) = 0.5.
+             Scarcity_term = 1/(1+3) = 1/4 = 0.25.
+             Combined = 0.5 + 0.5 * 0.25 = 0.5 + 0.125 = 0.625
+
+    Bin 3: r=10. Fit_score = 1/(1+exp(5*(10-3))) = 1/(1+exp(35)) ~ 0.
+              Scarcity_term = 1/(1+10) = 1/11 ~ 0.09.
+              Combined = 0 + 0.5 * 0.09 = 0.045
+
+    In this example, Bin 2 (perfect fit) gets the highest score, which is good.
+    Bin 0 gets the next highest, then Bin 1, then Bin 3.
+    This seems to correctly balance fit and scarcity.
+
+    Let's refine the implementation details.
+    Need to handle `suitable_bins_mask`.
+    The `k_fit` parameter is crucial.
+    The `w_scarcity` parameter is crucial.
+
+    Consider potential numerical stability issues.
+    `np.exp(k_fit * (suitable_bins_cap - item))` could overflow if `k_fit` and `suitable_bins_cap - item` are large.
+    The `priority_v1` already had logic to cap the exponent argument. We should retain that.
+    `max_exponent_arg = 35.0`
+
+    `fit_scores = 1 / (1 + np.exp(np.minimum(k_fit * (suitable_bins_cap - item), max_exponent_arg)))`
+
+    For scarcity term `1 / (1 + r_j)`, `r_j` are the `suitable_bins_cap`.
+    `scarcity_terms = 1 / (1 + suitable_bins_cap)`
+
+    Combined scores for suitable bins:
+    `combined_suitable_scores = fit_scores + w_scarcity * scarcity_terms`
+
+    Need to put these back into the `priorities` array.
+
+    Tunable parameters:
+    `k_fit`: Controls emphasis on tight fit. Higher value = stricter preference for exact fits.
+    `w_scarcity`: Controls influence of bin scarcity. Higher value = more preference for fuller bins.
+
+    Let's set initial values:
+    `k_fit = 5.0`
+    `w_scarcity = 0.5`
+
+    The function should return a numpy array of priorities, same shape as `bins_remain_cap`.
+    Unsuitable bins should have a priority of 0.
+
+    Refined structure:
+    1. Initialize `priorities` array with zeros.
+    2. Create `suitable_bins_mask`.
+    3. If no suitable bins, return zeros.
+    4. Extract `suitable_bins_cap`.
+    5. Define parameters `k_fit`, `w_scarcity`, `max_exponent_arg`.
+    6. Calculate `fit_scores` using capped sigmoid.
+    7. Calculate `scarcity_terms` using `1 / (1 + r_j)`.
+    8. Combine `fit_scores` and `scarcity_terms` with `w_scarcity`.
+    9. Assign combined scores to `priorities` array at `suitable_bins_mask` positions.
+    10. Return `priorities`.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+
+    # If no bin can fit the item, return all zeros
+    if suitable_bins_cap.size == 0:
+        return priorities
+
+    # --- Tunable Parameters ---
+    # k_fit: Sensitivity parameter for the sigmoid function. Higher values prioritize tighter fits more strongly.
+    k_fit = 5.0
+    # w_scarcity: Weight for the scarcity component. Higher values give more importance to bins with less remaining capacity.
+    w_scarcity = 0.5
+    # Maximum argument for np.exp to prevent overflow. Corresponds to exp(35) ~ 3.4e15.
+    max_exponent_arg = 35.0
+    # --------------------------
+
+    # Calculate Fit Score (Sigmoid-based)
+    # Prefer bins where (remaining_capacity - item) is small and non-negative.
+    mismatch = suitable_bins_cap - item
+    exponent_arg = k_fit * mismatch
+    capped_exponent_arg = np.minimum(exponent_arg, max_exponent_arg)
+    fit_scores = 1 / (1 + np.exp(capped_exponent_arg))
+
+    # Calculate Scarcity Score
+    # Prefer bins with smaller remaining capacity (more scarce).
+    # Use 1 / (1 + remaining_capacity) as a simple scarcity metric.
+    # This value is between (0, 1] and is higher for smaller capacities.
+    scarcity_terms = 1 / (1 + suitable_bins_cap)
+
+    # Combine Fit Score and Scarcity Score
+    # The combined score is a weighted sum.
+    combined_suitable_scores = fit_scores + w_scarcity * scarcity_terms
+
+    # Assign the calculated combined scores to the priorities array for suitable bins
+    priorities[suitable_bins_mask] = combined_suitable_scores
+
+    return priorities
+```

@@ -1,0 +1,101 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines best-fit (minimal gap) with a penalty for excessive remaining capacity
+    using a soft, graded scoring mechanism inspired by Softmax.
+    """
+    
+    fit_mask = bins_remain_cap >= item
+    
+    
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+    
+    
+    if not np.any(fit_mask):
+        return priorities
+    
+    
+    fitting_bins_remain_cap = bins_remain_cap[fit_mask]
+    
+    
+    gap = fitting_bins_remain_cap - item
+    
+    
+    # Score based on inverse gap: higher score for smaller gap (better fit)
+    # Adding epsilon to avoid division by zero for perfect fits.
+    epsilon = 1e-9
+    inverse_gap_scores = 1.0 / (gap + epsilon)
+    
+    
+    # Introduce a secondary factor that penalizes bins with very large remaining capacity.
+    # This can be a scaled inverse of the remaining capacity itself.
+    # A common approach is to use a temperature parameter for scaling before exponentiation.
+    temperature = 0.5  # Controls how sharply priorities are distributed. Lower temp = sharper focus on best fits.
+    
+    
+    # Combine: prioritize minimal gap, then favor bins that are not excessively empty.
+    # We can scale the inverse gap scores and then apply an exponential transformation.
+    # High inverse_gap_scores (small gap) should lead to high priority.
+    # Let's use the scaled inverse gap scores directly as the basis for exponential weighting.
+    
+    # The term `inverse_gap_scores` already favors smaller gaps.
+    # We can further enhance this by scaling it and using an exponential.
+    # A simple way to get graded priorities is to use `exp(scaled_value)`.
+    # We want smaller `gap` to result in a larger `scaled_value`.
+    # So, `scaled_value` could be proportional to `1/gap`.
+    
+    # Let's use `inverse_gap_scores` as the basis for the exponential.
+    # High `inverse_gap_scores` (small gap) means higher priority.
+    # Softmax-like weighting: exp(score) / sum(exp(scores)).
+    # We can directly use exp(scaled_score) as priority.
+    
+    # Scaling `inverse_gap_scores` down with temperature before exponentiation helps
+    # to create smoother distributions if needed, but for direct selection, 
+    # higher scaled values are directly preferred.
+    
+    # Let's define the raw score for fitting bins as `inverse_gap_scores`.
+    # Then apply an exponential transformation for graded priorities.
+    # A larger score for inverse_gap_scores should lead to a larger exponential value.
+    
+    # Let's simplify: prioritize the "best fit" using inverse of the gap.
+    # Then, for bins with very similar gaps, we might want to slightly favor fuller bins.
+    # However, the `inverse_gap_scores` already implicitly favors fuller bins among equally "best-fitting" ones.
+    
+    # A more explicit way to add fullness as a secondary criterion:
+    # score = w1 * (1 / (gap + epsilon)) + w2 * (1 / (fitting_bins_remain_cap + epsilon))
+    # Let's try prioritizing the gap more heavily.
+    
+    # Revised approach:
+    # 1. Primary: Minimize the gap (`gap = bins_remain_cap - item`). This means maximizing `-gap`.
+    # 2. Secondary: Favor bins with less remaining capacity (more full bins). This means maximizing `-fitting_bins_remain_cap`.
+    
+    # Weighted sum: `score = alpha * (-gap) + (1-alpha) * (-fitting_bins_remain_cap)`
+    # Where `alpha` is a parameter between 0 and 1. Higher `alpha` prioritizes tightest fit.
+    
+    alpha = 0.9 # Prioritize tightest fit heavily
+    
+    
+    combined_scores = alpha * (-gap) + (1 - alpha) * (-fitting_bins_remain_cap)
+    
+    
+    # To make these scores suitable for selection (higher is better), and to ensure they are positive for potential Softmax-like use,
+    # we can shift and scale them, or use an exponential transformation.
+    # A simple transformation to ensure higher values for better fits:
+    # We want to maximize `combined_scores`.
+    # Let's shift them by adding a large constant to make them positive if needed, or simply use them as is for argmax.
+    
+    # Let's use the exponential transformation as it naturally creates graded priorities.
+    # Higher `combined_scores` should result in higher exponential values.
+    temperature = 0.5 # Adjust temperature to control sensitivity.
+    
+    
+    scaled_scores = combined_scores / temperature
+    
+    
+    priorities[fit_mask] = np.exp(scaled_scores)
+    
+    
+    return priorities
+```

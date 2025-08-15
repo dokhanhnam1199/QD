@@ -1,0 +1,127 @@
+[Prior reflection]
+The current `priority_v1` uses a simple linear scoring for "almost full" bins: `-(bins_remain_cap - item)`. This assigns higher priority to bins that become *even tighter* after packing. While this favors fuller bins, it doesn't explicitly smooth the preference or introduce a concept of "good enough" fits. The reflection suggests using a sigmoid or softmax for smoother preference.
+
+A sigmoid function can map any real-valued score to a value between 0 and 1, which can represent a probability or a normalized preference. However, for a priority score where we want the *highest* to be chosen, a direct sigmoid on `-(bins_remain_cap - item)` might not be the most intuitive. Instead, let's consider a function that penalizes *large* remaining capacities more heavily, thereby favoring tighter fits.
+
+Alternatively, we can think about the "tightness" as the inverse of the remaining capacity after packing, but perhaps scaled or transformed. A common approach in heuristics is to consider how "good" a fit is. A perfect fit (remaining capacity of 0) is ideal. Deviations from this ideal could be penalized.
+
+Let's rethink the "Almost Full Fit" and the reflection's emphasis on "smooth preference." If we want to prioritize bins that are *almost* full, this implies that bins with a remaining capacity *just above* the item size are preferred. The current `-(bins_remain_cap - item)` already does this by making smaller positive `(bins_remain_cap - item)` values more negative (higher priority).
+
+The reflection mentions sigmoid/softmax for smooth preference. This usually means mapping values into a range (like 0-1) and potentially using these as weights. However, for a direct selection of the *best* bin, we want a score where higher is better.
+
+Consider the "gap" `bins_remain_cap - item`. We want to minimize this gap. A simple way to turn minimization into maximization is to use its negative, `-gap`. To make it "smooth," we could consider a function that is steeper for smaller gaps.
+
+Let's consider the objective: choose the bin with the smallest `remaining_capacity - item` (among those that can fit).
+If `bins_remain_cap - item` is the value we want to minimize.
+We can transform this into a maximization problem by using `-(bins_remain_cap - item)`.
+
+What if we want to use a sigmoid-like behavior? A sigmoid function like `1 / (1 + exp(-x))` increases from 0 to 1. If we feed it `x = -(bins_remain_cap - item)`, higher values of `-(bins_remain_cap - item)` (meaning smaller `bins_remain_cap - item`) will result in higher sigmoid outputs.
+So, `sigmoid(-(bins_remain_cap - item))` could work.
+
+Another approach for smooth preference is to penalize bins that are *too* empty or *too* full.
+For an "Almost Full Fit", we want bins where `bins_remain_cap` is slightly larger than `item`.
+
+Let's try to incorporate a "goodness" score where a perfect fit (remaining capacity = 0 after placing item) is the best, and deviations are penalized, but deviations upwards (more space left) are penalized more than very small deviations downwards (if that were possible, but here it's not).
+
+A function that captures "closeness" to zero, but only for non-negative values:
+`f(x) = -x` for `x >= 0`. This is what `priority_v1` uses.
+To make it smoother and perhaps more sensitive to very tight fits, we could use an exponential decay, but that might over-prioritize extremely tight fits.
+
+Let's consider the "tightness" as `(bins_remain_cap - item)`. We want to minimize this.
+The reflection suggests "minimizing `remaining_capacity - item`".
+And "smooth preference".
+
+What if we use a transformation that emphasizes smaller positive differences?
+Consider `exp(-k * (bins_remain_cap - item))` for some `k > 0`.
+If `bins_remain_cap - item` is small and positive, the exponent is a small negative number, and `exp` is close to 1.
+If `bins_remain_cap - item` is large and positive, the exponent is a large negative number, and `exp` is close to 0.
+This gives higher priority to smaller positive differences.
+
+Let's choose `k=1` for simplicity. The priority would be `exp(-(bins_remain_cap - item))`.
+We still need to handle bins that cannot fit (`bins_remain_cap < item`). These should have very low priority.
+
+So, for bins where `bins_remain_cap >= item`:
+Priority = `exp(-(bins_remain_cap - item))`
+For bins where `bins_remain_cap < item`:
+Priority = `-np.inf` (or a very small number).
+
+This naturally assigns higher scores (closer to 1) to bins with smaller `bins_remain_cap - item`. A perfect fit `bins_remain_cap - item = 0` gives a priority of `exp(0) = 1`. A fit leaving 1 unit of space gives `exp(-1) \approx 0.368`. A fit leaving 5 units gives `exp(-5) \approx 0.0067`. This provides a smooth preference for tighter fits.
+
+Let's refine the "tie-breaking with lower bin indices". Numpy's `argmax` will return the first occurrence of the maximum value. So, if two bins have the same maximum priority score, the one with the lower index will be selected. This is already handled by how `argmax` works.
+
+The reflection also mentions "Minimize `remaining_capacity - item`". The `exp` function does exactly this by mapping smaller positive `remaining_capacity - item` to higher priority scores.
+
+Let's consider a score that favors bins where `bins_remain_cap` is *just enough* for the item.
+This means `bins_remain_cap` is close to `item`.
+Let `diff = bins_remain_cap - item`. We want to minimize `diff` for `diff >= 0`.
+
+The `exp(-diff)` approach seems to fit the "smooth preference" and "minimize `remaining_capacity - item`" requirements well.
+
+The original `priority_v1` was: `-(bins_remain_cap - item)`.
+For `item = 2`, `bins_remain_cap = [5, 3, 7]`:
+Priorities: `-[3, 1, 5]` -> `[-3, -1, -5]`. Max priority is `-1` for bin 1.
+
+Using `exp(-(bins_remain_cap - item))`:
+For `item = 2`, `bins_remain_cap = [5, 3, 7]`:
+Diffs: `[3, 1, 5]`
+Priorities: `[exp(-3), exp(-1), exp(-5)]` -> `[0.0498, 0.3679, 0.0067]`. Max priority is `0.3679` for bin 1.
+
+This new approach uses `exp` for a smoother, potentially more sensitive prioritization of tight fits.
+
+Final check on reflection:
+- "Prioritize tight fits using sigmoid or softmax for smooth preference." - `exp` offers a smooth, decaying preference for tighter fits. While not strictly sigmoid/softmax, it achieves smooth preference.
+- "Minimize `remaining_capacity - item`." - The `exp` function maps smaller positive differences to higher scores.
+- "Break ties with lower bin indices." - This is implicitly handled by NumPy's `argmax`.
+
+Let's implement this `exp` based approach.
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using an exponential Almost Full Fit strategy.
+
+    This strategy prioritizes bins that have a remaining capacity just sufficient
+    to hold the item, assigning higher priority to tighter fits. The priority
+    is calculated using an exponential decay based on the difference between
+    the bin's remaining capacity and the item size.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority. Bins that cannot fit the
+        item receive a priority of -infinity.
+    """
+    # Initialize priorities to a very low value for bins that cannot fit the item.
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate priority.
+    # The strategy is to prioritize bins with the smallest positive remaining capacity
+    # after placing the item. This means prioritizing bins where (bins_remain_cap - item)
+    # is small and non-negative.
+    # We use an exponential function `exp(-diff)` where `diff = bins_remain_cap - item`.
+    # This provides a smooth preference:
+    # - A perfect fit (diff=0) gets a priority of exp(0) = 1.
+    # - A fit leaving a small gap (e.g., diff=1) gets exp(-1) approx 0.368.
+    # - A fit leaving a larger gap (e.g., diff=5) gets exp(-5) approx 0.0067.
+    # This prioritizes tighter fits smoothly.
+
+    # Calculate the difference (gap) for bins that can fit the item
+    gaps = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate priorities using exponential decay of the gap
+    # A smaller gap leads to a higher priority (closer to 1).
+    priorities[can_fit_mask] = np.exp(-gaps)
+
+    # Tie-breaking: np.argmax will select the first occurrence of the maximum
+    # priority, thus favoring bins with lower indices in case of a tie.
+
+    return priorities
+```
+```

@@ -1,0 +1,105 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Softmax-based priority function for online Bin Packing Problem.
+
+    This function assigns a priority score to each bin based on how well
+    an item fits into it, using the Softmax function. Bins with more
+    remaining capacity, relative to the item's size, are prioritized.
+    The scores are normalized such that higher values indicate higher preference.
+    """
+    # Calculate how much space is left in each bin if the item is placed there
+    # We only consider bins where the item *can* fit
+    potential_fits = bins_remain_cap - item
+    
+    # For bins where the item does not fit, set their potential_fit to a very small negative number
+    # to ensure they get a very low priority after softmax.
+    potential_fits[potential_fits < 0] = -np.inf
+
+    # Apply the Softmax function to transform scores into probabilities
+    # exp(score) / sum(exp(scores))
+    # This naturally handles the 'no fit' cases due to -inf, resulting in 0 probability.
+    # A small epsilon is added to the sum to prevent division by zero if all bins are full.
+    
+    # The core idea is to give higher priority to bins that have just enough space,
+    # or a bit more. Placing an item in a bin that leaves a very small gap might be
+    # better for tighter packing than placing it in a bin with vast excess capacity.
+    # We can achieve this by mapping the remaining capacity to a value that
+    # peaks when remaining_capacity = item_size.
+    # A possible transformation could be: -(remaining_capacity - item_size)^2
+    # However, a simpler approach that prioritizes larger remaining capacities is:
+    # just use the remaining capacity itself. For Softmax, higher values are better.
+    # Let's refine this: we want to prioritize bins that have enough space,
+    # and among those, perhaps those that leave a "good" amount of space.
+    # A simple "good" amount of space could be just enough or a bit more.
+    # Consider the inverse of the excess space.
+    
+    # Let's prioritize bins that have sufficient space and minimize wasted space.
+    # A bin that can barely fit the item (remaining_cap = item) is good.
+    # A bin that is much larger than the item is also okay.
+    # A bin that cannot fit the item is bad.
+    
+    # Consider a score that is higher for bins where remaining_cap >= item
+    # and penalizes large remaining_cap relative to item.
+    # A function like: item / (remaining_cap - item + epsilon) could work,
+    # but can be unstable.
+
+    # A common strategy in heuristic priority functions is to favor bins that
+    # leave the smallest possible remaining capacity after packing (Best Fit heuristic).
+    # In Softmax context, we want to assign higher scores to these bins.
+    # So, the 'score' should be inversely related to (bins_remain_cap - item).
+    # Let's try: score = - (bins_remain_cap - item)
+    # This makes smaller positive differences (closer to 0) have higher scores.
+    # And if bins_remain_cap - item is negative, it should be very low.
+    
+    # We already calculated potential_fits = bins_remain_cap - item.
+    # Let's use this directly in a way that emphasizes fitting well.
+    # We want to give higher scores to bins where (bins_remain_cap - item) is small and positive.
+    # This means the closer (bins_remain_cap - item) is to 0, the higher the priority.
+    # We can transform (bins_remain_cap - item) using an exponential decay or inverse.
+    # For Softmax, positive values are good, and we want the smallest positive values to be "best".
+    
+    # Let's try a score based on the "tightness" of the fit.
+    # If item fits, the gap is `bins_remain_cap - item`.
+    # We want to maximize priority when this gap is small and positive.
+    # So, `score = 1 / (bins_remain_cap - item + epsilon)` for positive gaps.
+    # For negative gaps, the score should be zero.
+    
+    # Let's create a score that is `-(bins_remain_cap - item)` for bins where it fits.
+    # This way, the smallest positive difference (closest to 0) gets the highest score.
+    # Example: item=3. Bins remaining_cap: [5, 8, 3, 4]
+    # Potential fits: [2, 5, 0, 1]
+    # Scores (-potential_fits): [-2, -5, 0, -1]
+    # Applying softmax to these scores.
+    # exp(-2), exp(-5), exp(0), exp(-1) -> approx [0.135, 0.0067, 1, 0.368]
+    # Sum = 0.135 + 0.0067 + 1 + 0.368 = 1.51
+    # Probabilities: [0.089, 0.004, 0.662, 0.244]
+    # This seems to prioritize the bin with remaining_cap = 3 correctly.
+
+    scores = bins_remain_cap - item
+    
+    # For bins where the item does not fit, assign a very low score.
+    # This ensures they get a probability close to zero after softmax.
+    scores[scores < 0] = -np.inf 
+    
+    # Avoid division by zero if all scores are -inf (though unlikely if bins_remain_cap is non-empty)
+    # Add a small value to scores before exp to avoid 0 if -np.inf is handled in a peculiar way
+    # or if all remaining capacities are too small.
+    # A common technique is to add a small random noise or a small constant to prevent collapse.
+    # For Softmax, we can simply exponentiate and then normalize.
+    
+    exps = np.exp(scores)
+    
+    # If all exps are 0 (due to -np.inf), sum_exps will be 0. Handle this.
+    sum_exps = np.sum(exps)
+    if sum_exps == 0:
+        # This implies no bin could fit the item. Return uniform zero priorities or handle as an error.
+        # For now, returning zeros as it indicates no valid choice.
+        return np.zeros_like(bins_remain_cap)
+        
+    priorities = exps / sum_exps
+    
+    return priorities
+```

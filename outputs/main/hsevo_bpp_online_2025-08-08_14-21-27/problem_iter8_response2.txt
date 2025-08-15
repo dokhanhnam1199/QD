@@ -1,0 +1,47 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit with a penalty for very small remaining capacity,
+    favoring tight fits while slightly discouraging bins that become overly full.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    fittable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(fittable_bins_mask):
+        return priorities
+
+    fitting_bins_cap = bins_remain_cap[fittable_bins_mask]
+
+    # Best Fit Score: Inverse of remaining capacity after placement.
+    # Higher score for bins that leave less capacity (tighter fit).
+    best_fit_scores = 1.0 / (fitting_bins_cap - item + 1e-9)
+
+    # Adaptive Penalty for Small Residuals: Penalize bins that leave a very small remainder.
+    # This aims to avoid situations where a bin is *too* full, potentially leaving no room
+    # for even slightly larger items later. We use an inverse relationship with the remainder.
+    # A small remainder (e.g., 0.1) gets a lower penalty score (e.g., 0.1 / (0.1 + 0.5) ~ 0.16),
+    # while a larger remainder (e.g., 10) gets a higher penalty score (e.g., 10 / (10 + 0.5) ~ 0.95).
+    # We want to *discourage* very small remainders, so we'll use this score to adjust the best_fit_scores.
+    # Specifically, we'll multiply the best_fit_scores by a factor that decreases as the remainder gets smaller.
+    # Let's invert this penalty concept: a *good* residual quality score should be *high* for moderate remainders.
+    # Instead of penalty, let's frame it as a "residual quality bonus" where small residuals are penalized.
+    # A simple penalty function for small residuals: exp(-residual / sensitivity)
+    # Where sensitivity is a parameter controlling how quickly the penalty kicks in.
+    sensitivity = 2.0  # Controls how strongly small remainders are penalized.
+    residual_quality_factor = np.exp(-(fitting_bins_cap - item) / sensitivity)
+
+
+    # Combine scores: Multiply Best Fit by the residual quality factor.
+    # This prioritizes tight fits (high best_fit_scores) but reduces their priority
+    # if they leave an extremely small remainder (low residual_quality_factor).
+    combined_scores = best_fit_scores * residual_quality_factor
+
+    # Normalize combined scores to [0, 1] to make them comparable across different calls.
+    max_score = np.max(combined_scores)
+    if max_score > 1e-9:
+        priorities[fittable_bins_mask] = combined_scores / max_score
+
+    return priorities
+```

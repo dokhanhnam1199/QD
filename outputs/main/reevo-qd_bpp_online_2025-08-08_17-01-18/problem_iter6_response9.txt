@@ -1,0 +1,158 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin,
+    prioritizing tight fits, then earlier bins, and incorporating a soft
+    exploration mechanism.
+
+    The function aims to:
+    1. Prioritize bins that result in the least remaining capacity after packing (tightest fit).
+    2. Among bins with similar "tightness", prefer bins that appear earlier in the array (First Fit aspect).
+    3. Introduce a small, adaptive exploration factor that slightly boosts bins that are not
+       absolute best fits, encouraging diversity in bin selection.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.full(num_bins, -np.inf)  # Initialize with a very low priority
+
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+    fitting_indices = np.where(can_fit_mask)[0]
+
+    if len(fitting_indices) == 0:
+        return np.zeros(num_bins)  # No bin can fit the item, return zero priorities
+
+    # --- Calculate "fit quality" score ---
+    # We want to minimize (bins_remain_cap - item), the slack.
+    # A smaller slack is better. To convert this to a maximization problem for priority,
+    # we use a score that is high for small slack.
+    # A simple transformation is `1 / (1 + slack)`, or `-slack` for linear,
+    # or `exp(-slack / temperature)` for exponential.
+    # Let's use a score that is directly proportional to the negative slack,
+    # plus a term to encourage tighter fits more strongly.
+
+    slack = bins_remain_cap[fitting_indices] - item
+
+    # Base priority from tightness: Maximize -(slack).
+    # A small positive value is added to slack to avoid division by zero and
+    # to create a score that is monotonically decreasing with slack.
+    # Adding 1 to slack ensures the denominator is always at least 1.
+    # Then, we take the negative to make it a maximization problem.
+    # `fit_score = -slack` is simpler for direct maximization.
+    # Let's use a transformation like `slack_transformed = 1 / (slack + epsilon)`
+    # or `slack_transformed = max_slack - slack` to make smaller slack values yield higher scores.
+    # We want a high score for small slack. Let's use a decaying function.
+    # A simple approach: `high_value - slack`.
+    
+    # To incorporate First Fit, we add a penalty based on index.
+    # The priority should be: `(measure of good fit) - (penalty for later index)`
+    # Measure of good fit: Maximizing `-(slack)`.
+    # Penalty for later index: `index * small_factor`.
+    # So, `priority = -slack - index * epsilon`.
+
+    epsilon_tiebreaker = 1e-5  # Small constant to differentiate bins with identical slack
+
+    # Calculate the core priority based on negative slack and index penalty.
+    # Higher priority is given to bins with smaller slack, and among those, to earlier bins.
+    core_priority = -(slack) - (fitting_indices * epsilon_tiebreaker)
+
+    # --- Exploration component ---
+    # Add a small, adaptive bonus to encourage exploring bins that are not the absolute best fit.
+    # This bonus should be smaller for better fits and larger for less ideal fits,
+    # but still positive for all suitable bins.
+    # We can use a base exploration factor and modulate it.
+    # Let's use a small constant exploration bonus for all suitable bins.
+    # This ensures that even slightly worse fits have a chance.
+    exploration_bonus = 0.01  # A small constant exploration boost
+
+    # Combine core priority with exploration bonus.
+    # The exploration bonus is added to all suitable bins, so it increases the
+    # chances of non-best fits without drastically altering the preference for best fits.
+    final_priorities = core_priority + exploration_bonus
+
+    # Assign the calculated priorities back to the original bins
+    priorities[fitting_indices] = final_priorities
+
+    # Ensure that any bin that *can* fit has a non-negative priority,
+    # unless it's an absolutely terrible fit that should be avoided.
+    # For this heuristic, all fitting bins will have a priority that
+    # reflects their fit quality, and thus are potentially selectable.
+    # The `-np.inf` initialization for non-fitting bins correctly excludes them.
+    
+    # Normalize priorities to be in a more interpretable range (e.g., 0 to 1),
+    # or simply return the raw scores where higher means better.
+    # For this problem, raw scores are sufficient as we only need relative ordering.
+    # However, if this were used in a probabilistic selection, normalization would be key.
+    # Let's ensure priorities are not negative for fitting bins if the calculation yields them.
+    # The core_priority can be negative if slack is very large and epsilon_tiebreaker is small.
+    # We want to ensure that fitting bins are always preferred over non-fitting bins (which have -inf).
+    # The exploration_bonus helps in making these scores positive.
+
+    # To make the preference for "tightest fit" more pronounced and the exploration
+    # more nuanced, we can consider a scaled version of slack.
+    # Let's re-evaluate the priority formulation:
+    # We want to maximize `f(slack, index)`
+    # `f(slack, index) = U(slack) - V(index)`
+    # `U(slack)`: Should be high for small slack.
+    # `V(index)`: Should be low for small index.
+    # `U(slack) = -slack` is linear. `U(slack) = exp(-slack/T)` is exponential.
+    # `V(index) = index * epsilon`.
+    
+    # Let's try a simpler, more robust approach combining Best Fit and First Fit:
+    # The priority of a bin is determined by:
+    # 1. How much capacity remains after packing (slack). Smaller is better.
+    # 2. The index of the bin. Smaller is better for tie-breaking.
+    # To maximize priority: we want to maximize a score derived from -(slack) and -(index).
+    # Priority = -slack - index * epsilon
+
+    # Let's refine the exploration part. Instead of a flat bonus,
+    # make the bonus inversely related to the "goodness" of the fit, but ensure it's always positive.
+    # This way, less optimal fits get a slightly larger exploration boost.
+    
+    # Calculate a "quality score" for each fitting bin.
+    # A higher quality score means a better fit (smaller slack).
+    # For example, `quality = 1.0 / (slack + 1e-9)`.
+    # Or, `quality = -slack`.
+    
+    # Let's stick to the `-(slack) - index * epsilon` formulation for the core preference.
+    # For exploration, we can add a small random noise, or a small constant.
+    # A small constant is simpler and less stochastic.
+
+    # Re-calculating for clarity and correctness:
+    # Priority should be higher for:
+    # - Smaller slack (tighter fit)
+    # - Smaller index (earlier bin)
+
+    # Maximize: `K - slack - index * epsilon`
+    # where K is a large constant to ensure fitting bins have positive scores.
+    # Or, simply maximize: `-slack - index * epsilon`.
+    # Let's add the exploration bonus to this.
+
+    K_large = 10.0  # Constant to ensure scores are generally positive
+    epsilon_tiebreaker = 1e-5
+    exploration_bonus = 0.01
+
+    # Recalculate priorities for fitting bins
+    # The fitting_indices are already computed.
+    # The slack values are already computed.
+
+    # Base score: Prioritize smaller slack, then smaller index.
+    # Maximize: `K_large - slack - fitting_indices * epsilon_tiebreaker`
+    # This prioritizes bins where `slack` is small, and `fitting_indices` is small.
+    base_scores = K_large - slack - fitting_indices * epsilon_tiebreaker
+
+    # Add exploration bonus to all fitting bins.
+    final_priorities = base_scores + exploration_bonus
+
+    # Assign these scores to the appropriate bins.
+    priorities[fitting_indices] = final_priorities
+
+    # Ensure that non-fitting bins remain at -inf, and fitting bins have their calculated priorities.
+    return priorities
+```

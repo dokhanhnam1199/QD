@@ -1,0 +1,67 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes bins based on a combination of tightest fit and overall bin fullness.
+    Bins with smaller remaining capacity after packing (tighter fit) are prioritized.
+    Among bins with similar tightness, fuller bins are preferred.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_remain_cap = bins_remain_cap[suitable_bins_mask]
+    
+    gaps = suitable_bins_remain_cap - item
+    
+    if np.all(gaps == 0):
+        # If there are perfect fits, prioritize them.
+        # Among perfect fits, prefer those that leave the bin fuller (i.e., originally had less capacity).
+        # This is achieved by prioritizing bins with smaller initial remaining capacity.
+        perfect_fit_indices_in_suitable = np.where(gaps == 0)[0]
+        
+        original_indices_of_perfect_fits = np.where(suitable_bins_mask)[0][perfect_fit_indices_in_suitable]
+        
+        original_capacities_of_perfect_fits = bins_remain_cap[original_indices_of_perfect_fits]
+        
+        # Sort perfect fits by original capacity (ascending) to prefer fuller bins
+        sorted_indices_for_perfect_fits = original_indices_of_perfect_fits[np.argsort(original_capacities_of_perfect_fits)]
+        
+        # Assign highest priority to the best perfect fit, then decreasingly
+        for i, idx in enumerate(sorted_indices_for_perfect_fits):
+            priorities[idx] = 1.0 - (i * 0.01) # Small decrement for finer ordering
+
+    else:
+        # For non-perfect fits, prioritize based on tightness (smaller gap)
+        # and then by bin fullness (larger remaining capacity after fitting).
+        # We use a combination: prioritize smaller gaps, and among similar gaps, prefer fuller bins.
+        
+        # Calculate scores based on inverse of gap (prioritize smaller gaps)
+        # Add a small epsilon to avoid division by zero if a gap is exactly 0
+        inverse_gaps = 1.0 / (gaps + 1e-9)
+        
+        # Normalize inverse gaps to a [0, 1] range, higher is better
+        max_inverse_gap = np.max(inverse_gaps)
+        normalized_inverse_gaps = inverse_gaps / max_inverse_gap
+        
+        # Calculate scores based on remaining capacity after fitting (prioritize fuller bins)
+        # Normalize remaining capacities to a [0, 1] range, higher is better
+        normalized_remaining_capacities = suitable_bins_remain_cap / np.max(suitable_bins_remain_cap)
+        
+        # Combine scores: 70% for tightness, 30% for fullness
+        # The weights can be tuned.
+        combined_scores = 0.7 * normalized_inverse_gaps + 0.3 * normalized_remaining_capacities
+        
+        # Apply the scores to the priorities array
+        original_indices = np.where(suitable_bins_mask)[0]
+        priorities[original_indices] = combined_scores
+
+    # Ensure no priority is higher than 1.0 and no negative priorities
+    priorities = np.clip(priorities, 0.0, 1.0)
+    
+    return priorities
+```

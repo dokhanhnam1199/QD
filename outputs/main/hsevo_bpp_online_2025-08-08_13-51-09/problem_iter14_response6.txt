@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit and Bin Fullness metrics with adaptive weights.
+    Prioritizes tighter fits for larger items and fuller bins for all items,
+    while normalizing scores for balanced contribution.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+
+    # Metric 1: Best Fit (minimize remaining space after packing)
+    # Higher score for bins with less remaining space after placing the item.
+    remaining_after_placement = suitable_bins_caps - item
+    best_fit_scores = 1.0 / (remaining_after_placement + 1e-9)
+
+    # Metric 2: Bin Fullness (prioritize fuller bins)
+    # Higher score for bins that are already more full (less remaining capacity).
+    fullness_scores = 1.0 / (suitable_bins_caps + 1e-9)
+
+    # Normalize scores to ensure comparability between metrics.
+    # Max-min normalization is applied to each metric independently.
+    if np.max(best_fit_scores) > 1e-9:
+        norm_best_fit = (best_fit_scores - np.min(best_fit_scores)) / (np.max(best_fit_scores) - np.min(best_fit_scores) + 1e-9)
+    else:
+        norm_best_fit = np.zeros_like(best_fit_scores)
+
+    if np.max(fullness_scores) > 1e-9:
+        norm_fullness = (fullness_scores - np.min(fullness_scores)) / (np.max(fullness_scores) - np.min(fullness_scores) + 1e-9)
+    else:
+        norm_fullness = np.zeros_like(fullness_scores)
+
+    # Adaptive Weighting: Adjust weights based on item size relative to the average suitable bin capacity.
+    # This strategy emphasizes "Best Fit" for larger items and "Fullness" for smaller items.
+    avg_suitable_cap = np.mean(suitable_bins_caps)
+    if avg_suitable_cap > 1e-9:
+        item_vs_avg_cap_ratio = item / avg_suitable_cap
+    else:
+        item_vs_avg_cap_ratio = 0.5 # Default for very small capacities or no suitable bins
+
+    # Base weights that can be tuned.
+    w_bf = 0.6
+    w_f = 0.4
+
+    # Dynamically adjust weights: if item is large relative to average capacity, boost Best Fit.
+    # Otherwise, slightly boost Fullness.
+    if item_vs_avg_cap_ratio > 1.2: # Threshold for considering item "large"
+        w_bf += 0.2 * (item_vs_avg_cap_ratio - 1.2)
+        w_f -= 0.2 * (item_vs_avg_cap_ratio - 1.2)
+    elif item_vs_avg_cap_ratio < 0.8: # Threshold for considering item "small"
+        w_f += 0.1 * (0.8 - item_vs_avg_cap_ratio)
+        w_bf -= 0.1 * (0.8 - item_vs_avg_cap_ratio)
+
+    # Ensure weights remain valid (non-negative and sum to 1).
+    w_bf = max(0, w_bf)
+    w_f = max(0, w_f)
+    total_w = w_bf + w_f
+    if total_w > 1e-9:
+        w_bf /= total_w
+        w_f /= total_w
+    else: # Fallback to equal weights if calculation results in zero total weight
+        w_bf, w_f = 0.5, 0.5
+
+    # Combine normalized scores using the adaptive weights.
+    combined_scores = w_bf * norm_best_fit + w_f * norm_fullness
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```

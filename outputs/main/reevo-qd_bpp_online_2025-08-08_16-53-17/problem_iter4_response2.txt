@@ -1,0 +1,108 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Exact Fit First and then Best Fit.
+
+    This strategy prioritizes bins that have a remaining capacity exactly equal
+    to the item's size (exact fit). Among these exact fits, it assigns a high,
+    uniform priority. If no exact fit is found, it then selects bins that can
+    accommodate the item and prioritizes those that minimize the remaining
+    capacity after the item is placed (best fit). Bins that cannot fit the
+    item are assigned a priority of zero.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    if np.any(can_fit_mask):
+        fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+        # Identify exact fits among the fitting bins
+        exact_fit_mask_subset = fitting_bins_remain_cap == item
+
+        if np.any(exact_fit_mask_subset):
+            # Assign a very high priority to exact fits.
+            # We can assign a uniform high score, or slightly differentiate if needed.
+            # For simplicity and to strongly prioritize exact fits, we use a large value.
+            # The original indices are needed to update the `priorities` array.
+            original_indices_exact_fit = np.where(can_fit_mask)[0][exact_fit_mask_subset]
+            priorities[original_indices_exact_fit] = 1e9  # High priority for exact fits
+        else:
+            # If no exact fit, apply Best Fit logic to the bins that can fit.
+            # Prioritize bins that leave the minimum remaining capacity after placement.
+            # The remaining capacity after placing the item is `bin_cap - item`.
+            # We want to minimize this value. So, we use `-(bin_cap - item)`
+            # as the priority score, because higher scores are preferred.
+            # This means bins with smaller `bin_cap - item` get larger (less negative) scores.
+            
+            # Calculate the remaining capacity after placing the item for fitting bins.
+            remaining_after_fit = fitting_bins_remain_cap - item
+            
+            # Higher priority for smaller remaining capacity.
+            # We use the negative of remaining capacity. For example, if remaining is 0.1, score is -0.1.
+            # If remaining is 0.05, score is -0.05. -0.05 is greater than -0.1, so it's prioritized.
+            # This creates a descending order of priority based on remaining capacity.
+            # We can also shift this by a constant or scale it to ensure it's positive if desired,
+            # but a negative score is fine as long as argmax is used.
+            # Let's make them positive for clarity, e.g., max_possible_remaining - remaining_after_fit.
+            # A simpler approach is to just use the negative value as a score, and rely on max.
+            
+            # Let's add a small constant to ensure scores are positive and maintain order.
+            # The largest possible `remaining_after_fit` would be `max(bins_remain_cap) - item`.
+            # A simple way is to use `1 - remaining_after_fit` if `remaining_after_fit` is in [0, 1].
+            # A more robust way is to shift by a value larger than `max(remaining_after_fit)`.
+            
+            # The current `remaining_after_fit` values are non-negative.
+            # We want to maximize `-(remaining_after_fit)`.
+            # This is equivalent to minimizing `remaining_after_fit`.
+            # Let's use `1 / (remaining_after_fit + epsilon)` or similar, but that can cause issues.
+            # A safe approach is to use `constant - remaining_after_fit`.
+            
+            # For simplicity, we can use `-(remaining_after_fit)` and trust that `argmax` will pick the largest (least negative).
+            # Let's shift it to be positive, making higher values clearly better.
+            # We want the smallest `remaining_after_fit` to have the highest score.
+            # Let `score = -remaining_after_fit`.
+            # We can use `MaxCapacity - (bin_cap - item)` if we want scores to be related to total capacity.
+            # A simple approach: `score = MaxPossibleRemaining - remaining_after_fit`.
+            # Let's use `1.0 - remaining_after_fit` as a heuristic score, assuming `remaining_after_fit` is typically small.
+            # A more robust score would be to invert the rank.
+            
+            # Let's use the negative of the remaining capacity.
+            # This means a bin that results in 0.01 remaining gets a score of -0.01.
+            # A bin that results in 0.05 remaining gets a score of -0.05.
+            # -0.01 > -0.05, so the tighter fit is preferred.
+            
+            # To ensure positive scores and strong preference for tighter fits:
+            # We can use `MaxPossibleRemaining - remaining_after_fit`.
+            # A simpler approach that maintains order and positivity is to use a large constant minus the penalty.
+            # Let's use a constant like 1.0 and subtract the `remaining_after_fit`.
+            # This assumes `remaining_after_fit` is not excessively large.
+            # A better approach is to rank them.
+            
+            # Let's use a score that directly represents "how much space is left".
+            # We want to minimize `bins_remain_cap[i] - item`.
+            # So, priority should be inversely related to this.
+            # A simple transformation: `max(0, MAX_REMAINING_CAPACITY - (bins_remain_cap[i] - item))`
+            # Or simpler: `1.0 - (bins_remain_cap[i] - item)` if we assume values are within a reasonable range.
+            
+            # Let's use the negative of the remaining capacity, as it correctly orders them and `argmax` works.
+            # The actual magnitude isn't critical as long as the order is correct.
+            # We need to map these scores back to the original `priorities` array.
+            original_indices_non_exact_fit = np.where(can_fit_mask)[0][~exact_fit_mask_subset]
+            priorities[original_indices_non_exact_fit] = -remaining_after_fit
+            
+            # To make the scores more distinct and potentially avoid floating point issues with `argmax`
+            # if many scores are very close, we can add a small penalty to their index if we were
+            # sorting, but here `argmax` handles it.
+            # The scores are already ordered correctly: -0.01 > -0.05.
+
+    return priorities
+```

@@ -1,0 +1,121 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Sigmoid Fit Score strategy.
+
+    This heuristic prioritizes bins that have a remaining capacity that is close to the item size,
+    but not so small that it cannot fit. The sigmoid function is used to create a smooth
+    transition in priority, favoring bins that are a "good fit" over those that are too large
+    or too small (but still fitting).
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Filter out bins that cannot fit the item
+    fitting_bins_mask = bins_remain_cap >= item
+    
+    # If no bins can fit the item, return zeros
+    if not np.any(fitting_bins_mask):
+        return np.zeros_like(bins_remain_cap)
+
+    # Calculate the "slack" (how much space is left after placing the item)
+    # for bins that can fit the item.
+    slack = bins_remain_cap[fitting_bins_mask] - item
+
+    # The ideal slack is 0 (a perfect fit). We want to prioritize bins with slack close to 0.
+    # The sigmoid function can map values to a range (e.g., 0 to 1).
+    # We can use a sigmoid to "curve" the priority around the ideal slack.
+    # A common sigmoid function is 1 / (1 + exp(-x)).
+    # To prioritize slack close to 0, we can use -slack or scale slack.
+    # A negative slack would mean the item doesn't fit, but we've already filtered those.
+    # Let's use -slack directly, or a transformed version.
+
+    # A simple approach: prioritize smaller slack (closer to 0).
+    # The sigmoid can achieve this. To center the sigmoid around 0 slack,
+    # we can consider `sigmoid(k * (-slack))`. A larger `k` makes the transition sharper.
+    # Let's try a simple sigmoid with a scaling factor.
+    # A positive value in sigmoid(x) means the result is > 0.5.
+    # We want bins with small slack to have higher priority.
+    # So, small slack should map to a higher sigmoid output.
+    # If we use sigmoid(-slack), small slack (e.g., 0.1) gives sigmoid(-0.1) ~ 0.45
+    # and larger slack (e.g., 1) gives sigmoid(-1) ~ 0.26. This is inverse to what we want.
+    # Instead, we want to penalize large slack more.
+
+    # Alternative: Sigmoid Fit Score strategy could mean prioritizing bins
+    # where the item is a "good fit". A good fit means the remaining capacity
+    # isn't excessively large or too small (but still fitting).
+    # Let's assume a target "good fit" capacity is related to the item size.
+    # If we want bins that are *just* large enough or slightly larger,
+    # the difference `bins_remain_cap - item` should be small.
+
+    # Let's use a sigmoid centered around a value that represents a "good fit".
+    # A common interpretation of "Fit Score" using sigmoid could be based on
+    # how "close" the remaining capacity is to some ideal.
+    # For the bin packing problem, a "good fit" is often a bin that is just large enough.
+    # So, if `bins_remain_cap` is close to `item`, it's good.
+    # If `bins_remain_cap` is much larger than `item`, it's less good.
+
+    # Let's define a "fit score" as related to the ratio `item / bins_remain_cap`.
+    # A score close to 1 means a good fit.
+    # `sigmoid(k * (ratio - 1))` could work.
+    # When ratio is 1, sigmoid(0) = 0.5.
+    # When ratio > 1 (item larger than capacity - already filtered), sigmoid is > 0.5.
+    # When ratio < 1 (item smaller than capacity), sigmoid is < 0.5.
+    # This penalizes bins that are too large.
+
+    # Let's redefine `bins_remain_cap` to only include fitting bins.
+    fitting_bins_remain_cap = bins_remain_cap[fitting_bins_mask]
+
+    # Calculate the ratio of item size to remaining capacity for fitting bins.
+    # This ratio indicates how "full" the bin will be after placing the item.
+    # A ratio close to 1 is a tight fit.
+    ratio = item / fitting_bins_remain_cap
+
+    # Apply a sigmoid function to transform these ratios into priorities.
+    # We want a tight fit (ratio close to 1) to have a high priority.
+    # The standard sigmoid `1 / (1 + exp(-x))` increases with x.
+    # So we need to map `ratio` such that it increases towards 1 when `ratio` is near 1.
+    # Let's consider a term like `(1 - ratio)`. If ratio is 0.9, (1-ratio) = 0.1. If ratio is 0.5, (1-ratio) = 0.5.
+    # This penalizes larger remaining capacity.
+    # Or, directly use `sigmoid(k * (1 - ratio))`.
+    # `k` controls the steepness of the sigmoid. A higher `k` means stronger preference for tighter fits.
+
+    # A simpler approach, often used in online BPP:
+    # Prioritize bins with minimum remaining capacity that can fit the item.
+    # This is known as the "Best Fit" strategy.
+    # If we interpret "Sigmoid Fit Score" as a smoothed version of Best Fit,
+    # we can still use the slack idea.
+
+    # Let's use the "slack" approach with sigmoid.
+    # `slack = bins_remain_cap[fitting_bins_mask] - item`
+    # We want small slack to be high priority.
+    # `sigmoid(k * (-slack))` -> high slack -> negative input -> low output
+    #                         -> low slack -> positive input -> high output
+    # This looks correct.
+    # Let's choose a `k`. A value like 5 or 10 can create a reasonably sharp preference.
+
+    # Calculate priority scores for the fitting bins
+    # We use `k * (-slack)` as the input to the sigmoid.
+    # The `k` is a hyperparameter that controls the steepness of the preference.
+    # A higher `k` means bins that are "closer fits" (smaller slack) are strongly preferred
+    # over bins with slightly more slack.
+    # Let's try k = 5.0 as a starting point.
+    k = 5.0
+    scaled_neg_slack = k * (-slack)
+    
+    # Apply the sigmoid function
+    priorities_fitting_bins = 1 / (1 + np.exp(-scaled_neg_slack))
+
+    # Initialize the full priority array with zeros
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    # Place the calculated priorities back into the correct positions
+    priorities[fitting_bins_mask] = priorities_fitting_bins
+
+    return priorities
+```

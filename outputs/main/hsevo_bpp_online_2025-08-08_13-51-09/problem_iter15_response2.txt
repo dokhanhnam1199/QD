@@ -1,0 +1,131 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+    suitable_bin_indices = np.where(suitable_bins_mask)[0]
+
+    # Metric 1: Modified Best Fit (MF) - Penalize bins that would leave a very large remaining capacity.
+    # This encourages using space more efficiently by avoiding "too much" leftover.
+    # We use the logarithm of the remaining capacity after placement. Lower values are better.
+    remaining_after_placement = suitable_bins_caps - item
+    mf_scores = -np.log1p(remaining_after_placement) # Higher negative scores mean better fit
+
+    # Metric 2: Adaptive Gap Penalty (AGP) - Penalize bins that are "almost full" but not quite.
+    # This aims to prevent fragmentation by not packing items into bins that are already very close to capacity.
+    # We define "almost full" based on the item size itself. If the item is large, a bin with 90% capacity
+    # might be considered "almost full". If the item is small, a bin with 50% capacity might be "almost full".
+    # Let's use a threshold relative to the bin's *current* remaining capacity.
+    # A bin that has `bin_cap - item` which is small relative to `bin_cap`.
+    # We want to *reward* bins where `item / bin_cap` is high (meaning the item fills a large portion of what's available).
+    # This is the inverse of leaving a large gap relative to what's available.
+    # We want to penalize bins where `(bin_cap - item) / bin_cap` is small.
+    # So, we reward `1 - (bin_cap - item) / bin_cap` which simplifies to `item / bin_cap`.
+    # However, we want to reward bins that are *not too empty* relative to the item.
+    # A bin that is almost empty, and an item takes up a small portion of it, is not ideal for AGP.
+    # Let's consider the ratio of the item size to the bin's remaining capacity.
+    # Higher ratio means the item is a significant part of the available space.
+    # We use a transformation to favor ratios closer to 1 (item fills most of the remaining space).
+    # This also helps to avoid packing small items into very large remaining capacity bins.
+    agp_scores = np.zeros_like(suitable_bins_caps)
+    non_zero_suitable_caps_mask = suitable_bins_caps > 1e-9
+    if np.any(non_zero_suitable_caps_mask):
+        ratios = item / suitable_bins_caps[non_zero_suitable_caps_mask]
+        # Sigmoid-like function to reward ratios close to 1.
+        # exp(-(x-1)^2)
+        agp_scores[non_zero_suitable_caps_mask] = np.exp(-((ratios - 1.0)**2) / 0.2) # Peak at ratio=1
+
+    # Metric 3: First Fit Descending (FFD) preference - Tie-breaking or preference for bins that have been used more.
+    # This can be proxied by the total capacity already used in the bin.
+    # Since we only have remaining capacity, we can assume a maximum bin capacity (e.g., 1.0 if normalized)
+    # and calculate used capacity as `max_capacity - remaining_capacity`.
+    # For simplicity here, let's use the inverse of remaining capacity as a proxy for "how full" it is.
+    # This favors bins that are less empty.
+    # Use a transformation to avoid very large values for almost empty bins.
+    # `1 / (remaining_capacity + epsilon)`
+    max_bin_capacity_guess = 1.0 # Assume a default max capacity if not provided, or derive from problem context
+    # If problem has context of max bin capacity, it should be passed. Using 1.0 as common normalization.
+    used_capacity_proxy = max_bin_capacity_guess - suitable_bins_caps
+    # Normalize used_capacity_proxy to [0,1] relative to max capacity.
+    used_capacity_proxy_normalized = used_capacity_proxy / max_bin_capacity_guess
+    # We want to reward bins that have more used capacity.
+    # A simple approach is to directly use the normalized used capacity.
+    # Let's add a small constant to avoid 0 if max_bin_capacity_guess is 1 and suitable_bins_caps is 1.
+    ffs_scores = used_capacity_proxy_normalized + 1e-6 # Higher is better
+
+    # --- Normalization and Combination ---
+
+    # Normalize scores to [0, 1] range for each metric
+    # Avoid division by zero if all values in a metric are the same or zero.
+    def normalize(scores):
+        max_score = np.max(scores)
+        min_score = np.min(scores)
+        if max_score == min_score:
+            return np.zeros_like(scores) # All values are the same, no relative preference
+        return (scores - min_score) / (max_score - min_score)
+
+    normalized_mf = normalize(mf_scores)
+    normalized_agp = normalize(agp_scores)
+    normalized_ffs = normalize(ffs_scores)
+
+    # --- Dynamic Weighting ---
+    # Weights are adjusted based on the item size relative to the *average* remaining capacity of suitable bins.
+    # This makes the weighting adaptive to the current state of the bins.
+
+    avg_suitable_cap = np.mean(suitable_bins_caps) if suitable_bins_caps.size > 0 else 1.0
+    # Normalize item size by average suitable capacity to get a sense of "item size relative to opportunity"
+    relative_item_size = item / (avg_suitable_cap + 1e-9)
+
+    # Weighting strategy:
+    # If item is large relative to available space (relative_item_size > 1):
+    #   Prioritize Best Fit (MF) heavily.
+    #   Penalize leaving large gaps (AGP less important).
+    #   Used capacity (FFS) still moderately important.
+    # If item is small relative to available space (relative_item_size < 1):
+    #   Prioritize filling bins more (FFS more important).
+    #   Avoid placing small items into very large empty bins (AGP more important).
+    #   Best Fit (MF) is less critical as gaps are less likely to be problematic.
+
+    # Define base weights
+    w_mf_base = 0.4
+    w_agp_base = 0.3
+    w_ffs_base = 0.3
+
+    # Adjust weights based on relative_item_size
+    # For relative_item_size > 1 (large item relative to capacity):
+    # Increase MF, decrease AGP
+    w_mf = w_mf_base + 0.3 * np.clip(relative_item_size - 1, 0, 1)
+    w_agp = w_agp_base - 0.2 * np.clip(relative_item_size - 1, 0, 1)
+    w_ffs = w_ffs_base # Keep FFS stable or slightly increase
+
+    # For relative_item_size < 1 (small item relative to capacity):
+    # Decrease MF, increase AGP and FFS
+    w_mf = w_mf_base - 0.2 * np.clip(1 - relative_item_size, 0, 1)
+    w_agp = w_agp_base + 0.3 * np.clip(1 - relative_item_size, 0, 1)
+    w_ffs = w_ffs_base + 0.2 * np.clip(1 - relative_item_size, 0, 1)
+
+    # Ensure weights are within a reasonable range and sum to 1
+    w_mf = np.clip(w_mf, 0.1, 0.8)
+    w_agp = np.clip(w_agp, 0.1, 0.6)
+    w_ffs = np.clip(w_ffs, 0.1, 0.6)
+
+    total_weight = w_mf + w_agp + w_ffs
+    w_mf /= total_weight
+    w_agp /= total_weight
+    w_ffs /= total_weight
+
+    # Combine normalized scores
+    combined_scores = (w_mf * normalized_mf +
+                       w_agp * normalized_agp +
+                       w_ffs * normalized_ffs)
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```

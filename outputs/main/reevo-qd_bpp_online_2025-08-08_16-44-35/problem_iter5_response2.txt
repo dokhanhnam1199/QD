@@ -1,0 +1,296 @@
+[Reflection]
+The current `priority_v1` function implements an "Almost Full Fit" strategy by prioritizing bins with the smallest remaining capacity *after* the item is placed. This is achieved by assigning a priority of `-(bins_remain_cap - item)`. This means smaller `bins_remain_cap - item` values result in larger (less negative) priority scores, which is correct for a maximization problem.
+
+The reflection suggests:
+1.  **Prioritize tight fits using sigmoid or softmax for smooth preference.** The current approach uses a linear relationship. Sigmoid or softmax can introduce non-linearity and make the preference for tighter fits "smoother". Sigmoid maps values to (0, 1), and softmax maps to a probability distribution. For a priority score, sigmoid might be more appropriate as it produces a continuous score. A common way to use sigmoid for this is `sigmoid(C - (remaining_capacity - item))` where `C` is a constant to tune the steepness of the preference. A large `C - (remaining_capacity - item)` (meaning small `remaining_capacity - item`) will result in a high sigmoid value.
+2.  **Minimize `remaining_capacity - item`.** This is already implicitly done by making `-(bins_remain_cap - item)` the priority. Smaller `remaining_capacity - item` leads to a higher priority.
+3.  **Break ties with lower bin indices.** NumPy's `argmax` (which would be used to find the highest priority bin) naturally returns the first index in case of ties. So, this is already handled.
+
+Let's focus on incorporating the sigmoid for smoother preference. We can define the priority as `sigmoid(K - (remaining_capacity - item))`, where `K` is a scaling factor. A larger `K` would make the preference for a tighter fit stronger. For simplicity and to ensure that bins that *cannot* fit the item get a low priority, we can apply the sigmoid only to those that can fit.
+
+Consider the function `f(x) = 1 / (1 + exp(-x))`.
+If we want to prioritize smaller `remaining_capacity - item`, we can use `sigmoid(K * (item - remaining_capacity))` or `sigmoid(K * (MaxCapacity - bins_remain_cap - item))`.
+Let `diff = bins_remain_cap - item`. We want smaller `diff` to have higher priority.
+So, `sigmoid(K * (some_value - diff))`. A simple choice for `some_value` could be 0 or a small positive constant.
+Let's try `sigmoid(K * (item - bins_remain_cap))`. If `bins_remain_cap = 5`, `item = 2`, then `item - bins_remain_cap = -3`. `sigmoid(K * -3)` is close to 0. If `bins_remain_cap = 3`, `item = 2`, then `item - bins_remain_cap = -1`. `sigmoid(K * -1)` is larger. This seems counter-intuitive.
+
+Let's rethink the argument to sigmoid. We want a larger output for smaller `remaining_capacity - item`.
+So, we want an argument that *decreases* as `remaining_capacity - item` increases.
+The term `bins_remain_cap - item` itself increases as we move away from a tight fit.
+So, let's use `sigmoid(K * -(bins_remain_cap - item))` or `sigmoid(K * (item - bins_remain_cap))`.
+If `bins_remain_cap = 5`, `item = 2`, `diff = 3`. `item - bins_remain_cap = -3`. `sigmoid(K * -3)` is low.
+If `bins_remain_cap = 3`, `item = 2`, `diff = 1`. `item - bins_remain_cap = -1`. `sigmoid(K * -1)` is higher.
+This is still giving higher priority to *less tight* fits.
+
+Okay, let's try again. We want to maximize priority. Priority should be high for small `bins_remain_cap - item`.
+Let `tightness_score = -(bins_remain_cap - item)`. This score is higher for tighter fits.
+We can apply sigmoid to this score: `sigmoid(K * tightness_score) = sigmoid(K * -(bins_remain_cap - item))`.
+Let `K=1`.
+`bins_remain_cap = [5, 3, 7]`, `item = 2`.
+Bin 0: `rem=5`, `tightness = -(5-2) = -3`. `sigmoid(-3)` ≈ 0.047
+Bin 1: `rem=3`, `tightness = -(3-2) = -1`. `sigmoid(-1)` ≈ 0.269
+Bin 2: `rem=7`, `tightness = -(7-2) = -5`. `sigmoid(-5)` ≈ 0.0067
+This seems to work. The highest priority is for the bin with `remaining_capacity = 3`.
+
+To ensure that bins that *cannot* fit are completely ignored, we can set their priority to 0 (or a very small negative number if sigmoid output is always positive). Since sigmoid output is in `(0, 1)`, setting priorities to 0 for non-fitting bins is appropriate.
+
+Let's choose a value for `K`. A larger `K` will make the preference steeper. Let's start with `K=1` or `K=2` for demonstration.
+We can also add a small constant to shift the sigmoid's output range if needed, but for relative priorities, `sigmoid(K * tightness_score)` should be fine.
+
+Consider the original AFF priority: `-(bins_remain_cap - item)`.
+For `bins_remain_cap = [5, 3, 7]`, `item = 2`: priorities are `[-3, -1, -5]`. Max is `-1`.
+Using sigmoid: `[0.047, 0.269, 0.0067]`. Max is `0.269`.
+The relative order is preserved, but the preference is smoothed.
+
+The reflection also mentions "Minimize `remaining_capacity - item`". This is what `-(bins_remain_cap - item)` does.
+"Break ties with lower bin indices." This is handled by `argmax`.
+
+Let's implement the sigmoid approach. We need `numpy` and `scipy.special.expit` (which is sigmoid).
+
+A potential issue: if `bins_remain_cap` is very large and `item` is small, `bins_remain_cap - item` can be large positive, leading to `-(bins_remain_cap - item)` being large negative. `sigmoid` of a large negative number is close to 0. This is good, as these bins are not tight fits.
+If `bins_remain_cap` is slightly larger than `item`, `bins_remain_cap - item` is small positive, `-(bins_remain_cap - item)` is small negative. `sigmoid` of small negative is near 0.5.
+If `bins_remain_cap == item`, `bins_remain_cap - item = 0`, `-(bins_remain_cap - item) = 0`. `sigmoid(0) = 0.5`.
+If `bins_remain_cap < item`, these are filtered out.
+
+So, a bin that exactly fits (`bins_remain_cap == item`) gets a priority of 0.5. A bin that is slightly larger (`bins_remain_cap = item + epsilon`) gets a priority less than 0.5. A bin that is much larger gets priority close to 0.
+This might be counter-intuitive. We want bins that are *almost full* to have the highest priority.
+
+Let's re-evaluate the sigmoid argument. We want higher priority for *smaller* `bins_remain_cap - item`.
+Let `x = bins_remain_cap - item`. We want `f(x)` to be high for small `x >= 0`.
+The sigmoid function `sigmoid(a*x + b)` increases with `x`.
+We need a function that *decreases* with `x`.
+So, let's use `sigmoid(-a*x + b)`.
+`sigmoid(-a * (bins_remain_cap - item) + b)`
+Let `a` be a positive constant, controlling steepness. Let `b` be a constant to shift the curve.
+If `bins_remain_cap = 3`, `item = 2`, then `x = 1`. Priority: `sigmoid(-a + b)`.
+If `bins_remain_cap = 5`, `item = 2`, then `x = 3`. Priority: `sigmoid(-3a + b)`.
+We want `sigmoid(-a + b) > sigmoid(-3a + b)`, which is true if `-a + b > -3a + b`, which simplifies to `2a > 0`, which is true since `a > 0`.
+
+So, `sigmoid(-a * (bins_remain_cap - item) + b)` is the correct form.
+What should `a` and `b` be?
+Let `a` be a scaling factor for the difference. A larger `a` means the preference for tightness is stronger. Let's pick `a=1` for now.
+What about `b`? `b` shifts the activation threshold. If we want the "sweet spot" to be around a remaining capacity of 0 (i.e., `bins_remain_cap - item = 0`), then setting `b=0` would make `sigmoid(0) = 0.5` for perfect fits.
+If `bins_remain_cap - item = 1`, priority is `sigmoid(-1)`.
+If `bins_remain_cap - item = 0`, priority is `sigmoid(0) = 0.5`.
+If `bins_remain_cap - item = -1` (item too large), this case is filtered.
+
+This means bins that are *exactly* full get priority 0.5, slightly fuller bins get higher priority (e.g., `bins_remain_cap = item - 1` would yield `sigmoid(1) approx 0.73`), and bins that leave more space get lower priority. This seems correct.
+
+Let's choose `a=2` to make the preference steeper for tighter fits.
+So, `priority = sigmoid(2 * (item - bins_remain_cap))`.
+For `bins_remain_cap = [5, 3, 7]`, `item = 2`:
+Bin 0: `rem=5`, `arg = 2*(2-5) = -6`. `sigmoid(-6)` ≈ 0.0025
+Bin 1: `rem=3`, `arg = 2*(2-3) = -2`. `sigmoid(-2)` ≈ 0.119
+Bin 2: `rem=7`, `arg = 2*(2-7) = -10`. `sigmoid(-10)` ≈ 0.000045
+
+This seems to prioritize the *least* tight fit among the valid ones. This is the opposite of what we want.
+
+Let's try argument `K * (remaining_capacity - item)`. We want this to be *negative* for tight fits, and the more negative, the better.
+`sigmoid(K * (remaining_capacity - item))`
+Let `K=1`.
+Bin 0: `rem=5`, `item=2`, `arg = 1*(5-2) = 3`. `sigmoid(3)` ≈ 0.95
+Bin 1: `rem=3`, `item=2`, `arg = 1*(3-2) = 1`. `sigmoid(1)` ≈ 0.73
+Bin 2: `rem=7`, `item=2`, `arg = 1*(7-2) = 5`. `sigmoid(5)` ≈ 0.993
+
+This prioritizes the *loosest* fit.
+
+Okay, let's go back to basics. We want to maximize `priority`.
+Priority should be high when `remaining_capacity - item` is small (and non-negative).
+Let `diff = bins_remain_cap - item`. We want to maximize `f(diff)` where `f` is high for small `diff >= 0`.
+The function `-diff` is high for small `diff`. So, `priority = -diff` is a good linear starting point.
+
+To use sigmoid smoothly:
+We want `sigmoid(g(diff))` where `g(diff)` is decreasing.
+So `g(diff) = -diff` or `g(diff) = C - diff`.
+Let's use `sigmoid(C - diff) = sigmoid(C - (bins_remain_cap - item))`.
+Let `C=0`. Priority is `sigmoid(-(bins_remain_cap - item))`.
+Bin 0: `rem=5`, `item=2`, `arg = -(5-2) = -3`. `sigmoid(-3)` ≈ 0.047
+Bin 1: `rem=3`, `item=2`, `arg = -(3-2) = -1`. `sigmoid(-1)` ≈ 0.269
+Bin 2: `rem=7`, `item=2`, `arg = -(7-2) = -5`. `sigmoid(-5)` ≈ 0.0067
+This prioritizes bin 1 (tightest fit) correctly.
+
+Now, let's consider the scaling factor `K` for steepness.
+We want to prioritize tighter fits more strongly. This means the function should drop off faster as `bins_remain_cap - item` increases.
+So, we want `sigmoid(-K * (bins_remain_cap - item))` where `K > 0`.
+Let `K=2`.
+Bin 0: `rem=5`, `item=2`, `arg = -2*(5-2) = -6`. `sigmoid(-6)` ≈ 0.0025
+Bin 1: `rem=3`, `item=2`, `arg = -2*(3-2) = -2`. `sigmoid(-2)` ≈ 0.119
+Bin 2: `rem=7`, `item=2`, `arg = -2*(7-2) = -10`. `sigmoid(-10)` ≈ 0.000045
+
+This seems to provide a smoother preference, and the relative ordering is maintained, with the tightest fit still having the highest score. The reflection asks to prioritize tight fits *using sigmoid*. This seems to be the correct interpretation.
+
+We should also handle the case where `bins_remain_cap < item`. For these, the priority should be effectively negative infinity (or zero if using sigmoid).
+The `can_fit_mask` handles this. For bins that cannot fit, their priority should remain `-np.inf` or be set to a value that ensures they are never chosen. Since sigmoid outputs are in `(0, 1)`, setting non-fitting bins to `0` is appropriate.
+
+Let's use `scipy.special.expit` for sigmoid.
+
+```python
+import numpy as np
+from scipy.special import expit
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a sigmoid-based
+    Almost Full Fit strategy.
+
+    This strategy prioritizes bins that are almost full, meaning bins with the smallest
+    remaining capacity that can still accommodate the item. The sigmoid function
+    is used to create a smoother preference curve for tighter fits.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority. Scores are between 0 and 1.
+    """
+    # Initialize priorities to 0. This ensures bins that cannot fit the item
+    # will have the lowest possible priority (since sigmoid outputs are > 0).
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate priority using a sigmoid function.
+    # The argument to sigmoid is designed such that smaller remaining_capacity - item
+    # values result in a higher priority score.
+    # We use `K * (item - bins_remain_cap)` as the argument to sigmoid.
+    # `item - bins_remain_cap` is negative for valid fits, and more negative
+    # for tighter fits. A higher K makes the preference for tighter fits steeper.
+    #
+    # Let diff = bins_remain_cap - item. We want higher priority for smaller diff >= 0.
+    # Use sigmoid(K * (-diff)) = sigmoid(K * (item - bins_remain_cap)).
+    # A constant C can be added for tuning: sigmoid(K * (item - bins_remain_cap) + C).
+    # Let's use K=2 for a reasonably steep preference.
+    K = 2.0
+    
+    # Calculate the argument for the sigmoid function: K * (item - remaining_capacity)
+    # This term will be negative for bins that can fit the item.
+    # Tighter fits (smaller remaining_capacity) will result in a less negative argument,
+    # leading to a higher sigmoid output.
+    argument = K * (item - bins_remain_cap[can_fit_mask])
+    
+    # Apply the sigmoid function.
+    # expit(x) = 1 / (1 + exp(-x))
+    priorities[can_fit_mask] = expit(argument)
+
+    # Tie-breaking: If multiple bins have the exact same highest priority,
+    # np.argmax will select the one with the lowest index. This fulfills the
+    # tie-breaking requirement.
+
+    return priorities
+```
+
+Let's test with some values:
+`item = 5`
+`bins_remain_cap = [10, 7, 5, 3, 12]`
+
+`can_fit_mask = [True, True, True, False, True]`
+Relevant `bins_remain_cap`: `[10, 7, 5, 12]`
+Item: `5`
+
+Bin 0: rem=10. diff = 10-5=5. arg = 2*(5-10) = -10. sigmoid(-10) ~ 4.5e-5
+Bin 1: rem=7. diff = 7-5=2. arg = 2*(5-7) = -4. sigmoid(-4) ~ 0.018
+Bin 2: rem=5. diff = 5-5=0. arg = 2*(5-5) = 0. sigmoid(0) = 0.5
+Bin 3: rem=3. Cannot fit. Priority = 0.
+Bin 4: rem=12. diff = 12-5=7. arg = 2*(5-12) = -14. sigmoid(-14) ~ 0.8e-6
+
+Priorities: `[4.5e-5, 0.018, 0.5, 0, 0.8e-6]`
+The highest priority is for bin 2 (exact fit), followed by bin 1 (slightly larger remaining capacity). This is the desired behavior.
+
+What if we use `K=5` for a steeper preference?
+Bin 0: rem=10. diff = 5. arg = 5*(5-10) = -25. sigmoid(-25) ~ 1.3e-11
+Bin 1: rem=7. diff = 2. arg = 5*(5-7) = -10. sigmoid(-10) ~ 4.5e-5
+Bin 2: rem=5. diff = 0. arg = 5*(5-5) = 0. sigmoid(0) = 0.5
+Bin 4: rem=12. diff = 7. arg = 5*(5-12) = -35. sigmoid(-35) ~ 2.9e-16
+
+Priorities: `[1.3e-11, 4.5e-5, 0.5, 0, 2.9e-16]`
+With `K=5`, the preference for the exact fit (0.5) is much stronger compared to the next best fit (0.000045). This demonstrates the effect of `K`.
+
+The prompt asks for a mutated function `priority_v2`. The core difference is the use of sigmoid.
+
+Final check on requirements:
+- Priority function for online Bin Packing BPP. Yes.
+- Input: item, bins_remain_cap. Yes.
+- Returns priority score for each bin. Yes.
+- Bin with highest priority score selected. Yes (implicit use of argmax).
+- Prioritize tight fits using sigmoid for smooth preference. Yes, `sigmoid(K * (item - bins_remain_cap))` achieves this.
+- Minimize `remaining_capacity - item`. Yes, this is achieved by making the sigmoid argument increasingly negative as `remaining_capacity - item` increases.
+- Break ties with lower bin indices. Yes, handled by `np.argmax`.
+
+The function appears solid.
+```python
+import numpy as np
+from scipy.special import expit
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a sigmoid-based
+    Almost Full Fit strategy.
+
+    This strategy prioritizes bins that are almost full, meaning bins with the smallest
+    remaining capacity that can still accommodate the item. The sigmoid function
+    is used to create a smoother preference curve for tighter fits. A higher K value
+    increases the steepness of this preference.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority. Scores are between 0 and 1.
+    """
+    # Initialize priorities to 0. Bins that cannot fit the item will retain this
+    # priority, ensuring they are not selected over bins that can fit.
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate priority using a sigmoid function.
+    # The argument to sigmoid is constructed to map smaller positive differences
+    # (bins_remain_cap - item) to higher sigmoid outputs.
+    #
+    # We use the expression `K * (item - bins_remain_cap)`.
+    # Let `diff = bins_remain_cap - item`. This is the "slack" or remaining space
+    # after placing the item. We want to prioritize bins with small `diff >= 0`.
+    # The expression becomes `K * (-diff)`.
+    # The sigmoid function `expit(x)` increases as `x` increases.
+    # So, we want `-diff` to be large (meaning `diff` is small negative or close to zero).
+    # Wait, `diff` must be non-negative.
+    #
+    # Let's re-evaluate:
+    # We want high priority for small `diff = bins_remain_cap - item`.
+    # Argument to sigmoid should be increasing with high priority.
+    # So, we want an argument that decreases as `diff` increases.
+    # `sigmoid(C - K * diff)` where K > 0.
+    # `sigmoid(C - K * (bins_remain_cap - item))`
+    # Let C=0, K=2.0.
+    # Argument = -2.0 * (bins_remain_cap - item) = 2.0 * (item - bins_remain_cap)
+    #
+    # Example: item=5, bins_remain_cap=[10, 7, 5, 12]
+    # Bin 0: rem=10. diff=5. arg = -2*5 = -10. expit(-10) ~ 4.5e-5
+    # Bin 1: rem=7. diff=2. arg = -2*2 = -4. expit(-4) ~ 0.018
+    # Bin 2: rem=5. diff=0. arg = -2*0 = 0. expit(0) = 0.5
+    # Bin 4: rem=12. diff=7. arg = -2*7 = -14. expit(-14) ~ 0.8e-6
+    #
+    # This correctly assigns the highest priority to the tightest fit (exact fit in this case).
+    
+    K = 2.0  # Scaling factor to control the steepness of the preference for tighter fits.
+             # Higher K means a stronger preference for tighter fits.
+
+    # Calculate the argument for the sigmoid function.
+    # For bins that can fit, the argument is K * (item - remaining_capacity).
+    # This term is negative, and becomes more negative as remaining_capacity increases
+    # (i.e., as the fit becomes looser).
+    argument = K * (item - bins_remain_cap[can_fit_mask])
+    
+    # Apply the sigmoid function to get priorities between 0 and 1.
+    priorities[can_fit_mask] = expit(argument)
+
+    # Tie-breaking: In case of identical highest priority scores, np.argmax
+    # will return the index of the first occurrence, effectively prioritizing
+    # bins with lower indices.
+
+    return priorities
+```

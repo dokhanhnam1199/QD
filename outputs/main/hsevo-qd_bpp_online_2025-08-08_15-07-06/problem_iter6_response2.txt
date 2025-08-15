@@ -1,0 +1,209 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    This heuristic aims to improve upon priority_v1 by considering multiple factors
+    for bin selection in the online Bin Packing Problem. It prioritizes bins that
+    not only can fit the item but also contribute to a more balanced packing
+    strategy, aiming for less fragmentation and potentially better overall solutions.
+
+    The priority is calculated as follows:
+    1.  **Fit Priority:** Prioritize bins where the remaining capacity is just enough
+        to fit the item. This is measured by `item - bins_remain_cap`. A smaller
+        (less negative) value indicates a tighter fit, which is preferred.
+        Bins that cannot fit the item receive a very low priority (-infinity).
+    2.  **Fullness Ratio Priority:** For bins that *can* fit the item, we also
+        consider how "full" the bin will become after the item is placed.
+        A bin that becomes almost full after placing the item is generally good.
+        This is approximated by `(bins_remain_cap - item) / bins_remain_cap`.
+        A higher value (closer to 0 if `bins_remain_cap` is large, or closer to 1 if
+        `bins_remain_cap` is close to `item`) is preferred. We'll use `-(bins_remain_cap - item)`
+        for a higher value when the difference is smaller, effectively prioritizing
+        bins that have less excess capacity after fitting.
+    3.  **Fusion:** Combine these priorities using a weighted sum. The weights
+        can be tuned, but a common approach is to give more weight to the tightest fit
+        while also rewarding bins that become more full.
+
+    Let's refine the metrics and fusion:
+    -   Metric 1: Tightness of fit. We want to minimize `bins_remain_cap - item`
+        for `bins_remain_cap >= item`. So, `item - bins_remain_cap` is a good score
+        (higher is better, meaning closer to 0 from the negative side).
+    -   Metric 2: How much capacity is left *after* fitting. We want this to be small.
+        So, `bins_remain_cap - item`. We want to minimize this. To make it a higher
+        priority, we can use `-(bins_remain_cap - item)`. This is the same as Metric 1.
+
+    Let's consider a different angle: What if we want to prioritize bins that have
+    a lot of remaining capacity but can still fit the item? This might be useful
+    in some scenarios to keep options open. Or perhaps, prioritize bins that are
+    already quite full (but can fit the item) to "finish them off".
+
+    Let's try a combination:
+    Prioritize bins that fit the item (`bins_remain_cap >= item`).
+    For these bins, we want to penalize having *too much* excess space.
+    So, `bins_remain_cap - item` should be minimized.
+    This means `-(bins_remain_cap - item)` is maximized. This is `item - bins_remain_cap`.
+
+    Let's consider the "remaining capacity" itself. If we have two bins that can fit
+    the item, and both result in a small `bins_remain_cap - item` difference, which
+    one should we pick?
+    -   If we pick the one with less initial `bins_remain_cap` (but still sufficient),
+        we are trying to fill up smaller capacity bins first.
+    -   If we pick the one with more initial `bins_remain_cap`, we are keeping the
+        smaller remaining capacity bins available for potentially smaller items.
+
+    Let's combine:
+    1.  **Primary Goal:** Find bins that fit the item (`bins_remain_cap >= item`).
+    2.  **Secondary Goal:** Among those, favor bins where `bins_remain_cap - item` is minimized (i.e., `item - bins_remain_cap` is maximized). This is the "tightest fit" principle.
+    3.  **Tertiary Goal:** Among bins with the same tightness of fit, prioritize
+        bins that have *less* total remaining capacity initially. This encourages
+        filling up bins more completely before opening new ones or using very large ones.
+        So, we want to *minimize* `bins_remain_cap`.
+
+    Combining these:
+    -   Base priority: `item - bins_remain_cap` for bins that fit.
+    -   Tie-breaker: To prioritize smaller `bins_remain_cap`, we can subtract a
+        small penalty proportional to `bins_remain_cap`.
+        Example: `(item - bins_remain_cap) - epsilon * bins_remain_cap`
+        where `epsilon` is a small positive number.
+
+    Let's try a slightly different metric fusion, inspired by "Best Fit" but adding a penalty for "too much" space.
+    For bins that can fit the item:
+    Score = `-(bins_remain_cap - item)`  (This prioritizes tight fits)
+    Now, add a penalty if `bins_remain_cap` is much larger than `item`.
+    A simple penalty could be related to the ratio `bins_remain_cap / item` if `bins_remain_cap` is much larger than `item`.
+    Or, more simply, subtract a value proportional to `bins_remain_cap` itself.
+
+    Let's try a granular scoring approach:
+    For each bin `i`:
+    If `bins_remain_cap[i] < item`:
+        priority[i] = -infinity
+    Else:
+        # Score 1: Tightness of fit (higher is better)
+        tightness_score = item - bins_remain_cap[i]
+
+        # Score 2: Remaining capacity after fitting (lower is better)
+        # We want to minimize this, so for a priority score, we invert it or take negative.
+        # Let's use the negative of the absolute difference as a measure of "how close"
+        # or `bins_remain_cap[i] - item` as the "slack". We want to minimize slack.
+        # So, a higher priority for smaller slack.
+        # We can use `-(bins_remain_cap[i] - item)` which is `item - bins_remain_cap[i]`
+
+        # Let's consider the "fill percentage" of the bin *after* packing the item.
+        # We want to prioritize bins that become "more full".
+        # Fill percentage = (initial_capacity - bins_remain_cap[i] + item) / initial_capacity
+        # Since we don't have initial_capacity, let's use `bins_remain_cap[i]`.
+        # A higher `bins_remain_cap[i]` means the bin was less full.
+        # We want to prioritize bins that are ALREADY more full.
+        # So, we prefer bins with smaller `bins_remain_cap[i]` *among those that fit*.
+
+        # Let's combine tightness and preference for less initial capacity.
+        # Priority = (tightness_score) - alpha * bins_remain_cap[i]
+        # where alpha is a small positive weight. This prioritizes tighter fits,
+        # and among equally tight fits, it prioritizes bins with less initial capacity.
+
+        alpha = 0.1 # Tunable parameter
+        priority = tightness_score - alpha * bins_remain_cap[i]
+        
+        priorities[i] = priority
+
+    Alternative idea: Prioritize bins where the item fills a significant portion of the *remaining* capacity.
+    This means `item / bins_remain_cap[i]` should be high, but capped at 1.
+    So, `min(1.0, item / bins_remain_cap[i])`.
+    And we want to prefer tighter overall fits.
+
+    Let's try a fusion that explicitly rewards fitting and penalizes large remaining capacity after fitting.
+    For a bin `i` where `bins_remain_cap[i] >= item`:
+    1. Fit score: Maximize `item - bins_remain_cap[i]`. This rewards tightness.
+    2. Slack penalty: Minimize `bins_remain_cap[i] - item`. This penalizes excess space.
+       To turn this into a priority (higher is better), we can use `-(bins_remain_cap[i] - item)`.
+       This is the same as the fit score.
+
+    What if we reward bins that are closer to the item's size itself?
+    Consider the absolute difference `abs(bins_remain_cap[i] - item)`. We want to minimize this.
+    So, a score of `-abs(bins_remain_cap[i] - item)` might work.
+
+    Let's combine the Best Fit idea (`item - bins_remain_cap`) with a "Worst Fit" idea
+    to utilize larger bins more effectively when smaller ones don't offer a good fit.
+    This is for online, so we can't look ahead.
+
+    Let's stick to a refined Best Fit:
+    We want `bins_remain_cap[i]` to be as close to `item` as possible, without being less.
+    So, we want to minimize `bins_remain_cap[i] - item` for `bins_remain_cap[i] >= item`.
+    This means we want to maximize `item - bins_remain_cap[i]`.
+
+    To differentiate between bins that are *very* close vs. bins that have *a lot* of excess capacity,
+    we can introduce a factor.
+    Consider the ratio of `item` to `bins_remain_cap[i]`. If this ratio is close to 1, it's a good fit.
+    However, we need `bins_remain_cap[i] >= item`.
+
+    Let's try a score that heavily favors the tightest fit, and then uses the
+    amount of remaining capacity as a secondary (and slightly penalizing) factor.
+
+    For each bin `i` where `bins_remain_cap[i] >= item`:
+    Score `S_i = (item - bins_remain_cap[i]) - penalty_factor * bins_remain_cap[i]`
+    The `penalty_factor` is small and positive. This means:
+    1. It strongly favors bins where `bins_remain_cap[i]` is close to `item`.
+    2. If two bins have the same `item - bins_remain_cap[i]` difference (e.g., bin A has `rem=0.5`, item=0.3, diff=-0.2; bin B has `rem=0.8`, item=0.6, diff=-0.2),
+       the one with the smaller `bins_remain_cap[i]` (bin A in this case) will get a higher score due to the subtraction of `penalty_factor * bins_remain_cap[i]`.
+       This encourages using bins that are less "over-capacitated".
+
+    Let `bins_remain_cap = [0.8, 0.5, 0.9, 0.3]` and `item = 0.4`.
+    Bins that fit: 0.8, 0.5, 0.9.
+    Bin 0 (rem=0.8): `item - rem = 0.4 - 0.8 = -0.4`. `penalty = 0.1 * 0.8 = 0.08`. Score = -0.4 - 0.08 = -0.48.
+    Bin 1 (rem=0.5): `item - rem = 0.4 - 0.5 = -0.1`. `penalty = 0.1 * 0.5 = 0.05`. Score = -0.1 - 0.05 = -0.15.
+    Bin 2 (rem=0.9): `item - rem = 0.4 - 0.9 = -0.5`. `penalty = 0.1 * 0.9 = 0.09`. Score = -0.5 - 0.09 = -0.59.
+    Bin 3 (rem=0.3): Does not fit. Priority = -inf.
+
+    Scores: [-0.48, -0.15, -0.59, -inf].
+    Max score is -0.15, which corresponds to bin 1 (remaining capacity 0.5).
+    This seems reasonable: it found the tightest fit.
+
+    Let's try another example: `bins_remain_cap = [0.7, 0.6]`, `item = 0.5`.
+    Bin 0 (rem=0.7): `item - rem = 0.5 - 0.7 = -0.2`. `penalty = 0.1 * 0.7 = 0.07`. Score = -0.2 - 0.07 = -0.27.
+    Bin 1 (rem=0.6): `item - rem = 0.5 - 0.6 = -0.1`. `penalty = 0.1 * 0.6 = 0.06`. Score = -0.1 - 0.06 = -0.16.
+
+    Scores: [-0.27, -0.16]. Max score is -0.16, from bin 1 (rem=0.6).
+    This also makes sense, it picked the tighter fit.
+
+    Consider `bins_remain_cap = [0.5, 0.5]`, `item = 0.3`.
+    Bin 0 (rem=0.5): `item - rem = 0.3 - 0.5 = -0.2`. `penalty = 0.1 * 0.5 = 0.05`. Score = -0.2 - 0.05 = -0.25.
+    Bin 1 (rem=0.5): `item - rem = 0.3 - 0.5 = -0.2`. `penalty = 0.1 * 0.5 = 0.05`. Score = -0.2 - 0.05 = -0.25.
+    In case of a tie, the current method would return the same score. A stable sort would pick the first one.
+    If we want to break ties, we could add another term. For instance, prioritize bins with higher original index? Or lower?
+    Let's stick with the current formulation for now.
+
+    The parameter `alpha` controls how much we penalize having extra space.
+    A higher `alpha` means we are more sensitive to the amount of remaining capacity.
+    Let's set `alpha` to a small constant.
+
+    Final strategy:
+    For bins where `bins_remain_cap >= item`, calculate priority as `(item - bins_remain_cap) - alpha * bins_remain_cap`.
+    For bins where `bins_remain_cap < item`, assign a priority of `-np.inf`.
+    Select the bin with the maximum priority.
+    """
+    
+    fit_mask = bins_remain_cap >= item
+    
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    
+    
+    if np.any(fit_mask):
+        
+        alpha = 0.2  # Tunable parameter to balance tightness vs. minimizing remaining capacity
+        
+        
+        tightness_score = item - bins_remain_cap[fit_mask]
+        
+        
+        remaining_capacity = bins_remain_cap[fit_mask]
+        
+        
+        penalized_score = tightness_score - alpha * remaining_capacity
+        
+        
+        priorities[fit_mask] = penalized_score
+    
+    
+    return priorities
+```

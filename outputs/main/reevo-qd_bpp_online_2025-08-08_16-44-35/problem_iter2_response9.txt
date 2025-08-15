@@ -1,0 +1,60 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a Sigmoid Best Fit score.
+
+    This heuristic prioritizes bins that have a remaining capacity closest to the item's size,
+    aiming to minimize wasted space (slack). It uses a sigmoid function to provide a smooth
+    preference, giving higher scores to bins with less slack, provided the item fits.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Initialize priorities to zero (for bins that cannot fit the item or if no bins exist)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Find bins where the item can fit
+    can_fit_mask = bins_remain_cap >= item
+
+    # If there are bins that can fit the item
+    if np.any(can_fit_mask):
+        # Calculate the slack (excess capacity) for bins that can fit the item
+        # slack = bins_remain_cap - item
+        # We want to prioritize bins with smaller slack.
+        # The sigmoid function `1 / (1 + exp(x))` is a decreasing function of x.
+        # We want the input `x` to increase as slack increases.
+        # So, we use `x = sensitivity * slack`.
+        # A higher sensitivity means a sharper drop in priority as slack increases.
+        sensitivity = 1.0  # Controls the steepness of the sigmoid curve. Higher = sharper penalty for slack.
+
+        slack = bins_remain_cap[can_fit_mask] - item
+
+        # Calculate the sigmoid score: 1 / (1 + exp(sensitivity * slack))
+        # - For perfect fit (slack=0), score = 1 / (1 + exp(0)) = 1 / (1 + 1) = 0.5
+        # - For slack > 0 (excess capacity), exp(sensitivity * slack) > 1, so score < 0.5.
+        #   As slack increases, score approaches 0.
+        # We need to be careful about potential overflows in np.exp if `sensitivity * slack` is very large.
+        # If `sensitivity * slack` exceeds ~709, `np.exp` can result in `inf`.
+        # `1 / (1 + inf)` correctly evaluates to 0. So, numpy handles this gracefully.
+
+        # Cap the slack to a reasonable maximum to prevent extreme exponent values,
+        # ensuring the score remains a small positive number rather than exactly 0 if `exp` overflows to infinity.
+        # A slack of 1000 with sensitivity 1.0 would already result in an exponent argument of 1000,
+        # where exp(1000) is infinity and the score is 0.
+        # Clipping slack at a large value like 1000 is generally safe.
+        capped_slack = np.clip(slack, 0, 1000.0)
+        
+        exponent_argument = sensitivity * capped_slack
+        
+        # Calculate the priority scores for the fitting bins
+        # The formula `1.0 / (1.0 + np.exp(exponent_argument))` ensures scores are between (0, 0.5] for fitting bins.
+        # The highest priority (closest to 0.5) is for bins with zero slack (perfect fit).
+        priorities[can_fit_mask] = 1.0 / (1.0 + np.exp(exponent_argument))
+
+    return priorities
+```

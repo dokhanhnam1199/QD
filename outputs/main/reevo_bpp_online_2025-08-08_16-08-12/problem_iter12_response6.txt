@@ -1,0 +1,108 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes bins for the online Bin Packing Problem, with enhanced strategies.
+
+    This heuristic categorizes bins into:
+    1. Exact Fits: Bins where the item perfectly fills the remaining capacity.
+    2. Near Fits: Bins where the item fits, and the remaining capacity after placement
+       is small (defined by a threshold). These are further prioritized using a
+       temperature-controlled softmax on the inverse of the remaining capacity
+       to balance exploitation (best near fit) and exploration (trying other near fits).
+    3. General Fits: Bins where the item fits, but the remaining capacity after
+       placement is not considered "near". These receive a low positive priority.
+    4. Unfittable: Bins where the item cannot fit. These receive negative infinity priority.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array containing the remaining capacity of each bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, where each element
+        represents the priority score for placing the item in the corresponding bin.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # --- Configuration Parameters ---
+    # Priority for exact fits, set high to ensure they are always chosen if available.
+    EXACT_FIT_PRIORITY = 100.0
+    # Base score for near fits before applying softmax, ensuring they are preferred over general fits.
+    NEAR_FIT_BASE_SCORE = 50.0
+    # Scaling factor for softmax probabilities to map them into a desirable range.
+    NEAR_FIT_SCALE = 40.0
+    # Priority for bins that fit but are not considered "near". This ensures they are usable.
+    GENERAL_FIT_PRIORITY = 1.0
+    # Threshold to define what constitutes a "near fit". A smaller value is stricter.
+    # For example, if remaining capacity is less than 10% of the item size or a small absolute value.
+    # Let's use a relative threshold combined with an absolute minimum for robustness.
+    NEAR_FIT_THRESHOLD_RELATIVE = 0.15 # e.g., remaining capacity < 15% of item size
+    NEAR_FIT_THRESHOLD_ABSOLUTE = 5.0  # e.g., remaining capacity < 5.0 units
+
+    # Temperature for softmax to control exploration among near fits.
+    # Higher temperature -> more exploration (priorities more uniform).
+    # Lower temperature -> less exploration (priorities more skewed to best fits).
+    TEMPERATURE = 0.7  # Tunable parameter
+
+    epsilon_small = 1e-9 # Small value to prevent division by zero.
+
+    # --- Identify Bin Categories ---
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit the item
+
+    # 1. Exact Fits
+    exact_fit_mask = can_fit_mask & (np.abs(bins_remain_cap - item) < epsilon_small)
+    priorities[exact_fit_mask] = EXACT_FIT_PRIORITY
+
+    # 2. Near Fits
+    # Bins that can fit, but are not exact fits.
+    general_fitting_mask = can_fit_mask & ~exact_fit_mask
+
+    if np.any(general_fitting_mask):
+        fitting_bin_indices = np.where(general_fitting_mask)[0]
+        remaining_capacities_after_placement = bins_remain_cap[fitting_bin_indices] - item
+
+        # Define near fit criteria: remaining capacity is small.
+        near_fit_criteria = (remaining_capacities_after_placement < NEAR_FIT_THRESHOLD_ABSOLUTE) | \
+                            (remaining_capacities_after_placement < item * NEAR_FIT_THRESHOLD_RELATIVE)
+        
+        near_fit_indices_subset = fitting_bin_indices[near_fit_criteria]
+        non_near_fit_indices_subset = fitting_bin_indices[~near_fit_criteria]
+
+        # Process Near Fits
+        if len(near_fit_indices_subset) > 0:
+            near_fit_remaining_caps = remaining_capacities_after_placement[near_fit_criteria]
+
+            # Score for softmax: higher score for smaller remaining capacity.
+            # Using inverse capacity ensures smaller remaining space gets higher score.
+            near_fit_scores = 1.0 / (near_fit_remaining_caps + epsilon_small)
+
+            # Apply softmax for exploration among near fits.
+            if len(near_fit_scores) > 0:
+                # Shift scores for numerical stability before exponentiation.
+                max_score = np.max(near_fit_scores)
+                shifted_scores = near_fit_scores - max_score
+                
+                exp_scores = np.exp(shifted_scores / TEMPERATURE)
+                sum_exp_scores = np.sum(exp_scores)
+
+                if sum_exp_scores > 0:
+                    softmax_probabilities = exp_scores / sum_exp_scores
+                else:
+                    # Fallback to uniform distribution if all exp_scores are ~0 or NaN.
+                    softmax_probabilities = np.ones_like(near_fit_scores) / len(near_fit_scores)
+                
+                # Scale probabilities to a priority range below exact fits.
+                scaled_near_fit_priorities = NEAR_FIT_BASE_SCORE + softmax_probabilities * NEAR_FIT_SCALE
+                priorities[near_fit_indices_subset] = scaled_near_fit_priorities
+
+        # 3. General Fits
+        # Bins that fit but are not exact or near fits.
+        if len(non_near_fit_indices_subset) > 0:
+            priorities[non_near_fit_indices_subset] = GENERAL_FIT_PRIORITY
+            
+    return priorities
+```

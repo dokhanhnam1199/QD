@@ -1,0 +1,63 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, epsilon: float = 0.7936093851866426, tightness_weight: float = 0.23558201883097477, utilization_weight: float = 0.1717993745627621) -> np.ndarray:
+    """
+    Combines tight-fit preference with a penalty for unused bins,
+    favoring bins that leave less space and are already in use.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Mask for bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate tightness score: inverse of remaining capacity after packing
+    # Higher score for bins that leave less remaining space (closer to zero)
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    remaining_after_packing = fitting_bins_remain_cap - item
+    tightness_score = np.zeros_like(bins_remain_cap, dtype=float)
+    tightness_score[can_fit_mask] = tightness_weight / (remaining_after_packing + epsilon)
+
+    # Penalty for "empty" bins: encourage using partially filled bins.
+    # We define "empty" as bins with a large remaining capacity (e.g., > 75% of max observed).
+    # This encourages filling existing bins before opening new ones.
+    
+    # First, find a baseline for "large remaining capacity".
+    # We can use the maximum remaining capacity among *fitting* bins as a reference.
+    # If no bins fit, this part is skipped.
+    if fitting_bins_remain_cap.size > 0:
+        max_fitting_capacity = np.max(fitting_bins_remain_cap)
+        
+        # Identify bins that are "empty" or significantly underutilized
+        # A bin is considered "empty" if its remaining capacity is substantially large.
+        # Let's use a threshold, e.g., 75% of the max fitting capacity.
+        # This heuristic aims to penalize bins that are "too large" for the current item,
+        # and more importantly, to prefer bins that are already in use.
+        
+        # Penalty factor: reduce priority for bins with high remaining capacity.
+        # We want to down-weight bins that have a lot of "slack".
+        # The inverse of (1 + slack_penalty_factor * remaining_capacity) can work.
+        # A simpler approach derived from "penalty for empty bins" is to reduce the score
+        # of bins that are still "full" (i.e., have lots of remaining capacity).
+        
+        # Let's define a "utilization score" which is inverse of remaining capacity.
+        # A bin that is almost full has a high utilization score.
+        # High utilization is preferred.
+        
+        utilization_score = np.zeros_like(bins_remain_cap, dtype=float)
+        # We consider the inverse of the *initial* remaining capacity for utilization.
+        # Higher value means more utilized (less remaining capacity initially).
+        # We apply this only to fitting bins.
+        utilization_score[can_fit_mask] = utilization_weight / (bins_remain_cap[can_fit_mask] + epsilon)
+
+        # Combine tightness and utilization.
+        # We want both: small remaining space *after* packing (tightness)
+        # AND high initial utilization (prefer fuller bins).
+        # Multiplying them seems reasonable: prioritize bins that are already full AND become tight.
+        combined_score = tightness_score + utilization_score
+        
+        # Normalize scores to be in a similar range, e.g., [0, 1]
+        max_score = np.max(combined_score)
+        if max_score > 0:
+            priorities[can_fit_mask] = combined_score[can_fit_mask] / max_score
+
+    return priorities

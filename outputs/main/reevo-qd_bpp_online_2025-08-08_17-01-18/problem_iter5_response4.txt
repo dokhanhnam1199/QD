@@ -1,0 +1,187 @@
+[Prior reflection]
+The current `priority_v1` function implements a "tightest fit" heuristic using a sigmoid function. The reflection suggests incorporating several new aspects:
+
+1.  **Softmax for probabilistic exploration:** Instead of directly assigning scores, use Softmax to turn scores into probabilities. This allows for exploration of less ideal bins. The temperature parameter `T` will control this exploration-exploitation trade-off. A higher `T` means more exploration (probabilities are more uniform), a lower `T` means more exploitation (higher probability for the best bin).
+
+2.  **Tunable temperature parameter:** Explicitly add a `temperature` parameter to the function.
+
+3.  **Bin scarcity:** Bins that are closer to being full (lower remaining capacity) are more "scarce" and might be prioritized to avoid creating new bins unnecessarily, especially if they are good fits. The current sigmoid already implicitly favors bins with less remaining capacity when they are suitable fits. We can amplify this.
+
+4.  **Earlier bin preference for tie-breaking:** If multiple bins have similar priority scores, prefer bins that were opened earlier (i.e., have a lower index in the `bins_remain_cap` array). This encourages filling up existing bins before opening new ones.
+
+**Combining these:**
+
+*   Start with the `priority_v1` logic to get base scores reflecting tight fits.
+*   Modify the scores to incorporate bin scarcity. We can add a small penalty to bins with high remaining capacity (making them less attractive) or a bonus to bins with low remaining capacity (making them more attractive). The sigmoid already does this, so perhaps we can scale it or add a small term. Let's consider adding a small term proportional to the *inverse* of remaining capacity (or proportional to `1/capacity`) to slightly favor bins that are less empty.
+*   Apply Softmax to these modified scores to get probabilities.
+*   Implement tie-breaking: a simple way is to add a small value to the score of earlier bins before Softmax. This small value could be inversely proportional to the bin index (e.g., `1/(index + 1)`), ensuring earlier bins get a slight boost.
+
+Let's refine the scoring:
+
+Base score (sigmoid for tight fit): `S_fit = 1 / (1 + exp(k * (remaining_capacity - item)))` for suitable bins.
+
+Bin scarcity bonus: Maybe add a term like `alpha * (1 / (remaining_capacity + epsilon))` to favor less empty bins. `alpha` controls the strength of this bonus.
+
+Tie-breaking bonus: Add `beta / (bin_index + 1)` to each score. `beta` controls the strength of this tie-breaker.
+
+Combined score for bin `i`: `Score_i = S_fit_i + alpha * (1 / (bins_remain_cap[i] + epsilon)) + beta / (i + 1)`
+
+Then apply Softmax: `P_i = exp(Score_i / T) / sum(exp(Score_j / T))`
+
+**Considerations for implementation:**
+
+*   `k`: Sensitivity for tight fit.
+*   `alpha`: Weight for bin scarcity.
+*   `beta`: Weight for tie-breaking.
+*   `T`: Softmax temperature.
+*   `epsilon`: Small value to prevent division by zero if a bin has 0 remaining capacity (though this shouldn't happen if it's a suitable bin).
+
+Let's simplify the bin scarcity and tie-breaking integration. Instead of adding separate terms before Softmax, we can adjust the base scores.
+
+1.  **Base Score (Sigmoid):** Same as `priority_v1`.
+2.  **Scarcity Adjustment:** For bins with remaining capacity `R`, we want to slightly favor smaller `R` (if `R >= item`). We could add a term `gamma * (max_capacity - R)` where `max_capacity` is the bin's full capacity (which we don't have directly, but can infer as the initial capacity if we track it, or just use a large constant). Alternatively, we can simply add a small bonus based on how *full* the bin is, e.g., `gamma * (1 - R / initial_capacity)`. Since we only have `bins_remain_cap`, let's try adding a term that *increases* the score for smaller `R`. A simple monotonic function like `-R` could work, but it needs to be scaled properly. Let's try adding `gamma * (item - R)` which is negative for R > item and larger negative for larger R, effectively penalizing larger remaining capacities. Or `gamma * (1 / R)`. Let's try `gamma * (1 / (R + epsilon))` where `epsilon` is small.
+3.  **Tie-breaking Adjustment:** Add `delta * (1.0 / (i + 1.0))` to the score.
+
+Let's combine the adjustments to the sigmoid score before Softmax.
+
+`Adjusted_Score_i = SigmoidScore_i + gamma * (1.0 / (bins_remain_cap[i] + epsilon)) + delta * (1.0 / (i + 1.0))`
+
+Then apply Softmax with temperature `T`.
+
+Let's make `gamma` and `delta` tunable parameters alongside `k` and `T`.
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, temperature: float = 1.0, k: float = 5.0, gamma: float = 0.1, delta: float = 0.01, epsilon: float = 1e-6) -> np.ndarray:
+    """
+    Returns priority probabilities for packing an item into bins using a
+    combination of tight fit, bin scarcity, tie-breaking, and Softmax for exploration.
+
+    This heuristic prioritizes:
+    1.  **Tight Fits:** Bins that have just enough remaining capacity for the item.
+        This is handled by a sigmoid function on the "mismatch" (remaining_capacity - item).
+    2.  **Bin Scarcity:** Slightly favors bins that are less empty (have less remaining capacity),
+        as these are scarcer resources. A bonus is added inversely proportional to remaining capacity.
+    3.  **Earlier Bin Preference:** If multiple bins have similar scores, favors bins that
+        appear earlier in the `bins_remain_cap` array (i.e., were opened earlier).
+    4.  **Probabilistic Exploration (Softmax):** Converts the computed priority scores
+        into probabilities using the Softmax function. The `temperature` parameter
+        controls the exploration-exploitation trade-off:
+        - Low temperature (close to 0): Exploitation (favors the highest score).
+        - High temperature (large value): Exploration (probabilities are more uniform).
+
+    The final priority for each bin is calculated as:
+    `Score_i = SigmoidFit(bins_remain_cap[i], item, k) + gamma * (1 / (bins_remain_cap[i] + epsilon)) + delta * (1 / (i + 1))`
+    Then, probabilities are derived using Softmax:
+    `P_i = exp(Score_i / temperature) / sum(exp(Score_j / temperature))`
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A NumPy array representing the remaining capacity of each bin.
+        temperature: Controls the Softmax exploration/exploitation balance.
+                     Higher values lead to more exploration. Defaults to 1.0.
+        k: Sensitivity parameter for the sigmoid function (tightest fit preference).
+           Higher `k` increases preference for tighter fits. Defaults to 5.0.
+        gamma: Weight for the bin scarcity bonus. Higher `gamma` increases
+               preference for less empty bins. Defaults to 0.1.
+        delta: Weight for the earlier bin preference tie-breaker. Higher `delta`
+               increases preference for earlier bins. Defaults to 0.01.
+        epsilon: Small value to prevent division by zero in scarcity calculation.
+                 Defaults to 1e-6.
+
+    Returns:
+        A NumPy array of probabilities, same size as `bins_remain_cap`.
+        Bins that cannot fit the item will have a probability of 0.
+    """
+    num_bins = len(bins_remain_cap)
+    raw_scores = np.zeros(num_bins, dtype=float)
+
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+
+    # Calculate base sigmoid fit score for suitable bins
+    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+    
+    if suitable_bins_cap.size > 0:
+        # Calculate the "mismatch" or wasted space
+        mismatch = suitable_bins_cap - item
+        
+        # Cap exponent argument to prevent overflow in np.exp
+        max_exponent_arg = 35.0
+        capped_exponent_arg = np.minimum(k * mismatch, max_exponent_arg)
+        
+        # Sigmoid score: Higher for tighter fits (smaller mismatch)
+        sigmoid_scores = 1 / (1 + np.exp(capped_exponent_arg))
+
+        # Apply scarcity bonus: Add bonus for bins with less remaining capacity
+        # Using 1 / (capacity + epsilon) as a proxy for "fullness"
+        scarcity_bonus = gamma * (1.0 / (suitable_bins_cap + epsilon))
+
+        # Apply tie-breaking bonus: Add bonus for earlier bins
+        # Find the indices of the suitable bins in the original array
+        suitable_bin_indices = np.where(suitable_bins_mask)[0]
+        tie_breaker_bonus = delta * (1.0 / (suitable_bin_indices + 1.0))
+
+        # Combine scores for suitable bins
+        combined_scores = sigmoid_scores + scarcity_bonus + tie_breaker_bonus
+        
+        # Assign combined scores back to the raw_scores array
+        raw_scores[suitable_bins_mask] = combined_scores
+
+    # If temperature is very low (close to 0), effectively select the max score bin.
+    # Avoid division by zero if temperature is 0.
+    if temperature <= epsilon:
+        if np.max(raw_scores) > -np.inf: # Check if there's at least one valid score
+             # Assign probability 1 to the bin(s) with the maximum score
+             max_score = np.max(raw_scores)
+             probabilities = np.where(raw_scores == max_score, 1.0, 0.0)
+             # Normalize to ensure sum is 1 if multiple max scores exist
+             num_max_scores = np.sum(probabilities)
+             if num_max_scores > 0:
+                 probabilities /= num_max_scores
+        else: # All scores are -inf (e.g., no suitable bins)
+             probabilities = np.zeros(num_bins)
+        return probabilities
+
+    # Apply Softmax to convert scores to probabilities
+    # Add a small constant to scores before exp to avoid issues with very small negative scores
+    # Or simply handle potential underflow/overflow.
+    # A common trick is to subtract the max score before exponentiation:
+    # exp(x_i / T) / sum(exp(x_j / T)) = exp((x_i - max(x)) / T) / sum(exp((x_j - max(x)) / T))
+    # This stabilizes calculations.
+    
+    # Find the maximum score to shift all scores down for numerical stability
+    max_raw_score = np.max(raw_scores)
+    
+    # Ensure we don't get NaN or inf if all scores are -inf (e.g., no suitable bins)
+    if max_raw_score == -np.inf:
+        return np.zeros(num_bins)
+
+    shifted_scores = (raw_scores - max_raw_score) / temperature
+    
+    # Calculate exponential of shifted scores
+    exp_scores = np.exp(shifted_scores)
+    
+    # Calculate sum of exponential scores for normalization
+    sum_exp_scores = np.sum(exp_scores)
+    
+    # Calculate probabilities
+    probabilities = exp_scores / sum_exp_scores
+    
+    # Ensure probabilities sum to 1 (due to potential floating point inaccuracies)
+    # And handle cases where sum_exp_scores might be 0 (e.g., all shifted scores were -inf)
+    if sum_exp_scores > 0:
+        probabilities /= np.sum(probabilities) # Re-normalize
+    else:
+        # This case should ideally not happen if max_raw_score was handled correctly,
+        # but as a fallback, if all exp_scores resulted in 0, distribute uniformly or zero out.
+        # Given our max_raw_score shift, this implies all shifted scores were extremely negative.
+        probabilities = np.zeros(num_bins)
+
+    # Ensure probabilities are not NaN
+    probabilities = np.nan_to_num(probabilities)
+
+    return probabilities
+
+```

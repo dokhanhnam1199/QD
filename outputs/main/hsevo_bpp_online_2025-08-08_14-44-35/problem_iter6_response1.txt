@@ -1,0 +1,66 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit Decreasing (BFD) logic with a "least recently used"
+    bias for a more adaptive online bin packing strategy.
+    It prioritizes bins that result in the smallest remaining capacity (Best Fit),
+    but also favors bins that haven't been used recently, preventing a few
+    bins from being overused early on.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_indices = np.where(suitable_bins_mask)[0]
+
+    if suitable_bins_indices.size == 0:
+        return priorities  # No bin can fit the item
+
+    # --- Multi-objective approach ---
+    # Objective 1: Minimize remaining capacity (Best Fit)
+    suitable_capacities = bins_remain_cap[suitable_bins_indices]
+    gaps = suitable_capacities - item
+    
+    # Normalize gaps to a [0, 1] range. Smaller gap is better, so we invert.
+    # Add a small epsilon to avoid division by zero if all gaps are the same.
+    min_gap = np.min(gaps)
+    max_gap = np.max(gaps)
+    if max_gap == min_gap:
+        normalized_gaps = np.ones_like(gaps) * 0.5 # If all gaps are same, assign neutral score
+    else:
+        normalized_gaps = 1 - (gaps - min_gap) / (max_gap - min_gap)
+
+    # Objective 2: Favor less recently used bins.
+    # This is simulated by using the index as a proxy for "recency".
+    # Lower index means it was likely available/created earlier.
+    # We want to prioritize bins that have been "available" longer.
+    # So, we want smaller indices to have higher priority here.
+    # Normalize indices. Larger index means less "recent" in this simulation.
+    min_idx = np.min(suitable_bins_indices)
+    max_idx = np.max(suitable_bins_indices)
+    if max_idx == min_idx:
+        normalized_recency = np.ones_like(suitable_bins_indices) * 0.5
+    else:
+        normalized_recency = (suitable_bins_indices - min_idx) / (max_idx - min_idx)
+
+    # Combine objectives with weights.
+    # Let's give a slight preference to Best Fit initially (0.6)
+    # and a moderate preference to less recently used bins (0.4).
+    # These weights can be tuned.
+    weight_bf = 0.6
+    weight_recency = 0.4
+
+    combined_scores = (weight_bf * normalized_gaps) + (weight_recency * normalized_recency)
+
+    # Find the index within the 'suitable_bins_indices' array that has the highest combined score
+    best_fit_in_suitable_idx = np.argmax(combined_scores)
+    
+    # Get the original index of this best-fitting bin
+    best_fit_original_idx = suitable_bins_indices[best_fit_in_suitable_idx]
+    
+    priorities[best_fit_original_idx] = 1.0
+
+    return priorities
+```

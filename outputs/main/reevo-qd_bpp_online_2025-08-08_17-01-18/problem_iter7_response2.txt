@@ -1,0 +1,267 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority scores for bins using a unified scoring mechanism
+    that balances tight fits with bin scarcity, employing a Softmax function
+    with a tunable temperature.
+
+    This heuristic prioritizes bins based on two factors:
+    1. Tightness of fit: Bins that have just enough remaining capacity
+       for the item are preferred.
+    2. Bin scarcity: Bins with less remaining capacity overall are considered
+       more valuable, as they are closer to being full.
+
+    The scoring mechanism uses a combination of the "mismatch" (remaining capacity - item)
+    and the bin's remaining capacity itself. A Softmax function is applied to these
+    scores to create a probability distribution over the bins, effectively
+    balancing exploration (trying less tight fits) and exploitation (going for the tightest fit).
+
+    For each bin `i`:
+    - `mismatch_i = bins_remain_cap[i] - item` (if `bins_remain_cap[i] >= item`, else infinity)
+    - `scarce_score_i = -bins_remain_cap[i]` (higher score for smaller capacity)
+    - `unified_score_i = scarce_score_i - mismatch_i` (prioritize low mismatch and low capacity)
+
+    A Softmax function is then applied to `unified_score_i` for all suitable bins:
+    `probability_i = exp(temperature * unified_score_i) / sum(exp(temperature * unified_score_j))`
+
+    The `temperature` parameter controls the exploration-exploitation trade-off:
+    - High temperature: Explores more, scores are closer to uniform.
+    - Low temperature: Exploits more, favors bins with the absolute highest unified score.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A NumPy array representing the remaining capacity of each bin.
+
+    Returns:
+        A NumPy array of the same size as `bins_remain_cap`, where each element
+        is a probability score (between 0 and 1) for the corresponding bin.
+        Bins that cannot fit the item will have a score of 0.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+
+    # If no bin can fit the item, return all zeros
+    if suitable_bins_cap.size == 0:
+        return priorities
+
+    # Tunable temperature parameter for Softmax.
+    # Controls the balance between exploiting the best fit and exploring other options.
+    # A value of 1.0 is a good starting point. Higher values lead to more uniform
+    # probabilities (more exploration), lower values lead to more peaked probabilities
+    # (more exploitation).
+    temperature = 1.0
+
+    # Calculate scores for suitable bins
+    # Score is based on prioritizing bins with less remaining capacity (scarce_score)
+    # and a tighter fit (lower mismatch).
+    # We want to maximize `scarce_score - mismatch`.
+    # `scarce_score` is `-bins_remain_cap[i]` (higher score for lower capacity).
+    # `mismatch` is `bins_remain_cap[i] - item`.
+    # So, `unified_score_i` = `-bins_remain_cap[i] - (bins_remain_cap[i] - item)`
+    #                     = `item - 2 * bins_remain_cap[i]`
+    # This simple formulation prioritizes bins that are smaller, and among equally
+    # sized bins, it prioritizes those that are closer to the item size.
+    # Let's refine this to directly use mismatch and scarcity in a balanced way.
+
+    # Let's define components:
+    # 1. Fit Score: Penalize larger mismatches. A simple way is `-mismatch`.
+    #    To be more robust, use a function that drops quickly. E.g., `-(bins_remain_cap[i] - item)^2`.
+    #    Or, for a "tight fit" focus, we can use the previous sigmoid idea.
+    #    However, for Softmax unification, let's use a simple linear penalty on mismatch.
+    #    `fit_score = -(suitable_bins_cap - item)`
+    #
+    # 2. Scarcity Score: Penalize larger remaining capacities.
+    #    `scarce_score = -suitable_bins_cap`
+
+    # Unified score combines fit and scarcity.
+    # We want to prefer low mismatch AND low capacity.
+    # A simple sum of negative values works: `unified_score = fit_score + scarce_score`
+    # `unified_score = -(suitable_bins_cap - item) - suitable_bins_cap`
+    # `unified_score = -suitable_bins_cap + item - suitable_bins_cap`
+    # `unified_score = item - 2 * suitable_bins_cap`
+    # This means bins with smaller remaining capacity get higher scores.
+    # Let's re-evaluate the reflection: "prioritize tight fits using a unified scoring mechanism.
+    # Employ Softmax with tunable temperature for adaptive exploration/exploitation,
+    # balancing fit and bin scarcity."
+
+    # The prompt implies balancing *tight fits* with *bin scarcity*.
+    # Tight fit: Small `bins_remain_cap[i] - item`.
+    # Bin scarcity: Small `bins_remain_cap[i]`.
+
+    # Let's try to create scores where higher is better for both.
+    # For tight fit: Higher score for smaller `(bins_remain_cap[i] - item)`.
+    # For bin scarcity: Higher score for smaller `bins_remain_cap[i]`.
+
+    # Example scores:
+    # `fit_priority_component = - (suitable_bins_cap - item)`
+    # `scarcity_priority_component = - suitable_bins_cap`
+    # `unified_score = fit_priority_component + scarcity_priority_component`
+    # `unified_score = -(suitable_bins_cap - item) - suitable_bins_cap`
+    # `unified_score = -suitable_bins_cap + item - suitable_bins_cap`
+    # `unified_score = item - 2 * suitable_bins_cap`
+
+    # Alternative: Use the "goodness" of the fit and "how much capacity is left".
+    # Goodness of fit: Higher for smaller `(bins_remain_cap[i] - item)`.
+    # How much capacity is left: Higher for smaller `bins_remain_cap[i]`.
+    # Let's scale them to be comparable.
+    # We can think of `bins_remain_cap[i]` as a measure of bin fullness (inversely).
+    # A bin that is almost full (low `bins_remain_cap[i]`) is scarce.
+    # A bin that fits the item snugly (low `bins_remain_cap[i] - item`) is a tight fit.
+
+    # Let's consider the remaining capacity `R` and item size `S`.
+    # Tight fit: `R - S` is small and non-negative.
+    # Scarcity: `R` is small.
+
+    # Proposed unified score: Prioritize bins where `R` is small, and among those,
+    # where `R - S` is small.
+    # A simple score that captures this could be a decreasing function of `R` and `R-S`.
+    # Let's try: `score = - R - (R - S)` for `R >= S`.
+    # `score = -2R + S`
+    # This penalizes larger `R` more heavily.
+
+    # Let's consider the *benefit* of placing the item in a bin.
+    # Benefit = saving a bin (if it's the last item for that bin) + reduced wasted space.
+    # This is complex for an online setting.
+
+    # Let's go back to balancing fit and scarcity.
+    # How about giving a high score to bins that are *almost* full, but can still fit the item?
+    # And among those, prioritize the ones that fit snugly.
+
+    # A score that reflects "how much capacity is left relative to the item size"
+    # and "how much capacity is left in total".
+    # Let `mismatch = suitable_bins_cap - item`
+    # Let `capacity = suitable_bins_cap`
+
+    # Score idea: `f(mismatch, capacity)`. We want `f` to increase as `mismatch` and `capacity` decrease.
+    # `score = -mismatch - capacity`
+    # `score = -(suitable_bins_cap - item) - suitable_bins_cap`
+    # `score = -suitable_bins_cap + item - suitable_bins_cap`
+    # `score = item - 2 * suitable_bins_cap`
+
+    # Let's scale these components if needed, but for Softmax, relative values matter.
+    # Let's use the components directly.
+    # `fit_score_component = -(suitable_bins_cap - item)`
+    # `scarcity_score_component = -suitable_bins_cap`
+    # `unified_score = fit_score_component + scarcity_score_component`
+
+    # To ensure numerical stability and meaningful distribution from Softmax,
+    # we might want to normalize or shift these scores.
+    # A common practice is to ensure scores are not excessively large or small.
+
+    # Let's consider the components:
+    # `mismatches = suitable_bins_cap - item` (non-negative)
+    # `capacities = suitable_bins_cap` (non-negative)
+
+    # We want to maximize: `-mismatches` and `-capacities`.
+    # Let's create two terms, one favoring tight fits and one favoring scarcity.
+    # Term 1 (Tight Fit): Higher score for smaller `mismatch`.
+    # E.g., `term1 = -mismatches`. A large mismatch gives a large negative score.
+    # Term 2 (Scarcity): Higher score for smaller `capacity`.
+    # E.g., `term2 = -capacities`. A large capacity gives a large negative score.
+
+    # Unified Score = `w1 * term1 + w2 * term2`
+    # Let's try equal weighting for now: `w1 = 1, w2 = 1`.
+    # `unified_score = -mismatches - capacities`
+    # `unified_score = -(suitable_bins_cap - item) - suitable_bins_cap`
+    # `unified_score = item - 2 * suitable_bins_cap`
+
+    # This score implies that if two bins have the same remaining capacity,
+    # they will have the same score regardless of the item size.
+    # If we want the tightness of fit to play a role even for bins with the same remaining capacity,
+    # we need to structure it differently.
+
+    # Let's think about the criteria:
+    # 1. Minimal remaining capacity (`R`) such that `R >= item`. This is scarcity.
+    # 2. Minimal `R - item`. This is tight fit.
+
+    # A common approach for combining criteria is to use a weighted sum of functions
+    # that represent each criterion.
+    # Let `f_scarce(R) = -R` (higher for smaller R)
+    # Let `f_fit(R, S) = -(R - S)` (higher for smaller R-S)
+
+    # Unified score: `w_s * f_scarce(R) + w_f * f_fit(R, S)`
+    # `w_s * (-R) + w_f * (-(R - S))`
+    # `-(w_s * R + w_f * R - w_f * S)`
+    # `-( (w_s + w_f) * R - w_f * S )`
+    # If `w_s = w_f = 1`: `-(2R - S) = S - 2R`. Same as before.
+
+    # The issue with `S - 2R` is that it might not differentiate well if `R` is very large.
+    # For example, if `R` is huge, the score becomes very negative.
+    # Let's consider the components separately and then combine.
+
+    # Component 1: How "scarce" is the bin? (Higher for less capacity)
+    # `scarce_value = 1.0 / (1.0 + suitable_bins_cap)`  # Decreasing function of capacity
+    # or `scarce_value = -suitable_bins_cap`
+
+    # Component 2: How "tight" is the fit? (Higher for less mismatch)
+    # `mismatch = suitable_bins_cap - item`
+    # `fit_value = 1.0 / (1.0 + mismatch)` # Decreasing function of mismatch
+    # or `fit_value = -mismatch`
+
+    # Let's try `fit_value = 1.0 / (1.0 + mismatch)` and `scarce_value = 1.0 / (1.0 + suitable_bins_cap)`.
+    # These are normalized between 0 and 1.
+    # `unified_score = fit_value + scarce_value`
+    # `unified_score = (1.0 / (1.0 + suitable_bins_cap - item)) + (1.0 / (1.0 + suitable_bins_cap))`
+
+    # This looks promising. Both terms are higher when their respective values are lower.
+    # Let's use these as the scores that will be fed into Softmax.
+
+    mismatches = suitable_bins_cap - item
+    capacities = suitable_bins_cap
+
+    # To avoid division by zero if mismatch or capacity is 0, we add 1.
+    # The terms are:
+    # fit_term = 1 / (1 + mismatch) -> higher for smaller mismatch
+    # scarce_term = 1 / (1 + capacity) -> higher for smaller capacity
+    # We want to maximize both.
+    fit_term = 1.0 / (1.0 + mismatches)
+    scarce_term = 1.0 / (1.0 + capacities)
+
+    # Unified score: A simple sum of these terms.
+    unified_scores = fit_term + scarce_term
+
+    # Apply Softmax to get probabilities
+    # Need to handle cases where scores might be very large or very small.
+    # Softmax requires exponentiation, so large positive scores will dominate.
+    # If `unified_scores` are all very small negative, `exp` might underflow.
+    # If `unified_scores` are very large positive, `exp` might overflow.
+
+    # It's good practice to shift scores so the max is 0 before exponentiating for Softmax.
+    # `max_score = np.max(unified_scores)`
+    # `shifted_scores = unified_scores - max_score`
+    # `exp_scores = np.exp(temperature * shifted_scores)`
+    # `probabilities = exp_scores / np.sum(exp_scores)`
+
+    # Let's directly compute using temperature, and handle potential issues.
+    # A high temperature will smooth out differences.
+    # A low temperature will make the highest score dominate.
+
+    # Ensure scores are not too extreme before exponentiation.
+    # We can clip the `temperature * unified_scores` argument.
+    # For example, clip to [-10, 10].
+    exponent_argument = temperature * unified_scores
+    max_exponent_val = 10.0 # Corresponds to exp(10) approx 22000
+    min_exponent_val = -10.0 # Corresponds to exp(-10) approx 4.5e-5
+
+    capped_exponent_argument = np.clip(exponent_argument, min_exponent_val, max_exponent_val)
+
+    exp_scores = np.exp(capped_exponent_argument)
+    sum_exp_scores = np.sum(exp_scores)
+
+    # Avoid division by zero if all scores were somehow zero or exp resulted in zero.
+    if sum_exp_scores == 0:
+        # Fallback: if all scores are 0 or lead to 0, assign uniform probability.
+        probabilities = np.ones_like(unified_scores) / len(unified_scores)
+    else:
+        probabilities = exp_scores / sum_exp_scores
+
+    # Place the calculated probabilities back into the main priorities array
+    priorities[suitable_bins_mask] = probabilities
+
+    return priorities
+```

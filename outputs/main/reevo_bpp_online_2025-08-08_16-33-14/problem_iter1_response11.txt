@@ -1,0 +1,178 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Best Fit.
+
+    The Best Fit strategy prioritizes bins that have just enough remaining capacity
+    to fit the item, aiming to minimize wasted space. This is achieved by
+    calculating a score that is high for bins with small remaining capacity
+    that can still accommodate the item, and lower for bins with much more
+    or insufficient capacity.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, the priority is inversely proportional
+    # to the remaining capacity. We want the tightest fit.
+    # A common way to implement this is to use a large number minus the remaining capacity.
+    # To avoid issues with very large capacities or negative priorities,
+    # we can use a formula that rewards smaller positive differences.
+    # For instance, a small positive remaining capacity should get a high priority.
+    # A simple inverse could be problematic (division by zero or very large numbers).
+    # A better approach is to use a measure of "how much space is left over".
+    # The less space left over (but still enough to fit), the better.
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Calculate "slack" for bins that can fit the item
+    slack = bins_remain_cap[can_fit_mask] - item
+
+    # Assign higher priorities to bins with less slack (tighter fit)
+    # A simple inverse of slack could be problematic (slack=0 leads to infinity).
+    # Let's use a transformation: a large constant minus slack, or consider
+    # the inverse of (slack + epsilon) to avoid division by zero.
+    # Another approach is to map slack to a priority score, where smaller slack gets a higher score.
+    # We can map slack to a value that decreases as slack increases.
+    # For example, 1 / (slack + 1) (adding 1 to avoid division by zero for slack=0).
+    # Or, more simply, assign a priority proportional to the 'emptiness' after fitting:
+    # Higher priority if remaining_capacity - item is small.
+    # Let's try: priority = max_possible_capacity - (remaining_capacity - item)
+    # If we assume a standard bin capacity `C`, then remaining_capacity - item is the wasted space.
+    # Maximizing `C - (remaining_capacity - item)` is equivalent to minimizing wasted space.
+    # If we don't have `C`, we can simply prioritize bins with smallest `remaining_capacity - item`.
+    # Using `1 / (slack + epsilon)` is a good way to achieve this.
+    # A large number minus slack is also effective if we have a bounded range.
+    # Let's use a scoring mechanism where smaller `slack` results in a larger score.
+    # We can use a penalty function: -slack or a transformation of slack.
+    # A large value for tight fits, smaller for looser fits.
+    # Let's aim for priorities in a range, e.g., [0, 1].
+    # For slack `s`, priority can be `1 / (s + 1)`. This gives higher priority to smaller slack.
+    # A slack of 0 gets priority 1. A slack of 1 gets priority 0.5. A slack of 10 gets priority 0.09.
+
+    # Calculate priorities for bins that can fit
+    # Add a small epsilon to slack to prevent division by zero if slack is exactly 0.
+    epsilon = 1e-9
+    priorities[can_fit_mask] = 1.0 / (slack + epsilon)
+
+    # We can normalize these priorities if needed, but for a greedy selection,
+    # the relative order is what matters.
+    # Alternatively, a large number minus the slack can be used, e.g., 100 - slack.
+    # Let's consider a penalty for bins that are *too* large and would leave
+    # a lot of wasted space even after fitting.
+    # A common Best Fit heuristic is to pick the bin that leaves the *minimum*
+    # remaining capacity. This means we want to minimize `bins_remain_cap - item`.
+
+    # Let's refine this: prioritize bins where `bins_remain_cap - item` is smallest.
+    # We can map `bins_remain_cap - item` to a priority score, where smaller values
+    # result in higher scores.
+    # A simple approach: a large number minus `bins_remain_cap - item`.
+    # If we assume a maximum possible bin capacity `MAX_CAP`, then the worst slack
+    # could be `MAX_CAP - item`. The best slack is 0.
+    # A priority like `MAX_CAP - (bins_remain_cap - item)` would work.
+    # Without `MAX_CAP`, we can simply use `bins_remain_cap - item` and take the minimum.
+    # To make it a priority function returning higher values for better fits:
+    # We can invert it: `1 / (bins_remain_cap - item + epsilon)`.
+    # Let's stick to the `1 / (slack + epsilon)` idea for now, as it directly captures
+    # minimizing the leftover space.
+
+    # Another common approach for Best Fit is to directly use the remaining capacity
+    # that *will* result after placing the item. The bin that results in the
+    # smallest remaining capacity after placement is preferred.
+    # So, for each bin `b` where `bins_remain_cap[b] >= item`, we are interested in
+    # `bins_remain_cap[b] - item`. We want to *minimize* this value.
+    # To turn this into a "priority score" where higher is better, we can do:
+    # `large_value - (bins_remain_cap[b] - item)`.
+    # A simple monotonic transformation: `- (bins_remain_cap[b] - item)` would result
+    # in higher scores for smaller `bins_remain_cap[b] - item`.
+    # However, scores should generally be non-negative or scaled appropriately.
+    # Using `1.0 / (bins_remain_cap[b] - item + epsilon)` achieves this.
+
+    # Let's create a simpler priority directly based on the goal:
+    # Find the bin `i` such that `bins_remain_cap[i] - item` is minimized, among valid bins.
+    # We can assign a priority score proportional to the negative of this difference.
+    # Or, to ensure positive priorities and larger for better fits,
+    # a large constant minus the difference.
+    # Consider the range of possible remaining capacities.
+    # If all bins are too small, priorities are 0.
+    # If a bin fits perfectly (slack=0), its priority should be maximal among valid bins.
+    # If a bin has a large slack, its priority should be low.
+
+    # Final attempt with a clear Best Fit interpretation:
+    # The goal is to find the bin that, after placing the item, has the *least*
+    # remaining capacity. This minimizes wasted space.
+    # So, for a bin `i` that can fit the item, the "best fit" is the one with the smallest
+    # `bins_remain_cap[i] - item`.
+    # Let `diff = bins_remain_cap[i] - item`. We want to prioritize smaller `diff`.
+    # We can assign priority as `1 / (diff + epsilon)`.
+
+    # Let's consider an alternative interpretation that's common in some priority schemes:
+    # How *likely* is this item to fit in this bin without much wasted space?
+    # A bin with very little remaining capacity is a good candidate if it can fit the item.
+    # A bin with *just* enough capacity is better than a bin with vastly more capacity.
+
+    # Let's try a different approach that might be more intuitive as a "priority score".
+    # For bins that can fit the item:
+    # Calculate the 'emptiness' after placing the item: `bins_remain_cap - item`.
+    # We want to prioritize bins with smaller 'emptiness'.
+    # Let's create a score where smaller `emptiness` results in a higher score.
+    # Consider `max_possible_emptiness - emptiness`.
+    # If we don't know `max_possible_emptiness`, we can use a large number.
+    # Or, simply, `-(emptiness)` would assign higher scores to smaller (more negative) values.
+    # But we want positive scores.
+    # A score of `1 / (emptiness + epsilon)` works well.
+
+    # Let's try to assign priorities reflecting the "goodness of fit" directly.
+    # A perfect fit (remaining_capacity == item) is ideal.
+    # A fit with remaining_capacity slightly larger than item is next best.
+    # A fit with remaining_capacity much larger is less desirable.
+    # A fit that cannot hold the item is undesirable (priority 0).
+
+    # The most direct Best Fit score would be the negative of the remaining capacity
+    # after placing the item, for bins that can accommodate it.
+    # This means minimizing `bins_remain_cap[i] - item`.
+    # So, `priority = -(bins_remain_cap[i] - item)`.
+    # To make priorities positive and avoid large negative numbers:
+    # Let's use `max_slack - (bins_remain_cap[i] - item)` where `max_slack` is the maximum
+    # possible slack for a fitting bin, or some sufficiently large number.
+    # A simpler way that often works is `1.0 / (bins_remain_cap[i] - item + epsilon)`.
+
+    # Let's simplify and ensure we are truly implementing the "best fit" concept:
+    # Best Fit aims to leave the smallest possible remaining capacity in the bin.
+    # For each bin `i`:
+    # If `bins_remain_cap[i] < item`, priority is 0.
+    # If `bins_remain_cap[i] >= item`, the "goodness" of this fit is measured by
+    # `bins_remain_cap[i] - item`. A smaller value is better.
+    # We want higher priority for smaller `bins_remain_cap[i] - item`.
+    # This can be achieved by `score = K - (bins_remain_cap[i] - item)` for some constant `K`.
+    # Or, `score = 1 / (bins_remain_cap[i] - item + epsilon)`.
+
+    # Let's implement `1 / (slack + epsilon)` more directly.
+    # `slack = bins_remain_cap[can_fit_mask] - item`
+    # For bins that can fit:
+    # Prioritize by `1.0 / (slack + epsilon)` to get highest priority for smallest slack.
+
+    # The code already calculated this. Let's add a comment explaining it clearly.
+    # The priorities are now derived from the `slack`. Bins with smaller `slack`
+    # (i.e., `bins_remain_cap - item` is smaller) get a higher priority score.
+    # This aligns with the Best Fit strategy.
+
+    # The logic:
+    # 1. Identify which bins can hold the `item`.
+    # 2. For those bins, calculate the `slack` (remaining capacity - item size).
+    # 3. The best fit is the bin with the *minimum* slack.
+    # 4. To convert "minimum slack" into a "highest priority score", we use an inverse relationship.
+    #    `priority = 1 / (slack + epsilon)` ensures that as slack decreases, priority increases.
+    #    A slack of 0 yields a priority of `1/epsilon` (very high).
+    #    A larger slack yields a priority closer to 0.
+    # 5. Bins that cannot fit the item get a priority of 0.
+
+    return priorities
+```

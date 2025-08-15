@@ -1,0 +1,133 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    fittable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(fittable_bins_mask):
+        return priorities
+
+    fittable_bins_remain_cap = bins_remain_cap[fittable_bins_mask]
+
+    # Best Fit Score: Prioritize bins with minimal remaining capacity after fitting.
+    # Added epsilon for numerical stability.
+    best_fit_score = 1.0 / (fittable_bins_remain_cap - item + 1e-9)
+
+    # Remaining Capacity Score: Prioritize bins with larger remaining capacity if they are not too large.
+    # This aims to keep bins with significant space available for larger future items.
+    # We use the inverse of the squared remaining capacity to penalize very large gaps more.
+    # Capped to prevent extreme values and to allow for a smoother transition.
+    remaining_capacity_score = 1.0 / np.square(fittable_bins_remain_cap + 1e-9)
+    
+    # Novelty Score: Give a slight preference to bins that have not been used recently or are less utilized.
+    # This helps in spreading items across bins rather than concentrating them.
+    # For an online setting without explicit bin usage history, we can proxy this with
+    # the *inverse* of the bin's current remaining capacity, effectively favoring less full bins
+    # that can still fit the item. This is a subtle shift from the "fullness bonus" to
+    # a "spread preference".
+    spread_preference_score = fittable_bins_remain_cap
+
+    # Combine scores with adaptive weights.
+    # Weights are adjusted based on the item size relative to bin capacity (assuming a standard bin size).
+    # This is a simplification; a more robust approach would involve the actual bin capacity.
+    # For demonstration, let's assume a notional bin capacity of 1.0.
+    notional_bin_capacity = 1.0
+    item_size_ratio = item / notional_bin_capacity
+
+    # Weights can be tuned. Here we give a strong preference to Best Fit,
+    # a moderate preference to spreading items, and a lesser preference to keeping capacity.
+    # The 'spread_preference_score' is inverted here because a higher value means more remaining capacity,
+    # which is what we want to prioritize for spreading, BUT we are applying it as a score,
+    # so we want to emphasize bins that are less full.
+    # A higher remaining capacity for a fittable bin is generally good for future items.
+    # The inverse of remaining capacity for spread preference is tricky. Let's re-evaluate.
+    # Instead of inverse remaining capacity for spread, let's consider a bonus for bins
+    # that have a moderate amount of remaining space *after* fitting the item.
+    # This encourages using bins that are not too full but also not too empty.
+
+    # Let's rethink the "spread preference". Instead of just preferring less full bins,
+    # let's create a score that prefers bins that, after fitting the item,
+    # leave a "reasonable" amount of space, not too little (handled by Best Fit) and not too much.
+    # This is like a "just right" fit.
+    # A Gaussian-like function centered around a sweet spot of remaining capacity.
+    # Let's assume a sweet spot is roughly half the bin capacity.
+    sweet_spot_ratio = 0.5
+    sweet_spot_capacity = notional_bin_capacity * sweet_spot_ratio
+    
+    # Penalize bins that leave too little space (handled by best_fit) and too much space.
+    # The distance from the sweet spot.
+    distance_from_sweet_spot = np.abs((fittable_bins_remain_cap - item) - sweet_spot_capacity)
+    # Inverse of distance, so closer to sweet spot is higher score. Add epsilon.
+    sweet_spot_score = 1.0 / (distance_from_sweet_spot + 1e-9)
+    
+    # Let's also add a component that favors bins that are already quite full,
+    # but only if they can fit the item. This is similar to original but with a different logic.
+    # Instead of inverse remaining capacity, let's use the negative of remaining capacity.
+    # This means smaller remaining capacity (more full) gets a higher score.
+    # We will normalize this so it doesn't dominate.
+    fullness_score = -fittable_bins_remain_cap
+
+    # Combining them:
+    # Best Fit is primary.
+    # Sweet Spot preference helps balance immediate tight fit with future capacity.
+    # Fullness score encourages using bins that are already substantially occupied.
+    
+    # Normalizing component scores before combining to prevent dominance.
+    # Max-min normalization for scores that should be positive.
+    if np.max(best_fit_score) > 1e-9:
+        norm_best_fit = best_fit_score / np.max(best_fit_score)
+    else:
+        norm_best_fit = np.zeros_like(best_fit_score)
+
+    if np.max(sweet_spot_score) > 1e-9:
+        norm_sweet_spot = sweet_spot_score / np.max(sweet_spot_score)
+    else:
+        norm_sweet_spot = np.zeros_like(sweet_spot_score)
+
+    # For fullness_score, it's negative. We want higher (less negative) to be better.
+    # so, we can normalize (max - x) / (max - min) or just shift and normalize.
+    # Let's normalize it to a positive range [0,1] where more full bins get higher scores.
+    # min_fullness = np.min(fittable_bins_remain_cap)
+    # max_fullness = np.max(fittable_bins_remain_cap)
+    # if max_fullness > min_fullness:
+    #     norm_fullness = (max_fullness - fittable_bins_remain_cap) / (max_fullness - min_fullness)
+    # else:
+    #     norm_fullness = np.ones_like(fittable_bins_remain_cap) * 0.5 # Neutral if all same
+
+    # Simpler normalization for fullness: treat -remaining_capacity. Higher is better.
+    # Normalize by shifting so min is 0, then divide by max.
+    min_score = np.min(fullness_score)
+    max_score = np.max(fullness_score)
+    if max_score > min_score:
+        norm_fullness = (fullness_score - min_score) / (max_score - min_score)
+    else:
+        norm_fullness = np.ones_like(fullness_score) * 0.5 # Neutral if all same
+
+
+    # Weighted combination
+    # Best Fit is weighted heavily.
+    # Sweet spot preference provides a balance.
+    # Fullness score encourages consolidation.
+    
+    # Weights are tunable parameters.
+    w_best_fit = 0.6
+    w_sweet_spot = 0.3
+    w_fullness = 0.1
+
+    combined_scores = (w_best_fit * norm_best_fit) + \
+                      (w_sweet_spot * norm_sweet_spot) + \
+                      (w_fullness * norm_fullness)
+
+    # Assign the calculated priorities to the fittable bins
+    priorities[fittable_bins_mask] = combined_scores
+
+    # Normalize the final priorities to [0, 1] for consistent selection.
+    if np.max(priorities) > 1e-9:
+        priorities = priorities / np.max(priorities)
+    else:
+        # If all scores are near zero, assign a small uniform priority to fittable bins.
+        priorities[fittable_bins_mask] = 0.1
+
+    return priorities
+```

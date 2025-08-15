@@ -1,0 +1,74 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines tightest fit preference with adaptive fill-level bonus and
+    a principled exploration strategy, balancing exploitation and discovery.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 1e-9
+
+    # Mask for bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # If no bins can fit, return all zeros
+    if not np.any(can_fit_mask):
+        return priorities
+
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # --- Exploitation Component: Tightness + Fill Bonus ---
+
+    # Tightness: Favors bins that leave minimal slack after packing.
+    # Higher score for smaller remaining capacity.
+    tightness_score = 1.0 / (fitting_bins_remain_cap - item + epsilon)
+
+    # Fill Level Bonus: Rewards bins that are already more utilized.
+    # Calculated as 1 / (current remaining capacity). Higher score for less remaining capacity.
+    fill_bonus = 1.0 / (fitting_bins_remain_cap + epsilon)
+
+    # Combined exploitation score: Multiplies tightness by a factor related to fill bonus.
+    # This emphasizes bins that are both tight and already somewhat full.
+    # The (1 + 0.3 * fill_bonus) acts as a modulating factor.
+    combined_exploitation_score = tightness_score * (1.0 + 0.3 * fill_bonus)
+
+    # Normalize exploitation scores to [0, 1] for consistent contribution
+    max_exploitation_score = np.max(combined_exploitation_score)
+    normalized_exploitation_scores = (combined_exploitation_score / max_exploitation_score) if max_exploitation_score > 0 else np.zeros_like(combined_exploitation_score)
+
+    # --- Exploration Component: Adaptive Epsilon-Greedy ---
+    # We use an epsilon-greedy approach, where epsilon is dynamically adjusted.
+    # A higher epsilon encourages more exploration, especially when there are many fitting bins.
+
+    num_fitting_bins = np.sum(can_fit_mask)
+    base_exploration_prob = 0.15
+
+    # Increase exploration if many options exist, decrease if few, to balance search
+    if num_fitting_bins > 5:
+        exploration_prob = min(0.3, base_exploration_prob * (1 + (num_fitting_bins - 5) * 0.05)) # Cap exploration
+    elif num_fitting_bins < 3:
+        exploration_prob = max(0.05, base_exploration_prob * (1 - (3 - num_fitting_bins) * 0.1)) # Min exploration
+    else:
+        exploration_prob = base_exploration_prob
+
+    # Apply exploration: With probability exploration_prob, pick a random fitting bin.
+    # This is achieved by adding a small, uniform exploration bonus to all fitting bins,
+    # and then during selection, we can use this probability to decide if we deviate.
+    # For simplicity in priority calculation, we add a small fixed exploration score
+    # scaled by the probability.
+    exploration_score_component = exploration_prob / num_fitting_bins
+
+    # --- Final Priority Calculation ---
+    # Blend normalized exploitation scores with the exploration component.
+    # Exploration gives a baseline chance to any fitting bin.
+    priorities[can_fit_mask] = normalized_exploitation_scores + exploration_score_component
+
+    # Ensure priorities are non-negative and normalize to [0, 1]
+    priorities = np.maximum(0, priorities)
+    max_final_priority = np.max(priorities)
+    if max_final_priority > 0:
+        priorities /= max_final_priority
+
+    return priorities
+```

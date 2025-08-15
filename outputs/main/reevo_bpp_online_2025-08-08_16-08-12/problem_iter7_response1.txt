@@ -1,0 +1,146 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a Best Fit strategy with an exploration component.
+
+    This heuristic prioritizes bins that can fit the item. Among those that fit,
+    it assigns a higher priority to bins that will have less remaining capacity
+    after the item is placed (Best Fit). To balance exploitation with exploration,
+    it uses a softmax-like approach where bins with slightly more remaining
+    capacity also have a non-negligible chance of being selected, controlled by
+    a temperature parameter. This can help avoid getting stuck in locally optimal
+    packings.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity if the item is placed in a fitting bin
+    remaining_after_placement = bins_remain_cap[can_fit_mask] - item
+
+    # We want to prioritize smaller remaining capacities (tighter fits).
+    # A simple way to do this is to use the negative of the remaining capacity
+    # or its reciprocal. Here, we use the reciprocal for a strong preference for tight fits.
+    # To introduce exploration, we can add a small noise or use a temperature parameter
+    # in a softmax-like way. For simplicity here, we'll adjust the values to be
+    # more distributed. A common approach is to use e^(score/temperature).
+    # Let's define a score that favors smaller remaining_after_placement.
+    # We can use -remaining_after_placement directly for a simpler form of "best fit" priority,
+    # or use a scaling that might encourage more variety.
+
+    # Option 1: Simple Best Fit (similar to v1 but expressed differently)
+    # Higher priority for smaller remaining_after_placement
+    # priorities[can_fit_mask] = -remaining_after_placement
+
+    # Option 2: Softmax-like exploration.
+    # We want scores to be positive and higher for better fits.
+    # Let's map remaining_after_placement to a score where smaller is better.
+    # A potential mapping: score = -remaining_after_placement.
+    # For softmax: exp(score / temperature).
+    # A temperature of 1 means exponential scaling of the negative remaining capacity.
+    # A higher temperature smooths out the probabilities, increasing exploration.
+    # Let's use a temperature that's not too aggressive, e.g., 0.5 or 1.0.
+    # For simplicity, let's consider the "value" of a bin as the negative remaining capacity
+    # after placement, so a higher "value" is better (less remaining space).
+
+    # To encourage a mix, let's use a linear transformation of remaining_after_placement.
+    # A common technique is to use `1 / (remaining_after_placement + epsilon)` as in v1,
+    # but to add some exploration, we can slightly shift or scale these values.
+    # Or, consider `remaining_after_placement` directly. Lower is better.
+    # For priority, higher should be better. So, we want to transform `remaining_after_placement`
+    # such that smaller values result in larger priorities.
+
+    # Let's try a strategy that favors tight fits but also gives some chance to bins with
+    # slightly more space.
+    # A "goodness" score could be `bin_capacity - item - remaining_after_placement`.
+    # But we want to prioritize bins that minimize `remaining_after_placement`.
+    # So, let's use a function of `remaining_after_placement` where smaller values are better.
+
+    # Strategy: Prioritize bins with small `remaining_after_placement`.
+    # To add exploration, we can make the scores less extreme.
+    # Instead of `1 / (remaining_after_placement + epsilon)`, consider `exp(-remaining_after_placement / temperature)`.
+    # Let's use a temperature parameter. A temperature of 1 means exp(-x).
+    # A temperature of 0.1 would make it `exp(-10x)`, very sharp.
+    # A temperature of 10 would make it `exp(-x/10)`, flatter.
+    # Let's choose a moderate temperature, say T=1.0, to balance.
+
+    # Avoid division by zero and ensure non-negative scores.
+    # We want smaller `remaining_after_placement` to result in higher priority.
+    # Let's create scores based on `remaining_after_placement`.
+    # Consider a "score" which is the inverse of remaining capacity after placement.
+    # To add exploration, we can use a temperature parameter.
+    # `score = 1.0 / (remaining_after_placement + 1e-9)` is good for best fit.
+    # To explore, we can perturb this or use an exponential.
+
+    # Let's consider the "benefit" of placing the item in a bin as the proportion of
+    # remaining capacity filled by the item. This is `item / bins_remain_cap[can_fit_mask]`.
+    # However, this is for the *original* bin capacity, not the remaining capacity.
+    # The goal is to minimize the number of bins, so filling them up is good.
+    # `remaining_after_placement` is a direct measure of how much "wasted" space is left.
+    # Minimizing this is good. So higher priority for smaller `remaining_after_placement`.
+
+    # Let's try a score that is a linear function of `1/remaining_after_placement`
+    # plus a small constant to ensure all fitting bins have positive priority,
+    # and then apply a scaling to control exploration.
+
+    # Using `1.0 / (remaining_after_placement + 1e-9)` as the base for tight fits.
+    # To add exploration, we can add a small, positive random noise to these scores.
+    # However, this might make the "best fit" less predictable.
+    # A more principled way is to use a temperature parameter with an exponential function.
+
+    # Let's map `remaining_after_placement` to a "quality" score where lower is better.
+    # We can use `remaining_after_placement` itself.
+    # For priority, we want higher values to be better.
+    # So, priority can be a function that maps smaller `remaining_after_placement` to higher values.
+
+    # Let's use a score related to the *inverse* of remaining capacity after placement,
+    # but with a moderating factor for exploration.
+    # `score = -remaining_after_placement` (higher is better).
+    # To add exploration, we can use `exp(score / temperature)`.
+    # Let's set a temperature, e.g., `temperature = 1.0`.
+
+    # Calculate values that are higher for better fits (smaller remaining_after_placement).
+    # We can use `1.0 / (remaining_after_placement + epsilon)` or `-remaining_after_placement`.
+    # Let's use `-remaining_after_placement` as the base score (more negative is worse).
+    # A simple way to make priorities positive and reflect "goodness" of fit:
+    # `priority_base = max_possible_remaining_capacity - remaining_after_placement`
+    # or simply, `priority_base = some_large_number - remaining_after_placement`.
+    # Or `priority_base = 1 / (remaining_after_placement + epsilon)`.
+
+    # Let's consider `remaining_after_placement` directly as the "cost". We want to minimize cost.
+    # For priority, we want to maximize it.
+    # Priority = `C - remaining_after_placement` where C is a constant.
+    # To add exploration, we can smooth this.
+
+    # Let's try this: priority is proportional to `exp(-remaining_after_placement / temperature)`.
+    # A temperature of 1.0 means we assign priorities based on the exponential of
+    # the negative remaining space. This gives higher priority to tight fits but
+    # also non-zero priority to bins with slightly more space.
+
+    temperature = 1.0  # Controls the exploration/exploitation trade-off. Higher T -> more exploration.
+    scores = -remaining_after_placement / temperature
+    priorities[can_fit_mask] = np.exp(scores)
+
+    # Normalize probabilities to sum to 1 for the fitting bins if needed for some applications,
+    # but for priority scores, raw values are often sufficient.
+    # If normalization is desired for a softmax-like selection:
+    # fitting_priorities = np.exp(scores)
+    # if np.sum(fitting_priorities) > 0:
+    #     priorities[can_fit_mask] = fitting_priorities / np.sum(fitting_priorities)
+    # else:
+    #     priorities[can_fit_mask] = 1.0 / len(priorities[can_fit_mask]) if len(priorities[can_fit_mask]) > 0 else 0
+
+    # For now, let's keep the raw exponential scores. The agent selecting the bin
+    # would typically pick the argmax or use a softmax over these scores.
+
+    return priorities
+```

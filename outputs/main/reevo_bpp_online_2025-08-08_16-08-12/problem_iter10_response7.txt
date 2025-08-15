@@ -1,0 +1,90 @@
+```python
+import numpy as np
+import scipy.special
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes bins for the online Bin Packing Problem.
+    This strategy prioritizes exact fits, then uses a temperature-controlled softmax
+    on the inverse remaining capacity for near fits, and assigns a low base priority
+    to bins that fit but are not near fits. Bins that cannot fit receive a very low priority.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array containing the remaining capacity of each bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, where each element
+        represents the priority score for placing the item in the corresponding bin.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    
+    # Identifiable priorities for different categories
+    EXACT_FIT_PRIORITY = 100.0
+    NEAR_FIT_BASE_SCORE = 50.0 # Base score for near fits before softmax scaling
+    NEAR_FIT_SCALE = 40.0     # Scaling factor for softmax probabilities
+    LOW_PRIORITY_FOR_FITTING_BIN = 1.0 # For bins that fit but are not 'near'
+
+    # Temperature for softmax to control exploration among near fits
+    # Higher temperature means more exploration (priorities are more uniform)
+    # Lower temperature means less exploration (priorities are more skewed towards best fits)
+    TEMPERATURE = 0.5 # Tunable parameter
+
+    # Identify bins that can accommodate the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit the item
+
+    # --- Handle Exact Fits ---
+    exact_fit_mask = can_fit_mask & (bins_remain_cap == item)
+    priorities[exact_fit_mask] = EXACT_FIT_PRIORITY
+
+    # --- Handle Near Fits ---
+    # Bins that can fit, but are not exact fits.
+    near_fit_potential_mask = can_fit_mask & ~exact_fit_mask
+
+    if np.any(near_fit_potential_mask):
+        near_fit_indices = np.where(near_fit_potential_mask)[0]
+        remaining_capacities_for_near_fits = bins_remain_cap[near_fit_indices] - item
+
+        # To prioritize smaller remaining capacities, we can use their inverse.
+        # Add a small epsilon to avoid division by zero.
+        epsilon_small = 1e-6
+        # The score should be higher for smaller remaining_capacities_for_near_fits.
+        # Using 1 / (remaining + epsilon) achieves this.
+        # We also want to ensure these scores are distinctly lower than EXACT_FIT_PRIORITY.
+        # The scaling and softmax will handle this.
+        near_fit_scores = 1.0 / (remaining_capacities_for_near_fits + epsilon_small)
+
+        # Apply softmax to convert scores into probabilities for exploration.
+        # Higher scores (smaller remaining capacity) will get higher probabilities.
+        if len(near_fit_scores) > 0:
+            # Shift scores before exponentiation to prevent potential underflow/overflow
+            max_score = np.max(near_fit_scores)
+            shifted_scores = near_fit_scores - max_score
+            
+            exp_scores = np.exp(shifted_scores / TEMPERATURE)
+            sum_exp_scores = np.sum(exp_scores)
+
+            if sum_exp_scores > 0:
+                softmax_probabilities = exp_scores / sum_exp_scores
+            else:
+                # Fallback to uniform if all exponentiated scores are zero or NaN
+                softmax_probabilities = np.ones_like(near_fit_scores) / len(near_fit_scores)
+            
+            # Scale these probabilities to a range that is lower than exact fits
+            # but reflects the preference for smaller remaining capacity.
+            scaled_near_fit_priorities = NEAR_FIT_BASE_SCORE + softmax_probabilities * NEAR_FIT_SCALE
+            priorities[near_fit_indices] = scaled_near_fit_priorities
+
+    # --- Handle remaining fitting bins ---
+    # Any bin that can fit the item but was not assigned an exact or near-fit priority
+    # (e.g., if the 'near fit' criteria were too strict, or if there were no near fits processed)
+    # should get a low, positive priority to indicate they are usable.
+    # This mask identifies bins that can fit but currently have the default -np.inf priority.
+    unassigned_fitting_mask = can_fit_mask & (priorities == -np.inf)
+    priorities[unassigned_fitting_mask] = LOW_PRIORITY_FOR_FITTING_BIN
+    
+    return priorities
+```

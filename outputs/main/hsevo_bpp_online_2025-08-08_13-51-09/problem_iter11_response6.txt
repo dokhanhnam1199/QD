@@ -1,0 +1,80 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines a refined Best Fit with a dynamic Exploration bonus.
+    Prioritizes tight fits for larger items and exploration for smaller items,
+    adapting the strategy based on item size.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=np.float64)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+    remaining_after_placement = suitable_bins_caps - item
+
+    # Metric 1: Refined Best Fit - favors bins with smallest remaining capacity after placement.
+    # Using log1p to compress larger gaps and emphasize smaller ones. Add epsilon for stability.
+    best_fit_scores = np.log1p(1.0 / (remaining_after_placement + 1e-6))
+
+    # Metric 2: Exploration Bonus - favors bins that have significantly more remaining capacity.
+    # This is achieved by rewarding bins that are further from the minimum possible remaining capacity
+    # (after placing the item). Using min-max scaling on the remaining space after placement.
+    min_rem_after = np.min(remaining_after_placement)
+    max_rem_after = np.max(remaining_after_placement)
+
+    exploration_scores = np.zeros_like(remaining_after_placement)
+    if max_rem_after > min_rem_after:
+        # Normalize remaining capacity after placement to get exploration score (0 to 1)
+        exploration_scores = (remaining_after_placement - min_rem_after) / (max_rem_after - min_rem_after)
+    else:
+        # If all suitable bins leave the same remaining capacity, no exploration bonus from this metric.
+        pass
+
+    # Dynamic Weighting based on item size.
+    # Larger items benefit more from a precise fit (Best Fit).
+    # Smaller items can afford to explore less utilized bins (Exploration Bonus).
+    # Assume bin capacity is normalized to 1.0 for a relative item size assessment.
+    # If bin capacities vary significantly, a different normalization might be needed.
+    # For simplicity, we'll use item size directly, assuming it's scaled appropriately.
+    # Let's assume `item` is on a scale where 0.5 means it's half the typical bin capacity.
+    
+    # A simple heuristic: if item is more than 50% of typical capacity, prioritize best fit.
+    # If item is less than 20%, prioritize exploration. In between, a mix.
+    # Using item size as a proxy for its "impact" on bin fullness.
+    
+    # Weights sum to 1.0.
+    # For small items (e.g., item < 0.3): higher exploration, lower best fit.
+    # For large items (e.g., item > 0.7): higher best fit, lower exploration.
+    
+    # Example: Item size normalized to [0, 1] range, representing proportion of bin capacity.
+    # If actual item sizes are larger, they would need to be scaled.
+    # Let's assume `item` is already scaled relative to a standard bin capacity.
+
+    # Define a threshold, e.g., 0.5, for medium-sized items.
+    threshold_medium = 0.5 
+    
+    # Smooth transition for weights
+    weight_best_fit = np.clip(item / threshold_medium, 0.1, 1.0) # Favors best fit for larger items
+    weight_exploration = np.clip((threshold_medium - item) / threshold_medium, 0.1, 1.0) # Favors exploration for smaller items
+
+    # Normalize weights to ensure they sum to 1 if they cross thresholds or are outside bounds.
+    total_weight = weight_best_fit + weight_exploration
+    if total_weight > 1e-6:
+        weight_best_fit /= total_weight
+        weight_exploration /= total_weight
+    else: # Fallback if both are effectively zero
+        weight_best_fit = 0.5
+        weight_exploration = 0.5
+
+    # Combine scores
+    combined_scores = (weight_best_fit * best_fit_scores +
+                       weight_exploration * exploration_scores)
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```
