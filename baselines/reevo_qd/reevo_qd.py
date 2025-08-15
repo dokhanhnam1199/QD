@@ -448,28 +448,38 @@ class ReEvo_QD:
         logging.info(f"Function Evals: {self.function_evals}")
         self.generation += 1
 
-    def random_select(self, population: list[dict]) -> list[dict]:
+    def rank_select(self, population: list[dict]) -> list[dict]:
         """
-        Random selection, select individuals with equal probability.
+        Rank-based selection using np.random.choice (without replacement) with
+        requirement that each parent pair has different 'obj'.
         """
-        selected_population = []
-        # Eliminate invalid individuals
+        # Filter valid individuals
         if self.problem_type == "black_box":
-            population = [individual for individual in population if
-                          individual["exec_success"] and individual["obj"] < self.seed_ind["obj"]]
+            population = [ind for ind in population if
+                        ind["exec_success"] and ind["obj"] < self.seed_ind["obj"]]
         else:
-            population = [individual for individual in population if individual["exec_success"]]
+            population = [ind for ind in population if ind["exec_success"]]
         if len(population) < 2:
             return None
+
+        # Sort by 'obj' (lower is better here)
+        sorted_pop = sorted(population, key=lambda ind: ind["obj"])
+        ranks = np.arange(len(sorted_pop))
+        probs = 1 / (ranks + 1 + len(sorted_pop))
+        probs /= probs.sum()  # normalize to sum = 1
+
+        selected_population = []
         trial = 0
         while len(selected_population) < 2 * self.cfg.pop_size:
             trial += 1
-            parents = np.random.choice(population, size=2, replace=False)
-            # If two parents have the same objective value, consider them as identical; otherwise, add them to the selected population
-            if parents[0]["obj"] != parents[1]["obj"]:
-                selected_population.extend(parents)
+            # Select 2 without replacement based on rank weights
+            idxs = np.random.choice(len(sorted_pop), size=2, replace=False, p=probs)
+            p1, p2 = sorted_pop[idxs[0]], sorted_pop[idxs[1]]
+            if p1["obj"] != p2["obj"]:
+                selected_population.extend([p1, p2])
             if trial > 1000:
                 return None
+
         return selected_population
 
     def gen_short_term_reflection_prompt(self, ind1: dict, ind2: dict) -> tuple[list[dict], str, str]:
