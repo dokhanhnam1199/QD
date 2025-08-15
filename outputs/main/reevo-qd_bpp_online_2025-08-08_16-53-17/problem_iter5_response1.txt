@@ -1,0 +1,132 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    This heuristic aims to prioritize bins based on a multi-objective approach:
+    1. Exact fits (remaining capacity == item size) are given the highest priority.
+    2. Among bins where the item fits, those with minimal residual space (after packing)
+       are preferred, but with a preference for slightly positive residual space over zero.
+       This helps in avoiding fragmentation while still trying to fill bins well.
+    3. Bins that would leave a very large residual space are penalized.
+    4. Exploration is encouraged by using a softmax-like scaling on good fits,
+       giving a boost to slightly less optimal but still good choices.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array where each element is the remaining capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as `bins_remain_cap`, containing the priority
+        score for each bin. Higher scores indicate a more desirable bin for the item.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins where the item can fit.
+    fits_mask = bins_remain_cap >= item
+
+    if np.any(fits_mask):
+        # Calculate the residual capacity after packing the item for fitting bins.
+        residual_capacities = bins_remain_cap[fits_mask] - item
+
+        # --- Objective 1: Exact Fits ---
+        # Assign a very high base priority to exact fits.
+        exact_fit_mask = (residual_capacities == 0)
+        if np.any(exact_fit_mask):
+            priorities[fits_mask][exact_fit_mask] = 100.0 # High score for exact fits
+
+        # --- Objective 2 & 3: Minimal Residual Space & Penalize Large Residuals ---
+        # Use a function that peaks at a small positive residual and decreases for larger ones.
+        # A Gaussian-like shape or a modified sigmoid can work.
+        # Let's use a function where the priority is high for small residuals (0 to ~0.2)
+        # and drops off as residuals increase.
+
+        # Penalize bins where the residual is excessively large.
+        # For example, if residual > bin_capacity / 2, assign low priority.
+        # We can model this by taking `1 / (1 + penalty_factor * max(0, residual - threshold))`
+
+        # Define a "good" range for residual capacity, say [0, 0.2].
+        # We want to reward residuals within this range.
+        # Let's use a function that increases up to a point and then decreases.
+        # A simple approach:
+        # score = exp(-k * residual) for residuals near 0.
+        # For residuals > 0, let's try to incentivize residuals that are small but positive.
+        # `gaussian_like_score = exp(-(residual / std_dev)**2)` where std_dev is small.
+        # To make it peak at a small positive value, we can shift it.
+        # Let's try: score = exp(-k * (residual - target_residual)**2)
+        # For target_residual = 0.05, std_dev = 0.1.
+
+        target_residual = 0.05
+        std_dev = 0.1
+        steepness_factor = 5.0 # Controls how quickly priority drops off
+
+        # Calculate scores for bins that are not exact fits
+        non_exact_fit_mask = ~exact_fit_mask
+        if np.any(non_exact_fit_mask):
+            non_exact_residuals = residual_capacities[non_exact_fit_mask]
+
+            # Calculate a score based on how close the residual is to the target residual.
+            # Higher score for residuals closer to target_residual.
+            # We use a Gaussian-like function centered around target_residual.
+            # Add a small base score to avoid zero for all non-exact fits unless residual is huge.
+            gaussian_scores = np.exp(-steepness_factor * ((non_exact_residuals - target_residual) / std_dev)**2)
+
+            # Ensure residuals much larger than target are penalized.
+            # If residual is > target_residual + 2*std_dev, the score is already low.
+            # We can further cap or reduce scores for very large residuals.
+            large_residual_threshold = target_residual + 2 * std_dev
+            penalty_mask = (non_exact_residuals > large_residual_threshold)
+            gaussian_scores[penalty_mask] *= 0.1 # Heavily penalize very large residuals
+
+            # Add a small base priority to all fitting bins (excluding exact fits which have 100)
+            # to ensure they are considered if no exact fits exist.
+            base_priority_for_fitting = 0.1
+            priorities[fits_mask][non_exact_fit_mask] = base_priority_for_fitting + gaussian_scores
+
+        # --- Objective 4: Softmax-like Exploration ---
+        # Apply a scaling to the priorities of fitting bins to encourage exploration
+        # among the better options. A simple way is to exponentiate and normalize,
+        # or just rescale. Let's scale the non-100 priorities to be within a range,
+        # e.g., [0.1, 0.9].
+
+        # Find the indices of non-exact fits within the original bins_remain_cap array.
+        fitting_indices_in_original = np.where(fits_mask)[0]
+        non_exact_fit_indices_in_original = fitting_indices_in_original[non_exact_fit_mask]
+
+        # Re-calculate priorities for non-exact fits, making sure they are relative.
+        if np.any(non_exact_fit_mask):
+            current_non_exact_priorities = priorities[fits_mask][non_exact_fit_mask]
+            # Softmax-like scaling: exp(priority) and then normalize or simply scale.
+            # Let's scale them relative to each other.
+            scaled_priorities = np.exp(current_non_exact_priorities / np.max(current_non_exact_priorities))
+            # Normalize to a range, e.g., [0.1, 0.9] if max is not 1.
+            min_scaled = np.min(scaled_priorities)
+            max_scaled = np.max(scaled_priorities)
+
+            if max_scaled > min_scaled: # Avoid division by zero if all are same
+                normalized_scaled = 0.1 + 0.8 * (scaled_priorities - min_scaled) / (max_scaled - min_scaled)
+            else:
+                normalized_scaled = np.full_like(scaled_priorities, 0.5) # Middle value if all same
+
+            priorities[fits_mask][non_exact_fit_mask] = normalized_scaled
+
+        # Ensure exact fits still have the highest priority
+        if np.any(exact_fit_mask):
+            priorities[fits_mask][exact_fit_mask] = 100.0
+
+        # Ensure that even the "best" non-exact fit is less than exact fits.
+        # If the scaled priorities for non-exact fits accidentally exceed exact fits (due to initialization), cap them.
+        fitting_indices = np.where(fits_mask)[0]
+        if np.any(fitting_indices):
+            max_priority_non_exact = np.max(priorities[fits_mask]) if not np.all(priorities[fits_mask] == 100.0) else 0
+            if max_priority_non_exact > 0 and max_priority_non_exact < 100.0:
+                 priorities[fits_mask] = np.clip(priorities[fits_mask], 0, 100.0)
+            elif max_priority_non_exact == 100.0 and np.any(priorities[fits_mask] == 100.0):
+                 # If there are exact fits, ensure other fitting bins are significantly lower
+                 priorities[fits_mask][~exact_fit_mask[fits_mask]] = np.clip(priorities[fits_mask][~exact_fit_mask[fits_mask]], 0, 10.0)
+
+
+    return priorities
+```

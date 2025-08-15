@@ -1,0 +1,256 @@
+[Prior reflection]
+The current `priority_v1` function implements an "Almost Full Fit" strategy by prioritizing bins with the smallest remaining capacity after placing the item. This is achieved by returning the negative of `(remaining_capacity - item)`. This works well for identifying tight fits.
+
+The reflection suggests using sigmoid or softmax for smooth preference and breaking ties with lower bin indices.
+
+1.  **Smooth Preference (Sigmoid/Softmax):** The current approach directly uses the negative difference. While it prioritizes smaller differences, it's a linear relationship. Applying a sigmoid or softmax can make the preference smoother, meaning small differences in remaining capacity don't lead to drastic changes in priority.
+    *   **Sigmoid:** `sigmoid(x) = 1 / (1 + exp(-x))`. This maps any real number to a value between 0 and 1. To prioritize smaller differences, we'd want to apply sigmoid to a value that *increases* as the fit gets tighter. A good candidate would be the negative difference, or perhaps its inverse if we want to boost tighter fits even more. Let's consider mapping the "tightness" of the fit. A smaller `remaining_capacity - item` means a tighter fit. We want higher scores for tighter fits. We can transform `-(remaining_capacity - item)` into a sigmoid.
+    *   **Softmax:** `softmax(z_i) = exp(z_i) / sum(exp(z_j))`. Softmax is typically used when you want a probability distribution over multiple items. For a priority function where we pick the *single* best bin, sigmoid is more appropriate, or simply using the transformed scores directly if we just need a ranked list. If we want to represent how *much* better one bin is than others, directly using the transformed scores before a softmax-like normalization might be better.
+
+    Let's stick to transforming the score itself rather than creating a probability distribution. A common way to make a preference for smaller values smoother is to use `exp(-k * value)` or `1 / (1 + value)` or similar transformations where `value` is the "badness" (e.g., `remaining_capacity - item`).
+
+    Consider the "closeness" to being full. If `remaining_capacity` is the capacity before packing, and `item` is the item size, then `remaining_capacity - item` is the remaining space *after* packing. A smaller non-negative value here indicates a tighter fit.
+    Let `tightness = -(remaining_capacity - item)` for bins that can fit. We want to boost these values.
+    If `tightness` is, say, 0, 1, 5, we want scores that reflect this order.
+    *   Linear: 0, -1, -5 (as in `priority_v1`)
+    *   Sigmoid on tightness: `sigmoid(tightness)` would mean 0.5, 0.73, 0.99. This is reversed; we want higher for smaller `tightness`. So, `sigmoid(-tightness)`.
+    *   Another approach: `1 / (1 + (remaining_capacity - item))` for bins that can fit. This maps values like 0, 1, 5 to 1, 0.5, 0.16. This gives higher scores to tighter fits.
+
+    Let's try the `1 / (1 + residual_space)` approach, where `residual_space = bins_remain_cap - item`. This naturally gives higher scores to smaller `residual_space`. We also need to handle bins that *cannot* fit (where `bins_remain_cap - item` would be negative). These should have very low priority.
+
+2.  **Tie-breaking with lower bin indices:** The current implementation relies on NumPy's internal tie-breaking, which generally picks the first occurrence. This is usually sufficient. If explicit tie-breaking is needed, we would augment the priority score with a secondary criterion. For example, a tuple `(score, -index)` if we want to maximize both, or `(score, index)` if we want to minimize index for ties. However, since we're aiming for a single numerical array output, we can achieve this by combining the primary score with a scaled index. A common trick is to add a very small value multiplied by the index to the score: `score + epsilon * index`. If we want to *prioritize* lower indices for ties (i.e., if two bins have the same primary score, pick the one with the lower index), we should subtract a term related to the index. For example, `primary_score - large_number * index`. The `large_number` should be big enough to ensure that any difference in `primary_score` is dominant over index differences.
+    A simpler way is to sort the priorities, and then recover the original indices. But the function is supposed to return the priorities *for each bin*. So, we need to incorporate it into the score.
+
+Let's combine these ideas:
+*   Calculate `residual_space = bins_remain_cap - item`.
+*   For bins where `residual_space >= 0`, calculate a primary priority score. Let's use a score that is high when `residual_space` is small and non-negative. `1 / (1 + residual_space)` is a good candidate.
+*   For bins where `residual_space < 0`, assign a very low priority (e.g., -infinity or a very small number).
+*   To break ties (where `1 / (1 + residual_space)` is the same), we want to favor lower indices. This means if `score_A == score_B` for bin A and bin B, and index_A < index_B, bin A should have a higher priority. We can achieve this by subtracting a term proportional to the index from the score. E.g., `primary_score - epsilon * bin_index`.
+
+Let's refine the primary score:
+We want to prioritize smaller `residual_space >= 0`.
+Instead of `1 / (1 + residual_space)`, which squashes values to [0, 1], maybe we want something that keeps a wider range but still prioritizes small positive `residual_space`.
+Consider `exp(-residual_space / scale)` for `residual_space >= 0`. This gives higher values for smaller `residual_space`. A small `scale` (e.g., 1.0) would mean a steeper drop-off.
+Let's try `exp(-(bins_remain_cap[can_fit_mask] - item))`.
+
+To break ties with lower indices:
+If `score1` is for bin `i` and `score2` for bin `j`, and `score1 == score2`:
+We want `priority_i > priority_j` if `i < j`.
+This means `score1 - epsilon * i > score2 - epsilon * j`.
+If `score1 == score2`, then we want `-epsilon * i > -epsilon * j`, which implies `epsilon * i < epsilon * j`, meaning `i < j`. This is correct.
+
+Let's use `exp(-(residual_space))` as the primary score for bins that fit.
+Then, for tie-breaking, we add `-(index * small_constant)`. The `small_constant` should be small enough that the exponential score is dominant.
+
+Example:
+Item = 2, bins_remain_cap = [5, 3, 7, 3]
+Indices:           [0, 1, 2, 3]
+
+Bin 0: can_fit=T, residual=3. Score_base = exp(-3) = 0.0497
+Bin 1: can_fit=T, residual=1. Score_base = exp(-1) = 0.3678
+Bin 2: can_fit=T, residual=5. Score_base = exp(-5) = 0.0067
+Bin 3: can_fit=T, residual=1. Score_base = exp(-1) = 0.3678
+
+Current priority_v1 (negative residual): [-3, -1, -5, -1] -> bin 1 and 3 are best.
+
+Let's try `priority_v2` with `exp(-residual)` and tie-breaking.
+We need a small constant, say `epsilon = 0.001`.
+Priorities = `exp(-(bins_remain_cap - item)) - epsilon * index` for bins that fit.
+
+Bin 0: residual=3. Score = exp(-3) - 0.001*0 = 0.0497
+Bin 1: residual=1. Score = exp(-1) - 0.001*1 = 0.3678 - 0.001 = 0.3668
+Bin 2: residual=5. Score = exp(-5) - 0.001*2 = 0.0067 - 0.002 = 0.0047
+Bin 3: residual=1. Score = exp(-1) - 0.001*3 = 0.3678 - 0.003 = 0.3648
+
+Now, bin 1 (0.3668) has a higher priority than bin 3 (0.3648) due to the tie-breaking term favoring the lower index. This seems to align with the reflection.
+
+Alternative primary score using the reciprocal idea: `1 / (1 + residual_space)`
+Bin 0: residual=3. Score = 1 / (1+3) = 0.25
+Bin 1: residual=1. Score = 1 / (1+1) = 0.5
+Bin 2: residual=5. Score = 1 / (1+5) = 0.1667
+Bin 3: residual=1. Score = 1 / (1+1) = 0.5
+
+With tie-breaking: `(1 / (1 + residual_space)) - epsilon * index`
+Bin 0: 0.25 - 0.001*0 = 0.25
+Bin 1: 0.5 - 0.001*1 = 0.499
+Bin 2: 0.1667 - 0.001*2 = 0.1647
+Bin 3: 0.5 - 0.001*3 = 0.497
+
+Again, bin 1 (0.499) has higher priority than bin 3 (0.497). This also works.
+The `exp(-residual)` approach might provide a wider spread of scores for varying residual capacities compared to `1/(1+residual)`. Let's go with `exp(-residual)` for a smoother preference curve and better discrimination of small differences in tightness.
+
+Consider the softmax idea from the reflection: "Prioritize tight fits using sigmoid or softmax for smooth preference."
+While softmax is usually for distributions, a related concept is transforming scores so they are all positive and represent relative preference. The exponential function `exp(x)` does this. So `exp(-(residual_space))` is like a pre-softmax score where we want higher values for smaller `residual_space`.
+
+Final check of the requirements:
+1.  **Priority function:** Takes item and bins_remain_cap, returns priorities. Yes.
+2.  **Prioritize tight fits:** `exp(-residual_space)` achieves this; smaller `residual_space` (tighter fit) results in higher score.
+3.  **Smooth preference:** Exponential function provides a non-linear, smooth mapping.
+4.  **Minimize `remaining_capacity - item`:** This is `residual_space`. We are minimizing it by giving higher scores when it's small.
+5.  **Break ties with lower bin indices:** Achieved by subtracting `epsilon * index`.
+
+Let's implement using `exp(-residual)` and tie-breaking.
+Need to import `numpy`.
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using an
+    exponentially smoothed Almost Full Fit strategy with tie-breaking.
+
+    This strategy prioritizes bins that leave the least remaining capacity
+    after placing the item (tighter fits). The priority score uses an
+    exponential function for smooth preference, giving higher scores to
+    bins with smaller non-negative remaining capacities. Ties are broken
+    by favoring bins with lower indices.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority.
+    """
+    # Initialize priorities to a very low value (effectively -infinity)
+    # This ensures that bins that cannot fit the item receive no priority.
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate the remaining capacity after placing the item.
+    # A smaller non-negative residual_space indicates a tighter fit.
+    residual_space = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate primary priority score using an exponential function.
+    # exp(-residual_space) gives higher values for smaller (tighter) residual_space.
+    # This provides a smooth preference.
+    # We use a small scale factor (e.g., 1.0) for the exponential decay.
+    primary_scores = np.exp(-residual_space)
+
+    # Tie-breaking: For bins with the same primary score, we want to favor lower indices.
+    # We achieve this by subtracting a small value proportional to the index from the score.
+    # The indices correspond to the positions in the `bins_remain_cap` array.
+    # We need to get the original indices of the bins that can fit.
+    fitting_indices = np.where(can_fit_mask)[0]
+
+    # Define a small constant for tie-breaking. It should be small enough
+    # that the primary score is dominant.
+    tie_breaker_scale = 0.001
+
+    # Combine primary score with tie-breaker
+    # We want to maximize score, so if scores are equal, we want the one with lower index
+    # to have a higher final score.
+    # Final score = primary_score - tie_breaker_scale * index
+    # If primary_score_A = primary_score_B, and index_A < index_B:
+    # final_score_A = primary_score_A - tie_breaker_scale * index_A
+    # final_score_B = primary_score_B - tie_breaker_scale * index_B
+    # Since index_A < index_B, final_score_A > final_score_B. This is correct.
+    priorities[can_fit_mask] = primary_scores - tie_breaker_scale * fitting_indices
+
+    return priorities
+
+```
+Test with example:
+item = 2.0
+bins_remain_cap = np.array([5.0, 3.0, 7.0, 3.0])
+expected_indices = np.array([0, 1, 2, 3])
+
+can_fit_mask = [True, True, True, True]
+fitting_indices = [0, 1, 2, 3]
+residual_space = [3.0, 1.0, 5.0, 1.0]
+
+primary_scores = np.exp([-3.0, -1.0, -5.0, -1.0])
+# primary_scores = [0.04978706836, 0.36787944117, 0.00673794699, 0.36787944117]
+
+tie_breaker_scale = 0.001
+tie_breaker_terms = -tie_breaker_scale * fitting_indices
+# tie_breaker_terms = [-0.000, -0.001, -0.002, -0.003]
+
+final_priorities_calculated = primary_scores + tie_breaker_terms
+# final_priorities_calculated = [
+#    0.04978706836 - 0.000 = 0.04978706836
+#    0.36787944117 - 0.001 = 0.36687944117
+#    0.00673794699 - 0.002 = 0.00473794699
+#    0.36787944117 - 0.003 = 0.36487944117
+# ]
+
+The highest priority is 0.36687944117 for bin 1.
+The second highest is 0.36487944117 for bin 3.
+This correctly prioritizes bin 1 over bin 3 due to the lower index tie-breaker.
+
+Consider a case where an item doesn't fit any bin:
+item = 10.0
+bins_remain_cap = np.array([5.0, 3.0, 7.0])
+can_fit_mask = [False, False, False]
+priorities = [-inf, -inf, -inf] -> Correct.
+
+Consider a case with no tie in primary scores:
+item = 1.0
+bins_remain_cap = np.array([5.0, 3.0, 7.0])
+can_fit_mask = [True, True, True]
+fitting_indices = [0, 1, 2]
+residual_space = [4.0, 2.0, 6.0]
+primary_scores = np.exp([-4.0, -2.0, -6.0]) # [0.0183, 0.1353, 0.0025]
+tie_breaker_terms = -0.001 * [0, 1, 2] # [-0.000, -0.001, -0.002]
+final_priorities = [0.0183, 0.1343, 0.0005]
+Bin 1 is highest, then Bin 0, then Bin 2. Correct.
+
+The function seems robust and adheres to the reflection.
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using an
+    exponentially smoothed Almost Full Fit strategy with tie-breaking.
+
+    This strategy prioritizes bins that leave the least remaining capacity
+    after placing the item (tighter fits). The priority score uses an
+    exponential function for smooth preference, giving higher scores to
+    bins with smaller non-negative remaining capacities. Ties are broken
+    by favoring bins with lower indices.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority.
+    """
+    # Initialize priorities to a very low value (effectively -infinity)
+    # This ensures that bins that cannot fit the item receive no priority.
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit the item, calculate the remaining capacity after placing the item.
+    # A smaller non-negative residual_space indicates a tighter fit.
+    # Using np.where to get indices of bins that can fit.
+    fitting_indices = np.where(can_fit_mask)[0]
+    
+    # Calculate residual space only for bins that can fit.
+    residual_space = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate primary priority score using an exponential function.
+    # exp(-residual_space) gives higher values for smaller (tighter) residual_space.
+    # This provides a smooth preference. A scale of 1.0 is used for the exponential.
+    primary_scores = np.exp(-residual_space)
+
+    # Tie-breaking: For bins with the same primary score, we want to favor lower indices.
+    # We achieve this by subtracting a small value proportional to the index from the score.
+    # This ensures that if two bins have identical primary scores, the one with the
+    # lower original index will have a higher overall priority.
+    tie_breaker_scale = 0.001  # A small constant to ensure primary score dominates
+
+    # Combine primary score with tie-breaker term.
+    # The final priority is primary_score - tie_breaker_scale * index.
+    # This structure prioritizes tighter fits (higher primary_score) and then
+    # lower indices for ties.
+    priorities[can_fit_mask] = primary_scores - tie_breaker_scale * fitting_indices
+
+    return priorities
+```

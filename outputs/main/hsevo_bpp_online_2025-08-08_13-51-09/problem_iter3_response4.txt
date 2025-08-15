@@ -1,0 +1,415 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin,
+    aiming for a tighter fit and better overall utilization, inspired by
+    local search neighborhood exploration and diversification.
+
+    This heuristic prioritizes bins that offer a tight fit, but also
+    considers bins that might be less full but offer future flexibility
+    or create "adjacent" spaces. It uses a combination of remaining
+    capacity and a measure of "waste" to guide the selection.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities  # No suitable bins
+
+    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+
+    # Metric 1: Tightness of fit (prioritize bins where item fits snugly)
+    # Lower value of (bin_capacity - item) is better
+    tightness_score = suitable_bins_cap - item
+
+    # Metric 2: Future utilization (prioritize bins that are not overly full,
+    # leaving some space for future items, but not too empty either)
+    # This is a bit more exploratory. We can introduce a slight penalty for
+    # very large remaining capacities, encouraging filling up bins more.
+    # A simple inverse relationship could be problematic, so let's use a
+    # capped approach or a "sweet spot" concept.
+    # For simplicity here, let's consider bins that are not too empty,
+    # but also not too full.
+    # Let's use a score that favors remaining capacity that is closer to 'item'
+    # but not excessively small.
+    # A Gaussian-like function centered around 'item' or slightly larger might work.
+    # Here, a simple inverse of remaining capacity (higher score for less remaining)
+    # can be used as a baseline for utilization, but let's combine it.
+
+    # Let's try a more robust approach for "future utilization" by considering
+    # how much space is left *after* placing the item. We want to minimize
+    # the remaining space in a bin, but not to the extreme of making it
+    # unusable for small items.
+    # A measure of "potential waste" if this bin is chosen.
+    # Prioritize bins that, after placing the item, leave a small but usable remainder.
+    # A simple inverse of (remaining_capacity - item) could be too aggressive.
+    # Let's try a score that is high for small remaining capacity, and decreases
+    # as remaining capacity increases. A function like 1 / (1 + (capacity - item))
+    # or a capped inverse.
+
+    # Let's define a score that favors tighter fits more strongly.
+    # Higher score means more desirable.
+    # We can combine tightness with a measure of how "useful" the remaining space is.
+
+    # Option 1: Prioritize bins that leave the *least* amount of space after packing.
+    # This is essentially Best Fit.
+    # We want to give higher priority to bins where (bin_remain_cap - item) is minimal.
+    # So, inverse of (bin_remain_cap - item) plus a small epsilon to avoid division by zero.
+    # Let's invert the tightness_score: higher means better fit.
+    # We can use 1 / (1 + tightness_score) so that tightness_score=0 gets highest priority.
+    fit_priority = 1.0 / (1.0 + tightness_score)
+
+    # Option 2: Consider overall bin fullness. Bins that are already quite full
+    # might be preferable to consolidate items.
+    # This can be measured by (bin_capacity - bins_remain_cap) / bin_capacity.
+    # Let's assume a standard bin capacity for comparison, or use the item size.
+    # A simpler approach might be to penalize very empty bins.
+    # Let's consider a score based on how "full" the bin becomes *after* packing.
+    # Higher score for bins that are more full after packing.
+    # This is (total_capacity - (bin_remain_cap - item)) / total_capacity.
+    # For simplicity in an online setting without knowing total capacity, we can
+    # infer a "target fullness" or use the item size as a reference for the remaining space.
+
+    # Let's refine `fit_priority` to also consider the "quality" of the remaining space.
+    # We want small remaining space (tight fit), but if the remaining space is *too* small,
+    # it might be less useful for subsequent items.
+    # So, we prefer remaining space that is small but still substantial enough to fit
+    # at least some smaller items.
+
+    # Let's try a combined score:
+    # - Primary: Tightness (low (bin_cap - item))
+    # - Secondary: Avoid extremely large remaining capacities (encourages consolidation)
+
+    # The tightness score directly maps to how "good" the fit is for the current item.
+    # We want to maximize this. So, higher values of (1 / (1 + tightness_score)) are better.
+
+    # Let's introduce a small diversification aspect or a secondary objective.
+    # For instance, if multiple bins offer a very tight fit, we might break ties
+    # by picking the bin that was already less full, to spread the load slightly.
+    # Or, conversely, pick the one that is already more full to encourage consolidation.
+
+    # Let's stick to the primary goal of tight fit, and for tie-breaking,
+    # we can consider how much "waste" is generated.
+    # The waste is (bin_remain_cap - item). We want to minimize this.
+    # So, for bins with the same tightness score, we might prefer one that
+    # has a slightly larger remaining capacity (meaning it was less full to begin with).
+    # This is counter-intuitive to "tight fit" but could be a diversification.
+
+    # Let's focus on the "tight fit" and "useful remaining space" idea.
+    # Score = tightness_value + some_function_of_remaining_space.
+    # We want to minimize (remaining_capacity - item).
+    # So, let's consider the inverse of that as a priority.
+    # priority = 1 / (epsilon + (bin_remain_cap - item))
+
+    # Let's try a more direct heuristic that is known to be effective:
+    # Prioritize bins that leave the *smallest* remaining capacity after packing.
+    # This is Best Fit. The priority is inversely proportional to (bin_remain_cap - item).
+    # We want to maximize priority for bins with minimum (bin_remain_cap - item).
+    # So, priority = C - (bin_remain_cap - item), where C is a large constant.
+    # Or simply, priority = -(bin_remain_cap - item).
+    # The higher the priority value, the better.
+
+    # Let's re-think the prompt's advice: "refining the quality of 'tight fit'
+    # assessment by exploring diverse metrics beyond simple inverse relationships.
+    # Consider how different neighborhood structures in local search can expose
+    # novel packing solutions."
+
+    # "Diverse metrics beyond simple inverse relationships": Instead of just
+    # (bin_remain_cap - item), let's also consider how "close" bin_remain_cap
+    # is to a "good" size for the item, perhaps slightly larger than the item.
+    # This is related to the "sweet spot" idea.
+
+    # Let's try a score that has two components:
+    # 1. Penalty for not fitting: Very low score if item doesn't fit.
+    # 2. Reward for tight fit: Higher score for smaller (bin_remain_cap - item).
+    # 3. Reward for leaving a "useful" remainder: Not too much, not too little.
+
+    # Let's define a "desirability" score for each suitable bin.
+    # A good bin is one that is nearly full but still accommodates the item.
+    # We want to maximize the desirability.
+    # Desirability_score = 1 / (1 + (bin_remain_cap - item))  # Reward for small remainder
+
+    # To avoid bins that become *too* full and might be useless for future items,
+    # we can add a penalty for bins that are already very full.
+    # Or, focus on the remaining capacity being "just right".
+    # A simple way is to penalize very large remainders.
+
+    # Let's create a score that is high for small positive (bin_remain_cap - item)
+    # and decreases as (bin_remain_cap - item) increases.
+    # For a bin to be suitable, bin_remain_cap >= item.
+    # The "waste" or "slack" is `slack = bin_remain_cap - item`.
+    # We want to minimize `slack`.
+
+    # A primary priority could be `1 / (1 + slack)` for suitable bins.
+    # This gives highest priority to slack = 0.
+
+    # Now, let's consider the "neighborhood exploration" idea.
+    # What if we also give a slight bonus to bins that are not *completely* full,
+    # or that have a remaining capacity that is a "good" size for common item sizes?
+    # This is hard to define without knowing future items.
+
+    # Let's try a heuristic that balances tight fit with not making bins "too full".
+    # For a suitable bin, we want to minimize `slack = bin_remain_cap - item`.
+    # However, if `slack` is very small, it might be hard to fit other items.
+    # So, we want `slack` to be small, but not zero.
+
+    # Let's consider the remaining capacity *after* placing the item.
+    # `post_placement_remain_cap = bin_remain_cap - item`.
+    # We want `post_placement_remain_cap` to be small.
+    # However, if `post_placement_remain_cap` is too small (e.g., < item/2), it might be undesirable.
+    # This hints at a "sweet spot" for the remaining capacity.
+
+    # Let's try a score that is high for `post_placement_remain_cap` close to 0,
+    # but also consider bins where `post_placement_remain_cap` is moderately sized.
+    # This can be achieved by a quadratic penalty or a function that has a peak.
+
+    # Example: Score = 1 - (slack / bin_capacity)  -- aims for high utilization.
+    # Or, Score = 1 / (1 + slack) -- Best Fit.
+
+    # Let's try a heuristic that combines Best Fit with a penalty for
+    # extremely low remaining capacity *after* packing.
+    # The "ideal" remaining capacity after packing might be something like
+    # the size of a small item.
+
+    # For each suitable bin:
+    # Calculate slack = bin_remain_cap - item.
+    # Calculate a "fit score": Higher for smaller slack.
+    # Let's use `1.0 / (1.0 + slack)` as the primary component.
+
+    # Now, let's introduce a secondary component that penalizes very small slacks
+    # (making the bin nearly full) or very large slacks (making the bin under-utilized).
+    # We want a sweet spot for slack. A simple way is to penalize slack if it's too small.
+    # Let's say slack < item / 4 is penalized.
+
+    # Consider `slack_score = slack / item`. We want this to be small.
+    # If `slack_score` is very small (e.g., < 0.25), let's penalize it.
+    # A penalty could be multiplying the priority by a factor < 1.
+
+    # Let's simplify. We want to minimize slack.
+    # The function should return higher values for more preferred bins.
+    # Prioritize bins where `bin_remain_cap - item` is minimal and non-negative.
+
+    # Let's use the Best Fit principle but with a slight modification to
+    # encourage diversification or prevent over-filling.
+
+    # For suitable bins:
+    # Calculate the "goodness" of the fit as `goodness = bin_remain_cap - item`.
+    # We want to minimize `goodness`. Higher priority for smaller `goodness`.
+    # `priority = 1.0 / (1.0 + goodness)` gives highest priority for `goodness = 0`.
+
+    # To incorporate the idea of "useful remaining space" or avoiding extreme filling:
+    # Let's consider a score that peaks when `bin_remain_cap` is slightly larger than `item`.
+    # For example, if the bin capacity was originally `C`, we might prefer a bin
+    # where `bin_remain_cap` is around `item` or `item + small_margin`.
+    # This is difficult without knowing the original bin capacity or typical item sizes.
+
+    # Let's try a score that:
+    # 1. Rewards tight fits (`slack` is small).
+    # 2. Penalizes bins that become extremely full (very small `slack`).
+    # 3. Penalizes bins that remain very empty (large `slack` but not fitting the item).
+
+    # For suitable bins:
+    # `slack = bin_remain_cap - item`
+    # Primary scoring: minimize `slack`. `primary_score = 1.0 / (1.0 + slack)`
+    # Secondary scoring: if `slack` is very small (e.g., < item / 2), reduce priority.
+    # Let's define a "small slack penalty".
+    # `small_slack_penalty_factor = max(0.0, 1.0 - (slack / (item / 2.0)))` if item > 0 else 1.0
+    # This factor is 1 when slack >= item/2, and decreases towards 0 as slack approaches 0.
+
+    # `priority_score = primary_score * small_slack_penalty_factor`
+
+    # Let's refine this. The penalty factor should be applied only if slack is small.
+    # If slack is small, we want to reduce its priority.
+
+    scores = np.zeros_like(bins_remain_cap)
+    suitable_indices = np.where(suitable_bins_mask)[0]
+
+    if len(suitable_indices) == 0:
+        return scores
+
+    for i in suitable_indices:
+        slack = bins_remain_cap[i] - item
+
+        # Primary component: prioritize minimal slack (tight fit)
+        # Use a small epsilon to avoid division by zero if slack is negative (shouldn't happen here)
+        # and to give a high score for slack = 0.
+        primary_score = 1.0 / (1.0 + slack)
+
+        # Secondary component: penalize very small slacks (to avoid over-filling)
+        # If slack is very small (e.g., less than half the item size), reduce its desirability.
+        # This encourages leaving some usable space.
+        # The threshold `slack_threshold` can be tuned. Let's use `item / 2.0`.
+        # If slack is very small, we want to decrease its score.
+        # Let's introduce a penalty factor that is close to 1 for larger slacks,
+        # and decreases as slack gets very small.
+        # A simple approach: If slack is very small relative to the item, penalize.
+        # For example, if `slack < item * 0.25`, apply a penalty.
+
+        # Let's try a score that is high when slack is small, but not zero.
+        # We want to avoid slack = 0 if possible, by preferring slack = 1 (if bin_capacity was 10, item = 9, remaining = 1).
+        # This is like saying we prefer a remaining capacity of 1 over 0.
+
+        # Let's reconsider the prompt's keywords: "local search", "neighborhood exploration", "diversification".
+        # This implies that simply picking the best fit might not be optimal.
+        # We might want to explore slightly "sub-optimal" bins to open up better packing opportunities later.
+
+        # Let's design a score that favors tighter fits, but also considers
+        # bins that offer a "balanced" remaining capacity.
+
+        # Score for a suitable bin `i`:
+        # `slack = bins_remain_cap[i] - item`
+        # We want to minimize `slack`.
+        # Let's consider a function that rewards smaller slacks.
+        # `reward = exp(-slack)` would give high rewards for small slacks.
+        # Or `reward = 1.0 / (1.0 + slack)`.
+
+        # To penalize very small slacks (overfilling):
+        # If `slack < item * 0.2`: apply a penalty.
+        # Let's use a function that is high when `slack` is small, but also
+        # has a slight dip or reduced slope when `slack` is near zero.
+
+        # Consider a score that is a function of `slack`.
+        # Let's try `score = -slack**2` - this peaks at slack=0, but doesn't penalize slack=0.
+        # What about `score = -slack`? Maximizing this means minimizing slack. This is BF.
+
+        # Let's introduce a penalty for very small slacks (e.g., slack < 0.1 * item).
+        # This suggests that a bin that has `slack = 0.5` might be preferred over `slack = 0.05`.
+        # This is a deviation from pure Best Fit.
+
+        # Let `slack = bins_remain_cap[i] - item`.
+        # Primary preference: minimize slack.
+        # If we have `slack1 = 0.1` and `slack2 = 0.2`, we prefer `slack1`.
+        # If we have `slack1 = 0.01` and `slack2 = 0.1`, we prefer `slack2` slightly,
+        # because `0.01` is too small.
+
+        # Let's try a score that is high when `slack` is small, but decreases
+        # if `slack` becomes critically small.
+        # A function like `f(slack) = 1 / (1 + slack) - penalty_for_small_slack`
+
+        # Consider `slack_normalized = slack / item` (if item > 0).
+        # We want `slack_normalized` to be small.
+        # If `slack_normalized` is very small (e.g., < 0.2), we want to reduce its score.
+        # Let's define `small_slack_penalty = max(0.0, 1.0 - (slack_normalized / 0.2))`
+        # This penalty is 1 if `slack_normalized >= 0.2` and goes to 0 as `slack_normalized` approaches 0.
+
+        # `priority = (1.0 / (1.0 + slack)) * small_slack_penalty`
+
+        # Let's be careful with item = 0 case.
+        item_val = max(item, 1e-9) # Avoid division by zero if item is 0.
+
+        slack = bins_remain_cap[i] - item
+        slack_normalized = slack / item_val
+
+        # Primary scoring: prioritize minimal slack
+        # Higher score for smaller slack
+        primary_score = 1.0 / (1.0 + slack)
+
+        # Secondary penalty for very small slack (e.g., less than 20% of item size)
+        # This encourages leaving some usable space.
+        # If slack_normalized < 0.2, we apply a penalty.
+        # The penalty factor is 1.0 for slack_normalized >= 0.2, and decreases to 0 as slack_normalized -> 0.
+        # We want a smooth transition. A sigmoid-like function or a simple linear ramp.
+        # Let's use a linear ramp that starts penalizing significantly below 0.2.
+        # Penalty factor: `max(0.0, 1.0 - (0.2 - slack_normalized) / 0.2)` for slack_normalized < 0.2.
+        # Simplified: `max(0.0, slack_normalized / 0.2)` for slack_normalized < 0.2.
+        # Better: `max(0.0, 1.0 - (0.2 - slack_normalized) / 0.2)` is `max(0.0, slack_normalized / 0.2)`.
+        # Let's make the penalty more gradual.
+        # A Gaussian-like penalty centered at 0, or a decaying exponential.
+
+        # Let's try a score that favors slack in a certain range.
+        # The ideal slack could be around `item / 4` or `item / 2`.
+        # This is hard to capture simply.
+
+        # Back to the prompt's hint: "refining the quality of 'tight fit' by exploring diverse metrics".
+        # What if we prioritize bins that are "almost full", and among those, pick the best fit?
+        # "Almost full" could mean remaining capacity is less than a certain fraction of the bin.
+        # But we don't know the bin capacity.
+
+        # Let's stick to prioritizing minimal slack, but with a twist:
+        # If multiple bins have the *same* minimal slack (e.g., both have slack = 0.1),
+        # how do we break ties?
+        # The prompt suggests "neighborhood exploration" and "diversification".
+        # This implies we might not *always* pick the absolute best fit.
+
+        # Let's try a heuristic that prioritizes bins that leave a small, but positive,
+        # amount of remaining capacity.
+        # This means minimizing `slack = bin_remain_cap - item`, but we might prefer
+        # `slack = 0.1` over `slack = 0.0` if the latter makes the bin too full.
+
+        # Let's define a "desirability" score for the remaining capacity after packing.
+        # `post_pack_remain = bin_remain_cap - item`
+        # We want `post_pack_remain` to be small.
+        # Let's consider a score that is high when `post_pack_remain` is small,
+        # but not *too* small.
+        # A function that peaks at a small positive value, e.g., at `post_pack_remain = 0.5` or `1.0`.
+        # This is complex to implement without more context on bin sizes or item sizes distribution.
+
+        # Simpler approach:
+        # 1. Primary objective: Minimize `slack = bin_remain_cap - item`.
+        # 2. Secondary objective: Among bins with similar slack, prefer those that were less full initially.
+        # This is "Loose Fit" tie-breaking. It can help distribute items.
+
+        # Let's try this:
+        # Calculate `slack = bin_remain_cap - item` for all suitable bins.
+        # Calculate `priority = 1.0 / (1.0 + slack)`. This is Best Fit priority.
+        # To introduce diversification or "loosening", we can add a small
+        # random perturbation or a systematic slight "loosening" factor.
+
+        # Let's stick to refining the "tight fit" quality.
+        # We want to minimize `slack`.
+        # What if we consider the *relative* slack? `slack / bin_remain_cap`
+        # This is problematic if `bin_remain_cap` is small.
+
+        # Let's use the `1.0 / (1.0 + slack)` as a base.
+        # Now, how to penalize over-filling?
+        # If `slack < epsilon` (a small threshold), reduce the score.
+        # Let `epsilon = 0.1 * item_val`.
+        # If `slack < epsilon`, then `penalty_factor = slack / epsilon`.
+        # Otherwise, `penalty_factor = 1.0`.
+
+        slack = bins_remain_cap[i] - item
+        # Ensure slack is non-negative for calculations.
+        effective_slack = max(0.0, slack)
+
+        # Base priority: higher for smaller effective slack (Best Fit)
+        # Add a small value to the denominator to prevent division by zero and ensure positive scores.
+        base_priority = 1.0 / (1.0 + effective_slack)
+
+        # Refinement: Penalize very small positive slacks to encourage leaving usable space.
+        # Define a "critical slack" threshold, e.g., 10% of the item's size.
+        # This threshold can be adjusted.
+        critical_slack_threshold = 0.15 * item_val # Example: 15% of item size
+
+        # Calculate a penalty factor. It should be less than 1 if slack is below the threshold.
+        # For slack below threshold, the penalty factor decreases as slack approaches 0.
+        # For slack at or above threshold, penalty factor is 1.0.
+        if effective_slack < critical_slack_threshold:
+            # Linear penalty: if slack is 0, penalty is 0. If slack is critical_slack_threshold, penalty is 1.
+            # We want to penalize slack values *below* the threshold, meaning their priority should be reduced.
+            # So, if slack is small, we want the penalty factor to be small.
+            # If slack = 0, penalty_factor = 0.
+            # If slack = critical_slack_threshold, penalty_factor = 1.0.
+            penalty_factor = effective_slack / critical_slack_threshold
+            # Clamp penalty factor to be at most 1.0 (in case effective_slack exceeds threshold during calculation)
+            penalty_factor = min(penalty_factor, 1.0)
+        else:
+            penalty_factor = 1.0
+
+        # Final score is the base priority modulated by the penalty factor.
+        # This means bins with very small slack will have their priority reduced.
+        final_score = base_priority * penalty_factor
+
+        scores[i] = final_score
+
+    # The bin with the highest score is the most preferred.
+    return scores
+```

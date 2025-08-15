@@ -1,0 +1,95 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a Softmax-Based Fit strategy.
+
+    This strategy prioritizes bins that are a "good fit" for the item,
+    meaning they have just enough remaining capacity to accommodate the item.
+    Bins with significantly more or less remaining capacity are penalized.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Calculate the "fit" score for each bin.
+    # A good fit is where remaining_capacity - item is close to zero.
+    # We use (remaining_capacity - item) for bins where remaining_capacity >= item.
+    # For bins where remaining_capacity < item, we assign a very low (large negative) score
+    # to ensure they are not selected.
+
+    fit_scores = np.full_like(bins_remain_cap, -np.inf) # Initialize with negative infinity
+
+    # Consider only bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Calculate the "gap" or "waste" if the item is placed in the bin.
+    # We want to minimize this gap.
+    gaps = bins_remain_cap[can_fit_mask] - item
+    
+    # Transform gaps into positive scores where smaller gaps are better.
+    # Using exponential of negative gaps to get higher scores for smaller gaps.
+    # The `-gaps` is crucial: smaller positive gaps become larger negative numbers,
+    # and their exponent will be smaller, indicating lower priority.
+    # We add a small constant or scale to ensure the arguments to exp are not too large
+    # to avoid numerical overflow, and to ensure that fitting the item is generally preferred
+    # over not fitting it.
+    # We can also think of this as the "surprise" or "unlikeliness" of this gap.
+    # Smaller gaps are more "surprising" and thus higher priority.
+    
+    # Using a negative exponential to penalize larger gaps.
+    # exp(-gap) will be close to 1 for gap=0 and approach 0 for large gaps.
+    # To make smaller gaps have HIGHER priority, we want a function that increases as gap decreases.
+    # So, we can use exp(-gap) or a similar transformation.
+    
+    # A common approach in Softmax is to have positive values.
+    # Let's define a score that is high when remaining_capacity is close to item.
+    # We can use exp(-abs(remaining_capacity - item)) for bins that can fit.
+    
+    positive_fit_scores = np.exp(-(bins_remain_cap[can_fit_mask] - item))
+
+    # Apply the positive fit scores to the bins that can fit the item
+    fit_scores[can_fit_mask] = positive_fit_scores
+
+    # Apply Softmax to convert scores into probabilities (priorities)
+    # Ensure no division by zero if all scores are -inf
+    if np.all(fit_scores == -np.inf):
+        return np.zeros_like(bins_remain_cap)
+
+    # Shift scores to avoid issues with exp(very small numbers) or exp(-very large numbers)
+    # Max score can be 1.0 (when gap is 0). If we have exp(-large_number), it's close to 0.
+    # The sum of exp should be positive.
+    
+    # We want to select bins that have a "tight" fit.
+    # Consider the "slack" or "waste" which is remaining_capacity - item.
+    # We want to minimize this waste.
+    # A higher priority should be given to bins with less waste.
+    # For bins that cannot fit, their priority should be 0 or very low.
+
+    # Let's refine the scores:
+    # If bin_remain_cap >= item, score = exp(-(bin_remain_cap - item))
+    # If bin_remain_cap < item, score = 0
+    
+    scores = np.zeros_like(bins_remain_cap)
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Calculate scores for bins that can fit the item
+    # We want smaller (remaining_capacity - item) to have higher priority.
+    # Using exp(-x) makes smaller x result in higher exp(-x).
+    scores[can_fit_mask] = np.exp(-(bins_remain_cap[can_fit_mask] - item))
+
+    # Apply Softmax to normalize scores into probabilities.
+    # Handle cases where all scores are zero (no bin can fit).
+    if np.sum(scores) == 0:
+        return np.zeros_like(bins_remain_cap)
+
+    # Adding a small epsilon to the denominator to prevent division by zero if sum of scores is 0
+    # though the previous check should handle this.
+    priorities = scores / (np.sum(scores) + 1e-9)
+
+    return priorities
+
+```

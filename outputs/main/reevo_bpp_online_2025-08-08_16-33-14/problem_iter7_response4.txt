@@ -1,0 +1,381 @@
+[Prior reflection]
+The current implementation `priority_v1` has some good ideas, but the thresholds and scaling factors are fixed and might not adapt well to different bin capacities or item distributions. The "wasteful" penalty might also be too aggressive or not aggressive enough depending on the context.
+
+Improvements to consider:
+1.  **Adaptive Thresholds**: Instead of fixed multiples of `item` for `tight_fit_threshold` and `wasteful_threshold`, consider thresholds relative to the *bin's current remaining capacity* or its *initial capacity* (if known). For an online problem, using current remaining capacity is more feasible. For example, a "tight" fit could be when `remaining_after_fit < 0.1 * bins_remain_cap[i]`.
+2.  **Scaling of Scores**: The absolute values of scores (1000.0, 50.0, 20.0) and their divisors (`1.0 + ...`) are somewhat arbitrary. A more principled approach might be to normalize scores across all fitting bins, or to ensure the score range is meaningful relative to the problem scale.
+3.  **Penalty for Wasteful Bins**: The penalty `penalty_factor * (remaining_after_fit - wasteful_threshold) / (item + epsilon)` might not be ideal. A common heuristic is to penalize bins that leave a large *percentage* of empty space. For example, penalize `remaining_after_fit / initial_bin_capacity`. Since we don't have initial capacity, we can use `remaining_after_fit / (remaining_after_fit + item)`, which represents the proportion of the bin that will be empty *after* packing.
+4.  **Exploration**: The random jitter is a good idea. Ensure it's applied consistently and doesn't dominate the deterministic priority.
+5.  **Clarity of Heuristic**: Make the priority function more directly reflect the "Best Fit" or "First Fit Decreasing" like intuitions. "Best Fit" usually means minimizing `remaining_capacity`. "First Fit Decreasing" implies sorting items and then using a simple fit strategy. For online, we can aim for a "Best Fit" like strategy.
+
+Let's refine `priority_v1` into `priority_v2` focusing on these points. We will try to prioritize bins that leave the *least* amount of remaining space, with a stronger penalty for leaving *significant* amounts of space.
+
+**Revised Priority Logic for v2:**
+1.  **Cannot Fit**: Priority = 0.
+2.  **Perfect Fit**: Max priority (e.g., 1.0).
+3.  **Good Fit (Small Remainder)**: Priority is inversely proportional to `remaining_after_fit`. A simple inverse `1 / (remaining_after_fit + epsilon)` works. We might want to scale this.
+4.  **Moderate Fit**: Priority decreases as `remaining_after_fit` increases, but less sharply than for good fits.
+5.  **Wasteful Fit (Large Remainder)**: This is where we introduce a stronger penalty. Instead of a linear subtraction, we might want to scale the priority down drastically. A threshold based on the *proportion* of empty space could be effective. If `remaining_after_fit / (remaining_after_fit + item)` is large, the priority should be low.
+
+Let's define thresholds more adaptively. A "tight" fit could be when the remaining space is less than, say, 10% of the bin's current capacity. A "wasteful" fit could be when the remaining space is more than 50% of the bin's current capacity. However, we don't have the *initial* capacity easily. We can try to use a threshold relative to the item size, but make it adaptive to the overall scale of capacities.
+
+Consider the "slack" or unused space: `slack = bin_remain_cap - item`.
+The goal is to minimize `slack`.
+
+A common heuristic is:
+Priority = `f(slack)` where `f` is a decreasing function.
+To prioritize "tight" fits, `f` should decrease rapidly for small `slack`, and less rapidly for larger `slack`.
+
+Let's try a composite function:
+-   If `slack` is near 0: High priority (e.g., `1 / (slack + epsilon)`)
+-   If `slack` is moderate: Medium priority (e.g., `C1 / (slack^p1 + epsilon)`)
+-   If `slack` is large: Low priority, with a strong penalty.
+
+Alternative approach: Rank bins by `slack`. The bin with minimum `slack` gets the highest base priority. Then, add bonuses for "tightness" and penalties for "wastefulness."
+
+Let's try a scoring system that directly favors smaller `remaining_after_fit` and penalizes larger ones.
+We can use the idea of "regret" or "waste".
+Waste = `remaining_after_fit`.
+We want to minimize waste.
+
+Priority Score = `max_possible_priority` - `penalty_for_waste`
+Penalty for waste could be proportional to `remaining_after_fit`, but with non-linear scaling.
+
+Let's consider the range of `remaining_after_fit` for bins that can fit the item.
+Let `R_fit = remaining_after_fit`.
+The minimum `R_fit` is 0 (perfect fit).
+The maximum `R_fit` can be `max(bins_remain_cap) - item`.
+
+A simple heuristic favoring minimum remaining space (Best Fit):
+Priority is inversely related to `remaining_after_fit`.
+Score = `1.0 / (remaining_after_fit + epsilon)`
+
+To incorporate "tightness" and penalize "wastefulness":
+We can use conditional logic based on `remaining_after_fit` relative to some adaptive threshold.
+
+Let's define a "tightness" factor: `tightness = item / bin_remain_cap` for bins that fit.
+And "emptiness" factor: `emptiness = remaining_after_fit / bin_remain_cap`.
+
+If we want to prioritize bins that are already quite full and can accommodate the item:
+Consider bins where `bin_remain_cap` is just slightly larger than `item`.
+This means `remaining_after_fit` is small.
+
+Let's try a score that combines minimizing remaining space with a penalty for leaving too much space.
+
+Score = `(1 / (remaining_after_fit + epsilon)) * (1 - waste_penalty_factor * max(0, remaining_after_fit - adaptive_waste_threshold) / (item + epsilon))`
+
+The adaptive waste threshold could be related to the average remaining capacity of bins that *could* fit the item. Or maybe a fraction of the item size.
+
+Let's simplify:
+1.  Identify bins that can fit.
+2.  For these bins, calculate `remaining_after_fit`.
+3.  Apply a score that is primarily based on minimizing `remaining_after_fit`.
+4.  Add a bonus for "tightness" and a penalty for "wastefulness."
+
+"Tightness" bonus: If `remaining_after_fit` is small relative to `item`, give a bonus.
+"Wastefulness" penalty: If `remaining_after_fit` is large relative to `item` or `bin_remain_cap`, apply a penalty.
+
+Let's use a score that is high for small `remaining_after_fit` and decreases.
+`score = 1.0 / (remaining_after_fit + epsilon)`
+
+To add nuance:
+-   Perfect fits (`remaining_after_fit == 0`): Give a very high score, like `1e9`.
+-   Tight fits (`remaining_after_fit` is small, e.g., `< item / 2`): Give a score proportional to `1 / (remaining_after_fit + epsilon)`, perhaps scaled up.
+-   Moderate fits (`item / 2 <= remaining_after_fit <= 2 * item`): Give a score proportional to `1 / (remaining_after_fit + epsilon)`, scaled less aggressively.
+-   Wasteful fits (`remaining_after_fit > 2 * item`): Apply a significant penalty or give a much lower score.
+
+We need to be careful with scaling. A common strategy is to use a function that rewards small remaining capacities most strongly.
+Example: `score = A / (remaining_after_fit + epsilon)^p` where `p > 0`. A larger `p` makes it more sensitive to small differences in `remaining_after_fit`.
+
+Let's refine the penalty for wasteful bins. Instead of subtracting, let's scale the priority down.
+If `remaining_after_fit > threshold_waste`, then `score = score * (1 - penalty_factor * (remaining_after_fit - threshold_waste) / (item + epsilon))`.
+
+Consider the total capacity and average remaining capacity.
+Let `N` be the number of bins.
+Let `C` be the bin capacity (assuming fixed capacity, though not specified in signature).
+If capacity is not fixed, we should use `bins_remain_cap[i]` as a reference.
+
+Let's aim for a score that reflects "how full the bin becomes".
+`fullness = (bin_remain_cap[i] - remaining_after_fit) / bin_remain_cap[i]`
+
+The problem is we only have `bins_remain_cap`. We don't know the initial capacity.
+So, we must work with `remaining_after_fit`.
+
+The core idea of Best Fit is to minimize `remaining_after_fit`.
+Let's start with `score = 1.0 / (remaining_after_fit + epsilon)`.
+
+To prioritize tight fits: This means `remaining_after_fit` is small. Our base score already does this.
+Maybe we want to *amplify* the score for very small `remaining_after_fit`.
+
+Let's use thresholds relative to the item size, but add a scaling factor that might adapt.
+
+Consider `remaining_after_fit`:
+-   If `remaining_after_fit == 0`: Priority = `BIG_NUMBER`.
+-   If `0 < remaining_after_fit <= item`: High priority. Score `1.0 / (remaining_after_fit + epsilon)`.
+-   If `item < remaining_after_fit <= 2 * item`: Medium priority. Score `0.5 / (remaining_after_fit + epsilon)`.
+-   If `remaining_after_fit > 2 * item`: Low priority. Score `0.1 / (remaining_after_fit + epsilon)`.
+
+This introduces a piecewise function.
+
+Let's make the thresholds relative to *average* remaining capacity of fitting bins, or median.
+This requires computing some statistics.
+
+Alternative: Combine "minimum remaining space" with "maximum density" (if we knew original capacity).
+Since we don't, let's focus on minimizing `remaining_after_fit`.
+
+The reflection mentions "Prioritize perfect fits, then tight ones. Penalize wasted space and over-packing."
+"Over-packing" is not possible if we only select bins where `bins_remain_cap >= item`.
+
+Let's use `remaining_after_fit` as the primary driver, and add factors for "tightness" and "wastefulness".
+
+`score = (1.0 / (remaining_after_fit + epsilon))`  # Base score favouring minimum remaining space
+
+Add bonus for tightness:
+If `remaining_after_fit < item * 0.2` (tight fit): Multiply score by `1.5`
+If `remaining_after_fit < item * 0.05` (very tight fit): Multiply score by `2.0`
+
+Add penalty for wastefulness:
+If `remaining_after_fit > item * 3`: Multiply score by `0.5`
+If `remaining_after_fit > item * 5`: Multiply score by `0.2`
+
+This still uses fixed multipliers based on `item`.
+
+Let's try to make thresholds adaptive based on the *distribution* of `remaining_after_fit` among fitting bins.
+Calculate `mean_rem` and `std_rem` for `remaining_after_fit`.
+
+Threshold 1 (tight): `mean_rem - std_rem` or some percentile (e.g., 25th percentile).
+Threshold 2 (wasteful): `mean_rem + std_rem` or some percentile (e.g., 75th percentile).
+
+If `remaining_after_fit` is very small (close to 0): Highest priority.
+If `remaining_after_fit` is small relative to `bins_remain_cap` of that bin: High priority.
+If `remaining_after_fit` is large relative to `bins_remain_cap` of that bin: Low priority.
+
+Let's assume a fixed bin capacity `C` implicitly.
+Then `bins_remain_cap` represents `C - current_load`.
+The `item` is `item_size`.
+We are looking for a bin `i` such that `bins_remain_cap[i] >= item_size`.
+The `remaining_after_fit[i] = bins_remain_cap[i] - item_size`.
+
+Consider the quantity `bin_remain_cap[i]`. This tells us how "empty" the bin is.
+We prefer bins that are already relatively full.
+So, we prefer bins with small `bins_remain_cap[i]`, provided they can fit the item.
+
+Let's try to prioritize based on `bins_remain_cap[i]` directly, but only for fitting bins.
+The metric for fitting bins is to minimize `bins_remain_cap[i] - item`.
+
+Let's try a score that prefers bins with low `bins_remain_cap` *after* packing.
+`score = 1.0 / (bins_remain_cap[i] - item + epsilon)`  (This is essentially the same as minimizing `remaining_after_fit`)
+
+Let's reconsider the reflection: "Prioritize perfect fits, then tight ones. Penalize wasted space and over-packing."
+
+"Tight fits" implies `remaining_after_fit` is small.
+"Wasted space" implies `remaining_after_fit` is large.
+
+What if we define priority based on the "percentage of space used" in a bin?
+If we had original capacity `C_orig[i]`, then used space fraction is `(C_orig[i] - bins_remain_cap[i] + item) / C_orig[i]`.
+Since we don't have `C_orig`, we can use `bins_remain_cap[i]` as a proxy for how "full" the bin is *currently*.
+
+Let's try to combine two criteria:
+1.  Minimize `remaining_after_fit` (Best Fit).
+2.  Maximize the *current* fill level of the bin, assuming we want to put the item into an already occupied bin rather than an empty one, if possible. However, this might lead to fragmenting bins.
+
+A better approach might be to reward bins that have `bins_remain_cap[i]` close to `item`.
+So, we want to minimize `abs(bins_remain_cap[i] - item)`.
+This is equivalent to minimizing `remaining_after_fit`.
+
+Let's re-read the description of `priority_v1`. It already attempts to do this with different tiers (perfect, tight, moderate, wasteful). The criticism was about fixed thresholds and scaling.
+
+Let's try making the thresholds adaptive and scaling more dynamic.
+We can normalize `remaining_after_fit` based on the maximum possible remaining space for any fitting bin.
+
+Let `R_fit = remaining_after_fit` for fitting bins.
+`max_R_fit = np.max(R_fit)` if `R_fit` is not empty, else 0.
+
+Normalized `R_fit_norm = R_fit / (max_R_fit + epsilon)`
+
+Now, we can define thresholds on `R_fit_norm`.
+-   Perfect fit: `R_fit < epsilon` -> Priority `1000`
+-   Tight fit: `0 < R_fit_norm <= 0.1` -> Priority `100 / (R_fit + epsilon)`
+-   Moderate fit: `0.1 < R_fit_norm <= 0.5` -> Priority `50 / (R_fit + epsilon)`
+-   Wasteful fit: `R_fit_norm > 0.5` -> Priority `10 / (R_fit + epsilon)`
+
+This still uses `R_fit` in the denominator, which might make the penalty very harsh for large `R_fit`.
+Perhaps the penalty should be `1.0 / (1.0 + R_fit_norm * penalty_scale)`.
+
+Let's aim for a simpler, more robust heuristic that favors minimum remaining space, with a penalty for leaving excessive space.
+
+Heuristic:
+`score = f(remaining_after_fit)`
+`f(x)` should be decreasing.
+`f(0)` should be maximum.
+`f(large_x)` should be minimum.
+
+Consider `f(x) = exp(-k * x)` or `f(x) = 1 / (1 + k * x)`.
+To make it penalize waste more, `k` could increase for larger `x`.
+
+Let's consider the range of `remaining_after_fit`.
+Let `min_rem = 0` (for perfect fit).
+Let `max_rem_possible = np.max(bins_remain_cap) - item` (for fitting bins).
+
+A value of `remaining_after_fit = R`.
+We want to prioritize small `R`.
+
+Let's assign priorities based on ranks of `remaining_after_fit`.
+1.  Identify fitting bins and calculate `remaining_after_fit`.
+2.  Sort fitting bins by `remaining_after_fit` ascending.
+3.  Assign priority based on rank.
+
+This is essentially implementing a "Best Fit" strategy deterministically. The original prompt asks for a *priority function* that returns scores for *each* bin.
+
+Let's use a function that is sensitive to small `remaining_after_fit` and has a decaying penalty for larger values.
+Consider the "fill percentage" if the bin *were* full after packing:
+If bin capacity was `C`, and we pack item `i`, the remaining capacity is `C - i`.
+We want `C - i` to be small.
+
+Since we don't have `C`, let's use `bins_remain_cap[j]` for bin `j`.
+We select bin `j` if `bins_remain_cap[j] >= item`.
+The leftover space in bin `j` is `bins_remain_cap[j] - item`.
+
+We want to minimize `bins_remain_cap[j] - item`.
+Let `slack = bins_remain_cap[j] - item`.
+
+Consider a score that prioritizes bins with small `slack`.
+`score = 1.0 / (slack + epsilon)`
+
+To make it adaptive and penalize waste:
+Let's use the average slack of fitting bins as a reference point.
+`avg_slack = np.mean(remaining_after_fit)` if `remaining_after_fit.size > 0` else 0.
+
+Threshold for "tight": `slack < avg_slack / 2` or `slack < item / 4`.
+Threshold for "wasteful": `slack > avg_slack * 2` or `slack > item * 2`.
+
+Let's define priority based on `slack`:
+1.  **Perfect Fit (`slack < epsilon`)**: Priority = `1e9` (very high)
+2.  **Tight Fit (`0 < slack <= item / 2`)**: Priority = `100.0 / (slack + epsilon)` (scales inversely with slack)
+3.  **Moderate Fit (`item / 2 < slack <= item * 2`)**: Priority = `50.0 / (slack + epsilon)` (scales inversely, but less steeply)
+4.  **Wasteful Fit (`slack > item * 2`)**: Priority = `10.0 / (slack + epsilon)` (scales inversely, but with a base penalty/lower multiplier)
+
+To penalize waste *more*, we should make the score drop faster.
+Instead of `1/slack`, use `1/(slack^p)` with `p > 1`.
+
+Let's re-implement `priority_v2` using a single continuous function or a more structured piecewise approach, focusing on adaptive thresholds and penalties.
+
+The core idea should be: prioritize bins that leave minimal remaining space, with a stronger penalty for leaving *relatively* large remaining space.
+
+Let's use the following structure for `priority_v2`:
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Implements an adaptive priority function for the online Bin Packing Problem.
+    This version prioritizes bins that leave minimal remaining capacity,
+    with an adaptive penalty for bins that would leave significantly large gaps.
+
+    Priority is calculated as follows:
+    1. Bins that cannot fit the item receive a priority of 0.
+    2. For bins that can fit the item:
+       a. Perfect Fit: Highest priority.
+       b. Tight Fits: High priority, inversely proportional to remaining capacity.
+       c. Moderate Fits: Priority decreases as remaining capacity increases.
+       d. Wasteful Fits: Significantly penalized, especially when remaining capacity
+          is large relative to the item size or typical bin sizes.
+
+    Args:
+        item: Size of the item to be packed.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of priority scores for each bin. Higher score means higher priority.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros(num_bins, dtype=float)
+
+    # Find bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+    fitting_bins_indices = np.where(can_fit_mask)[0]
+
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit the item
+
+    fitting_bins_caps = bins_remain_cap[can_fit_mask]
+    remaining_after_fit = fitting_bins_caps - item
+
+    # --- Adaptive Thresholds and Scaling ---
+    # Calculate a reference for "tightness" and "wastefulness"
+    # If all fitting bins have very similar remaining capacity, the notion of "tight" or "wasteful"
+    # is less meaningful relative to other options.
+    # We can use the item size as a primary reference, but also consider the distribution of remaining capacities.
+
+    epsilon = 1e-9  # For numerical stability
+
+    # Define thresholds relative to item size and range of remaining capacities.
+    # This aims to be adaptive to the scale of the problem.
+
+    # Threshold for what is considered a "tight" fit.
+    # If remaining capacity is less than 10% of item size, consider it very tight.
+    tight_threshold = item * 0.1
+
+    # Threshold for what is considered "wasteful".
+    # If remaining capacity is more than 2x item size, it might be wasteful.
+    # Also consider if remaining capacity is very large compared to current bin capacity.
+    # For simplicity here, we'll use a threshold relative to item size.
+    wasteful_threshold = item * 2.0
+
+    # Calculate a base score for all fitting bins, primarily favoring minimal remaining space.
+    # Using 1 / (slack + epsilon) ensures smaller slack gets higher score.
+    base_scores = 1.0 / (remaining_after_fit + epsilon)
+
+    # Apply modifiers based on fit type:
+    # - Boost for tight fits
+    # - Penalize wasteful fits
+
+    # Initialize scores for fitting bins
+    calculated_scores = np.copy(base_scores)
+
+    # 1. Perfect Fits: Maximize priority.
+    perfect_fit_mask = (remaining_after_fit < epsilon)
+    calculated_scores[perfect_fit_mask] = 1e6  # Assign a very high score
+
+    # 2. Tight Fits: Boost the base score.
+    # Condition: Remaining space is small (e.g., less than item/2 or a small fraction of bin cap)
+    tight_mask = (remaining_after_fit > epsilon) & (remaining_after_fit <= tight_threshold)
+    # Apply a boost factor, stronger for smaller remaining space.
+    # Example: boost = 2.0 * (1 - remaining_after_fit / (tight_threshold + epsilon))
+    # A simpler boost: multiply by a factor for tight fits.
+    calculated_scores[tight_mask] *= 2.0  # Boost for tight fits
+
+    # 3. Wasteful Fits: Penalize the score.
+    # Condition: Remaining space is large (e.g., more than 2x item size)
+    wasteful_mask = (remaining_after_fit > wasteful_threshold)
+    # Apply a penalty factor. The penalty should increase with remaining space.
+    # Example penalty: score *= (1.0 - 0.5 * (remaining_after_fit - wasteful_threshold) / (item + epsilon))
+    # Ensure penalty doesn't make score negative.
+    penalty_factor = 0.5
+    penalty_amount = penalty_factor * np.maximum(0, remaining_after_fit[wasteful_mask] - wasteful_threshold) / (item + epsilon)
+    calculated_scores[wasteful_mask] *= np.maximum(0.1, 1.0 - penalty_amount) # Ensure score doesn't drop too low, e.g., below 0.1 multiplier
+
+    # Ensure scores are non-negative and not excessively large if not perfect fit.
+    calculated_scores[calculated_scores < 0] = 0
+    # Normalize scores to a reasonable range if desired, but usually relative ranking is enough.
+    # Let's ensure they are within a reasonable bounds.
+    # Max score for non-perfect fits should be lower than perfect fit.
+    max_non_perfect_score = np.max(calculated_scores[~perfect_fit_mask]) if np.any(~perfect_fit_mask) else 0
+    if max_non_perfect_score > 0:
+        calculated_scores[perfect_fit_mask] = np.maximum(calculated_scores[perfect_fit_mask], max_non_perfect_score * 10) # Ensure perfect is significantly higher
+
+
+    # Add a small amount of random jitter for exploration.
+    # This helps break ties and explore slightly suboptimal choices occasionally.
+    exploration_factor = 0.01 # Small fraction of the average score
+    avg_score = np.mean(calculated_scores[np.isfinite(calculated_scores)]) if np.any(np.isfinite(calculated_scores)) else 1.0
+    jitter = np.random.uniform(-exploration_factor * avg_score, exploration_factor * avg_score, size=calculated_scores.shape)
+    final_scores_for_fitting_bins = calculated_scores + jitter
+    final_scores_for_fitting_bins[final_scores_for_fitting_bins < 0] = 0 # Ensure jitter doesn't create negative scores
+
+    # Assign scores back to the original priority array
+    priorities[fitting_bins_indices] = final_scores_for_fitting_bins
+
+    return priorities
+```

@@ -1,0 +1,81 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority probabilities for packing an item into bins using a
+    softmax-based heuristic that prioritizes tight fits.
+
+    This heuristic focuses on selecting bins where the remaining capacity is
+    just enough for the item. It uses the inverse of the "wasted space"
+    (remaining_capacity - item) as a score, giving higher scores to bins
+    with less wasted space. These scores are then converted into probabilities
+    using the Softmax function. The `temperature` parameter controls the
+    exploration-exploitation trade-off: lower temperatures favor tighter fits
+    more strongly, while higher temperatures lead to a more uniform distribution.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A NumPy array representing the remaining capacity of each bin.
+        temperature: Controls the sharpness of the softmax distribution.
+                     Higher values lead to more exploration. Must be positive.
+
+    Returns:
+        A NumPy array of probabilities, same size as `bins_remain_cap`.
+        Bins that cannot fit the item will have a probability of 0.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate scores for bins that can fit the item.
+    # The score is based on minimizing "wasted space" (remaining_capacity - item).
+    # A simple metric for this is 1.0 / (1.0 + wasted_space).
+    # This maps wasted_space=0 to score=1, and larger wasted_space to scores closer to 0.
+    if np.any(can_fit_mask):
+        wasted_space = bins_remain_cap[can_fit_mask] - item
+        # Add a small epsilon to the denominator to prevent division by zero if item is exactly 0,
+        # though item size is typically positive in BPP. More importantly, it ensures
+        # that even for very small wasted_space, the score is not excessively large.
+        scores_for_softmax = 1.0 / (1.0 + wasted_space)
+
+        # Ensure temperature is positive to avoid issues with Softmax calculation.
+        # A very small positive temperature will approximate Best Fit.
+        if temperature <= 1e-9: # Use a small threshold instead of just 0
+            # Effectively becomes a greedy "best fit" choice, assign probability 1 to the best bin.
+            # But for consistency with softmax, we'll proceed, it will become very greedy.
+            pass
+        
+        # Apply Softmax to convert scores into probabilities.
+        # Shift scores by their maximum to improve numerical stability.
+        max_score = np.max(scores_for_softmax)
+        shifted_scores = (scores_for_softmax - max_score) / temperature
+        
+        exp_shifted_scores = np.exp(shifted_scores)
+        sum_exp_scores = np.sum(exp_shifted_scores)
+
+        # Handle case where sum_exp_scores might be zero (e.g., all shifted scores are -inf)
+        if sum_exp_scores > 0:
+            probabilities = exp_shifted_scores / sum_exp_scores
+        else:
+            # If no valid scores could be exponentiated (very unlikely with shifting),
+            # distribute probability uniformly among fitting bins or return zeros.
+            # Given the problem, if can_fit_mask is True, there's at least one score.
+            # If sum_exp_scores is 0, it means all exp_shifted_scores are 0, which implies
+            # all shifted_scores were extremely negative. This is highly unlikely after shifting.
+            # A safe fallback is to assign uniform probability to all fitting bins.
+            num_fitting_bins = np.sum(can_fit_mask)
+            if num_fitting_bins > 0:
+                probabilities = np.ones(num_fitting_bins) / num_fitting_bins
+            else:
+                probabilities = np.array([]) # Should not happen if can_fit_mask is true.
+
+        # Assign computed probabilities to the correct bins
+        priorities[can_fit_mask] = probabilities
+
+    # Ensure the final probabilities sum to 1. This is generally handled by Softmax,
+    # but can be a good sanity check or for edge cases (e.g., no fitting bins).
+    if np.sum(priorities) > 0:
+        priorities /= np.sum(priorities)
+
+    return priorities
+```

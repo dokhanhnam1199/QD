@@ -1,0 +1,134 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    fittable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(fittable_bins_mask):
+        return priorities
+
+    fittable_bins_remain_cap = bins_remain_cap[fittable_bins_mask]
+
+    # Best Fit Score: Inverse of remaining capacity after fitting. Smaller leftover is better.
+    # Add a small epsilon to prevent division by zero.
+    best_fit_score = 1.0 / (fittable_bins_remain_cap - item + 1e-6)
+
+    # Fill Ratio Score: The proportion of the bin that is already filled. Higher is better.
+    # This encourages using bins that are already partially full.
+    # Calculate current fill based on original bin capacity. Assuming bin capacity is constant (e.g., 1.0 for normalization)
+    # If bin capacity is not constant, it should be passed as an argument or inferred.
+    # For simplicity, let's assume a standard bin capacity of 1.0 for calculating fill ratio.
+    # If remaining capacity is r, and bin capacity is C, then filled amount is C-r. Fill ratio is (C-r)/C = 1 - r/C
+    # Here we use a simplified fill ratio proxy: (BinCapacity - CurrentRemainingCapacity) / BinCapacity
+    # A proxy for "how full" a bin is without knowing the original capacity: 1 - (remaining_capacity / max_possible_remaining_capacity_if_empty)
+    # A more robust approach is to consider the fill ratio of the bin based on its total capacity.
+    # Let's assume a fixed bin capacity C. The filled portion is C - current_remaining_cap.
+    # Fill Ratio = (C - current_remaining_cap) / C
+    # If we don't have C, we can use a proxy like 1 - normalized_remaining_cap.
+    # Using the concept of "how much space is left" relative to "how much space was available",
+    # this can be framed as the ratio of the item size to the remaining capacity.
+    # A more direct measure of "fullness" without knowing total capacity:
+    # Consider the inverse of remaining capacity. A smaller remaining capacity means a fuller bin.
+    # Let's use the inverse of remaining capacity *before* fitting, normalized by max remaining capacity
+    # to get a relative "fullness" score.
+    # A simpler approach for fullness is `1.0 - (remaining_capacity / max_potential_capacity)`
+    # Assuming `max_potential_capacity` is implied by the maximum value in `bins_remain_cap` if all bins were empty.
+    # Or, if we assume a standard capacity, we can calculate it. Let's use a proxy:
+    # For fittable bins, a higher `bins_remain_cap` means it's less full.
+    # So, fullness score should be inversely related to `bins_remain_cap`.
+    # A good proxy for fullness is `(max_total_capacity - remaining_capacity) / max_total_capacity`.
+    # If we don't have `max_total_capacity`, we can use `1.0 - (remaining_capacity / max(bins_remain_cap))`
+    # However, we want fullness *before* fitting the current item.
+    # Let's consider a metric that captures "how much capacity is left unused in the bin".
+    # For a fittable bin `b` with remaining capacity `r_b`, the space *used* is `TotalCapacity - r_b`.
+    # The fill ratio is `(TotalCapacity - r_b) / TotalCapacity = 1 - r_b / TotalCapacity`.
+    # If we assume a common `TotalCapacity` (e.g., `max(bins_remain_cap) + item` as an upper bound if it fits,
+    # or a fixed capacity `C`), we can calculate this.
+    # Let's assume a common `BIN_CAPACITY` which is implicitly `max(initial_bins_remain_cap)`
+    # If we don't know initial state, we can use the inverse of remaining capacity as a proxy for fullness.
+    # A bin with less remaining capacity is considered more full.
+    # So, `1.0 / (bins_remain_cap + epsilon)` as a measure of fullness.
+    # Let's refine: A bin is "fuller" if its remaining capacity is small relative to its total capacity.
+    # If we assume all bins have the same *original* capacity `C_orig`, then remaining capacity `r` means `C_orig - r` is filled.
+    # Fill ratio = `(C_orig - r) / C_orig`.
+    # To avoid needing `C_orig`, we can use a relative measure:
+    # `1 - (r / max(r_all_bins))` for the current set of bins.
+    # Let's simplify the fullness metric to be `1 - (current_remaining_capacity / maximum_possible_remaining_capacity)`.
+    # We can use `max(bins_remain_cap)` as a proxy for the maximum possible remaining capacity across all bins.
+    # This metric focuses on how "close to full" the bin is relative to others.
+
+    # Simpler fill ratio proxy: The more full a bin is, the smaller its remaining capacity.
+    # We want to prioritize bins that have a higher fill ratio.
+    # Let's consider the amount of space *already occupied* in a bin.
+    # If `bins_remain_cap` are the remaining capacities, and assume a `BIN_CAPACITY`,
+    # occupied space is `BIN_CAPACITY - bins_remain_cap`.
+    # Fill ratio = `(BIN_CAPACITY - bins_remain_cap) / BIN_CAPACITY = 1 - bins_remain_cap / BIN_CAPACITY`.
+    # To make it independent of `BIN_CAPACITY`, we can use the inverse of remaining capacity as a proxy for fullness.
+    # A bin with smaller remaining capacity is "fuller".
+    # `fillness_score = 1.0 / (fittable_bins_remain_cap + 1e-6)` is similar to best_fit.
+
+    # Let's consider the ratio of the item size to the remaining capacity.
+    # `item / fittable_bins_remain_cap` - higher means the item takes up a larger portion of the remaining space.
+    # This is related to "tight fit" but also encourages using bins where the item "fits well".
+    # This could be complementary to Best Fit (which minimizes leftover space).
+
+    # Idea: Multiplicative combination of Best Fit and a "Fillness" score.
+    # Best Fit: `1.0 / (remaining_capacity - item + epsilon)` - prioritizes bins with least leftover space.
+    # Fillness: How "full" the bin is. We can proxy this with `1.0 / (remaining_capacity + epsilon)`.
+    # A bin with low remaining capacity is considered "fuller".
+    # So, we want to multiply these two.
+    # A bin that is a tight fit AND is already quite full should get a high score.
+    # Let's use `1.0 / fittable_bins_remain_cap` as a measure of fullness. A smaller remaining capacity implies a fuller bin.
+    # So, `fillness_score = 1.0 / (fittable_bins_remain_cap + 1e-6)`.
+
+    # Let's try to combine them multiplicatively:
+    # `priorities = best_fit_score * fillness_score`
+    # `priorities = (1.0 / (fittable_bins_remain_cap - item + 1e-6)) * (1.0 / (fittable_bins_remain_cap + 1e-6))`
+    # This doesn't seem right. A bin with very little remaining capacity might be considered "fuller", but also could lead to a bad best-fit score if `item` is large relative to `fittable_bins_remain_cap`.
+
+    # Let's reconsider the advice: "balance immediate packing gains (e.g., Best Fit) with long-term bin utilization (e.g., fill ratio)."
+    # Best Fit focuses on `remaining_capacity - item`. We want to minimize this.
+    # Fill Ratio focuses on how full the bin is *before* we place the item.
+    # If we assume a `BIN_CAPACITY`, fill ratio is `(BIN_CAPACITY - r) / BIN_CAPACITY`.
+    # To prioritize bins that are already well-utilized (high fill ratio), we want to pick bins with small `r`.
+    # So, `fillness_score` should be inversely proportional to `r`.
+    # Let's use `1.0 / (fittable_bins_remain_cap + 1e-6)` as the fillness proxy.
+
+    # Multiplicative Combination:
+    # `score = (1.0 / (fittable_bins_remain_cap - item + 1e-6)) * (1.0 / (fittable_bins_remain_cap + 1e-6))`
+    # This gives higher scores to bins that are both a tight fit and have little remaining capacity.
+    # This can be problematic if `fittable_bins_remain_cap` is very small (e.g., just enough for `item`), as the fillness term would dominate.
+
+    # Let's try a weighted sum, but with a focus on relative measures.
+    # Best Fit Quality: `item / (fittable_bins_remain_cap - item + 1e-6)` - ratio of item size to leftover space. Higher is better.
+    # Fillness Quality: `1.0 - (fittable_bins_remain_cap / max(bins_remain_cap))` - proxy for fill ratio, relative to the most empty bin. Higher is better.
+
+    # Let's use a simpler, more direct approach focusing on the combined objective.
+    # We want to minimize `remaining_capacity - item` (Best Fit) AND
+    # we want to maximize the "fullness" of the bin.
+    # Fullness can be thought of as `1 - (remaining_capacity / TotalCapacity)`.
+    # If `TotalCapacity` is unknown, we can use the inverse of `remaining_capacity` as a proxy: `1 / remaining_capacity`.
+    # So, we want to optimize for `(1 / (remaining_capacity - item))` AND `(1 / remaining_capacity)`.
+
+    # Consider a scoring function that rewards tight fits AND bins that are already mostly full.
+    # A bin that is a tight fit means `fittable_bins_remain_cap - item` is small.
+    # A bin that is mostly full means `fittable_bins_remain_cap` is small.
+    # Thus, we want to prioritize bins where `fittable_bins_remain_cap` is small, *given* that `item` fits.
+
+    # Let's try a combined metric that directly addresses both:
+    # Primary goal: Minimize `remaining_capacity - item`.
+    # Secondary goal: Favor bins with less remaining capacity overall (proxy for fullness).
+    # A good candidate is `1.0 / (fittable_bins_remain_cap - item + 1e-6)`. This captures Best Fit.
+    # To incorporate fullness, we can add a term that is higher for smaller `fittable_bins_remain_cap`.
+    # Add `1.0 / (fittable_bins_remain_cap + 1e-6)`.
+    # The sum would be: `1.0 / (fittable_bins_remain_cap - item + 1e-6) + 1.0 / (fittable_bins_remain_cap + 1e-6)`
+    # This heavily penalizes bins where `fittable_bins_remain_cap` is small and `item` is close to it.
+    # The second term alone encourages picking bins with very little remaining capacity.
+
+    # Let's try a multiplicative approach that is more robust.
+    # Best Fit: `1.0 / (fittable_bins_remain_cap - item + 1e-6)`
+    # Fillness (proxy): `(max_bin_cap - fittable_bins_remain_cap) / max_bin_cap`. Assume `max_bin_cap` is implicitly captured by the overall context, or use relative max.
+    # A simpler fillness proxy: `1.0 - (fittable_bins_remain_cap / np.max(bins_remain_cap))` if `bins_remain_cap` are not all zero.
+    # Let's use a measure of how "full" the bin currently is, relative to its remaining capacity to fit the item.
+    # Consider the ratio of item size to the remaining capacity: `item / fittable_bins_remain_cap

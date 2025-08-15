@@ -1,0 +1,63 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines tight fitting with adaptive exploration and dynamic scoring.
+    Prioritizes bins that minimize waste and are more utilized, with a
+    probabilistic chance to explore less optimal but fitting bins,
+    dynamically adjusting exploration based on bin availability.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon_base = 0.1  # Base probability for exploration
+
+    can_fit_mask = bins_remain_cap >= item
+    available_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    if available_bins_remain_cap.size == 0:
+        return priorities
+
+    # Component 1: Tight Fitting (minimize waste)
+    remaining_after_packing = available_bins_remain_cap - item
+    # Use a small constant to prevent division by zero and give higher score to tighter fits
+    tight_fit_scores = 1.0 / (remaining_after_packing + 1e-9)
+
+    # Component 2: Adaptive Bin Utilization (prefer fuller bins)
+    # Normalize remaining capacity to reflect utilization. Higher score for less remaining capacity.
+    max_remaining_overall = np.max(bins_remain_cap) if np.any(bins_remain_cap > 0) else 1.0
+    utilization_scores = (max_remaining_overall - available_bins_remain_cap + 1e-9) / (max_remaining_overall + 1e-9)
+
+    # Combine core heuristic scores: balanced preference
+    combined_core_scores = 0.5 * tight_fit_scores + 0.5 * utilization_scores
+
+    # Normalize core scores to be in a comparable range
+    max_core_score = np.max(combined_core_scores)
+    if max_core_score > 1e-9:
+        normalized_core_scores = combined_core_scores / max_core_score
+    else:
+        normalized_core_scores = np.zeros_like(combined_core_scores)
+
+    # Epsilon-greedy exploration: Dynamically adjust exploration probability
+    num_available_bins = available_bins_remain_cap.size
+    # Exploration probability decreases as more bins become available, encouraging exploitation
+    exploration_prob = epsilon_base * (1.0 / (1 + num_available_bins))
+    
+    final_scores = np.copy(normalized_core_scores)
+
+    if np.random.rand() < exploration_prob:
+        # Select a random bin among those that can fit the item
+        random_index_in_subset = np.random.randint(0, num_available_bins)
+        # Boost the score of the randomly chosen bin to make exploration significant
+        # Use a boost factor relative to the best core score to make it competitive
+        boost_factor = 1.5 # Boost exploration picks
+        final_scores[random_index_in_subset] += np.max(normalized_core_scores) * boost_factor
+
+    # Re-normalize final scores to ensure they are between 0 and 1
+    max_final_score = np.max(final_scores)
+    if max_final_score > 1e-9:
+        priorities[can_fit_mask] = final_scores / max_final_score
+    else:
+        priorities[can_fit_mask] = final_scores
+
+    return priorities
+```

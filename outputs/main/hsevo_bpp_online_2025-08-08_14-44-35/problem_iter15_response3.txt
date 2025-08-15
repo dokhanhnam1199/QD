@@ -1,0 +1,139 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    A multi-objective priority function for online Bin Packing, balancing tightness,
+    utilization, and adaptive exploration with robust normalization.
+
+    Objectives:
+    1. Tightest Fit: Minimize remaining capacity after packing.
+    2. Bin Utilization: Maximize the current fill level of the bin.
+    3. Adaptive Exploration: Encourage trying less-filled bins that can still accommodate the item.
+
+    The function normalizes each objective across eligible bins and then combines them
+    using a weighted sum. Exploration is implemented using a probability that favors
+    bins with higher potential for future packing diversity.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 1e-9  # Small constant to avoid division by zero
+
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+    fitting_bins_indices = np.where(can_fit_mask)[0]
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # If no bins can fit the item, return zero priorities
+    if not np.any(can_fit_mask):
+        return priorities
+
+    num_fitting_bins = len(fitting_bins_remain_cap)
+
+    # Objective 1: Tightest Fit (minimize slack)
+    # Score is inversely proportional to remaining capacity after packing.
+    slack = fitting_bins_remain_cap - item
+    tightness_scores = 1.0 / (slack + epsilon)
+
+    # Objective 2: Bin Utilization (maximize current fill level)
+    # Score is proportional to the amount already in the bin (inverse of remaining capacity).
+    # We consider the capacity *before* placing the item.
+    utilization_scores = 1.0 / (fitting_bins_remain_cap + epsilon)
+
+    # Normalize scores for each objective to be in the range [0, 1] across fitting bins
+    # This ensures fair comparison across objectives.
+    def normalize(scores):
+        max_score = np.max(scores)
+        if max_score > epsilon:
+            return scores / max_score
+        else:
+            return np.zeros_like(scores)
+
+    normalized_tightness = normalize(tightness_scores)
+    normalized_utilization = normalize(utilization_scores)
+
+    # Combine Tightness and Utilization for Exploitation
+    # Weighted sum: Tightness is primary, Utilization is a secondary bonus.
+    exploitation_weight_tightness = 0.7
+    exploitation_weight_utilization = 0.3
+    
+    # Ensure weights sum to 1
+    total_exploitation_weight = exploitation_weight_tightness + exploitation_weight_utilization
+    exploitation_weight_tightness /= total_exploitation_weight
+    exploitation_weight_utilization /= total_exploitation_weight
+
+    exploitation_scores = (exploitation_weight_tightness * normalized_tightness +
+                           exploitation_weight_utilization * normalized_utilization)
+
+    # Objective 3: Adaptive Exploration
+    # Instead of random exploration, we boost bins that offer a good balance
+    # of fitting the current item and having significant remaining capacity for future items.
+    # This favors bins that are not too full, but also not completely empty if possible.
+    # We can use a score that inversely weights the *current* remaining capacity relative to
+    # the *potential* remaining capacity (which is the bin's original capacity, assumed to be uniform or known).
+    # For simplicity, we'll use a proxy: bins with higher utilization (less remaining capacity) are
+    # less likely to be explored unless they also fit tightly.
+
+    # A more refined exploration: prioritize bins that have a decent utilization
+    # and are not "too tight" (i.e., not extremely small remaining capacity).
+    # This encourages using bins that have some space left for potentially larger future items.
+    
+    # Consider the 'fairness' or 'spread' aspect. Bins with intermediate remaining capacity
+    # (after considering the item) might be good candidates for exploration.
+    # A simple approach: boost bins that are not the tightest fit, but still fit well.
+    
+    # Let's define an exploration score that favors bins that are 'moderately utilized'
+    # among those that can fit the item. Bins that are very full might be too tight,
+    # and bins that are very empty might not be "efficient" to fill first.
+    
+    # We can use the inverse of the remaining capacity *after* packing, but also
+    # penalize extremely large remaining capacities.
+    # A simple proxy: Prioritize bins with remaining capacity after packing that is
+    # neither too small (tight fit) nor too large (under-utilized).
+    
+    # Let's try a score that favors bins with remaining capacity after packing that is
+    # around the median of the fitting bins' remaining capacities.
+    # Alternatively, we can boost bins that are not in the top-k best fits.
+
+    # Revised Exploration Strategy: Thompson Sampling inspired
+    # Assume we have a prior belief about how good a bin is.
+    # For simplicity here, let's define exploration as picking from bins that are
+    # "good enough" but not necessarily the absolute best fit, to promote diversity.
+    # We'll assign a bonus to bins that are not among the top X% tightest fits.
+    
+    exploration_prob = 0.1  # Probability of applying exploration bonus
+    num_to_boost = max(1, int(np.floor(exploration_prob * num_fitting_bins)))
+
+    # Identify the indices that would correspond to the tightest fits
+    sorted_tightness_indices_local = np.argsort(slack) # Sort by slack (ascending)
+    
+    # Indices to boost are those *not* in the top `num_to_boost` tightest fits.
+    # If num_fitting_bins <= num_to_boost, then all bins are considered for exploration boost.
+    
+    explore_boost_mask_local = np.ones(num_fitting_bins, dtype=bool)
+    if num_fitting_bins > num_to_boost:
+        explore_boost_mask_local[sorted_tightness_indices_local[:num_to_boost]] = False
+    
+    # Calculate exploration boost: Add a constant bonus to these less-prioritized (for tightness) bins.
+    # The bonus should be significant enough to influence choice but not overwhelm the exploitation.
+    # A bonus proportional to the average exploitation score could work.
+    exploration_bonus_value = np.mean(exploitation_scores) * 1.1 if num_fitting_bins > 0 else 0
+
+    exploration_scores = np.zeros_like(exploitation_scores)
+    exploration_scores[explore_boost_mask_local] = exploration_bonus_value
+
+    # Final Combined Scores
+    # Combine exploitation scores with exploration bonuses
+    final_scores_unnormalized = exploitation_scores + exploration_scores
+
+    # Final Normalization: Ensure the highest priority is 1.0
+    max_final_score = np.max(final_scores_unnormalized)
+    if max_final_score > epsilon:
+        priorities[can_fit_mask] = final_scores_unnormalized / max_final_score
+    else:
+        # Fallback for edge case where all calculated scores are zero
+        # Assign uniform probability to all fitting bins
+        if num_fitting_bins > 0:
+            priorities[can_fit_mask] = 1.0 / num_fitting_bins
+
+    return priorities
+```

@@ -1,0 +1,80 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a Sigmoid Fit Score.
+
+    This heuristic prioritizes bins that offer a "good fit" for the item, aiming
+    to minimize wasted space without making the fit excessively tight. It uses a
+    sigmoid function to map the difference between remaining capacity and item size
+    to a priority score. Bins that cannot fit the item are given a score of 0.
+
+    The sigmoid function `1 / (1 + exp(-x))` is used. We want the highest scores
+    when `bins_remain_cap - item` is small and positive. This means the argument
+    `x` to the sigmoid should be large positive when `bins_remain_cap - item`
+    is small positive.
+
+    We use the form: `sigmoid( Constant - scale_factor * gap )`, where `gap = bins_remain_cap - item`.
+    - `Constant` shifts the sigmoid, allowing us to set a baseline priority for good fits.
+    - `scale_factor` controls the steepness of the priority drop-off as the gap increases.
+    - `gap` is clipped to prevent extreme values from causing numerical instability and
+      to treat very large gaps similarly.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin (0 to 1).
+    """
+    # Initialize priorities to 0 for all bins.
+    # Bins that cannot fit the item will retain a score of 0.
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Proceed only if there are bins that can fit the item.
+    if np.any(can_fit_mask):
+        # Calculate the "gap" for bins that can fit the item.
+        # Gap = remaining capacity - item size. We prefer small positive gaps.
+        gap = bins_remain_cap[can_fit_mask] - item
+
+        # --- Parameter Tuning ---
+        # constant_bias: Controls the baseline priority for the "ideal" gap.
+        #   A higher bias shifts the sigmoid curve to the left, yielding higher scores for a wider range of gaps.
+        #   This value is chosen to ensure good fits get scores comfortably above 0.5.
+        constant_bias = 3.0
+
+        # scale_factor: Controls the steepness of the sigmoid.
+        #   A higher scale_factor makes the priority drop faster for larger gaps.
+        scale_factor = 5.0
+
+        # max_gap_clip: Caps the gap value. Gaps larger than this are treated the same.
+        #   This prevents extreme gaps from causing numerical issues and groups very loose fits.
+        #   The value is chosen such that `constant_bias - scale_factor * max_gap_clip`
+        #   results in a negative argument to sigmoid, yielding low priority.
+        max_gap_clip = 50.0
+        # -----------------------
+
+        # Clip the gap to a maximum value to handle very loose fits gracefully and avoid numerical issues.
+        # Gaps are already non-negative due to `can_fit_mask`.
+        clipped_gap = np.clip(gap, 0.0, max_gap_clip)
+
+        # Calculate the argument for the sigmoid function.
+        # The formula `constant_bias - scale_factor * clipped_gap` is used:
+        # - When `clipped_gap` is small (good fit), the argument is large positive, leading to sigmoid score close to 1.
+        # - When `clipped_gap` is large, the argument becomes smaller or negative, leading to sigmoid score closer to 0.
+        sigmoid_arg = constant_bias - scale_factor * clipped_gap
+
+        # Apply the sigmoid function.
+        # To ensure numerical stability, we can limit the range of `sigmoid_arg`.
+        # A common practice is to clip the argument to prevent `exp` from overflowing or underflowing.
+        # The range [-700, 700] for the argument is generally safe for `np.exp`.
+        # `sigmoid_arg` will be in range `[constant_bias - scale_factor * max_gap_clip, constant_bias]`.
+        # With the chosen parameters: `[3.0 - 5.0 * 50.0, 3.0]` = `[-247.0, 3.0]`.
+        # This range is well within safe limits for `np.exp`, so explicit clipping of `sigmoid_arg` is not strictly necessary here.
+        priorities[can_fit_mask] = 1.0 / (1.0 + np.exp(-sigmoid_arg))
+
+    return priorities
+```

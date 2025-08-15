@@ -1,0 +1,567 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Sigmoid Fit Score.
+
+    The Sigmoid Fit Score prioritizes bins that have a remaining capacity
+    close to the item's size. A bin with a remaining capacity slightly larger
+    than the item's size is preferred over bins that are either too small
+    or have a very large remaining capacity. The sigmoid function helps
+    to create a smooth transition in priorities around the "ideal" fit.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Ensure we don't divide by zero or get nonsensical results for bins with 0 capacity
+    # Also, avoid very small capacities causing extremely large negative exponents.
+    # We add a small epsilon to the denominator to prevent division by zero.
+    epsilon = 1e-9
+    # Calculate the difference between bin capacity and item size.
+    # We are interested in the positive difference (slack).
+    diff = bins_remain_cap - item
+
+    # Apply a transformation that favors bins where diff is close to zero.
+    # The sigmoid function can be used here. A common form for scoring
+    # where we want to maximize a value (like closeness to zero difference) is:
+    # sigmoid(k * (ideal - x)) where k is a steepness parameter and ideal is the target value.
+    # Here, we want to penalize bins that are too small (diff < 0) and bins that
+    # have a lot of slack (large positive diff). We want to reward bins
+    # where diff is close to 0.
+    # Let's consider the ratio (item / capacity) or rather (capacity - item) / capacity.
+    # If capacity < item, the difference is negative.
+    # We want to give higher scores to bins where `diff` is close to zero.
+    # Let's use a sigmoid centered around `diff = 0`.
+    # sigmoid(x) = 1 / (1 + exp(-x))
+    # If diff is positive and small, it maps to values close to 1.
+    # If diff is negative, it maps to values close to 0.
+    # If diff is large and positive, it also maps to values close to 1.
+    # This isn't quite right for prioritizing *smaller* remaining capacity.
+
+    # A better approach is to map `bins_remain_cap` to a score.
+    # We want to prioritize bins that are "just big enough".
+    # Let's try a sigmoid where the center is the item size.
+    # The input to the sigmoid should be something like (item - remaining_capacity).
+    # If item > remaining_capacity, the input is positive, sigmoid is close to 1.
+    # If item < remaining_capacity, the input is negative, sigmoid is close to 0.
+    # This prioritizes bins that are too small.
+
+    # Let's rethink the "Sigmoid Fit Score". The idea is to create a score
+    # that is high when the remaining capacity is *just enough* or slightly more than the item.
+    # A good strategy would be to have a score that peaks when `bins_remain_cap` is
+    # approximately equal to `item`.
+    #
+    # Consider a function f(x) where x is the remaining capacity. We want f(item) to be high.
+    # A common form of sigmoid is `1 / (1 + exp(-k*(x - center)))`.
+    # If `center` is `item`, then:
+    # - If `bins_remain_cap` < `item`, then `(bins_remain_cap - item)` is negative.
+    #   The exponent `-k * (negative)` becomes positive. The `exp()` grows large. The score goes to 0. (Good, we don't want bins too small)
+    # - If `bins_remain_cap` = `item`, then `(bins_remain_cap - item)` is 0. The exponent is 0. `exp(0) = 1`. Score is `1 / (1 + 1) = 0.5`. (Okay, this is the midpoint)
+    # - If `bins_remain_cap` > `item`, then `(bins_remain_cap - item)` is positive.
+    #   The exponent `-k * (positive)` becomes negative. The `exp()` goes towards 0. The score goes towards 1. (This prioritizes bins that are too large over the ideal fit)
+
+    # This sigmoid centered at `item` prioritizes bins that are larger than the item.
+    # We want to prioritize bins that are "tight fits".
+    # Let's define a score that is high when `bins_remain_cap` is slightly greater than `item`.
+    # A function that looks like a Gaussian or a bell curve centered at `item`
+    # would be ideal, but sigmoid is requested.
+
+    # Let's try to engineer a sigmoid shape.
+    # We want a score that:
+    # 1. Is low if `bins_remain_cap` < `item`.
+    # 2. Is high if `bins_remain_cap` is slightly larger than `item`.
+    # 3. Decreases if `bins_remain_cap` becomes much larger than `item`.
+
+    # This kind of behavior is hard to achieve with a single sigmoid.
+    # However, "Sigmoid Fit Score" often implies a heuristic that uses
+    # the sigmoid function to map some fitness metric.
+    # A common interpretation for "fit" in bin packing is the percentage of remaining capacity.
+    #
+    # Consider the "Best Fit" strategy: pick the bin with the smallest remaining capacity
+    # that is still greater than or equal to the item size.
+    #
+    # Let's try to use sigmoid to represent the "goodness" of a fit.
+    # A common heuristic related to sigmoid could be based on how "full" the bin becomes.
+    # If a bin has remaining capacity `c` and we put item `i`, the new capacity is `c-i`.
+    # The "fullness" can be `(bin_capacity - (c-i)) / bin_capacity` or `i / bin_capacity`.
+    #
+    # Let's try to score based on the `bins_remain_cap` relative to the item.
+    # If `bins_remain_cap < item`, the bin is not usable. Score should be 0 or very low.
+    # If `bins_remain_cap >= item`, the bin is usable.
+    # Among usable bins, we want to prioritize those that have `bins_remain_cap`
+    # as close to `item` as possible (but still >= item).
+
+    # Let's use the sigmoid to penalize bins that are too empty *after* fitting.
+    # If we place item `i` into a bin with remaining capacity `c`, the new remaining capacity is `c-i`.
+    # We want to penalize if `c-i` is very large.
+    # The "slack" is `c-i`.
+    #
+    # Let's consider `1 - sigmoid(k * (c - i))`.
+    # If `c - i` is large positive (lots of slack), exponent is large positive, sigmoid is ~1, score is ~0. (Penalizes slack)
+    # If `c - i` is 0 (perfect fit), exponent is 0, sigmoid is 0.5, score is 0.5.
+    # If `c - i` is negative (item too large), exponent is large negative, sigmoid is ~0, score is ~1. (This favors bins that are too small - BAD!)
+
+    # We need to handle the unusable bins (`bins_remain_cap < item`) separately or
+    # ensure the score naturally becomes very low for them.
+
+    # Let's try a sigmoid that models the probability of a "good" fit.
+    # A "good" fit means `bins_remain_cap` is close to `item`.
+    # A "very good" fit is `bins_remain_cap == item`.
+    # A "slightly less good" fit is `bins_remain_cap` is slightly larger than `item`.
+    # A "bad" fit is `bins_remain_cap` is much larger than `item`, or `bins_remain_cap` < `item`.
+
+    # Let's try scoring based on how much "wasted space" is created.
+    # Wasted space = `bins_remain_cap - item`. We want this to be small and non-negative.
+    #
+    # Consider the value `item / bins_remain_cap`.
+    # If `bins_remain_cap < item`, this ratio is > 1.
+    # If `bins_remain_cap == item`, ratio is 1.
+    # If `bins_remain_cap > item`, ratio is < 1.
+    #
+    # We want to penalize bins that are unusable (`bins_remain_cap < item`).
+    # We want to reward bins where `bins_remain_cap` is just enough.
+
+    # Let's construct a score from `item` and `bins_remain_cap`.
+    # We want a high score when `bins_remain_cap` is close to `item` (and `bins_remain_cap >= item`).
+    #
+    # Try `sigmoid(k * (bins_remain_cap - item))`?
+    # If `c < i`, exponent is negative, sigmoid is near 0.
+    # If `c = i`, exponent is 0, sigmoid is 0.5.
+    # If `c > i`, exponent is positive, sigmoid is near 1.
+    # This prioritizes bins that are too large.
+
+    # Let's invert the logic or the input.
+    # Consider `sigmoid(k * (item - bins_remain_cap))`
+    # If `c < i`, `i - c > 0`, exponent is positive, sigmoid is near 1. (Prioritizes too small - BAD)
+    # If `c = i`, `i - c = 0`, exponent is 0, sigmoid is 0.5.
+    # If `c > i`, `i - c < 0`, exponent is negative, sigmoid is near 0. (Prioritizes too large - BAD)
+
+    # The standard "Sigmoid Fit Score" heuristic in some contexts might actually refer to:
+    # Prioritizing bins by the "tightness" of the fit.
+    # A measure of tightness could be `item / bin_capacity` or `item / bins_remain_cap`.
+    # However, in online bin packing, we are given `bins_remain_cap`.
+
+    # Let's try to create a function that peaks at `bins_remain_cap = item`.
+    # We can use a sigmoid to represent the "closeness" to the item size.
+    #
+    # Let's consider a score based on the *difference* `bins_remain_cap - item`.
+    # We want small positive differences to have high scores.
+    # A sigmoid function's shape is useful here.
+    #
+    # Let `x = bins_remain_cap - item`.
+    # We want `score(x)` such that `score(0)` is high, `score(<0)` is low, `score(>>0)` is low.
+    #
+    # A Gaussian is ideal, but using sigmoid:
+    # `sigmoid(k * (X - x))` where X is the target.
+    # We want to maximize `bins_remain_cap` that is close to `item`.
+    #
+    # Let's define a score that is 0 if the bin is unusable (`bins_remain_cap < item`).
+    # For usable bins, we want to prioritize those with `bins_remain_cap` closest to `item`.
+    #
+    # Let's try a score that is `sigmoid(k * (item - bins_remain_cap))`.
+    # If `bins_remain_cap < item`, `item - bins_remain_cap > 0`, score is near 1. (This is bad, it prioritizes bins that are too small)
+    # If `bins_remain_cap > item`, `item - bins_remain_cap < 0`, score is near 0. (This is bad, it penalizes bins that are large, including ones that might be ideal)
+
+    # Okay, let's consider what makes a bin *less* desirable:
+    # 1. Bin capacity is less than item size.
+    # 2. Bin capacity is much larger than item size (creates a lot of slack/waste).
+    #
+    # So, we want to *maximize* the score for bins where `bins_remain_cap` is close to `item`.
+
+    # A common strategy for "fitting" is to consider the "slack" `bins_remain_cap - item`.
+    # We want this slack to be small and non-negative.
+    # Let's use a sigmoid to "curve" this slack.
+    #
+    # Consider the metric `item / bins_remain_cap`. We want this to be close to 1, but not greater than 1.
+    #
+    # Let's try to map the *ratio* of available space to the item size.
+    #
+    # A common form of a "sigmoid fit" might involve mapping a criterion like
+    # `bins_remain_cap / max_bin_capacity` or `bins_remain_cap / item_size`.
+    #
+    # Let's try to model the probability that this bin is the "best fit".
+    # A bin is a good fit if `bins_remain_cap >= item`.
+    # Among these, a better fit if `bins_remain_cap` is smaller.
+    #
+    # Let's consider a sigmoid that captures "how close is `bins_remain_cap` to `item`".
+    #
+    # Let `y = bins_remain_cap`. We want to score based on `y`.
+    # We want `score(y)` to be high when `y` is near `item`.
+    #
+    # A function that captures this is `sigmoid(k * (y - item)) * sigmoid(k * (item_upper - y))`
+    # where `item_upper` is some value slightly larger than `item`. This creates a bell-like shape.
+    # However, we need a single sigmoid.
+
+    # Let's go with the idea that a high score means a good fit.
+    # A bin is unusable if `bins_remain_cap < item`. Score = 0 for these.
+    # For bins where `bins_remain_cap >= item`, we want to prioritize those where
+    # `bins_remain_cap` is as small as possible.
+
+    # Let's consider the "inverse" fit score. A smaller remaining capacity (but still sufficient)
+    # is a better fit.
+    #
+    # Try scoring based on `1 / (1 + exp(k * (bins_remain_cap - item)))`.
+    # If `c < i`, `c - i < 0`, exponent is negative, `exp()` is small, score is near 1. (Bad)
+    # If `c = i`, `c - i = 0`, exponent is 0, `exp()` is 1, score is 0.5.
+    # If `c > i`, `c - i > 0`, exponent is positive, `exp()` is large, score is near 0. (Good, penalizes slack)
+    #
+    # So, this `1 / (1 + exp(k * (bins_remain_cap - item)))` prioritizes bins with *less* remaining capacity.
+    #
+    # To handle unusable bins: we can set their score to a very small negative number or 0.
+    # The current formula already gives near 1 for unusable bins. We need to reverse this.
+
+    # Let's use `sigmoid(k * (item - bins_remain_cap))`.
+    # If `c < i`, `i - c > 0`, sigmoid is near 1. (Prioritizes unusable bins - BAD)
+    # If `c = i`, `i - c = 0`, sigmoid is 0.5.
+    # If `c > i`, `i - c < 0`, sigmoid is near 0. (Penalizes large slack)
+
+    # We need to filter unusable bins first.
+    usable_bins_mask = bins_remain_cap >= item
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # For usable bins, apply a score that favors smaller remaining capacities.
+    # Let's use the sigmoid on the difference `item - bins_remain_cap`.
+    # The closer `bins_remain_cap` is to `item`, the smaller `item - bins_remain_cap` is (close to 0).
+    # We want a high score for small `item - bins_remain_cap`.
+    #
+    # `sigmoid(k * (item - bins_remain_cap))` gives high scores when `item - bins_remain_cap` is large and positive (i.e., `bins_remain_cap` is small).
+    # So, if `item - bins_remain_cap` is positive (meaning `item > bins_remain_cap`, but we already filtered this)
+    # or negative (meaning `item < bins_remain_cap`).
+
+    # Let's try again with the interpretation of "tight fit".
+    # We want to maximize `1 / (1 + exp(k * (bins_remain_cap - item)))` for usable bins.
+    # This score is high when `bins_remain_cap - item` is negative (unusable - BAD) or small negative.
+    # It's low when `bins_remain_cap - item` is positive.
+    #
+    # The form that works for "close to ideal" using sigmoid often involves a difference term.
+    # Let `score = 1 / (1 + exp(-k * (bins_remain_cap - item)))`.
+    # This is high when `bins_remain_cap` is large.
+    #
+    # Let `score = 1 / (1 + exp(k * (bins_remain_cap - item)))`.
+    # This is high when `bins_remain_cap - item` is small (or negative).
+    #
+    # So for usable bins: `priorities[usable_bins_mask] = 1 / (1 + np.exp(k * (bins_remain_cap[usable_bins_mask] - item)))`
+    # This will assign higher scores to bins with less remaining capacity. This is the "Best Fit" idea.
+    #
+    # Let's make it more explicitly "Sigmoid Fit Score" where the sigmoid defines the "goodness".
+    #
+    # Consider the ratio `r = item / bins_remain_cap`.
+    # If `bins_remain_cap < item`, `r > 1`.
+    # If `bins_remain_cap == item`, `r = 1`.
+    # If `bins_remain_cap > item`, `r < 1`.
+    #
+    # We want to score the bins where `r` is close to 1, but not greater than 1.
+    #
+    # Let's use the sigmoid function to represent the "quality of fit".
+    #
+    # Option 1: Prioritize "Best Fit" (smallest remaining capacity >= item).
+    # Use sigmoid to convert difference `bins_remain_cap - item` to a score.
+    # `sigmoid(k * (item - bins_remain_cap))` maps `0` to `0.5`, large positive to `1`, large negative to `0`.
+    # If `bins_remain_cap - item` is negative (unusable), then `item - bins_remain_cap` is positive.
+    # If `bins_remain_cap - item` is small positive, then `item - bins_remain_cap` is small negative.
+    # If `bins_remain_cap - item` is large positive, then `item - bins_remain_cap` is large negative.
+    #
+    # `sigmoid(k * (item - bins_remain_cap))`
+    # - If `c < i` (unusable), `i - c > 0`, score is close to 1. (Bad)
+    # - If `c = i`, `i - c = 0`, score is 0.5.
+    # - If `c > i`, `i - c < 0`, score is close to 0. (Penalizes slack)
+    #
+    # The issue is prioritizing unusable bins.
+    # We can set the score to 0 for unusable bins.
+    # For usable bins, we want the score to be high when `c` is just above `i`.
+    # This means `c - i` is small positive.
+    # So `item - c` is small negative.
+
+    # Let's try a sigmoid centered around the "ideal fit" where `bins_remain_cap` equals `item`.
+    # We can use `sigmoid(k * (item - bins_remain_cap))`.
+    # However, the problem with this is that it assigns high scores when `bins_remain_cap` is much smaller than `item`.
+    #
+    # A common heuristic for "Sigmoid Fit Score" might aim to convert the *difference* into a score using sigmoid.
+    # Consider `score = sigmoid(k * (bins_remain_cap - item))`.
+    # If `c < i`, `c-i` negative, sigmoid is near 0.
+    # If `c = i`, `c-i` zero, sigmoid is 0.5.
+    # If `c > i`, `c-i` positive, sigmoid is near 1.
+    # This prioritizes bins that are too large.
+
+    # A more sophisticated sigmoid fit might involve prioritizing based on the *ratio* of remaining capacity to the item size,
+    # but this isn't a direct sigmoid application.
+
+    # Let's consider a practical interpretation of "Sigmoid Fit Score":
+    # It should be high for bins that are a "good fit", meaning `bins_remain_cap` is just enough or slightly more than `item`.
+    # It should be low for bins that are too small or have too much slack.
+    #
+    # Let `slack = bins_remain_cap - item`. We want `slack` to be small and positive.
+    #
+    # A sigmoid transformation can map values to (0, 1).
+    # Let's use the negative slack: `-(bins_remain_cap - item) = item - bins_remain_cap`.
+    # If `bins_remain_cap < item`, `item - bins_remain_cap` is positive.
+    # If `bins_remain_cap > item`, `item - bins_remain_cap` is negative.
+    #
+    # `sigmoid(k * (item - bins_remain_cap))`
+    # - When `bins_remain_cap` is very small compared to `item`, `item - bins_remain_cap` is large positive, score approaches 1.
+    # - When `bins_remain_cap = item`, `item - bins_remain_cap` is 0, score is 0.5.
+    # - When `bins_remain_cap` is much larger than `item`, `item - bins_remain_cap` is large negative, score approaches 0.
+    #
+    # This seems to correctly prioritize bins where `bins_remain_cap` is larger than `item`, and penalizes those that are much larger.
+    # The problem is that it gives high scores to unusable bins.
+
+    # To address the unusable bins, we can set their score to zero or a very low value.
+    # Let's create a score for usable bins.
+
+    # We can define a steepness parameter `k` for the sigmoid. A higher `k` makes the transition sharper.
+    k = 10.0  # Steepness parameter, can be tuned.
+
+    # Create scores for bins that can fit the item.
+    # We want to give higher priority to bins that have remaining capacity closer to the item size.
+    # This means minimizing the "slack" (bins_remain_cap - item).
+    #
+    # Let's try a score that's high when `bins_remain_cap - item` is small.
+    # Consider `1.0 / (1.0 + np.exp(k * (bins_remain_cap - item)))`.
+    # If `c < i`: `c - i` is negative. `k * (c - i)` is negative. `exp(...)` is small. Score ~ 1. (Bad)
+    # If `c = i`: `c - i` is 0. `exp(...)` is 1. Score = 0.5.
+    # If `c > i`: `c - i` is positive. `k * (c - i)` is positive. `exp(...)` is large. Score ~ 0. (Good)
+    # This prioritizes bins that are *larger* than the item. It is the inverse of what we want for "best fit".
+
+    # Let's consider the "Best Fit" heuristic: select the bin with the smallest remaining capacity that can accommodate the item.
+    # This means we want to *maximize* a score that is inversely related to `bins_remain_cap` (for usable bins).
+    #
+    # A score of `1.0 / bins_remain_cap` would favor smaller capacities, but doesn't use sigmoid and doesn't penalize unusable bins directly.
+    #
+    # Let's use the sigmoid to model how "close" `bins_remain_cap` is to `item`.
+    # A function like `sigmoid(k * (item - bins_remain_cap))` or `sigmoid(k * (bins_remain_cap - item))` can be used.
+    #
+    # Let's prioritize bins that have a positive "fit margin" (`bins_remain_cap - item`) that is small.
+    #
+    # Consider `sigmoid(k * (item - bins_remain_cap))` for usable bins:
+    # `usable_bins_mask = bins_remain_cap >= item`
+    # `scores_for_usable = sigmoid(k * (item - bins_remain_cap[usable_bins_mask]))`
+    # - If `c` is just slightly larger than `item`, `item - c` is slightly negative. Sigmoid is slightly less than 0.5.
+    # - If `c = item`, `item - c` is 0. Sigmoid is 0.5.
+    # - If `c` is much larger than `item`, `item - c` is very negative. Sigmoid is close to 0.
+    # This prioritizes bins that are closer to `item` from above.
+    #
+    # If we want to strictly follow "Sigmoid Fit Score", a reasonable interpretation is to use the sigmoid function
+    # to map a metric of "fit quality" to a priority score.
+    #
+    # Let's define "fit quality" as `-(bins_remain_cap - item)`. We want this to be small and positive.
+    # So we want to maximize `sigmoid(k * (-(bins_remain_cap - item))) = sigmoid(k * (item - bins_remain_cap))`.
+    #
+    # For unusable bins, the score should be 0.
+    # For usable bins, the score should be `sigmoid(k * (item - bins_remain_cap))`.
+    #
+    # Let `diff = item - bins_remain_cap`.
+    # For usable bins, `bins_remain_cap >= item`, so `diff <= 0`.
+    #
+    # `sigmoid(k * diff)`:
+    # - If `diff = 0` (`c = i`), `sigmoid(0) = 0.5`.
+    # - If `diff < 0` (`c > i`), `sigmoid(negative)` is < 0.5. Closer to 0 as `c` increases.
+    #
+    # This prioritizes bins that are exactly equal to the item size, and then bins that are slightly larger.
+    # It gives a score between 0 and 0.5 for usable bins.
+
+    # To get scores between 0 and 1 for usable bins:
+    # Let's normalize the sigmoid output.
+    # The standard sigmoid outputs values in (0, 1).
+    #
+    # `priorities[usable_bins_mask] = 1.0 / (1.0 + np.exp(-k * (item - bins_remain_cap[usable_bins_mask])))`
+    #
+    # Let's test this:
+    # If `c < i` (unusable): `item - c > 0`, `-k * (item - c)` is large negative. `exp(...)` small. Score ~ 1. (Still a problem)
+    # If `c = i`: `item - c = 0`, `-k * 0 = 0`. `exp(0) = 1`. Score = 1 / (1+1) = 0.5.
+    # If `c > i`: `item - c < 0`, `-k * (item - c)` is positive. `exp(...)` large. Score approaches 0.
+
+    # The goal is to have a score that is high for bins that are "tight fits".
+    # This means `bins_remain_cap` is slightly larger than `item`.
+    #
+    # Let's define the sigmoid score for a bin `j` as:
+    # `S_j = 1 / (1 + exp(-k * (bins_remain_cap_j - item)))`
+    # If `c_j < item`, score is low. If `c_j = item`, score is 0.5. If `c_j > item`, score is high.
+    # This prioritizes bins that are too large.
+
+    # The inverse:
+    # `S_j = 1 / (1 + exp(k * (bins_remain_cap_j - item)))`
+    # If `c_j < item`, score is high. If `c_j = item`, score is 0.5. If `c_j > item`, score is low.
+    # This prioritizes bins that are too small.
+
+    # This suggests that the "Sigmoid Fit Score" might be referring to the mapping of `item / bins_remain_cap`.
+    # However, we are given the item and bin remaining capacities.
+
+    # Let's use a heuristic that is often associated with sigmoid-like behavior for fitting:
+    # Prioritize bins where the remaining capacity is "just enough".
+    #
+    # A score function that peaks when `bins_remain_cap` is equal to `item`.
+    #
+    # Consider the "normalized slack": `slack_norm = (bins_remain_cap - item) / item`
+    # We want `slack_norm` to be small and positive.
+    #
+    # Let's use the sigmoid function to map the *difference* `bins_remain_cap - item`.
+    # We want high scores for small positive differences.
+    #
+    # `score = sigmoid(k * (item - bins_remain_cap))` where we only consider usable bins.
+    #
+    # For usable bins (`bins_remain_cap >= item`), we want to prioritize those with
+    # the smallest `bins_remain_cap`.
+    # This corresponds to the "Best Fit" strategy.
+    #
+    # Let's assign a score that reflects this.
+    # `1.0 / (1.0 + np.exp(k * (bins_remain_cap - item)))`
+    # For usable bins:
+    # `c = item` => `exp(0)=1` => score = 0.5
+    # `c = item + epsilon` => `exp(k*epsilon)` large => score near 0.
+    # `c = item - epsilon` => `exp(-k*epsilon)` near 1 => score near 0.5 (this is unusable)
+    #
+    # We need to ensure unusable bins get a score of 0.
+    # For usable bins, we want a score that is higher for smaller `bins_remain_cap`.
+
+    # A direct application of a sigmoid to `bins_remain_cap` for prioritizing tightness:
+    # `sigmoid(k * (item - bins_remain_cap))`
+    # If `bins_remain_cap` is very small (unusable), `item - bins_remain_cap` is large positive. Sigmoid is ~1. (Bad)
+    # If `bins_remain_cap` is large, `item - bins_remain_cap` is large negative. Sigmoid is ~0. (Good, penalizes slack)
+    # If `bins_remain_cap = item`, `item - bins_remain_cap = 0`. Sigmoid is 0.5.
+
+    # So, this form prioritizes bins that are "not too large".
+    # To make it prioritize *tight* fits (not too large, not too small), we'd need a bell curve.
+    # But with sigmoid, we can do:
+    # 1. Penalize unusable bins by setting their score to 0.
+    # 2. For usable bins, use `sigmoid(k * (item - bins_remain_cap))`.
+    # This will give scores between 0 and 0.5, with higher scores for bins closer to `item` from above.
+
+    # Let's adjust the range to [0, 1] for usable bins.
+    # The term `item - bins_remain_cap` for usable bins ranges from `0` (when `c=i`) down to negative infinity (when `c` is very large).
+    #
+    # If we want to maximize tightness, we want to maximize `1 / (1 + exp(k * (bins_remain_cap - item)))`.
+    # For usable bins (`c >= i`), this score is between 0.5 (for `c=i`) and 0 (for `c >> i`).
+    # This doesn't quite capture "ideal fit" versus "too much slack".
+
+    # A more effective Sigmoid Fit Score heuristic:
+    # Consider the "wasted space" ratio: `waste = (bins_remain_cap - item) / bins_remain_cap`.
+    # We want this to be small.
+    #
+    # Let's define a score that's high for small `bins_remain_cap - item` (for usable bins).
+    #
+    # A common strategy is to transform the remaining capacity such that it has a peak at `item`.
+    # However, sigmoid is monotonic.
+    #
+    # Let's use a simple sigmoid application for "fit":
+    # Prioritize bins where `bins_remain_cap` is just sufficient.
+    # This means `bins_remain_cap - item` should be small and non-negative.
+    #
+    # A score that increases as `bins_remain_cap` decreases towards `item`.
+    # `sigmoid(k * (item - bins_remain_cap))` is good for `c > i`.
+    #
+    # Let's try: `priorities[j] = sigmoid(k * (item - bins_remain_cap[j]))` for usable bins.
+    # This assigns scores from 0 (for very large `c`) up to 0.5 (for `c = i`).
+    # To get scores in [0, 1], we can adjust the sigmoid.
+    #
+    # The standard form `sigmoid(x)` maps to (0, 1).
+    # Let `x = k * (item - bins_remain_cap)`.
+    # For usable bins, `item - bins_remain_cap <= 0`. So `x <= 0`.
+    # Sigmoid of `x <= 0` ranges from 0 to 0.5.
+    #
+    # This means `sigmoid(k * (item - bins_remain_cap))` would give priorities that are 0 (for very large slack) up to 0.5 (for perfect fit).
+    # This is a valid heuristic, prioritizing best fit, but not giving high scores for slightly imperfect but still good fits.
+
+    # To include good fits where `c > i`:
+    # Consider a "goodness" metric that is high for `c` close to `i`.
+    # Let's define the score for a bin `j` as:
+    # `score_j = sigmoid(k * (bins_remain_cap[j] - item))`
+    # For usable bins (`c >= i`):
+    #   `c = i` => `score = 0.5`
+    #   `c = i + epsilon` => `score` near 1.
+    #   `c = i + large` => `score` near 1.
+    # This prioritizes bins that are larger than the item, penalizing no slack.
+
+    # Let's try to map the *difference* `bins_remain_cap - item` to a score using sigmoid.
+    #
+    # We want a score that is high when `bins_remain_cap - item` is small.
+    #
+    # `sigmoid(-k * (bins_remain_cap - item))` = `sigmoid(k * (item - bins_remain_cap))`
+    #
+    # Consider `k=10`.
+    #
+    # Usable bins mask: `bins_remain_cap >= item`.
+    priorities = np.zeros_like(bins_remain_cap)
+
+    # We want to prioritize bins with the smallest remaining capacity that can fit the item.
+    # This is "Best Fit".
+    # We can map `bins_remain_cap` to a score using sigmoid to emphasize certain ranges.
+    #
+    # Let's assign scores from the sigmoid: `f(x) = 1 / (1 + exp(-x))`
+    # We want to use `x` such that higher scores mean better fits.
+    #
+    # A good fit is when `bins_remain_cap` is close to `item`.
+    # Consider `bins_remain_cap - item`. We want this to be small and non-negative.
+    #
+    # `sigmoid(k * (item - bins_remain_cap))` gives scores from 0 to 0.5. Higher score means closer to `item` (from above).
+    # `sigmoid(k * (bins_remain_cap - item))` gives scores from 0.5 to 1. Higher score means further from `item` (from above).
+    #
+    # Let's use the first one and scale it.
+    # We only apply this to bins where `bins_remain_cap >= item`.
+    # For these bins, `item - bins_remain_cap <= 0`.
+    # So `sigmoid(k * (item - bins_remain_cap))` gives values between 0 (for large slack) and 0.5 (for exact fit).
+    # This means the highest priority is given to the "tightest fit" where `c = i`.
+    #
+    # Let's choose a steepness factor `k`.
+    k = 10.0  # This factor controls how "sharp" the sigmoid transition is.
+
+    # Mask for bins that have enough capacity for the item.
+    # These are the "usable" bins.
+    usable_bins_mask = bins_remain_cap >= item
+
+    # Initialize priorities to zero. Unusable bins will keep a score of 0.
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Calculate scores only for usable bins.
+    # We want to prioritize bins with remaining capacity closest to the item size.
+    # This is a "best fit" criterion.
+    # The function `sigmoid(k * (item - bins_remain_cap))` maps:
+    # - If `bins_remain_cap` is very large: `item - bins_remain_cap` is large negative. Sigmoid is near 0.
+    # - If `bins_remain_cap == item`: `item - bins_remain_cap` is 0. Sigmoid is 0.5.
+    # - If `bins_remain_cap` is slightly larger than `item`: `item - bins_remain_cap` is small negative. Sigmoid is slightly less than 0.5.
+    #
+    # This means this formula gives higher scores for bins that are a tighter fit.
+    # The scores are in the range [0, 0.5) for bins where `bins_remain_cap > item` and exactly 0.5 for `bins_remain_cap == item`.
+    #
+    # To get scores in the range [0, 1] representing priority, we can potentially shift and scale this,
+    # or interpret this range as a valid priority. A higher value implies higher priority.
+    #
+    # The expression `1 / (1 + exp(x))` where `x = -k * (bins_remain_cap - item)` results in:
+    # if `c < i`: `c-i < 0`. `-k*(c-i) > 0`. `exp(>0)` is large. Score near 0. (Unusable)
+    # if `c = i`: `c-i = 0`. `-k*0 = 0`. `exp(0)=1`. Score = 1/2 = 0.5.
+    # if `c > i`: `c-i > 0`. `-k*(c-i) < 0`. `exp(<0)` small. Score near 1. (Too much slack)
+    # This prioritizes slack over tight fit.
+
+    # Let's go back to prioritizing tightness.
+    # `sigmoid(k * (item - bins_remain_cap))` for usable bins.
+    # These scores range from 0 to 0.5. Let's consider this as the priority.
+
+    # To normalize or scale, we can multiply by 2, resulting in [0, 1].
+    # `2 * sigmoid(k * (item - bins_remain_cap))` for usable bins.
+    # This maps `0` to `0` and `0.5` to `1`.
+    # So, exactly matching capacity gets priority 1.
+    # Slightly larger capacity gets priority slightly less than 1.
+    # Much larger capacity gets priority close to 0.
+
+    # This looks like a reasonable "Sigmoid Fit Score" heuristic for prioritizing "best fit".
+
+    # Calculate the argument for the sigmoid function.
+    # We are interested in `item - bins_remain_cap`. For usable bins, this is <= 0.
+    # A smaller (less negative) value indicates a better fit.
+    sigmoid_arg = k * (item - bins_remain_cap[usable_bins_mask])
+
+    # Apply the sigmoid function.
+    # sigmoid(x) = 1 / (1 + exp(-x))
+    # The scores for usable bins will be in the range [0, 0.5].
+    # Higher score means a better fit (closer to `item`).
+    sigmoid_scores = 1.0 / (1.0 + np.exp(-sigmoid_arg))
+
+    # Scale these scores to the range [0, 1] to represent priority.
+    # A score of 0.5 (exact fit) becomes 1. A score of 0 (large slack) becomes 0.
+    priorities[usable_bins_mask] = sigmoid_scores * 2.0
+
+    return priorities
+```

@@ -1,0 +1,144 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+    suitable_bin_indices = np.where(suitable_bins_mask)[0]
+
+    # Metric 1: Refined Best Fit - prioritize bins that leave minimal empty space, but with a twist
+    # We use a hyperbola-like function (1/x) which amplifies smaller remaining capacities.
+    # Adding the item size to the denominator helps to ensure that larger items are less penalized
+    # for having slightly larger absolute remaining gaps compared to smaller items.
+    remaining_after_placement = suitable_bins_caps - item
+    # Use a small epsilon to avoid division by zero for perfect fits.
+    # Add item size to the denominator to slightly favor bins where the item takes a larger proportion of the remaining space.
+    best_fit_scores = 1.0 / (remaining_after_placement + item * 0.1 + 1e-6)
+
+    # Metric 2: Adaptive Exploration/Openness - favor bins that have substantial capacity, but not too much.
+    # Instead of a fixed sigmoid, use a function that adapts to the distribution of suitable bin capacities.
+    # We want to reward bins that are neither nearly full nor nearly empty relative to the current item.
+    # Consider the ratio of remaining capacity to the item size.
+    # A high ratio means the bin is very open relative to the item.
+    # A low ratio means the bin is quite full relative to the item.
+    # We want to reward a "middle ground".
+    # Let's use a Gaussian-like function centered around a preferred ratio.
+    # A preferred ratio could be 2-4 times the item size, meaning the bin has enough space for the current item
+    # and potentially a few more similar items, but not so much space that it's wasted.
+    preferred_ratio_low = 2.0
+    preferred_ratio_high = 5.0
+    ratio_remaining_to_item = suitable_bins_caps / item
+
+    # Score is high when ratio_remaining_to_item is between preferred_ratio_low and preferred_ratio_high
+    # and decays outside this range.
+    # We can use a smooth function like a quadratic or a difference of sigmoids.
+    # Let's use a "hat" function (linear ramp up, linear ramp down) for simplicity and interpretability.
+    exploration_scores = np.zeros_like(suitable_bins_caps)
+    within_range_mask = (ratio_remaining_to_item >= preferred_ratio_low) & (ratio_remaining_to_item <= preferred_ratio_high)
+    exploration_scores[within_range_mask] = 1.0
+
+    # Ramp up for ratios between 0 and preferred_ratio_low
+    ramp_up_mask = ratio_remaining_to_item < preferred_ratio_low
+    ramp_up_ratios = ratio_remaining_to_item[ramp_up_mask]
+    exploration_scores[ramp_up_mask] = ramp_up_ratios / preferred_ratio_low
+
+    # Ramp down for ratios between preferred_ratio_high and a higher threshold (e.g., 10x item size)
+    ramp_down_threshold = preferred_ratio_high * 2.0
+    ramp_down_mask = (ratio_remaining_to_item > preferred_ratio_high) & (ratio_remaining_to_item <= ramp_down_threshold)
+    ramp_down_ratios = ratio_remaining_to_item[ramp_down_mask]
+    exploration_scores[ramp_down_mask] = 1.0 - (ramp_down_ratios - preferred_ratio_high) / (ramp_down_threshold - preferred_ratio_high)
+
+    # Metric 3: Fill Uniformity - encourage filling bins that are already partially occupied.
+    # Instead of using an assumed max capacity, let's consider the distribution of *all* remaining capacities.
+    # A bin is "less empty" if its remaining capacity is small relative to the average remaining capacity of suitable bins.
+    # Or, more directly, reward bins that have *less* remaining capacity.
+    # This is somewhat contradictory to exploration, so we need a balance.
+    # Let's score based on the inverse of remaining capacity, but scaled to be comparable to other metrics.
+    # A simple approach: penalize bins with very large remaining capacity.
+    # Consider the proportion of capacity remaining in the bin relative to its original capacity.
+    # However, we don't know original capacity. Let's use relative remaining capacity compared to the *largest* suitable remaining capacity.
+    max_suitable_cap = np.max(suitable_bins_caps)
+    if max_suitable_cap > 1e-6:
+        uniformity_scores = 1.0 - (suitable_bins_caps / max_suitable_cap)
+        # Add a small boost for bins that are actually used (i.e., not completely empty before placing item)
+        # This is implicit if suitable_bins_caps are not very large.
+        # To further encourage using partially filled bins: penalize bins that are "too open" more strongly.
+        # Let's use a power function on the normalized remaining capacity (0 to 1).
+        # We want to penalize values close to 1 (very empty bins).
+        normalized_remaining = suitable_bins_caps / max_suitable_cap
+        # A quadratic penalty for high remaining capacity.
+        uniformity_scores = 1.0 - normalized_remaining**2
+    else:
+        uniformity_scores = np.zeros_like(suitable_bins_caps)
+
+
+    # Normalization: Scale all metrics to a [0, 1] range to combine them.
+    # Avoid division by zero by checking if the max is positive.
+    if np.max(best_fit_scores) > 1e-6:
+        normalized_best_fit = best_fit_scores / np.max(best_fit_scores)
+    else:
+        normalized_best_fit = np.zeros_like(best_fit_scores)
+
+    if np.max(exploration_scores) > 1e-6:
+        normalized_exploration = exploration_scores / np.max(exploration_scores)
+    else:
+        normalized_exploration = np.zeros_like(exploration_scores)
+
+    if np.max(uniformity_scores) > 1e-6:
+        normalized_uniformity = uniformity_scores / np.max(uniformity_scores)
+    else:
+        normalized_uniformity = np.zeros_like(uniformity_scores)
+
+    # Dynamic Weighting based on item size relative to bin capacity.
+    # Assume a reference bin capacity, e.g., the maximum possible capacity in the problem, or a typical capacity.
+    # For simplicity, let's assume a standard bin capacity is 1.0 for relative item size.
+    # If items are larger than 0.5 of bin capacity, prioritize "best fit".
+    # If items are smaller, balance between exploration and uniformity.
+
+    # Define item "largeness" relative to a typical bin capacity (e.g., 1.0)
+    item_largeness = item # assuming item is scaled relative to bin capacity
+
+    # Weights that shift based on item size.
+    # For small items, favor exploration and uniformity. For large items, favor best fit.
+    # We want a smooth transition.
+    # Let's use a sigmoid-like function for the weight of best_fit.
+    # A common approach is to use `sigmoid(k * (item_largeness - midpoint))`
+    # Let midpoint be 0.4 (items smaller than 0.4 of bin capacity get less BF weight)
+    # Let k be a steepness factor, e.g., 10.
+    midpoint = 0.4
+    steepness = 10.0
+    weight_best_fit = 1 / (1 + np.exp(-steepness * (item_largeness - midpoint)))
+
+    # The remaining weight will be split between exploration and uniformity.
+    # Let's give slightly more weight to exploration for medium items, and uniformity for smaller items.
+    # If item_largeness is small, favor uniformity. If item_largeness is medium, favor exploration.
+    # For larger items, BF dominates and exploration/uniformity get less.
+
+    # If item_largeness < 0.2: High uniformity, moderate exploration
+    # If 0.2 <= item_largeness < 0.5: Moderate uniformity, high exploration
+    # If item_largeness >= 0.5: Low uniformity, low exploration
+
+    weight_exploration = (1 - weight_best_fit) * (0.5 + 0.3 * np.exp(-steepness * (item_largeness - 0.3)))
+    weight_uniformity = (1 - weight_best_fit) * (0.5 - 0.3 * np.exp(-steepness * (item_largeness - 0.3)))
+
+
+    # Ensure weights sum to 1
+    total_weight = weight_best_fit + weight_exploration + weight_uniformity
+    weight_best_fit /= total_weight
+    weight_exploration /= total_weight
+    weight_uniformity /= total_weight
+
+    combined_scores = (weight_best_fit * normalized_best_fit +
+                       weight_exploration * normalized_exploration +
+                       weight_uniformity * normalized_uniformity)
+
+    # Assign scores to the original bins array
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```

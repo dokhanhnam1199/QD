@@ -1,0 +1,148 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Almost Full Fit.
+
+    The priority is higher for bins that are almost full and can accommodate the item.
+    Specifically, it prioritizes bins that, after placing the item, will have a
+    remaining capacity that is "almost full". The "almost full" threshold is
+    defined as a small fraction of the bin's original capacity (implicitly,
+    the total bin capacity which we assume to be the maximum possible remaining capacity).
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    # We assume that the total bin capacity is implicitly represented by the
+    # maximum possible remaining capacity (e.g., if all bins were empty initially).
+    # A simple proxy for this is to consider the maximum value in bins_remain_cap
+    # if we knew the original capacity, or a large value.
+    # For a practical implementation, you would likely know the fixed bin capacity.
+    # Let's assume a hypothetical 'bin_capacity' or derive it if possible.
+    # For this heuristic, we'll consider bins that have *just enough* capacity.
+    # The "almost full" aspect can be interpreted as the bin having a small
+    # remaining capacity *after* placing the item.
+
+    # Calculate potential remaining capacity after placing the item
+    potential_remain_cap = bins_remain_cap - item
+
+    # Filter bins that can actually fit the item
+    can_fit_mask = potential_remain_cap >= 0
+
+    # For bins that can fit the item, calculate a priority.
+    # The "Almost Full Fit" idea means we want to select a bin where, after
+    # placing the item, the bin is *nearly full*. This is achieved by
+    # prioritizing bins where `potential_remain_cap` is small.
+    # However, the prompt asks for a *priority score*, and higher score means higher priority.
+    # So, we want to *invert* the "small remaining capacity" idea into a high priority.
+    # A simple way is to give higher priority to bins with smaller `potential_remain_cap`.
+    # We can use a negative of the remaining capacity, so smaller remaining capacity
+    # becomes a larger (less negative) number, or use a reciprocal, but we must handle division by zero.
+
+    # Let's consider a priority that is higher for bins that become *closer* to full.
+    # This means `potential_remain_cap` should be small.
+    # A simple approach is to use `1 / (potential_remain_cap + epsilon)` to give higher
+    # priority to smaller remaining capacities. Epsilon avoids division by zero.
+    # However, this can lead to very large numbers.
+
+    # Alternative interpretation of "Almost Full Fit" for online:
+    # Find a bin that is *already* relatively full, and the item fits.
+    # This means prioritizing bins with smaller `bins_remain_cap` (that can still fit the item).
+    # Let's refine this: we want bins that are *close* to being full, but *can still fit the item*.
+    # So, `bins_remain_cap - item` should be small and non-negative.
+    # The "almost full" characteristic applies to the bin *after* the item is placed.
+
+    # A practical approach for "Almost Full Fit" (often aiming to leave larger gaps in other bins):
+    # Prioritize bins that, after placing the item, will have the *smallest possible* remaining capacity
+    # without going negative. This is equivalent to finding the minimum `potential_remain_cap`
+    # among the bins that can fit the item.
+    # So, for `priority_v2`, we can assign a priority score inversely proportional to the
+    # `potential_remain_cap`.
+
+    # Define a "target" remaining capacity. This could be a small value, or it could be
+    # dynamically determined. For a heuristic, a fixed small target might work.
+    # Let's assume we want the remaining capacity to be as close to 0 as possible (but >= 0).
+
+    # Priority = - (potential_remain_cap) is good because smaller potential_remain_cap means higher priority.
+    # However, we also want to penalize bins that cannot fit the item.
+    # If a bin *can* fit the item, its priority is related to how full it gets.
+    # If a bin *cannot* fit the item, its priority is effectively -infinity (or a very low number).
+
+    # We can assign a high score to bins where `bins_remain_cap - item` is minimized, subject to `bins_remain_cap >= item`.
+    # Let's normalize `potential_remain_cap`. A very small remaining capacity is good.
+    # We can assign priority based on the inverse of `potential_remain_cap`.
+    # Let's use a priority where smaller `potential_remain_cap` gives higher score.
+    # A good scoring could be `1 / (potential_remain_cap + 1e-9)` but we need to handle the `can_fit_mask`.
+
+    # For bins that can fit the item, a higher priority means a smaller `potential_remain_cap`.
+    # Let's set priorities to `potential_remain_cap` itself. The goal is to pick the bin
+    # that *minimizes* this value. Thus, we need to *negate* this to get a "higher is better" score.
+
+    priorities[can_fit_mask] = -potential_remain_cap[can_fit_mask]
+
+    # To make it "Almost Full Fit", we might want to add a small penalty for bins
+    # that are *too* empty, even if they fit. Or, more simply, prioritize bins that
+    # are closer to `item`'s size already.
+    # Consider priority as a measure of how "tight" the fit is.
+    # A tight fit is `bins_remain_cap - item` is small.
+    # We can map small positive values to high priority.
+
+    # A robust way to implement "almost full" is to look at bins where `bins_remain_cap` is small,
+    # but still large enough to fit `item`.
+    # Let's try: prioritize bins where `bins_remain_cap` is minimal, but `>= item`.
+    # The priority could be `-bins_remain_cap` for those that fit.
+
+    # Refined approach for "Almost Full Fit":
+    # The strategy aims to leave larger gaps in bins that are not yet full,
+    # by placing items into bins that are already "almost full".
+    # "Almost full" means the remaining capacity is small.
+    # So, we want to pick a bin `j` such that `bins_remain_cap[j] - item` is minimized and non-negative.
+    # The priority should be higher for smaller `bins_remain_cap[j] - item`.
+
+    # Let `fit_diff = bins_remain_cap - item`.
+    # We want to prioritize `j` where `fit_diff[j]` is small and >= 0.
+    # A simple mapping: priority = -fit_diff for fitting bins.
+    # Bins that don't fit get a very low priority.
+
+    priorities[can_fit_mask] = -potential_remain_cap[can_fit_mask]
+
+    # To further emphasize "almost full", we can slightly boost bins that were already more full.
+    # However, the `-potential_remain_cap` already captures this: if `bins_remain_cap` was small,
+    # then `potential_remain_cap` will be smaller (more negative if it fits).
+    # Example: Bin A: rem_cap = 10. Bin B: rem_cap = 2. Item = 1.
+    # Potential rem_cap A = 9. Potential rem_cap B = 1.
+    # Priorities A = -9. Priorities B = -1. Bin B gets higher priority. This matches Almost Full Fit.
+
+    # Consider the case where many bins have the same minimal `potential_remain_cap`.
+    # This heuristic doesn't break ties in a sophisticated way, it relies on numpy's internal tie-breaking.
+    # For a truly "almost full" heuristic, one might look at bins whose *original* remaining capacity
+    # was close to the bin's total capacity, but still large enough for the item.
+
+    # Let's assume the total bin capacity is `C`.
+    # The strategy is to pick bin `j` that minimizes `C - (current_content_of_bin_j + item)`.
+    # This is equivalent to minimizing `bins_remain_cap[j] - item`.
+    # So, `priorities[j] = -(bins_remain_cap[j] - item)` for valid fits.
+
+    # If we want to ensure that very empty bins don't get high priority unless absolutely necessary:
+    # we could add a penalty for bins that have very large `bins_remain_cap`.
+    # For example, if `bins_remain_cap` is much larger than `item`, the fit is not "almost full".
+
+    # Let's define "almost full" as having a `potential_remain_cap` less than some threshold,
+    # relative to the item size or bin capacity.
+    # A simpler approach is to just pick the one that minimizes `potential_remain_cap`.
+
+    # Finalizing the "Almost Full Fit" interpretation:
+    # The priority should be highest for bins that, after placing the item, result in the smallest
+    # remaining capacity.
+
+    # Ensure very low priority for bins that cannot fit the item.
+    priorities[~can_fit_mask] = -np.inf # Or a very small number like -1e9
+
+    return priorities
+```

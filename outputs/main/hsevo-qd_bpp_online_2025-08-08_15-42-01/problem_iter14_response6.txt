@@ -1,0 +1,85 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    A hybrid heuristic combining tightest fit with a penalty for large residuals
+    and a bonus for perfect fits, incorporating adaptive exploration.
+    """
+    epsilon = 0.05  # Probability for exploration
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        return priorities
+
+    valid_bins_capacities = bins_remain_cap[can_fit_mask]
+    valid_bins_indices = np.where(can_fit_mask)[0]
+    remaining_after_fit = valid_bins_capacities - item
+
+    # --- Scoring ---
+    # 1. Tightness score: Prioritize bins that leave minimum remaining capacity.
+    tightness_score = -remaining_after_fit
+
+    # 2. Waste penalty: Penalize bins that leave a large surplus, scaled by item size.
+    #    This encourages using bins that are a closer fit overall.
+    waste_penalty_factor = 0.1
+    waste_penalty = (remaining_after_fit / item) * waste_penalty_factor
+
+    # 3. Perfect fit bonus: High bonus for bins where remaining_after_fit is zero.
+    perfect_fit_bonus = 100.0
+    perfect_fit_mask_in_valid = remaining_after_fit == 0
+
+    # Combine scores: prioritize tightness, slightly penalize waste, and heavily reward perfect fits.
+    # The tie_breaker_scale adds a small secondary preference for larger remaining capacity among equal primary scores.
+    tie_breaker_scale = 1e-6
+    combined_scores = tightness_score - waste_penalty
+    exploitation_scores = combined_scores + (remaining_after_fit * tie_breaker_scale)
+    exploitation_scores[perfect_fit_mask_in_valid] = perfect_fit_bonus
+
+    # --- Adaptive Exploration ---
+    # Identify a set of "promising" bins for exploration.
+    # These include the top-scoring bins and bins with moderate remaining capacity.
+
+    # Sort bins by the exploitation scores to identify top candidates
+    sorted_indices_exploitation = np.argsort(exploitation_scores)[::-1]
+
+    # Consider top 20% of bins or at least the top 3 bins for exploration
+    num_top_bins = max(3, int(len(valid_bins_capacities) * 0.2))
+    top_candidate_indices_in_valid = sorted_indices_exploitation[:num_top_bins]
+
+    # Identify bins with moderate remaining capacity (e.g., between 25th and 75th percentile)
+    if len(remaining_after_fit) > 1:
+        q1_rem = np.percentile(remaining_after_fit, 25)
+        q3_rem = np.percentile(remaining_after_fit, 75)
+        moderate_capacity_mask = (remaining_after_fit >= q1_rem) & (remaining_after_fit <= q3_rem)
+    else:
+        moderate_capacity_mask = np.zeros_like(remaining_after_fit, dtype=bool)
+
+    # Combine indices for exploration candidates (unique indices)
+    all_candidate_indices_in_valid = set(top_candidate_indices_in_valid)
+    all_candidate_indices_in_valid.update(np.where(moderate_capacity_mask)[0])
+    exploration_candidate_indices_in_valid = list(all_candidate_indices_in_valid)
+
+    # Generate small random perturbations for exploration
+    exploration_perturbation = np.random.uniform(-0.5, 0.5, size=len(valid_bins_capacities))
+
+    final_scores = np.copy(exploitation_scores)
+
+    # Create a mask for the identified exploration candidates within the valid bins
+    exploration_candidate_mask_in_valid = np.zeros_like(valid_bins_capacities, dtype=bool)
+    if exploration_candidate_indices_in_valid:
+        exploration_candidate_mask_in_valid[exploration_candidate_indices_in_valid] = True
+
+    # Randomly decide for each candidate if we use the exploration score
+    use_exploration_decision = np.random.rand(len(valid_bins_capacities)) < epsilon
+
+    # Apply the exploration scores only to the chosen candidates
+    exploration_mask_to_apply = exploration_candidate_mask_in_valid & use_exploration_decision
+    final_scores[exploration_mask_to_apply] = exploitation_scores[exploration_mask_to_apply] + exploration_perturbation[exploration_mask_to_apply]
+
+    priorities[valid_bins_indices] = final_scores
+
+    return priorities
+```

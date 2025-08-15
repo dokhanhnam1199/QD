@@ -1,0 +1,112 @@
+[Prior reflection]
+Prioritize tight fits using non-linear functions on surplus. Tune steepness/parameters for balanced preference. Consider decay rates. Experiment with simpler metrics too; directness can outperform complexity. Balance item/bin proportions.
+
+[Code]
+def priority_v1(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+
+    """
+    Returns priority with which we want to add item to each bin using Sigmoid Best Fit.
+
+    This heuristic prioritizes bins that can accommodate the item and have the smallest
+    remaining capacity after packing (Best Fit strategy). The priority is calculated
+    using a sigmoid function to provide a smooth ranking, strongly favoring tighter fits.
+
+    The score for a bin is 0 if the item cannot fit. For bins that can fit, the score
+    is calculated as 1 / (1 + exp(steepness * (remaining_capacity - item))).
+    This function is monotonically decreasing with respect to (remaining_capacity - item),
+    meaning smaller non-negative remaining capacities get higher scores.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Scores range from 0 (cannot fit or very loose fit) to 1 (perfect or near-perfect fit).
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    steepness = 5.0  # Tunable parameter: higher values mean stronger preference for tight fits.
+
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity for bins that can fit the item.
+    # If a bin can fit, the remaining capacity after packing is: bins_remain_cap[i] - item
+    potential_remaining_cap_valid = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate the exponent argument for the sigmoid function.
+    # We want to prioritize smaller `potential_remaining_cap_valid`.
+    # The function `1 / (1 + exp(x))` is decreasing in `x`.
+    # To make it decrease as `potential_remaining_cap_valid` increases, we set `x = steepness * potential_remaining_cap_valid`.
+    # A small `potential_remaining_cap_valid` (tight fit) results in a smaller `x`, thus a higher score.
+    # A large `potential_remaining_cap_valid` (loose fit) results in a larger `x`, thus a lower score.
+    exponent_args = steepness * potential_remaining_cap_valid
+
+    # Clip the exponent arguments to prevent potential overflow/underflow in np.exp.
+    # Values like +/- 700 can cause issues. A range like [-30, 30] is generally safe.
+    # For very negative args, exp -> 0, score -> 1. For very positive args, exp -> inf, score -> 0.
+    clipped_exponent_args = np.clip(exponent_args, -30.0, 30.0)
+
+    # Calculate the priority scores for the valid bins using the sigmoid function.
+    # priorities[can_fit_mask] will be populated with scores between ~0.5 (for perfect fit) and ~0 (for very loose fits).
+    # Scores for bins that cannot fit remain 0.
+    priorities[can_fit_mask] = 1.0 / (1.0 + np.exp(clipped_exponent_args))
+
+    return priorities
+
+[Improved code]
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using a tuned Sigmoid Best Fit,
+    incorporating a decay factor for older bins and prioritizing tighter fits more aggressively.
+
+    This heuristic prioritizes bins that can accommodate the item and have the smallest
+    remaining capacity after packing (Best Fit strategy). The priority is calculated
+    using a sigmoid function, modified to favor tighter fits more strongly via a tunable
+    'steepness' parameter. Additionally, a 'decay_rate' is applied to the priority based on
+    the bin's "age" (implied by its position in the array, assuming bins are created sequentially).
+    Older bins (earlier in the array) receive a slightly reduced priority to favor newer,
+    potentially better-fitting configurations.
+
+    The score for a bin is 0 if the item cannot fit. For bins that can fit, the score
+    is calculated as:
+    (1 / (1 + exp(steepness * (remaining_capacity - item)))) * (decay_rate ** bin_index)
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Scores range from 0 (cannot fit or very loose fit) to ~decay_rate^N for
+        perfect or near-perfect fits in the last bin, where N is the number of bins.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    steepness = 7.0  # Tunable parameter: increased steepness for stronger preference for tight fits.
+    decay_rate = 0.98 # Tunable parameter: reduces priority of older bins (e.g., bins at lower indices).
+
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity for bins that can fit the item.
+    potential_remaining_cap_valid = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate the exponent argument for the sigmoid function.
+    exponent_args = steepness * potential_remaining_cap_valid
+
+    # Clip the exponent arguments to prevent potential overflow/underflow.
+    clipped_exponent_args = np.clip(exponent_args, -30.0, 30.0)
+
+    # Calculate the base priority scores (sigmoid) for the valid bins.
+    base_priorities = 1.0 / (1.0 + np.exp(clipped_exponent_args))
+
+    # Apply decay based on bin index. We reverse the indices to give higher decay to earlier bins.
+    # This means the last bins (highest indices) have the least decay.
+    bin_indices = np.arange(len(bins_remain_cap))[can_fit_mask]
+    decay_factors = decay_rate ** bin_indices
+
+    # Apply the decay factor to the base priorities for the valid bins.
+    priorities[can_fit_mask] = base_priorities * decay_factors
+
+    return priorities
+```

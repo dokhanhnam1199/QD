@@ -1,0 +1,69 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin.
+    This version aims for a tighter fit by considering the remaining capacity
+    after placing the item, penalizing bins that become too empty, and
+    favoring bins that are already relatively full. It also introduces a
+    slight diversification by not always picking the absolute best fit,
+    but rather a set of good fits.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap)
+    
+    # Identify bins that can fit the item
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    # Calculate the remaining capacity if the item is placed in a suitable bin
+    remaining_caps_after_placement = bins_remain_cap[suitable_bins_mask] - item
+    
+    # --- Heuristic Logic ---
+    # Metric 1: Favor bins that result in a smaller remaining capacity (tighter fit)
+    # We invert and add a small constant to avoid division by zero if remaining_caps_after_placement is 0.
+    tight_fit_score = 1.0 / (remaining_caps_after_placement + 1e-6)
+    
+    # Metric 2: Penalize bins that become too empty. This encourages filling bins more evenly.
+    # We use a function that decreases as remaining capacity increases.
+    # A quadratic penalty or exponential decay could also be explored.
+    empty_penalty_score = np.exp(-remaining_caps_after_placement / 5.0) # Adjust the divisor for sensitivity
+
+    # Metric 3: Favor bins that are already more full.
+    # This is inversely related to current remaining capacity.
+    fullness_score = 1.0 / (bins_remain_cap[suitable_bins_mask] + 1e-6)
+    
+    # Combine scores. Weights can be tuned.
+    # Here, we give more weight to the tight fit and fullness, and less to the empty penalty.
+    combined_score = (0.5 * tight_fit_score) + (0.3 * fullness_score) + (0.2 * empty_penalty_score)
+
+    # Assign the calculated scores to the suitable bins
+    priorities[suitable_bins_mask] = combined_score
+    
+    # --- Diversification ---
+    # Instead of strictly picking the argmin, let's slightly perturb the priorities
+    # to encourage exploration of near-optimal bins.
+    # We can add a small random noise, or select from the top-k bins.
+    # For simplicity here, let's just make the absolute best bin slightly more prominent
+    # but ensure other good fits have a reasonable chance.
+    
+    if np.any(priorities > 0):
+        min_priority = np.min(priorities[priorities > 0])
+        # Add a small positive value to all suitable bins to avoid zero priority
+        priorities[priorities > 0] += min_priority * 0.01 
+        
+        # Find the index of the bin with the maximum priority
+        best_bin_index = np.argmax(priorities)
+        
+        # Set the priority of the best bin to a higher value
+        priorities[best_bin_index] = priorities[best_bin_index] * 1.1 # Boost the best bin slightly
+        
+    return priorities
+
+```

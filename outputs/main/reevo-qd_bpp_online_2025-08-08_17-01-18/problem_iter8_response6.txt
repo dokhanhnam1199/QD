@@ -1,0 +1,121 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a tunable
+    combination of First Fit (FF) preference and a scarcity-aware preference.
+
+    This heuristic aims to balance two objectives:
+    1. Tight fit preference: Prioritize bins where the item leaves minimal remaining space.
+       This is similar to First Fit Decreasing's intuition of packing densely.
+    2. Scarcity preference: Prioritize bins that are less empty overall. This can help
+       in scenarios where starting new bins is undesirable or when trying to consolidate
+       items.
+
+    The priority for a suitable bin is calculated as a weighted sum of scores reflecting
+    these two objectives. A Softmax function is then applied to convert these scores into
+    probabilities, allowing for probabilistic selection.
+
+    Scores for a suitable bin (where `remaining_capacity >= item`):
+
+    - Tight Fit Score: `exp(-k_tight * (remaining_capacity - item))`
+      This score is high for bins with small `remaining_capacity - item` (tight fits).
+      `k_tight` controls the sensitivity to the tightness.
+
+    - Scarcity Score: `exp(k_scarcity * (bin_capacity - remaining_capacity))`
+      Assuming `bin_capacity` is known or can be approximated (e.g., by the bin's initial capacity
+      or an average capacity if not explicitly provided). For this implementation, we'll assume
+      bins are of a uniform `BIN_CAPACITY`. A higher score indicates less remaining space,
+      i.e., a scarcer bin. `k_scarcity` controls sensitivity to scarcity.
+
+    Combined Raw Score: `w_tight * tight_fit_score + w_scarcity * scarcity_score`
+      `w_tight` and `w_scarcity` are weights determining the relative importance of each factor.
+
+    Final Priority: Softmax of the combined raw scores.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A NumPy array representing the remaining capacity of each bin.
+
+    Returns:
+        A NumPy array of the same size as `bins_remain_cap`, where each element
+        is the priority score (probability) for the corresponding bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+
+    # If no bin can fit the item, return all zeros
+    if suitable_bins_cap.size == 0:
+        return priorities
+
+    # --- Tunable Parameters ---
+    # Weight for tight fit preference
+    w_tight = 0.7
+    # Weight for scarcity preference
+    w_scarcity = 0.3
+    # Sensitivity to mismatch (tightness)
+    k_tight = 1.5
+    # Sensitivity to remaining capacity (scarcity)
+    # Assuming a default bin capacity for calculating scarcity. In a real scenario,
+    # this might be passed or derived. Let's assume a standard capacity for demonstration.
+    BIN_CAPACITY = 1.0 # Example: if items are fractions of 1.0
+    k_scarcity = 1.0
+    # Softmax temperature: controls exploration/exploitation.
+    temperature = 0.5
+    # --------------------------
+
+    # Calculate scores for suitable bins
+
+    # 1. Tight Fit Score Component
+    mismatch = suitable_bins_cap - item
+    # Cap `k_tight * mismatch` to prevent potential overflow with exp() if values are very large.
+    # Since mismatch >= 0, we are concerned about `exp(-large_positive_number)` -> near zero.
+    # Capping ensures that the score doesn't become exactly zero too quickly.
+    max_positive_mismatch_score_arg = 10.0 # exp(-10) is very small
+    capped_mismatch = np.minimum(mismatch, max_positive_mismatch_score_arg / k_tight if k_tight > 0 else np.inf)
+    tight_fit_scores = np.exp(-k_tight * capped_mismatch)
+
+    # 2. Scarcity Score Component
+    # Score based on how much capacity is *used* or how *little* is remaining.
+    # Higher score for bins with less remaining capacity (i.e., scarcer bins).
+    # We use `BIN_CAPACITY - suitable_bins_cap` to represent the "used" space.
+    # A higher `k_scarcity` makes bins with less remaining capacity more desirable.
+    # Cap `k_scarcity * used_space` for stability.
+    used_space = BIN_CAPACITY - suitable_bins_cap
+    max_positive_used_space_score_arg = 10.0
+    capped_used_space = np.minimum(used_space, max_positive_used_space_score_arg / k_scarcity if k_scarcity > 0 else np.inf)
+    scarcity_scores = np.exp(k_scarcity * capped_used_space)
+
+    # Combine scores
+    raw_scores = (w_tight * tight_fit_scores) + (w_scarcity * scarcity_scores)
+
+    # Apply Softmax to normalize scores into probabilities (priorities)
+    if temperature <= 0:
+        # Deterministic selection: pick the best bin according to combined score
+        max_score_idx = np.argmax(raw_scores)
+        softmax_priorities = np.zeros_like(raw_scores)
+        softmax_priorities[max_score_idx] = 1.0
+    else:
+        try:
+            exp_scores = np.exp(raw_scores / temperature)
+            sum_exp_scores = np.sum(exp_scores)
+            if sum_exp_scores == 0:
+                # If all exponentiated scores are near zero, assign uniform probability
+                softmax_priorities = np.ones_like(raw_scores) / len(raw_scores) if len(raw_scores) > 0 else np.array([])
+            else:
+                softmax_priorities = exp_scores / sum_exp_scores
+        except FloatingPointError:
+            # Fallback for extreme values
+            softmax_priorities = np.zeros_like(raw_scores)
+            if len(raw_scores) > 0:
+                max_score_idx = np.argmax(raw_scores)
+                softmax_priorities[max_score_idx] = 1.0
+
+    # Place the calculated softmax priorities back into the main priorities array
+    priorities[suitable_bins_mask] = softmax_priorities
+
+    return priorities
+```

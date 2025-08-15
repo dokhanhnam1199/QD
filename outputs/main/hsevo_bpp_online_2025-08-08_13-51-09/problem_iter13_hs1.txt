@@ -1,0 +1,80 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, 
+                  epsilon: float = 0.0006287490630989166, 
+                  best_fit_weight: float = 0.24679420970939436, 
+                  exploration_weight: float = 0.5100624103944638) -> np.ndarray:
+    """
+    Combines tightest fit with a normalized bonus for larger remaining capacity,
+    using a weighted sum for balanced decision-making. Favors bins that are
+    almost full but can still accommodate the item.
+
+    Args:
+        item: The size of the item to be placed.
+        bins_remain_cap: A numpy array representing the remaining capacity of each bin.
+        epsilon: A small constant for numerical stability in division.
+        best_fit_weight: The weight assigned to the "best fit" metric.
+        exploration_weight: The weight assigned to the "exploration" metric.
+
+    Returns:
+        A numpy array representing the priority score for each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+    
+    # Metric 1: Best Fit - prioritize bins with minimal remaining capacity after placement.
+    # Higher score for smaller residual space.
+    remaining_after_placement = suitable_bins_caps - item
+    # Inverse relationship: smaller residual -> higher score. Add epsilon for stability.
+    best_fit_scores = 1.0 / (remaining_after_placement + epsilon)
+    
+    # Metric 2: Exploration/Larger Bin Preference - favor bins with more capacity initially.
+    # This encourages not always picking the absolute tightest, promoting diversification.
+    # We'll use a logarithmic scale for remaining capacity to de-emphasize very large bins
+    # and focus on bins that are "reasonably" large but not excessively so.
+    # log1p is used to handle cases where remaining capacity is 0 after placement,
+    # and to provide a smoother scaling than a simple linear approach.
+    exploration_scores = np.log1p(suitable_bins_caps)
+    
+    # Normalize Best Fit scores (min-max scaling)
+    if suitable_bins_caps.size > 1:
+        min_bf = np.min(best_fit_scores)
+        max_bf = np.max(best_fit_scores)
+        range_bf = max_bf - min_bf
+        if range_bf > epsilon:
+            normalized_best_fit = (best_fit_scores - min_bf) / range_bf
+        else:
+            normalized_best_fit = np.ones_like(best_fit_scores) # All suitable bins offer same tightness score
+    elif suitable_bins_caps.size == 1:
+        normalized_best_fit = np.array([1.0])
+    else:
+        normalized_best_fit = np.zeros_like(best_fit_scores)
+
+    # Normalize Exploration scores (min-max scaling)
+    if suitable_bins_caps.size > 1:
+        min_exp = np.min(exploration_scores)
+        max_exp = np.max(exploration_scores)
+        range_exp = max_exp - min_exp
+        if range_exp > epsilon:
+            normalized_exploration = (exploration_scores - min_exp) / range_exp
+        else:
+            normalized_exploration = np.zeros_like(exploration_scores) # All suitable bins have same initial capacity
+    elif suitable_bins_caps.size == 1:
+        normalized_exploration = np.array([1.0]) # If only one bin, it's maximally "exploratory" in this context
+    else:
+        normalized_exploration = np.zeros_like(exploration_scores)
+
+    # Combine normalized scores using a weighted sum.
+    # We give a slightly higher weight to Best Fit, as tight packing is crucial for BPP.
+    # The exploration bonus helps to prevent premature fragmentation.
+    combined_scores = best_fit_weight * normalized_best_fit + exploration_weight * normalized_exploration
+    
+    priorities[suitable_bins_mask] = combined_scores
+    
+    return priorities

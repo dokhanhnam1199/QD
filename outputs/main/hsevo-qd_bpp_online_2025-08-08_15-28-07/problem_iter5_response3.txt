@@ -1,0 +1,55 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritizes bins by combining a tight-fit score (Best Fit) with a score for generally fuller bins."""
+    
+    # --- Component 1: Best Fit Score ---
+    # This part aims to prioritize bins where the item fits snugly, minimizing wasted space.
+    # We use a sigmoid function on the negative of the remaining capacity after placing the item.
+    # A tighter fit (smaller `bins_remain_cap - item`) results in a higher score.
+    sensitivity_fit = 3.0
+    fits_mask = bins_remain_cap >= item
+    
+    fit_argument = np.where(
+        fits_mask,
+        -sensitivity_fit * (bins_remain_cap - item),
+        -1e9  # Assign a very low score to bins where the item doesn't fit.
+    )
+    best_fit_score = 1 / (1 + np.exp(-fit_argument))
+
+    # --- Component 2: Fuller Bin Score ---
+    # This part favors bins that are already more full, encouraging the use of existing bins
+    # over opening new ones, which can be beneficial for reducing the total bin count.
+    # We use the inverse of the remaining capacity, scaled to avoid extreme values.
+    # A smaller remaining capacity (fuller bin) results in a higher score.
+    # Added a small epsilon to avoid division by zero and to ensure non-fitting bins get a low score.
+    # We can scale `bins_remain_cap` to be within a reasonable range for the sigmoid.
+    # Let's consider bins that are at least half full as potentially "fuller".
+    # A simple approach is `1.0 / (bins_remain_cap + epsilon)` for fitting bins.
+    # To make it more responsive, we can use `np.exp(-bins_remain_cap / scale)`
+    # Let's use sigmoid on negative remaining capacity, similar to best fit but with a different sensitivity.
+    sensitivity_capacity = 0.5 
+    capacity_argument = np.where(
+        fits_mask,
+        -sensitivity_capacity * bins_remain_cap,
+        -1e9 # Assign a very low score to bins where the item doesn't fit.
+    )
+    fuller_bin_score = 1 / (1 + np.exp(-capacity_argument))
+
+    # --- Combination Strategy ---
+    # We combine the two scores. A simple multiplicative or additive approach can work.
+    # Multiplicative: Emphasizes bins that are good in *both* aspects.
+    # Additive: Gives equal weight to both preferences.
+    # Let's try a weighted additive approach, giving slightly more weight to the tight fit.
+    # This balances minimizing waste with utilizing existing capacity.
+    weight_best_fit = 0.7
+    weight_fuller_bin = 0.3
+    
+    combined_priority = (weight_best_fit * best_fit_score) + (weight_fuller_bin * fuller_bin_score)
+    
+    # Ensure that bins where the item doesn't fit have a priority of 0.
+    # This is already handled by assigning -1e9 in the argument calculations.
+    
+    return combined_priority
+```

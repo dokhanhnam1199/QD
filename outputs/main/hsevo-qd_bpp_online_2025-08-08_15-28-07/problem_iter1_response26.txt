@@ -1,0 +1,400 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    # Heuristic: Prioritize bins where the item fits snugly, but also consider
+    # bins with ample remaining capacity for future large items.
+    # The sigmoid function will compress scores between 0 and 1.
+    
+    # Calculate how "tight" the fit would be for each bin
+    # A smaller positive difference means a tighter fit.
+    tightness_score = bins_remain_cap - item
+    
+    # Ensure we don't have negative tightness scores (item doesn't fit)
+    tightness_score = np.maximum(tightness_score, -float('inf'))
+
+    # Calculate a score based on remaining capacity
+    # Larger remaining capacity gets a higher score, scaled for sigmoid
+    capacity_score = bins_remain_cap / 100.0 # Scale to prevent overflow with sigmoid
+    
+    # Combine scores using a sigmoid function to map to a [0, 1] range.
+    # We want to favor bins that are a good fit (tightness_score closer to 0)
+    # and also bins that have more remaining capacity.
+    # Let's use a weighted sum before the sigmoid.
+    
+    # Higher negative tightness_score means better fit, so we use -tightness_score
+    # A positive capacity_score means more space.
+    
+    # Example weights: Give more importance to a tighter fit
+    weight_tightness = 2.0
+    weight_capacity = 1.0
+    
+    combined_score_raw = weight_tightness * (-tightness_score) + weight_capacity * capacity_score
+    
+    # Apply sigmoid function
+    # We want to give a higher priority to bins where the item fits well,
+    # meaning bins_remain_cap - item is close to 0.
+    # For bins where it doesn't fit, the priority should be very low.
+    # The sigmoid function maps any real number to (0, 1).
+    # A larger input to sigmoid results in a value closer to 1.
+    # A smaller input results in a value closer to 0.
+
+    # Let's adjust the input to sigmoid to reflect our priorities.
+    # We want high priority for bins where (bins_remain_cap - item) is small and positive.
+    # And we want lower priority where (bins_remain_cap - item) is negative or very large positive.
+    
+    # For bins where item fits (bins_remain_cap >= item):
+    # The "gap" (bins_remain_cap - item) determines the "snugness".
+    # A smaller gap is better. We can use something like 1 / (1 + gap) or sigmoid of negative gap.
+    
+    # Let's try a simpler approach:
+    # Priority = Sigmoid( (bins_remain_cap - item) * k_fit + bins_remain_cap * k_capacity )
+    # k_fit: Controls sensitivity to how well the item fits. Higher k_fit means more penalty for poor fits.
+    # k_capacity: Controls sensitivity to remaining capacity. Higher k_capacity means prioritizing fuller bins more.
+
+    k_fit = 0.5  # Sensitivity to the fit. Larger values penalize poor fits more.
+    k_capacity = 0.1 # Sensitivity to remaining capacity. Larger values prefer more open bins.
+    
+    # Calculate scores. Only consider bins where the item fits.
+    fits = bins_remain_cap >= item
+    
+    # For bins where it fits, calculate a combined score
+    # High priority for small remaining capacity after fitting (tight fit)
+    # High priority for large remaining capacity overall (future flexibility)
+    
+    # A simple approach could be:
+    # Priority for fitting bins: A high score if remaining_cap - item is small and positive
+    # A low score if remaining_cap - item is large and positive.
+    
+    # Let's use a logistic function where the input represents a combination
+    # of how much space is left after placing the item and the total remaining space.
+    
+    # Option 1: Favor tight fits, but don't entirely ignore bins with more space.
+    # Map (bins_remain_cap - item) to a "goodness of fit" score.
+    # Small positive difference = good.
+    # Large positive difference = okay.
+    # Negative difference = bad.
+    
+    # We can use a sigmoid on the inverse of the remaining capacity after placement.
+    # If remaining_cap - item is small, then 1 / (remaining_cap - item) is large.
+    # If remaining_cap - item is large, then 1 / (remaining_cap - item) is small.
+    
+    # To handle the case where item does not fit, we set priority to 0.
+    # For bins that fit, we want to prioritize those with `bins_remain_cap - item` closer to 0.
+    # Also, having `bins_remain_cap` itself not too large might be good to avoid creating
+    # bins with too much empty space.
+    
+    # Let's define a preference for bins where the remaining capacity after placing the item is minimized.
+    # We can use the sigmoid function on a term that decreases as (bins_remain_cap - item) increases.
+    
+    # Consider the "waste" if we place the item: bins_remain_cap - item.
+    # We want to minimize this waste for a perfect fit, but we also want
+    # bins with larger `bins_remain_cap` to be considered if the waste isn't too large.
+    
+    # A score that prioritizes bins where (bins_remain_cap - item) is small and positive.
+    # Let's try sigmoid(- (bins_remain_cap - item) * 0.5 + bins_remain_cap * 0.05)
+    
+    # This formula will give higher values for:
+    # 1. Bins where `bins_remain_cap - item` is small and positive (due to the negative sign on this term)
+    # 2. Bins where `bins_remain_cap` is large (due to the positive sign on this term)
+    
+    # Let's refine: We want a higher score if `bins_remain_cap` is large enough to fit the item,
+    # and within those, we prefer those that result in less remaining capacity after fitting.
+    # This means `bins_remain_cap - item` should be as small as possible, but non-negative.
+    
+    # Let's use the negative of the remaining capacity after placing the item as input to sigmoid.
+    # This favors bins where `bins_remain_cap - item` is small (i.e., a tight fit).
+    # We also want to consider the overall remaining capacity to some extent.
+    
+    # Option: Sigmoid of a function that decreases with (bins_remain_cap - item)
+    # and increases with bins_remain_cap.
+    
+    # Let's combine two aspects:
+    # 1. How well the item fits (smaller remainder is better).
+    # 2. How much total capacity is left (larger might be good for future items).
+    
+    # Consider the term `bins_remain_cap - item`. We want this to be close to zero, but positive.
+    # Let's use `np.exp(-(bins_remain_cap - item))` which gives higher values for smaller `bins_remain_cap - item`.
+    # Then, apply sigmoid to scale these values and the overall remaining capacity.
+    
+    # Final idea: Prioritize bins where the item fits, and among those,
+    # prefer bins that have less remaining space *after* placing the item.
+    # This encourages filling bins efficiently.
+    
+    # We want `bins_remain_cap - item` to be small and non-negative.
+    # `sigmoid( -(bins_remain_cap - item) )` would do this.
+    # However, we also want to prefer bins that generally have more capacity
+    # for future items, but not excessively so that it leads to too many half-empty bins.
+    
+    # Let's try this: Sigmoid on the term that captures "snugness".
+    # A bin is a good candidate if `bins_remain_cap >= item`.
+    # Among fitting bins, a higher score for smaller `bins_remain_cap - item`.
+    
+    # Use a scaling factor to control the steepness of the sigmoid curve.
+    # `scale = 1.0` makes the transition around 0.
+    # We want to map `bins_remain_cap - item` such that values near 0
+    # result in high priority.
+    
+    # Let's use `np.exp(-bins_remain_cap / C)`. Higher `bins_remain_cap` -> lower score.
+    # This is for the "fill them up" strategy.
+    
+    # For the "first fit decreasing" or "best fit" idea, we want a tight fit.
+    # `sigmoid(-(bins_remain_cap - item))`
+    # If `bins_remain_cap - item` is small (tight fit), the argument is close to 0, sigmoid is ~0.5.
+    # If `bins_remain_cap - item` is large negative (item too big), argument is large positive, sigmoid is ~1.
+    # If `bins_remain_cap - item` is large positive (loose fit), argument is large negative, sigmoid is ~0.
+    
+    # This is the inverse of what we want. We want higher priority for tight fits.
+    
+    # Try: `sigmoid(k * (bins_remain_cap - item))`
+    # If `bins_remain_cap - item` is small positive (tight fit), sigmoid argument is small positive, ~0.5.
+    # If `bins_remain_cap - item` is large positive (loose fit), sigmoid argument is large positive, ~1.
+    # If `bins_remain_cap - item` is negative (won't fit), sigmoid argument is negative, ~0.
+    
+    # This seems to align better with favoring bins with less remaining capacity after placement.
+    # The `k` parameter controls how sensitive we are to the "tightness".
+    # `k=1.0` gives sigmoid(0) = 0.5 for a perfect fit.
+    
+    # Let's add a slight preference for bins that have *some* space left,
+    # to avoid immediately creating many bins with no room left.
+    # Maybe `sigmoid(k * (bins_remain_cap - item) + c * bins_remain_cap)`
+    
+    # Let's consider the goal: fill bins optimally.
+    # A good bin is one that can accommodate the item and leaves minimal remaining space.
+    # `remaining_after_fit = bins_remain_cap - item`
+    # We want `remaining_after_fit` to be small and non-negative.
+    
+    # Consider a function `f(x)` where `x = bins_remain_cap - item`.
+    # We want `f(x)` to be high when `x` is small and non-negative.
+    # `f(x) = exp(-x / scale)` for `x >= 0`, and `0` otherwise.
+    # Then scale this with sigmoid.
+    
+    # Calculate how much space would be left if we put the item in.
+    space_left = bins_remain_cap - item
+    
+    # Create a "fit score" that is high for small, non-negative `space_left`.
+    # We'll use the negative of `space_left` to map "small positive" to "large positive"
+    # for the sigmoid input.
+    # If `space_left` is negative (item doesn't fit), we want a very low priority.
+    # So, we can use a very large negative number for sigmoid input.
+    
+    fit_input = np.where(space_left >= 0, -space_left, -1e9) # Penalize items that don't fit
+    
+    # We can also incorporate a term related to the absolute remaining capacity.
+    # Perhaps bins that are already quite full (but can still fit the item) are prioritized.
+    # Let's consider the *normalized* remaining capacity as a secondary factor.
+    # However, this can be tricky without knowing the overall bin capacity limit.
+    # Assuming a standard bin capacity (e.g., 100):
+    
+    # Let's stick to the primary goal: tight fits.
+    # The input to sigmoid: `k * (-space_left)`
+    # `k` controls the sensitivity to tightness.
+    # `k = 1.0` -> `sigmoid(-space_left)`
+    # If `space_left` is 0 (perfect fit), sigmoid(0) = 0.5
+    # If `space_left` is 1 (loose fit), sigmoid(-1) = ~0.27
+    # If `space_left` is 5 (very loose), sigmoid(-5) = ~0.0067
+    # If `space_left` is -1 (item too big), fit_input is -1e9, sigmoid(-1e9) = ~0.
+    
+    # This seems to prioritize bins with smaller positive remaining space.
+    # Let's call this `best_fit_score`.
+    
+    # What if we also want to slightly favor bins that have a lot of capacity,
+    # but only if they *also* provide a relatively good fit?
+    # This is where it gets tricky to combine with sigmoid elegantly.
+    
+    # For a pure "Best Fit" heuristic, `sigmoid(- (bins_remain_cap - item))` is good.
+    # We can adjust the steepness with a multiplier.
+    
+    # Let's go with a strong bias towards best fit, modulated by the possibility of filling a bin.
+    # The score should be higher if `bins_remain_cap - item` is small and positive.
+    
+    # Consider a function `f(x)` where `x = bins_remain_cap`.
+    # We want to give a higher score if `x` is moderately large, but also
+    # if `x - item` is small.
+    
+    # Let's simplify: Prioritize bins where `bins_remain_cap` is just enough to fit the item.
+    # The value `bins_remain_cap - item` should be small and positive.
+    # `np.exp(-(bins_remain_cap - item))` for items that fit.
+    
+    # Transform `bins_remain_cap - item` into a score:
+    # Items that fit: prioritize small, positive `bins_remain_cap - item`.
+    # Items that don't fit: zero priority.
+    
+    # Let's create a term that peaks when `bins_remain_cap - item` is small and positive.
+    # Gaussian-like function centered around 0?
+    # `np.exp(-(bins_remain_cap - item)**2 / sigma**2)`
+    # This would favor fits near 0, but also loose fits equally to tight fits if `bins_remain_cap` is the same.
+    
+    # Best fit strategy is essentially minimizing `bins_remain_cap - item` for `bins_remain_cap >= item`.
+    # We can use sigmoid for this.
+    # `sigmoid( -(bins_remain_cap - item) * sensitivity)`
+    # Sensitivity controls how sharply we drop off for looser fits.
+    
+    sensitivity = 2.0 # Higher sensitivity for tighter fits
+    
+    # Calculate the argument for the sigmoid function.
+    # For bins where the item fits (bins_remain_cap >= item), the argument is
+    # `-(bins_remain_cap - item) * sensitivity`.
+    # This means a tight fit (small positive `bins_remain_cap - item`) gives an argument close to 0,
+    # resulting in a sigmoid score close to 0.5.
+    # A loose fit (large positive `bins_remain_cap - item`) gives a large negative argument,
+    # resulting in a score close to 0.
+    # An item that doesn't fit (`bins_remain_cap < item`) means `bins_remain_cap - item` is negative.
+    # So, `-(bins_remain_cap - item)` is positive. This gives a score close to 1.
+    # This is the opposite of what we want: items that don't fit should have zero priority.
+    
+    # Let's correct the logic: we want higher priority for bins where the item FITS and leaves less space.
+    # Input to sigmoid should be *higher* for better bins.
+    
+    # Let `y = bins_remain_cap`. We want to maximize a function that is high when `y >= item`
+    # and `y - item` is small.
+    
+    # Consider `score = sigmoid(k * (bins_remain_cap - item))`
+    # if `bins_remain_cap >= item`:
+    #   If `bins_remain_cap - item = 0` (perfect fit), score = sigmoid(0) = 0.5
+    #   If `bins_remain_cap - item = 10` (loose fit), score = sigmoid(10k)
+    # if `bins_remain_cap < item`:
+    #   score = sigmoid(<negative value>) -> close to 0.
+    
+    # This means loose fits get higher scores than perfect fits if `k` is negative.
+    # If `k` is positive, perfect fits get higher scores.
+    
+    # Let's try `k = -1.0` (Best Fit - minimizes remaining capacity).
+    # `priorities = 1 / (1 + np.exp(-sensitivity * (bins_remain_cap - item)))`
+    # For `bins_remain_cap - item = 0`: `sigmoid(0)` = 0.5
+    # For `bins_remain_cap - item = 10`: `sigmoid(-10)` ~ 0.000045
+    # For `bins_remain_cap - item = -1`: `sigmoid(1)` ~ 0.73
+    # This still prioritizes items that don't fit.
+    
+    # The simplest way to handle "does not fit" is to zero out their score.
+    
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    fits = bins_remain_cap >= item
+    
+    # For bins where the item fits, we want to prioritize those with minimal `bins_remain_cap - item`.
+    # The function `sigmoid(C * (bins_remain_cap - item))` does the following:
+    # - If `bins_remain_cap - item` is negative (item too big), input is negative, sigmoid ~0.
+    # - If `bins_remain_cap - item` is small positive (tight fit), input is small positive, sigmoid ~0.5.
+    # - If `bins_remain_cap - item` is large positive (loose fit), input is large positive, sigmoid ~1.
+    
+    # This seems to be prioritizing loose fits if C > 0.
+    # If C < 0, it prioritizes tight fits.
+    
+    # Let's use C < 0 for best fit.
+    # C = -1.0
+    # The argument will be `- (bins_remain_cap - item)`.
+    # This is equivalent to `(item - bins_remain_cap)`.
+    # We want to prioritize small values of `item - bins_remain_cap` (i.e., `bins_remain_cap - item` close to 0).
+    
+    # Consider the score `sigmoid(k * (item - bins_remain_cap))`.
+    # `k` is sensitivity. Higher `k` means more pronounced difference.
+    # If `item - bins_remain_cap` is small positive (tight fit), `sigmoid` is ~0.5.
+    # If `item - bins_remain_cap` is large positive (loose fit), `sigmoid` is ~1.
+    # If `item - bins_remain_cap` is negative (item too big), `sigmoid` is ~0.
+    
+    # This is again prioritizing loose fits.
+    
+    # Okay, let's try a different approach to map `bins_remain_cap - item` to a priority score.
+    # We want to map [0, large_positive] to [high_priority, low_priority].
+    # A simple mapping is `1 / (1 + (bins_remain_cap - item) / scale)`.
+    # This is similar to sigmoid's shape.
+    
+    # Let's use sigmoid on `-(bins_remain_cap - item)` which is `item - bins_remain_cap`.
+    # `sigmoid(k * (item - bins_remain_cap))`
+    # If `item - bins_remain_cap = 0` (perfect fit): `sigmoid(0)` = 0.5
+    # If `item - bins_remain_cap = 10` (loose fit): `sigmoid(10k)`
+    # If `item - bins_remain_cap = -10` (item too big): `sigmoid(-10k)`
+    
+    # Let `k = 1.0`.
+    # If `item - bins_remain_cap` is small positive (tight fit), sigmoid(small_pos) ~ 0.5
+    # If `item - bins_remain_cap` is large positive (loose fit), sigmoid(large_pos) ~ 1.
+    # If `item - bins_remain_cap` is negative (item too big), sigmoid(negative) ~ 0.
+    
+    # This appears to prioritize loose fits over tight fits.
+    
+    # Let's redefine our objective:
+    # We are designing a priority function for the *selection* of a bin.
+    # Higher priority means it's *more likely* to be chosen.
+    
+    # We want to favor bins that are "good".
+    # A good bin is one that can fit the item and has minimal space left over.
+    # The value `bins_remain_cap - item` should be minimized, subject to `bins_remain_cap >= item`.
+    
+    # We can use `sigmoid` to map the "badness" (`bins_remain_cap - item`) to a score.
+    # If `bins_remain_cap - item` is 0, we want a high score.
+    # If `bins_remain_cap - item` is large positive, we want a low score.
+    # If `bins_remain_cap - item` is negative, we want a score of 0.
+    
+    # Consider `sigmoid(-k * (bins_remain_cap - item))` where `k > 0`.
+    # `k=1`:
+    # `bins_remain_cap - item = 0` (perfect fit): `sigmoid(0)` = 0.5
+    # `bins_remain_cap - item = 10` (loose fit): `sigmoid(-10)` ~ 0.000045
+    # `bins_remain_cap - item = -1` (too big): `sigmoid(1)` ~ 0.73
+    
+    # Still a problem with items that don't fit.
+    # Let's enforce the "fits" condition first by zeroing out scores.
+    
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    fits_mask = bins_remain_cap >= item
+    
+    # For bins that fit, calculate a "fit quality" score.
+    # Higher score for smaller `bins_remain_cap - item`.
+    
+    # Let's use `sigmoid(C * (item - bins_remain_cap))`
+    # This maps `item - bins_remain_cap` to a [0, 1] range.
+    # `item - bins_remain_cap` = `-(bins_remain_cap - item)`
+    
+    # We want `bins_remain_cap - item` to be small and positive.
+    # This means `item - bins_remain_cap` should be small and negative.
+    
+    # Let `x = bins_remain_cap - item`. We want to map `[0, large_pos]` to `[high_score, low_score]`.
+    # The function `1 / (1 + x / scale)` or `sigmoid(log(x / scale))` could work.
+    
+    # Let's use the direct property of sigmoid: `sigmoid(z)` increases from 0 to 1 as `z` increases.
+    # We want a higher score for smaller `bins_remain_cap - item`.
+    # This means we want the argument to sigmoid to be smaller as `bins_remain_cap - item` increases.
+    # So, the argument should be proportional to `-(bins_remain_cap - item)`.
+    
+    # Let `argument = -sensitivity * (bins_remain_cap - item)`.
+    # If `bins_remain_cap - item` is 0 (perfect fit), argument is 0, sigmoid(0) = 0.5.
+    # If `bins_remain_cap - item` is 10 (loose fit), argument is -10*sensitivity.
+    # If `sensitivity = 1`, sigmoid(-10) is very small.
+    # If `bins_remain_cap - item` is -1 (too big), argument is 1*sensitivity.
+    # If `sensitivity = 1`, sigmoid(1) is ~0.73.
+    
+    # So, with `sigmoid(-sensitivity * (bins_remain_cap - item))`:
+    # - For items that fit, scores decrease as the fit gets looser. Good.
+    # - For items that don't fit, scores are high. Bad.
+    
+    # To fix the "don't fit" problem, we can set the argument to a very small number
+    # if the item doesn't fit.
+    
+    sensitivity = 3.0 # Controls how quickly priority drops for looser fits.
+    
+    # Calculate the argument for the sigmoid.
+    # If item fits, argument is `-sensitivity * (bins_remain_cap - item)`
+    # If item doesn't fit, argument is a very small number (to ensure sigmoid is close to 0).
+    argument = np.where(
+        fits,
+        -sensitivity * (bins_remain_cap - item),
+        -1e9  # A very small number for sigmoid to produce a near-zero output.
+    )
+    
+    # Calculate the priority scores using the sigmoid function.
+    priorities = 1 / (1 + np.exp(-argument))
+    
+    # This heuristic prioritizes bins that provide the tightest fit for the item.
+    # It's a form of the "Best Fit" strategy.
+    # The `sensitivity` parameter controls how strongly we penalize loose fits.
+    
+    return priorities
+```

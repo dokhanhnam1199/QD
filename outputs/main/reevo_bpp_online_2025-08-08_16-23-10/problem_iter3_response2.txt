@@ -1,0 +1,58 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using a refined
+    Best Fit strategy with a weighted approach.
+
+    This heuristic prioritizes bins that can accommodate the item. Among these,
+    it strongly favors bins that result in a near-perfect fit (minimal remaining
+    capacity after packing). It also slightly favors bins with more remaining
+    capacity if the "tightness" is similar, providing a smoother transition
+    and preventing premature commitment to very small bins that might be better
+    suited for future smaller items.
+
+    The score for a bin is calculated as:
+    score = (1 / (1 + exp(steepness * (remaining_capacity - item)))) * (1 + bonus_factor * (bins_remain_cap[i] - item))
+    where the first term is the "tightness score" and the second term is a "capacity bonus".
+    The score is 0 if the item cannot fit.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Scores range from 0 (cannot fit or very loose fit) to a value greater than 1
+        (ideal fit with high initial capacity).
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    steepness = 5.0  # Tunable parameter: higher values mean stronger preference for tight fits.
+    bonus_factor = 0.1 # Tunable parameter: influences how much more capacity is preferred for similar tightness.
+
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity for bins that can fit the item.
+    remaining_after_packing = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate the "tightness score" using a sigmoid function.
+    # Smaller remaining_after_packing results in a score closer to 1.
+    exponent_args_tightness = steepness * remaining_after_packing
+    clipped_exponent_args_tightness = np.clip(exponent_args_tightness, -30.0, 30.0)
+    tightness_scores = 1.0 / (1.0 + np.exp(clipped_exponent_args_tightness))
+
+    # Calculate the "capacity bonus".
+    # This term slightly increases the score for bins that have more remaining capacity
+    # *before* packing, when the tightness is comparable.
+    # We normalize this bonus by the item size to make it less sensitive to absolute bin capacities.
+    # Adding 1 ensures that bins with exactly the same tightness as the item are not penalized.
+    capacity_bonus = 1.0 + bonus_factor * (bins_remain_cap[can_fit_mask] / item) if item > 0 else 1.0
+
+    # Combine the scores. The tightness score is the primary driver,
+    # and the capacity bonus provides a secondary preference.
+    priorities[can_fit_mask] = tightness_scores * capacity_bonus
+
+    return priorities
+```

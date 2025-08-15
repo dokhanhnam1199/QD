@@ -1,0 +1,83 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using a smoothed,
+    non-linear function prioritizing minimal post-placement remaining capacity.
+
+    This heuristic prioritizes bins that can accommodate the item and have the smallest
+    remaining capacity after packing (Best Fit strategy). The priority is calculated
+    using a transformed function of the remaining capacity to favor tighter fits more
+    aggressively than a simple sigmoid, allowing for tunable preference.
+
+    The score for a bin is 0 if the item cannot fit. For bins that can fit, the score
+    is calculated based on the negative of the post-placement remaining capacity,
+    smoothed by a softplus-like function or a scaled inverse, aiming for a more
+    pronounced preference for near-perfect fits.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Scores range from 0 (cannot fit or very loose fit) to a higher value
+        (for near-perfect fits).
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Tunable parameter for controlling the "steepness" or emphasis on tighter fits.
+    # A higher value means stronger preference for very small remaining capacities.
+    smoothness_factor = 2.0 
+    
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity for bins that can fit the item.
+    # We want to prioritize smaller (remaining_capacity - item).
+    # A small post-placement remaining capacity is desirable.
+    post_placement_remain_cap = bins_remain_cap[can_fit_mask] - item
+
+    # Use a function that maps smaller post-placement remaining capacities to higher scores.
+    # A common approach for prioritizing smaller values non-linearly is using
+    # a transformation like `1 / (1 + x)` or `exp(-x)`, or a smoothed version.
+    # Let's use a smoothed inverse function, `1 / (1 + smoothness_factor * x)`
+    # for `x >= 0`. This gives a score between 0 and 1.
+    # For perfect fits (post_placement_remain_cap = 0), score is 1.
+    # For very loose fits, score approaches 0.
+    
+    # To make it more aggressive, we can consider `exp(-smoothness_factor * x)`
+    # which goes from 1 to 0. Or a quadratic-like behavior for small values.
+    # Let's try a combination: prioritize very tight fits more.
+    # A function like `max(0, 1 - (post_placement_remain_cap / bin_capacity_if_available)**2)`
+    # could be considered, but it requires knowing the original bin capacity.
+    # Sticking to remaining capacity: `exp(-smoothness_factor * post_placement_remain_cap)`
+    # is a good candidate for a smooth non-linear preference.
+    
+    # Let's refine the sigmoid idea from v1, making it more focused on small surpluses.
+    # Instead of `1/(1+exp(steepness*(rem-item)))`, consider a function that
+    # amplifies small `rem-item` values.
+    # `exp(-steepness * (rem-item))` maps small positive surpluses to values near 1,
+    # and larger surpluses to values closer to 0.
+    
+    # Using exp(-x) for the valid bins:
+    # A small `post_placement_remain_cap` (tight fit) results in a large negative argument
+    # for `exp`, so `exp` is large (close to 1).
+    # A large `post_placement_remain_cap` (loose fit) results in a smaller negative argument
+    # for `exp`, so `exp` is smaller (closer to 0).
+    
+    # Apply the exponential function. The argument is `-smoothness_factor * post_placement_remain_cap`.
+    # We want to ensure that the argument to exp is not excessively negative to avoid underflow,
+    # though standard exp handles small negative numbers well.
+    # Clipping to avoid potential extreme values if needed, but for `exp(-x)` with `x>=0` and
+    # reasonable `smoothness_factor`, it's usually fine.
+    
+    exponent_args = -smoothness_factor * post_placement_remain_cap
+    
+    # Calculate priority scores for bins that can fit.
+    # The scores will be between 0 (for very loose fits) and approximately 1 (for perfect fits).
+    priorities[can_fit_mask] = np.exp(exponent_args)
+
+    return priorities
+```

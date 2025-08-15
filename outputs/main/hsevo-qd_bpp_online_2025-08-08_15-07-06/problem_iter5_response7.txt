@@ -1,0 +1,47 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines tight fit (inverse proximity) with bin fullness using a weighted sum,
+    applying a sigmoid to gate effectively and normalize scores.
+    """
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+    eligible_bins_cap = bins_remain_cap[can_fit_mask]
+
+    if not np.any(can_fit_mask):
+        return np.zeros_like(bins_remain_cap)
+
+    # Calculate inverse proximity (tightness of fit) for eligible bins
+    # Add epsilon to avoid division by zero
+    inverse_proximity = 1.0 / (eligible_bins_cap - item + 1e-9)
+
+    # Calculate a measure of bin fullness (lower remaining capacity is better)
+    # Normalize to have scores between 0 and 1, where 1 is the fullest eligible bin
+    fullness = 1.0 - (eligible_bins_cap / np.max(bins_remain_cap[can_fit_mask]))
+
+    # Combine inverse proximity and fullness with weights (e.g., 0.7 for tightness, 0.3 for fullness)
+    # These weights can be tuned based on empirical performance.
+    combined_score = 0.7 * inverse_proximity + 0.3 * fullness
+
+    # Apply sigmoid to gate scores and create a smoother priority distribution
+    # Using a temperature parameter can control the "sharpness" of the sigmoid
+    temperature = 1.0
+    sigmoid_scores = 1.0 / (1.0 + np.exp(-combined_score / temperature))
+
+    # Normalize sigmoid scores to range from 0 to 1 for consistent priority assignment
+    # Handle the case where all sigmoid_scores might be the same (e.g., all 0.5)
+    min_sigmoid = np.min(sigmoid_scores)
+    max_sigmoid = np.max(sigmoid_scores)
+
+    if max_sigmoid - min_sigmoid < 1e-9:
+        normalized_priorities = np.full_like(sigmoid_scores, 0.5)
+    else:
+        normalized_priorities = (sigmoid_scores - min_sigmoid) / (max_sigmoid - min_sigmoid)
+
+    # Create the final priority array, assigning priorities only to eligible bins
+    priorities = np.zeros_like(bins_remain_cap)
+    priorities[can_fit_mask] = normalized_priorities
+
+    return priorities
+```

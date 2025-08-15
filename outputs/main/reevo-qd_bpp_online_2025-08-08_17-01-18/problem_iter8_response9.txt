@@ -1,0 +1,136 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority probabilities for packing an item into bins using a
+    combination of tight fit preference, bin scarcity consideration, and Softmax
+    for controlled exploration.
+
+    This heuristic prioritizes:
+    1.  **Tight Fits:** Bins that have a small remaining capacity after packing
+        the item are preferred. This minimizes wasted space.
+    2.  **Bin Scarcity:** Bins that are already less empty (have less remaining
+        capacity) are slightly preferred. This encourages fuller utilization
+        of existing bins.
+    3.  **Probabilistic Selection (Softmax):** The computed scores are converted
+        into probabilities using the Softmax function. A `temperature` parameter
+        controls the exploration-exploitation trade-off:
+        - Low temperature (e.g., < 1.0): Favors bins with higher scores more strongly
+          (more exploitation of preferred bins).
+        - High temperature (e.g., > 1.0): Probabilities are more uniform, leading
+          to more exploration of less-preferred bins.
+
+    The score for each suitable bin is calculated as a weighted sum:
+    `Score_i = w_fit * FitScore_i + w_scarcity * ScarcityScore_i`
+
+    -   **FitScore:** Designed to be high for small positive `remaining_capacity - item`.
+        A common choice is `1 / (1 + exp(k * (remaining_capacity - item)))`.
+        Here, we use `1 - (mismatch / (mismatch + item))` for a score from 0 to 1
+        that increases as mismatch decreases, and is capped by item size.
+        Alternatively, a simpler approach is to use a logistic function on negative mismatch.
+        We will use `1 / (1 + exp(k * (remaining_capacity - item)))` for its clear interpretation.
+    -   **ScarcityScore:** Designed to be high for bins with less remaining capacity.
+        A simple choice is `1 / (remaining_capacity + epsilon)`.
+
+    Then, probabilities are derived using Softmax:
+    `P_i = exp(Score_i / temperature) / sum(exp(Score_j / temperature))`
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A NumPy array representing the remaining capacity of each bin.
+
+    Returns:
+        A NumPy array of probabilities, same size as `bins_remain_cap`.
+        Bins that cannot fit the item will have a probability of 0.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros(num_bins, dtype=float)
+
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(suitable_bins_mask):
+        return priorities # No bins can fit the item
+
+    # Parameters for scoring
+    k = 5.0          # Sensitivity for tight fit preference (higher k = stronger preference)
+    w_fit = 0.8      # Weight for the tight fit score
+    w_scarcity = 0.2 # Weight for the bin scarcity score
+    temperature = 0.5 # Controls Softmax exploration (lower = more exploitation)
+    epsilon = 1e-6   # Small value to prevent division by zero
+
+    # --- Calculate Scores for Suitable Bins ---
+    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+    
+    # 1. Fit Score: Higher for smaller `remaining_capacity - item` (mismatch)
+    mismatch = suitable_bins_cap - item
+    # Cap exponent argument to prevent overflow in np.exp
+    max_exponent_arg = 35.0
+    capped_exponent_arg = np.minimum(k * mismatch, max_exponent_arg)
+    # FitScore ranges from ~0 (large mismatch) to 0.5 (zero mismatch) to ~1 (negative mismatch).
+    # We want high scores for small positive mismatch. The sigmoid `1/(1+exp(x))` gives
+    # higher values for smaller x. So, `1/(1+exp(k*mismatch))` works well.
+    fit_scores = 1 / (1 + np.exp(capped_exponent_arg))
+
+    # 2. Scarcity Score: Higher for bins with less remaining capacity
+    # Using `1 / (capacity + epsilon)` as a measure of fullness.
+    scarcity_scores = 1.0 / (suitable_bins_cap + epsilon)
+    
+    # Combine scores with weights
+    # Ensure scores are positive and well-behaved for Softmax.
+    # Fit scores are in [0, 1). Scarcity scores are > 0.
+    # Normalize scarcity scores to be in a similar range if needed, or rely on weights.
+    # For simplicity, let's use them as is and rely on Softmax.
+    
+    # Adjust scarcity score to be more comparable to fit score range, e.g., normalize if needed.
+    # A simple approach: scale scarcity to roughly [0, 1].
+    # Max possible scarcity score is 1/epsilon. Min is 1/(max_capacity+epsilon).
+    # Let's consider the typical range of `suitable_bins_cap`. If capacities are, say, up to 100,
+    # then scarcity is up to 1/100 = 0.01. This is much smaller than fit scores.
+    # To make scarcity impactful, we might need to adjust its weight or its scoring function.
+    # A common practice might be to normalize scarcity scores or use a bounded utility function.
+    # For now, let's assume the weights handle the scale difference.
+    
+    raw_scores = w_fit * fit_scores + w_scarcity * scarcity_scores
+
+    # --- Softmax Application ---
+    # Apply Softmax with temperature scaling.
+    # `exp(score / temperature)` where higher temperature leads to more exploration.
+    
+    # Handle potential numerical instability if temperature is very close to zero.
+    # Ensure scores don't become excessively large after scaling.
+    if temperature <= epsilon: # Effectively argmax
+        max_score = np.max(raw_scores)
+        # Assign probability 1 to the bin(s) with the maximum score
+        best_bin_indices = np.where(raw_scores == max_score)[0]
+        priorities[suitable_bins_mask][best_bin_indices] = 1.0 / len(best_bin_indices)
+    else:
+        # Scale scores by temperature for Softmax
+        # Subtract max score for numerical stability before exponentiation
+        max_raw_score = np.max(raw_scores)
+        scaled_scores = (raw_scores - max_raw_score) / temperature
+        
+        # Cap the scaled scores argument to avoid exp overflow
+        max_scaled_score_exponent = 35.0 
+        capped_scaled_scores = np.minimum(scaled_scores, max_scaled_score_exponent)
+        
+        exponentials = np.exp(capped_scaled_scores)
+        sum_exponentials = np.sum(exponentials)
+        
+        if sum_exponentials > 0:
+            softmax_probabilities = exponentials / sum_exponentials
+            priorities[suitable_bins_mask] = softmax_probabilities
+        else:
+            # Fallback: if sum is zero (e.g., all capped scores were -inf),
+            # distribute probability uniformly among suitable bins.
+            if suitable_bins_cap.size > 0:
+                priorities[suitable_bins_mask] = 1.0 / suitable_bins_cap.size
+
+    # Ensure probabilities sum to 1 and handle NaNs (though unlikely with current approach)
+    priorities = np.nan_to_num(priorities)
+    if np.sum(priorities) > 0:
+        priorities /= np.sum(priorities) # Re-normalize for float precision issues
+
+    return priorities
+```

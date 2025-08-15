@@ -1,0 +1,92 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority for placing an item into bins, prioritizing minimal slack
+    while also encouraging exploration of bins with slightly more remaining
+    capacity, and considering the size of the current item.
+
+    This heuristic prioritizes bins that can fit the item. Among fitting bins,
+    it first favors those that result in minimal remaining capacity (minimal slack).
+    To encourage exploration and adaptability to future items, it uses a temperature
+    parameter to give a chance to bins that might have slightly more slack,
+    especially when the current item is small. It also scales the priority
+    based on the item size, giving higher weight to packing larger items tightly.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+
+    # Identify bins that can accommodate the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit the item
+
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    remaining_after_placement = fitting_bins_remain_cap - item
+
+    # --- Primary objective: Minimize slack ---
+    # Higher priority for smaller remaining capacity.
+    # Add epsilon to prevent division by zero and ensure non-zero slack gets a finite score.
+    slack_priorities = 1.0 / (remaining_after_placement + 1e-9)
+
+    # --- Exploration and Item Size Consideration ---
+    # Temperature for softmax. Higher temperature means more exploration.
+    # Make temperature sensitive to item size: smaller items might benefit from more exploration.
+    # A simple approach: inverse relationship with item size, capped.
+    temperature = max(0.1, 2.0 / (item + 1e-9))
+
+    # Apply softmax-like weighting to allow exploration of bins with slightly more slack.
+    # We want to amplify the differences for tight fits but not completely ignore others.
+    # Using negative slack directly as input to exp, so smaller slack (larger negative value) becomes larger exp output.
+    # Normalizing for numerical stability.
+    if np.any(slack_priorities):
+        normalized_slack_priorities = slack_priorities - np.max(slack_priorities)
+        exploration_weights = np.exp(normalized_slack_priorities / temperature)
+
+        # Combine primary objective (slack) with exploration weight.
+        # Multiply slack priorities by exploration weights. This means bins with good slack
+        # AND good exploration weight (i.e., not too much slack) get boosted.
+        # The exploration_weights are roughly between 0 and 1 (after normalization and exp).
+        # We can scale them to make sure they don't dominate the base slack priority.
+        # A simple multiplication can work.
+        combined_priorities = slack_priorities * exploration_weights
+    else:
+        combined_priorities = slack_priorities # Should not happen if any(can_fit_mask)
+
+    # --- Refinement: Penalize exact fits slightly? (Optional, based on broader strategy) ---
+    # The original v0 penalized exact fits. v1 penalizes them.
+    # Let's consider a softer approach: slightly reduce priority if it's an exact fit,
+    # but only if the item is large, to encourage packing large items tightly.
+    # If item is small, exact fits might be good to avoid fragmentation.
+    penalty_strength = 0.05 # Small penalty
+    exact_fit_mask_subset = (remaining_after_placement == 0)
+
+    # Apply a small penalty to exact fits, but less so for larger items where exact fits are valuable.
+    # Inverse of item size (scaled) to reduce penalty for larger items.
+    item_size_factor = 1.0 / (item + 1e-9)
+    penalty_applied_to_exact_fits = penalty_strength * item_size_factor
+
+    # Only apply penalty if it's beneficial (i.e., reduce priority for exact fits)
+    # The combined_priorities are already high for exact fits (due to 1/epsilon).
+    # Subtracting a small value from these high values might make them less dominant but still high.
+    # We subtract a fraction of the penalty to make it less aggressive.
+    # Let's make it a direct subtraction from the priority score.
+    combined_priorities[exact_fit_mask_subset] -= penalty_applied_to_exact_fits
+
+
+    # Assign final priorities
+    priorities[can_fit_mask] = combined_priorities
+
+    # Ensure priorities are non-negative.
+    priorities = np.clip(priorities, 0, None)
+
+    return priorities
+```

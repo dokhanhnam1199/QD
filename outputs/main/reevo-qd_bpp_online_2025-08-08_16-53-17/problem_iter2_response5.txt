@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined Sigmoid Fit Score.
+
+    This heuristic aims to prioritize bins that offer the "best fit" for the item.
+    A "best fit" is defined as a bin where the remaining capacity is only slightly
+    larger than the item's size. This strategy tries to fill bins as much as possible
+    without leaving excessive empty space, thereby minimizing fragmentation.
+
+    The priority is calculated using a sigmoid function. The function is designed
+    to peak when the remaining capacity (`bins_remain_cap`) is precisely equal to
+    the item's size, and the priority decreases as the remaining capacity deviates
+    (either smaller or larger). However, bins where the item doesn't fit at all
+    are assigned a zero priority.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array where each element is the remaining capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as `bins_remain_cap`, containing the priority
+        score for each bin. Higher scores indicate a more desirable bin for the item.
+    """
+
+    def sigmoid(x, steepness=10.0, center=0.0):
+        """A custom sigmoid function that can be shifted and scaled."""
+        return 1 / (1 + np.exp(-steepness * (x - center)))
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins where the item can fit.
+    # The condition is that the bin's remaining capacity must be greater than or equal to the item's size.
+    fits_mask = bins_remain_cap >= item
+
+    # For bins where the item fits, calculate the 'fit difference'.
+    # This is the excess capacity after placing the item.
+    # We want to prioritize bins where this difference is small and non-negative.
+    if np.any(fits_mask):
+        # Calculate the excess capacity for fitting bins.
+        excess_capacities = bins_remain_cap[fits_mask] - item
+
+        # The sigmoid function is used to map these excess capacities to priority scores.
+        # We want the highest priority (e.g., close to 1) when excess_capacity is minimal.
+        # A common formulation for "good fit" prioritizes `excess_capacity` close to 0.
+        # To achieve this with a sigmoid, we can use a function that decreases as `excess_capacity` increases.
+        # `sigmoid(k * (ideal_excess - actual_excess))` works well here.
+        # Let `ideal_excess` be 0.
+        # The argument becomes `steepness * (0 - excess_capacities)` which is `-steepness * excess_capacities`.
+        # This means scores will decrease from 0.5 as `excess_capacities` increases.
+        #
+        # To align with "slightly larger" being the peak priority (as per problem description interpretation),
+        # we can shift the sigmoid. Let's define the peak priority (score=0.5) at `ideal_gap` (a small positive value).
+        #
+        # The function `sigmoid(steepness * (ideal_gap - excess_capacities))` will have its midpoint at `excess_capacities = ideal_gap`.
+        # With `steepness=10.0` and `ideal_gap=0.05`, the peak priority of 0.5 occurs when `bins_remain_cap - item = 0.05`.
+        # Values of `excess_capacities` smaller than `ideal_gap` (but >= 0) will yield scores > 0.5.
+        # Values of `excess_capacities` larger than `ideal_gap` will yield scores < 0.5.
+
+        ideal_gap = 0.05  # Prefer bins with a small positive remaining capacity after fitting the item.
+        steepness = 10.0  # Controls how sharply the priority drops as excess capacity increases.
+
+        # Calculate the argument for the sigmoid function.
+        # We want the peak of the sigmoid (where the argument is 0) to align with our 'ideal_gap'.
+        # `argument = steepness * (ideal_gap - excess_capacities)`
+        argument_values = steepness * (ideal_gap - excess_capacities)
+
+        # Apply the sigmoid function to get the priority scores for fitting bins.
+        priorities[fits_mask] = sigmoid(argument_values, steepness=steepness, center=0.0)
+
+    # For bins where the item does not fit (fits_mask is False), the priority remains 0,
+    # ensuring they are not selected unless no fitting bins exist.
+
+    return priorities
+```

@@ -1,0 +1,178 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority scores for bins using a unified scoring mechanism with Softmax.
+    This heuristic prioritizes bins based on a combination of fit tightness and
+    bin scarcity, adapted by a tunable temperature parameter.
+
+    The core idea is to assign higher scores to bins that are a good fit (minimizing
+    wasted space) and/or are scarce (less remaining capacity).
+
+    Scoring mechanism:
+    1. Calculate a "fit score" for each suitable bin:
+       - For bins where `remaining_capacity >= item`:
+         The score reflects how close `remaining_capacity` is to `item`.
+         We use a reciprocal of the remaining capacity relative to the item,
+         encouraging smaller remaining capacities (tighter fits).
+         `fit_score = 1 / (remaining_capacity - item + epsilon)`
+         where `epsilon` is a small constant to avoid division by zero.
+         This score is higher for tighter fits.
+
+    2. Calculate a "scarcity score" for each suitable bin:
+       - This score is inversely proportional to the remaining capacity,
+         prioritizing bins that have less space left, meaning they are "scarcer."
+         `scarcity_score = 1 / (remaining_capacity + epsilon)`
+
+    3. Combine scores:
+       - A weighted sum of fit and scarcity can be used, or a single score
+         that implicitly balances both. For simplicity and directness,
+         we'll focus on a score that primarily rewards tight fits but is
+         influenced by overall capacity.
+         A simplified approach: prioritize bins with smaller `remaining_capacity - item`.
+         The higher the `remaining_capacity - item` (mismatch), the lower the priority.
+         We can use a function like `1 / (1 + mismatch)` or `exp(-k * mismatch)`.
+         The reflection mentions "Softmax with tunable temperature" for adaptive exploration/exploitation,
+         balancing fit and bin scarcity. This suggests a need for scores that can be normalized and then potentially
+         used within a softmax-like selection or directly as priorities.
+
+    Let's adapt the reflection's hint: "Prioritize tight fits using a unified scoring mechanism.
+    Employ Softmax with tunable temperature for adaptive exploration/exploitation, balancing fit and bin scarcity."
+
+    A direct way to balance fit and scarcity is to create a score that is high for tight fits and
+    also higher for bins with generally less capacity.
+
+    Consider a score function for suitable bins:
+    `score = weight_fit * (1 / (bins_remain_cap[suitable_bins_mask] - item + epsilon)) + weight_scarcity * (1 / (bins_remain_cap[suitable_bins_mask] + epsilon))`
+    This might be too complex.
+
+    Let's interpret "unified scoring mechanism" and "balancing fit and bin scarcity" more directly.
+    A tight fit means `bins_remain_cap - item` is small and positive.
+    Bin scarcity means `bins_remain_cap` is small.
+
+    We want to maximize `f(bins_remain_cap - item)` where `f` is decreasing, and `g(bins_remain_cap)` where `g` is decreasing.
+    A simple combined score could be inversely related to the remaining capacity itself, as smaller remaining capacity implies both
+    better potential for tight fits (if the item fits) and scarcity.
+
+    Revised Approach based on reflection:
+    - Prioritize tight fits: This means `bins_remain_cap - item` should be minimized.
+    - Balance fit and bin scarcity: Less remaining capacity generally means better for scarcity.
+
+    Let's define a score that decreases as `bins_remain_cap` increases, but more rapidly if `bins_remain_cap - item` is large.
+    This is similar to the previous sigmoid but might incorporate scarcity more directly.
+
+    The reflection mentions "Softmax with tunable temperature". This implies we might generate scores and then potentially
+    apply a softmax to get probabilities, or use these scores directly as priorities where higher is better.
+    If we are returning raw priority scores, we need a function where higher values indicate better bins.
+
+    Let's consider the inverse of the remaining capacity as a base for scarcity, and then adjust for fit.
+    A very simple "unified" score that balances both could be `1 / bins_remain_cap`.
+    However, this doesn't directly account for the item size.
+
+    The prompt asks for a priority score for *each bin*. The bin with the *highest* priority score is selected.
+    So, we want functions that produce higher values for preferred bins.
+
+    Preferred bins:
+    1. Those where `bins_remain_cap >= item`.
+    2. Among those, the ones with `bins_remain_cap` closest to `item`.
+    3. Also, bins that have overall less capacity (scarcer) might be preferred if they can still fit the item.
+
+    Let's try a score that is primarily driven by `bins_remain_cap` (higher score for smaller capacity) and then adjusted by the mismatch.
+    Score = `1 / (bins_remain_cap + epsilon)` - penalty for mismatch.
+    Or, Score = `1 / (bins_remain_cap - item + epsilon)` - this strongly favors tight fits but doesn't explicitly model scarcity.
+
+    Let's reinterpret "Softmax with tunable temperature" as a way to shape the distribution of priorities.
+    If we have raw scores `s_i`, a softmax-like transformation for selection might be `exp(s_i / T) / sum(exp(s_j / T))`.
+    If we are returning raw priorities, maybe the scores themselves should be shaped.
+
+    Let's try a score that is high when `bins_remain_cap` is small, and also high when `bins_remain_cap - item` is small.
+    Consider a score that is the inverse of the remaining capacity, penalized if it's much larger than the item.
+
+    Let's focus on the "tight fit" aspect from the previous version and how to "balance fit and bin scarcity" with a "unified scoring mechanism".
+    The previous sigmoid `1 / (1 + exp(k * (remaining_capacity - item)))` correctly prioritizes tight fits.
+    To incorporate scarcity, we want bins with smaller `remaining_capacity` to have higher scores, assuming they can fit the item.
+
+    A potential unified score could be:
+    `score = f(bins_remain_cap)` where `f` is decreasing.
+    And we only consider bins where `bins_remain_cap >= item`.
+
+    What if the score is directly related to how *little* capacity is left *after* fitting the item?
+    `score = 1 / (bins_remain_cap - item + epsilon)` for suitable bins.
+    This prioritizes tight fits (small positive difference). If `bins_remain_cap - item` is 0, score is `1/epsilon`. If it's 1, score is 1. If it's 10, score is 0.1.
+    This seems to capture the "tight fit" well.
+
+    How to incorporate "scarcity"?
+    If two bins have the same `bins_remain_cap - item`, the one with smaller `bins_remain_cap` should be preferred.
+    So, `score = (1 / (bins_remain_cap - item + epsilon)) * (1 / (bins_remain_cap + epsilon))`?
+    This might be too complex or lead to very small numbers.
+
+    Let's try a simpler approach that combines the inverse of remaining capacity (scarcity) with a bonus for tight fits.
+    Score = `1 / (bins_remain_cap + epsilon)` + bonus for tight fit.
+    Bonus = `max_possible_score - (bins_remain_cap - item)`? No, that's linear.
+
+    The reflection mentions "Softmax with tunable temperature for adaptive exploration/exploitation, balancing fit and bin scarcity."
+    This suggests that the scores themselves might be transformed. If we want to implement a heuristic directly, we need a score where higher is better.
+
+    Let's create a score that is higher for bins with less capacity, but only if they can fit the item.
+    Consider the inverse of the *total* capacity used by the item in the bin.
+    If item is `i` and bin capacity is `c`, total capacity used is `i`. Remaining is `c-i`.
+    A tight fit means `c-i` is small. Scarcity means `c` is small.
+
+    Let's use a score that is primarily determined by how much capacity is *left*.
+    Lower `bins_remain_cap` is better (scarcity).
+    But we must fit the item.
+
+    Consider a score: `1 / (bins_remain_cap + epsilon)` for suitable bins.
+    This prioritizes bins with less capacity. If the item fits, a bin with capacity 10 is preferred over a bin with capacity 20.
+    This implicitly handles tightness because if capacity is very low (e.g., 5), it will likely only fit small items, making it a tight fit for those items.
+    This approach seems to blend scarcity and tightness implicitly.
+
+    Let's add an explicit bonus for tight fits.
+    Score = `1 / (bins_remain_cap + epsilon)` + `alpha * (1 / (bins_remain_cap - item + epsilon))`
+    Here, `alpha` controls the weight of the tight-fit bonus.
+    This looks like a reasonable unified score. `epsilon` is for numerical stability.
+
+    Let's define `alpha` and `epsilon`.
+    `epsilon` can be a small float, e.g., `1e-6`.
+    `alpha` can be tuned. If `alpha=0`, it's purely scarcity. If `alpha` is very large, it's purely tight fit.
+
+    Let's refine the calculation to ensure we only consider suitable bins.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 1e-6  # Small constant for numerical stability
+    alpha = 1.0     # Tunable parameter to balance scarcity and tight fit bonus.
+                    # Higher alpha gives more weight to tight fits.
+    
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+
+    # If no bin can fit the item, return all zeros
+    if suitable_bins_cap.size == 0:
+        return priorities
+
+    # Calculate score for suitable bins:
+    # Score = (1 / (remaining_capacity + epsilon))  <- scarcity component (higher for less capacity)
+    #       + alpha * (1 / (remaining_capacity - item + epsilon)) <- tight fit bonus (higher for smaller mismatch)
+    
+    # Calculate the scarcity component: inverse of remaining capacity
+    scarcity_scores = 1.0 / (suitable_bins_cap + epsilon)
+    
+    # Calculate the tight fit bonus: inverse of the difference (remaining capacity - item)
+    # This term penalizes bins with large remaining capacity after fitting the item.
+    mismatch = suitable_bins_cap - item
+    
+    # We want to penalize large mismatches. So, a larger mismatch should lead to a lower bonus.
+    # The reciprocal `1 / (mismatch + epsilon)` does this.
+    tight_fit_bonus = 1.0 / (mismatch + epsilon)
+
+    # Combine the scarcity component and the tight fit bonus
+    # The final score is a weighted sum. Higher score means more preferred bin.
+    combined_scores = scarcity_scores + alpha * tight_fit_bonus
+
+    # Place the calculated combined scores back into the main priorities array
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```

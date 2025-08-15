@@ -1,0 +1,85 @@
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray, epsilon: float = 0.9969805423731117, perfect_fit_bonus: float = 0.08091321472561364, large_remainder_penalty_factor: float = 0.005605301706523752, exploration_noise_scale: float = 0.06742191999159379, exploration_candidate_portion: float = 0.7982798281929573, moderate_capacity_multiplier: float = 3.6819858459201593) -> np.ndarray:
+    """
+    Calculates priorities for placing an item into bins based on remaining capacity.
+
+    Args:
+        item: The size of the item to be placed.
+        bins_remain_cap: A numpy array of remaining capacities for each bin.
+        epsilon: The probability of choosing an exploration score for candidate bins.
+        perfect_fit_bonus: An additional score added to bins with near-perfect fits.
+        large_remainder_penalty_factor: A scaling factor for penalizing large surpluses.
+        exploration_noise_scale: The maximum value of random noise added to exploration scores.
+        exploration_candidate_portion: The portion of the best-fitting bins to consider for exploration.
+        moderate_capacity_multiplier: A multiplier to define the upper bound for moderate capacity bins.
+
+    Returns:
+        A numpy array of priority scores for each bin.
+    """
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+    
+    can_fit_mask = bins_remain_cap >= item
+    
+    if not np.any(can_fit_mask):
+        return priorities
+
+    valid_bins_capacities = bins_remain_cap[can_fit_mask]
+    valid_bins_indices = np.where(can_fit_mask)[0]
+
+    # Enhanced Exploitation:
+    # 1. Tight fit: Prioritize bins that leave minimum remaining capacity.
+    # 2. Perfect fit bonus: A higher bonus for exact fits to minimize waste.
+    # 3. Surplus penalty: A mild penalty for bins that would have a large surplus
+    #    after packing, as these might be better saved for larger items.
+    
+    remaining_after_fit = valid_bins_capacities - item
+    
+    tight_fit_scores = -remaining_after_fit
+    
+    tight_fit_scores[np.abs(remaining_after_fit) < 1e-9] += perfect_fit_bonus
+
+    # A gentle penalty for large remainders, scaled by the item size
+    # to make it more relevant.
+    surplus_penalty = (remaining_after_fit / item) * large_remainder_penalty_factor
+    tight_fit_scores -= surplus_penalty
+    
+    # Adaptive Exploration:
+    # Instead of purely random exploration, we can explore bins that are "good enough"
+    # but not necessarily the absolute best (according to tight fit).
+    # This can be done by introducing a small random perturbation to the scores
+    # of a subset of bins, or by giving a chance to bins that are not the tightest.
+    
+    # Let's use a strategy where we explore bins that are among the top K tightest fits,
+    # or bins that have a moderate remaining capacity.
+    
+    # Sort bins by tight fit score to identify top candidates
+    sorted_indices_tight = np.argsort(tight_fit_scores)[::-1]
+    
+    exploration_candidate_mask = np.zeros_like(tight_fit_scores, dtype=bool)
+    
+    # Select a portion of the best fitting bins for potential exploration
+    num_explore_candidates = min(len(valid_bins_capacities), max(1, int(len(valid_bins_capacities) * exploration_candidate_portion)))
+    exploration_candidate_mask[sorted_indices_tight[:num_explore_candidates]] = True
+    
+    # Additionally, include some bins that have a moderate amount of remaining capacity
+    # This might represent bins that are not tightly packed but could be useful later.
+    moderate_capacity_threshold = np.median(valid_bins_capacities)
+    moderate_capacity_mask = (valid_bins_capacities > item) & (valid_bins_capacities < moderate_capacity_threshold * moderate_capacity_multiplier) # bins that are not too tight, not too empty
+    exploration_candidate_mask[moderate_capacity_mask] = True
+
+    exploration_scores = np.random.rand(len(valid_bins_capacities)) * exploration_noise_scale
+    
+    # Combine: With probability epsilon, choose exploration score for candidate bins,
+    # otherwise use the tight fit score. For non-candidate bins, always use tight fit.
+    
+    use_exploration_for_candidates = np.random.rand(len(valid_bins_capacities)) < epsilon
+    
+    combined_scores = np.copy(tight_fit_scores)
+    
+    # Apply exploration scores only to the identified exploration candidates
+    combined_scores[exploration_candidate_mask & use_exploration_for_candidates] = exploration_scores[exploration_candidate_mask & use_exploration_for_candidates]
+
+    priorities[valid_bins_indices] = combined_scores
+    
+    return priorities

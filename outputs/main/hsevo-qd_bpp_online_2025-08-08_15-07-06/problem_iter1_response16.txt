@@ -1,0 +1,106 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using sigmoid fit score.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    potential_fits = bins_remain_cap - item
+    valid_fits = potential_fits >= 0
+    
+    if not np.any(valid_fits):
+        return np.zeros_like(bins_remain_cap)
+    
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # We want to prioritize bins that are almost full after placing the item,
+    # as this indicates a good fit and potentially better packing density.
+    # Sigmoid function to map the remaining capacity (after placing item) to a score.
+    # We want higher scores for smaller remaining capacities (closer to zero).
+    # Let's use a scaled inverse sigmoid: 1 / (1 + exp(k * (x - offset)))
+    # where x is the remaining capacity.
+    
+    # Choose k and offset carefully. 
+    # A large k will create a steep transition.
+    # Offset can be chosen based on typical item/bin sizes.
+    # Let's assume bin capacity is 1.0 for this general strategy.
+    # If the remaining capacity after fitting is very small, it's a good fit.
+    # If it's large, it's a bad fit.
+    
+    # For simplicity, let's use a strategy that prioritizes bins that have *just* enough space
+    # or a little more, thus avoiding creating too many partially filled bins.
+    # The sigmoid function can help map this to a preference.
+    # A good heuristic might be to penalize bins with too much leftover space,
+    # and slightly penalize bins that are too tight (though this is handled by valid_fits).
+    
+    # Let's try a sigmoid that peaks when remaining capacity is just above zero.
+    # Using sigmoid to represent the "goodness" of the fit, where "goodness" is high
+    # when remaining capacity is small but non-negative.
+    
+    # We'll use the potential_fits as input to the sigmoid.
+    # Higher values of potential_fits (more leftover space) should lead to lower priority.
+    
+    # A common approach is to use a sigmoid on the inverse of the remaining capacity,
+    # or on the negative of the remaining capacity.
+    
+    # Let's use -potential_fits as input, so larger negative values (smaller remaining capacity)
+    # get higher sigmoid output.
+    
+    # To avoid numerical instability and to control the "steepness" of the sigmoid,
+    # we can scale and shift the input.
+    # Let's center the sigmoid around 0.25 remaining capacity as a target "best" fit.
+    # So, if potential_fits is 0.25, the input to sigmoid should be near the midpoint.
+    
+    # Using a reversed sigmoid shifted: sigmoid(-k * (x - c))
+    # Where x is the remaining capacity (potential_fits)
+    # k is steepness, c is the center point.
+    
+    # If remaining capacity is 0.0, it's a perfect fit, priority should be high.
+    # If remaining capacity is large, priority should be low.
+    
+    # Consider the value (item / bins_remain_cap[i]) for bins where bins_remain_cap[i] >= item.
+    # A ratio close to 1 is good.
+    
+    ratios = np.zeros_like(bins_remain_cap, dtype=float)
+    ratios[valid_fits] = item / bins_remain_cap[valid_fits]
+    
+    # Use sigmoid on the ratio to get a score. Higher ratio (closer to 1) is better.
+    # Sigmoid: 1 / (1 + exp(-k * (x - c)))
+    # x = ratios. Let's center around 0.95 (close to 1)
+    # steepness k can be adjusted. Higher k means sharper transition.
+    
+    k = 20.0  # Steepness factor
+    c = 0.95  # Center of the sigmoid (target ratio)
+    
+    # Ensure ratios are within a reasonable range for sigmoid, avoid infinities.
+    # Clamp ratios to prevent extreme values if item > bin_remain_cap (already handled by valid_fits)
+    # but also if bin_remain_cap is very small.
+    
+    clamped_ratios = np.clip(ratios, 0.01, 0.99) # Avoid 0 or 1 for stability if needed
+    
+    priorities[valid_fits] = 1 / (1 + np.exp(-k * (clamped_ratios[valid_fits] - c)))
+    
+    # Optionally, give a small penalty to bins that are very large compared to item
+    # to encourage tighter packing.
+    # Let's say if remaining capacity is > 0.5 of bin capacity, we reduce priority.
+    
+    large_remaining_penalty_threshold = 0.5
+    large_remaining_mask = bins_remain_cap > large_remaining_penalty_threshold
+    
+    # We only apply this penalty if the item fits, and the remaining capacity is large.
+    penalty_mask = valid_fits & large_remaining_mask
+    
+    if np.any(penalty_mask):
+        # Scale the penalty so it doesn't dominate but still influences.
+        # A sigmoid on the negative of remaining capacity, to penalize larger remaining.
+        penalty_factor = 1 / (1 + np.exp(k * (bins_remain_cap[penalty_mask] - 0.6))) # Penalize if remaining > 0.6
+        priorities[penalty_mask] *= penalty_factor
+    
+    return priorities
+```

@@ -1,0 +1,311 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a balanced approach.
+
+    This heuristic aims to balance two objectives:
+    1. Prioritize bins that have just enough capacity (minimize waste).
+    2. Prioritize bins that have significantly more capacity to potentially accommodate future larger items.
+
+    It assigns higher priority to bins that are "close" to fitting the item, but also
+    gives a non-zero priority to bins with larger remaining capacities, preventing
+    a complete rejection of bins that are much larger.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    # Initialize priorities to a very low value for bins that cannot fit the item.
+    priorities = np.zeros_like(bins_remain_cap)
+
+    # Identify bins that can accommodate the item.
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit, calculate a score.
+    # We use a combination of a negative exponential for "close fits" and a linear
+    # term for "ample fits".
+
+    # Score for bins that are "close" to fitting (minimal surplus).
+    # This term encourages filling bins as much as possible.
+    # We use exp(-x) where x is the surplus capacity.
+    surplus_capacity = bins_remain_cap[can_fit_mask] - item
+    close_fit_score = np.exp(-surplus_capacity / 1.0)  # Normalize surplus by a factor (e.g., 1.0)
+
+    # Score for bins that have ample capacity.
+    # This term assigns a small, increasing priority to larger bins,
+    # encouraging their use for potentially larger future items.
+    # A simple linear increase: `(bins_remain_cap[can_fit_mask] - item) * alpha`
+    # However, to avoid extremely high values and keep it relative, we can use
+    # a scaled version or a logarithmic scale.
+    # Let's use a simple linear scaling for now, but cap it or use a softer function.
+    # A simple linear factor that increases with remaining capacity.
+    # We can use a value that's not too dominant, e.g., 0.1 * remaining_capacity.
+    # To avoid very large values for very large bins, we can use a capped linear function
+    # or a function that saturates.
+    # Let's try a simple linear term that is scaled down, relative to the item size.
+    # We want this to be less important than the "close fit" score for small surpluses.
+    # Example: if item=5, bin_cap=10, surplus=5. Close fit score is exp(-5). Linear score might be 0.1 * 10 = 1.
+    # If item=5, bin_cap=6, surplus=1. Close fit score is exp(-1). Linear score might be 0.1 * 6 = 0.6.
+    # The close-fit score might dominate for small surpluses, which is good.
+    # For larger surpluses, the linear score could provide a boost.
+    # Let's consider the total capacity of the bin.
+    # Another approach: reward bins that leave a small remainder for the *next* item.
+    # `bins_remain_cap[can_fit_mask] - item` is the remaining space.
+    # Let's try to incorporate a measure of how much space is left *relative* to the item.
+    # Or, let's simply add a bonus for larger remaining capacities, but scale it.
+    # A simple linear bonus: `0.1 * bins_remain_cap[can_fit_mask]`
+    # This might lead to very large values for very large bins.
+    # Alternative: `(bins_remain_cap[can_fit_mask] - item) * scale_factor`.
+    # For example, scale factor = 0.01. If bin_cap=100, item=5, then surplus=95. Linear score = 0.95.
+    # This is small compared to exp(-0) = 1.
+    # Let's try a simpler additive bonus for remaining capacity itself, but capped or scaled.
+    # Let's use a function that is high for perfect fits and decreases, but then
+    # increases slowly for larger bins.
+    # This could be `exp(-surplus) + alpha * surplus`.
+    # Let's refine: `exp(-surplus / T) + alpha * surplus`
+    # If we want to encourage larger bins as a secondary goal, `alpha` should be positive.
+    # However, the current `priority_v1` (softmax) already implicitly handles this
+    # by assigning non-zero probabilities.
+    # The reflection suggests a "balanced approach". This might mean not going purely
+    # to softmax but having a more explicit way to favor large bins.
+
+    # Let's try to explicitly favor bins that have enough space for *another* similar item
+    # or a moderately sized item.
+    # Consider bins with remaining capacity `R`. If the current item is `I`,
+    # then `R - I` is the leftover.
+    # We want to prioritize `R - I` being small.
+    # We also want to consider `R` itself.
+    # A simple combination: `f(R - I) + g(R)`
+    # `f(x) = exp(-x)`
+    # `g(x)` could be linear, e.g., `alpha * x`.
+    # So, `priorities[can_fit_mask] = exp(-surplus_capacity) + alpha * bins_remain_cap[can_fit_mask]`
+    # The `alpha` needs to be small enough not to dominate the `exp` term for small surpluses.
+    # Let's set `alpha = 0.05` and a scaling factor for the `exp` term.
+    # `priorities[can_fit_mask] = exp(-surplus_capacity / 1.0) + 0.05 * bins_remain_cap[can_fit_mask]`
+
+    # This approach might still assign very high scores to very large bins.
+    # Let's revisit the "balanced" idea. Maybe it means not discarding bins too aggressively.
+    # The softmax approach (v1) already gives non-zero probabilities to all bins that can fit.
+    # The "balanced" aspect could be in how the score is composed.
+
+    # Let's try a score that is high for minimal waste, and then tapers off,
+    # but doesn't go to zero quickly for larger remaining capacities.
+    # Consider a function that is like `1 / (1 + waste)` (similar to v0 but with +1 in denom)
+    # and add a term that grows with remaining capacity, but not too fast.
+    # `score = (1.0 / (1.0 + surplus_capacity)) + 0.1 * (bins_remain_cap[can_fit_mask] / max_possible_capacity)`
+    # This still requires knowledge of max_possible_capacity, which might not be available.
+
+    # Let's try a modified exponential: `exp(-surplus / T)`.
+    # For "balanced", perhaps T should be larger, meaning the decay is slower.
+    # This would give more similar scores to bins with varying small to medium surpluses.
+    # Let's set T to a value that represents a "typical" bin capacity or a fraction of it.
+    # If we assume bin capacity is around 1.0 (normalized), maybe T=0.5 or T=1.0.
+    # `priorities[can_fit_mask] = np.exp(-surplus_capacity / 1.0)`
+
+    # Let's try to combine a "best fit" criterion with a "largest fit" criterion.
+    # Best fit: `-(bins_remain_cap[can_fit_mask] - item)` -> closer to 0 is better.
+    # Largest fit: `bins_remain_cap[can_fit_mask]` -> higher is better.
+    # A simple sum: `-(bins_remain_cap[can_fit_mask] - item) + alpha * bins_remain_cap[can_fit_mask]`
+    # This is `(alpha - 1) * bins_remain_cap[can_fit_mask] + item`
+    # If alpha < 1, this prioritizes smaller remaining capacities.
+    # If alpha > 1, this prioritizes larger remaining capacities.
+    # We want to prioritize smaller remaining capacities (minimal waste), but also
+    # not penalize larger bins too much.
+
+    # Let's use a score that is maximized when `bins_remain_cap` is slightly larger than `item`.
+    # And for `bins_remain_cap >> item`, the score should still be positive and non-decreasing,
+    # but at a slower rate.
+
+    # Consider a quadratic function that peaks: `-(x - ideal)^2`.
+    # Here, `x = bins_remain_cap[can_fit_mask]`. We want `ideal = item`.
+    # So, `-(bins_remain_cap[can_fit_mask] - item)^2` for perfect fit.
+    # This is `-(surplus_capacity)^2`.
+    # This would strongly penalize larger surpluses.
+
+    # Let's go back to the Softmax idea but with a different transformation.
+    # What if we transform the remaining capacity itself?
+    # Let `R = bins_remain_cap[can_fit_mask]`
+    # We want to favor `R` that are close to `item`.
+    # We also want to favor larger `R`.
+    # A compromise: Prioritize bins where `R` is "sufficiently large" but not excessively so.
+
+    # Let's consider a hybrid approach inspired by various heuristics:
+    # 1. Best Fit Decreasing (BFD) is an offline heuristic. For online, we adapt.
+    # 2. First Fit (FF) is simple.
+    # 3. Worst Fit (WF) puts into the bin with most space (opposite of best fit).
+    # Our goal is somewhere between Best Fit and a balanced approach.
+
+    # Let's define a score function `S(R, item)` for a bin with remaining capacity `R` for item `item`.
+    # We want `S` to be high when `R` is slightly larger than `item`.
+    # We want `S` to be positive but not necessarily peak for `R >> item`.
+
+    # Try a score that rewards "just enough" space AND "plenty of space":
+    # Score = f(surplus) + g(remaining_capacity)
+    # f(surplus) = exp(-surplus) -> high for small surplus
+    # g(remaining_capacity) = linear or capped linear increase
+
+    # Let's combine the idea of minimizing waste with a penalty for *very* large remaining capacities.
+    # Or, a bonus for moderate remaining capacities.
+    #
+    # If bin_cap < item: priority = 0
+    # If item <= bin_cap < item + threshold: priority is high and decreases with bin_cap.
+    # If bin_cap >= item + threshold: priority is moderate and increases with bin_cap.
+
+    # Let's use a score that is high for surplus `s = R - item`, and then decays.
+    # `score = exp(-s / scale)` where `scale` controls how fast it decays.
+    # A larger `scale` means slower decay, giving more similar priorities to bins with larger surpluses.
+    # This is essentially what `priority_v1` does. The "balance" might be in choosing `scale`.
+    # If we want to balance "minimal waste" and "leaving space", `scale` could be related to `item` or average bin size.
+
+    # Let's try a score that is explicitly composed of two parts:
+    # Part 1: Reward for fitting tightly (minimize surplus). `exp(-surplus)`.
+    # Part 2: Reward for having *some* significant remaining space, not too little, not too much.
+    # This could be a Gaussian-like function centered around some "ideal" remaining space.
+    # Or a capped linear function.
+
+    # Simple balanced approach:
+    # Prioritize bins that are close to fitting, and among those, pick the one with the smallest surplus.
+    # If no bins are close, then consider bins with larger capacity.
+
+    # Let's try:
+    # High priority for surplus = 0, decaying for positive surplus.
+    # A secondary boost for bins with significantly larger remaining capacity.
+
+    # Score = exp(-(bins_remain_cap - item) / T)  for bins that can fit.
+    # Let T be a parameter that controls the sensitivity to surplus.
+    # A smaller T means only bins very close to `item` get high scores.
+    # A larger T means bins with larger surpluses also get relatively high scores.
+    # To achieve "balance", we can set T to be, for example, the average remaining capacity of all bins,
+    # or a fraction of the bin capacity.
+
+    # Let's use T = 1.0 (or a normalized bin capacity) as a baseline.
+    # `priorities[can_fit_mask] = np.exp(-surplus_capacity / 1.0)`
+
+    # What if we want to explicitly give a bonus for bins that can fit *multiple* such items?
+    # Or a bonus for bins that have capacity > 2 * item?
+    # This can lead to complex scoring.
+
+    # Let's try a function that rewards being "close enough":
+    # For a bin with remaining capacity `R`, and item `I`.
+    # Score = 1 if `R < I`.
+    # Score = `exp(-(R-I))` if `I <= R < I + W`.
+    # Score = `exp(-W) + alpha * (R - (I+W))` if `R >= I + W`.
+    # Here, `W` is a threshold for "close enough". `alpha` controls the boost for larger bins.
+    # This can be simplified.
+
+    # Let's use a different approach:
+    # Prioritize bins by `-(remaining_capacity - item)`. This is the "best fit" score.
+    # If multiple bins have the same best fit score (e.g., identical remaining capacities),
+    # we might break ties by choosing the one with larger remaining capacity.
+    # This tie-breaking is a form of "balanced" approach.
+
+    # Let's try a combined score:
+    # `score = (bins_remain_cap[can_fit_mask] - item) - alpha * bins_remain_cap[can_fit_mask]`
+    # We want minimal waste, so `bins_remain_cap - item` should be small.
+    # So, `-(bins_remain_cap - item)` should be high.
+    # For "balance", let's penalize very large remaining capacities less severely.
+    #
+    # Consider: `score = -(bins_remain_cap[can_fit_mask] - item)` -> best fit.
+    # To balance, we can add a term that rewards larger bins but not excessively.
+    # `score = -(bins_remain_cap[can_fit_mask] - item) + alpha * log(bins_remain_cap[can_fit_mask])`
+    # `alpha` would need to be tuned. `log` scales down larger capacities.
+    # Let's pick `alpha = 0.1`.
+
+    # `priorities[can_fit_mask] = -(surplus_capacity) + 0.1 * np.log(bins_remain_cap[can_fit_mask])`
+    # `np.log(0)` is problematic, but `bins_remain_cap[can_fit_mask]` will be >= `item`,
+    # and `item` is usually positive. So `bins_remain_cap` will be positive.
+
+    # Let's re-evaluate the reflection: "Softmax-like transformations can create more nuanced priorities than simple inverses."
+    # `priority_v1` uses `exp(-surplus)`. This is already a softmax-like transformation of the "best fit" scores.
+    # The "nuance" could come from modifying the input to `exp`.
+
+    # Let's modify the input to `exp` in `priority_v1`.
+    # `priority_v1` uses `score = -surplus_capacity`.
+    # To balance, let's add a term that favors larger bins.
+    # `score = -surplus_capacity + alpha * bins_remain_cap[can_fit_mask]`
+    # If `alpha` is small, this gives priority to minimal surplus bins.
+    # If `alpha` is larger, it starts favoring larger bins.
+    # Let `alpha = 0.05`. This means a bin with `item=10, R=11` has score `-1`. A bin with `item=10, R=21` has score `-11 + 0.05*21 = -11 + 1.05 = -9.95`.
+    # `exp(-1) ≈ 0.368`. `exp(-9.95) ≈ 0.000045`. This still heavily favors minimal surplus.
+
+    # What if we use a function that peaks at some `R > I`?
+    # For example, a Gaussian-like function centered at `I + delta`.
+    # `score = exp(-((R - (I + delta)) / sigma)^2)`
+    # This would heavily favor bins around `I + delta`.
+    # This is a form of "balanced" fit. `delta` and `sigma` would be tuning parameters.
+    # Let's set `delta = 0` and `sigma = 1.0`. This is `exp(-surplus^2)`.
+    # If `item=5`, `R=6`, surplus=1, score=exp(-1).
+    # If `item=5`, `R=10`, surplus=5, score=exp(-25).
+
+    # Let's try to explicitly reward bins that are "large enough" and also "not too large".
+    # Perhaps reward bins where `R / item` is in a sweet spot, say `[1.1, 1.5]`.
+    # And for `R` outside this, score decreases.
+
+    # Let's consider a simple modification to `priority_v1` to introduce balance:
+    # Instead of `-surplus_capacity`, use a function that decays slower for larger `R`.
+    # `score = -surplus_capacity / (1 + alpha * bins_remain_cap[can_fit_mask])`
+    # If `alpha = 0`, it's `priority_v1`.
+    # If `alpha` is small positive, the denominator grows, making the score less negative (higher `exp`).
+    # E.g., `alpha = 0.1`.
+    # `item=10, R=11` (surplus=1). Score = `-1 / (1 + 0.1*11) = -1 / 2.1 ≈ -0.476`. `exp(-0.476) ≈ 0.62`.
+    # `item=10, R=21` (surplus=11). Score = `-11 / (1 + 0.1*21) = -11 / 3.1 ≈ -3.54`. `exp(-3.54) ≈ 0.029`.
+    # This seems to give higher relative priority to larger bins compared to v1.
+
+    # Let's formalize this.
+    # We want to prioritize bins where `R` is close to `I`.
+    # Let `s = R - I` be the surplus.
+    # The base priority is related to `exp(-s)`.
+    # To add balance, we want to boost priority for larger `R`.
+    # Consider `score = -(s / (1 + alpha * R))`.
+    # We want `alpha` to be small, e.g., `0.05` or `0.1`.
+    # This function is more lenient on larger surpluses if the remaining capacity `R` is also large.
+
+    alpha = 0.1 # Tuning parameter. Smaller alpha gives more weight to minimal surplus.
+
+    # Initialize priorities to zero. Bins that cannot fit will retain this.
+    priorities = np.zeros_like(bins_remain_cap)
+
+    # Identify bins that can accommodate the item.
+    valid_mask = bins_remain_cap >= item
+
+    # For valid bins, calculate the score.
+    # `surplus_capacity = bins_remain_cap[valid_mask] - item`
+    # `remaining_capacity = bins_remain_cap[valid_mask]`
+    #
+    # The score is designed to be higher for bins with smaller surplus.
+    # It also incorporates a term that slightly favors larger remaining capacities,
+    # providing a "balanced" approach.
+    # The term `alpha * remaining_capacity` in the denominator of the surplus division
+    # reduces the penalty for larger surpluses when the remaining capacity is large.
+    # This makes the scores for larger bins "less negative" (closer to zero) compared
+    # to a simple `-surplus` score.
+    surplus_capacity = bins_remain_cap[valid_mask] - item
+    remaining_capacity_valid = bins_remain_cap[valid_mask]
+
+    # Calculate the raw scores.
+    # We use `np.log1p` to handle potential `remaining_capacity_valid` being zero or very small,
+    # although given `valid_mask`, `remaining_capacity_valid >= item >= 0`.
+    # Using `log1p(x)` is `log(1+x)`. `log1p(0) = 0`.
+    # Let's stick to a simpler form for now.
+    # `score = -surplus_capacity / (1 + alpha * remaining_capacity_valid)`
+    # This ensures the denominator is always at least 1.
+
+    # We need to avoid division by zero if `1 + alpha * remaining_capacity_valid` is zero,
+    # which is not possible here as `alpha` and `remaining_capacity_valid` are non-negative.
+    # However, for very large `remaining_capacity_valid`, the score might become close to `-surplus_capacity / (alpha * remaining_capacity_valid)`.
+
+    # Let's use the `exp` function to transform these scores into probabilities/priorities.
+    # `exp(score)` will be higher for scores closer to zero.
+    # A score of 0 means perfect fit with no large bin bonus.
+    # A score closer to 0 means minimal surplus or large bin bonus.
+    scores_for_valid_bins = -surplus_capacity / (1.0 + alpha * remaining_capacity_valid)
+
+    # Assign the calculated scores to the priorities array for valid bins.
+    priorities[valid_mask] = scores_for_valid_bins
+
+    # Apply the exponential function.
+    return np.exp(priorities)
+```

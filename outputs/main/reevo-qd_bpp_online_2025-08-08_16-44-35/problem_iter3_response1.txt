@@ -1,0 +1,88 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined Almost Full Fit strategy.
+
+    This version refines the Almost Full Fit (AFF) strategy by prioritizing bins
+    that are almost full, but with a smoother preference using a sigmoid function.
+    It aims to select bins with the smallest *positive* remaining capacity after
+    placing the item, encouraging fuller bins without abruptly penalizing slightly
+    larger remaining capacities. Tie-breaking favors bins with lower indices.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority.
+    """
+    # Initialize priorities to a very low value (effectively -infinity for maximization)
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate remaining capacity after placing the item
+    remaining_after_item = bins_remain_cap[can_fit_mask] - item
+
+    # We want to prioritize bins with the smallest *positive* remaining capacity.
+    # A sigmoid function can provide a smooth preference.
+    # We can map the remaining capacity to a priority score. A smaller positive
+    # remaining capacity should yield a higher priority.
+    #
+    # Let's define a function that maps remaining capacity `r` to a priority score:
+    # - If `r` is very small positive, priority should be high.
+    # - If `r` is larger positive, priority should be lower.
+    # - If `r` is negative (item doesn't fit), priority is -inf (already handled).
+    #
+    # A candidate function could be: sigmoid(C - r), where C is a constant
+    # to center the sigmoid. Or, more directly, we want a function that
+    # decreases as `r` increases.
+    #
+    # Consider `1 / (1 + r)` for positive `r`. This gives high values for small `r`.
+    # However, for numerically stable sigmoid, we can use `exp(-k*r)`.
+    # We want higher priority for smaller `r`, so `exp(-k*r)` is suitable.
+    # Let's use a scaled version for better control, e.g., `exp(-k * remaining_after_item)`.
+    # A smaller `k` will make the preference smoother. Let's pick a moderate `k`.
+    # The range of `remaining_after_item` could be [0, BinCapacity - item].
+    # We want to give highest priority when remaining_after_item is close to 0.
+
+    # A simple approach without sigmoid first, focusing on "smallest positive remaining capacity":
+    # Prioritize bins where `remaining_after_item` is smallest.
+    # So, negative of `remaining_after_item` works: `-(bins_remain_cap[can_fit_mask] - item)`
+    # This is what priority_v1 does.
+
+    # To incorporate the "smooth preference" and "smallest positive remaining capacity"
+    # from the reflection using a sigmoid-like behavior or simple transformation:
+    # We want to reward small positive remaining capacities.
+    # A common heuristic for "almost full" is to use `1 / remaining_capacity`.
+    # But we need to handle `remaining_capacity == 0` and `remaining_capacity < 0`.
+    #
+    # Let's transform the remaining capacity:
+    # For `r = remaining_after_item`:
+    # If `r > 0`: priority should be high, decreasing as `r` increases.
+    # If `r = 0`: this is ideal, highest priority.
+    #
+    # A function like `1 / (1 + r)` (or similar for smooth decay) could work.
+    # To emphasize "smallest positive", we can use `exp(-k*r)`.
+    # Let's use `k=1` for simplicity.
+
+    # Calculate priority scores for bins that can fit the item.
+    # We want to give higher priority to bins with smaller remaining capacity.
+    # Using `np.exp(-remaining_after_item)` provides a smooth decrease in priority
+    # as remaining capacity increases. This prioritizes bins that will be closer to full.
+    #
+    # If remaining_after_item = 0 (perfect fit), exp(0) = 1 (high priority).
+    # If remaining_after_item = 5, exp(-5) is small (low priority).
+    # This aligns with prioritizing bins that will be almost full.
+
+    priorities[can_fit_mask] = np.exp(-remaining_after_item)
+
+    # Tie-breaking: NumPy's `argmax` will return the index of the first occurrence
+    # of the maximum value. This implicitly favors lower bin indices in case of ties,
+    # fulfilling the tie-breaking requirement.
+
+    return priorities
+```

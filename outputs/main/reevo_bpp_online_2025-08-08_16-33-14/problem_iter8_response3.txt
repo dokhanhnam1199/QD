@@ -1,0 +1,87 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Implements an improved priority function for the online Bin Packing Problem (BPP).
+    This version strictly prioritizes perfect fits, then tight fits, and uses a
+    consistent decay for other fits, with a small stochastic element for exploration.
+
+    Scoring Logic:
+    1. Perfect Fit: remaining capacity is zero after packing. Highest priority.
+    2. Tight Fit: remaining capacity is positive but less than or equal to a small threshold
+       (e.g., a fraction of the bin capacity or a fixed small value). Prioritizes bins
+       that are nearly full but not perfectly fit.
+    3. Other Fits: For remaining bins, priority decreases as the remaining capacity increases.
+       This encourages using bins that are less full.
+
+    Args:
+        item: Size of the item to be packed.
+        bins_remain_cap: An array of the remaining capacities of each bin.
+
+    Returns:
+        A numpy array of the same size as bins_remain_cap, where each element is the
+        priority score for the corresponding bin. Higher scores indicate higher priority.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit the item
+
+    fitting_bins_caps = bins_remain_cap[can_fit_mask]
+    remaining_after_fit = fitting_bins_caps - item
+
+    # Define score components
+    epsilon = 1e-9  # For handling perfect fits and avoiding division by zero
+
+    # Threshold for "tight" fits: a small remaining capacity.
+    # This can be a fraction of the bin's capacity or a fixed small value.
+    # Let's use a small fraction of the item size as a heuristic for tightness.
+    tight_threshold = item * 0.1
+    if tight_threshold < epsilon * 10: # Ensure it's not too small
+        tight_threshold = epsilon * 10
+
+    # Initialize scores for different fit categories
+    perfect_fit_scores = np.zeros_like(remaining_after_fit)
+    tight_fit_scores = np.zeros_like(remaining_after_fit)
+    other_fit_scores = np.zeros_like(remaining_after_fit)
+
+    # 1. Perfect Fit: Highest priority.
+    perfect_mask = (remaining_after_fit < epsilon)
+    perfect_fit_scores[perfect_mask] = 100.0  # High fixed score for perfect fits
+
+    # 2. Tight Fit: Prioritize bins that leave little room after packing,
+    #    specifically when remaining capacity is positive but small.
+    tight_mask = (remaining_after_fit > epsilon) & (remaining_after_fit <= tight_threshold)
+    # Score decreases as remaining_after_fit increases within the tight range.
+    # Use a function like 1/(1+x).
+    tight_fit_scores[tight_mask] = 50.0 / (1.0 + remaining_after_fit[tight_mask] * 5) # Scale for higher priority
+
+    # 3. Other Fits: For bins where remaining capacity is greater than the tight threshold.
+    #    Priority decreases as remaining capacity increases.
+    other_mask = (remaining_after_fit > tight_threshold)
+    # Use a decaying function. 1 / (1 + x).
+    other_fit_scores[other_mask] = 10.0 / (1.0 + remaining_after_fit[other_mask] * 2) # Lower base score, decay
+
+    # Combine scores using weights to reflect the priority order: Perfect > Tight > Other
+    combined_scores = (
+        perfect_fit_scores * 1.0 +  # Max weight for perfect fits
+        tight_fit_scores * 0.8 +    # Significant weight for tight fits
+        other_fit_scores * 0.4      # Lower weight for general fits
+    )
+
+    # Add a small random component for exploration to all fitting bins
+    exploration_factor = 0.05
+    max_possible_score = 100.0 + (50.0 / (1.0 + epsilon)) * 0.8 + (10.0 / (1.0 + tight_threshold)) * 0.4
+    random_scores = np.random.rand(len(fitting_bins_caps)) * exploration_factor * max_possible_score
+    combined_scores += random_scores
+
+    # Assign the calculated scores to the corresponding bins in the original priority array
+    priorities[can_fit_mask] = combined_scores
+
+    return priorities
+```

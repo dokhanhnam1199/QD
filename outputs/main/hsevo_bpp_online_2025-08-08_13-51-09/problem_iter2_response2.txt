@@ -1,0 +1,71 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Prioritizes bins based on a combination of 'best fit' and 'least remaining capacity'.
+    It favors bins that closely fit the item while also considering those that will have
+    the least remaining space after packing, encouraging fuller bins.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Identify bins that can accommodate the item
+    available_bins_mask = bins_remain_cap >= item
+    
+    if not np.any(available_bins_mask):
+        return priorities  # No bins available
+
+    available_caps = bins_remain_cap[available_bins_mask]
+    
+    # --- Heuristic 1: Sigmoid on Fit Ratio (modified) ---
+    # Metric 1: How well the item fits the bin's remaining capacity.
+    # We use item / available_caps to represent how full the bin *will become*.
+    # A smaller ratio means a tighter fit (higher priority).
+    # We invert this for the sigmoid input to favor smaller ratios.
+    fit_ratios = item / available_caps
+    
+    # Sigmoid for fit ratio: -fit_ratios emphasizes smaller ratios.
+    # Scale and shift to center the sigmoid around a 'good fit' point (e.g., ratio close to 0).
+    # Adding a small epsilon to avoid division by zero or log(0) issues if scaling is applied later.
+    sigmoid_fit_input = -fit_ratios * 5.0 # Steepness parameter
+    priorities[available_bins_mask] = 1 / (1 + np.exp(-sigmoid_fit_input))
+
+    # --- Heuristic 11: Inverse Distance (modified for remaining capacity) ---
+    # Metric 2: Prioritize bins with less remaining capacity *after* packing.
+    # This is similar to "best fit" by minimizing leftover space.
+    remaining_capacities_after_fit = available_caps - item
+    
+    # Use inverse of remaining capacity, adding a small epsilon to avoid division by zero.
+    # Smaller remaining capacity should lead to higher priority.
+    inverse_remaining_cap = 1.0 / (remaining_capacities_after_fit + 1e-9)
+
+    # Normalize inverse remaining capacities to combine with fit priorities.
+    # This ensures that the remaining capacity metric is on a similar scale.
+    max_inv_rem_cap = np.max(inverse_remaining_cap)
+    if max_inv_rem_cap > 0:
+        normalized_inverse_remaining_cap = inverse_remaining_cap / max_inv_rem_cap
+    else:
+        normalized_inverse_remaining_cap = np.zeros_like(inverse_remaining_cap)
+
+    # --- Combination ---
+    # Combine the two metrics. We can use a weighted sum or a multiplication.
+    # Multiplication can emphasize bins that are good in *both* aspects.
+    # Let's use a weighted sum for more flexibility.
+    
+    # Assign weights to each heuristic. These can be tuned.
+    weight_fit = 0.7
+    weight_remaining = 0.3
+    
+    combined_priorities = (weight_fit * priorities[available_bins_mask] + 
+                           weight_remaining * normalized_inverse_remaining_cap)
+
+    # Normalize the final combined priorities to be between 0 and 1,
+    # ensuring the highest priority bin is clearly selected.
+    max_combined_priority = np.max(combined_priorities)
+    if max_combined_priority > 0:
+        priorities[available_bins_mask] = combined_priorities / max_combined_priority
+    else:
+        priorities[available_bins_mask] = np.zeros_like(combined_priorities)
+
+    return priorities
+```

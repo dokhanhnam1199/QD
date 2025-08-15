@@ -1,0 +1,87 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using Smoothed Best Fit.
+
+    This heuristic prioritizes bins that can accommodate the item. It uses a smoothed,
+    non-linear function to rank bins based on their post-placement remaining capacity,
+    favoring tighter fits. The preference for tighter fits is tunable via a 'steepness'
+    parameter.
+
+    The score for a bin is 0 if the item cannot fit. For bins that can fit, the score
+    is calculated using a sigmoid-like transformation of the *negative* post-placement
+    remaining capacity: `1 / (1 + exp(-steepness * (bins_remain_cap - item)))`.
+    This function is monotonically increasing with respect to `bins_remain_cap - item`,
+    meaning smaller non-negative remaining capacities (tighter fits) get higher scores,
+    approaching 1.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Scores range from 0 (cannot fit or very loose fit) to 1 (perfect or near-perfect fit).
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    steepness = 5.0  # Tunable parameter: higher values mean stronger preference for tight fits.
+
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the post-placement remaining capacity for bins that can fit the item.
+    post_placement_remaining_cap = bins_remain_cap[can_fit_mask] - item
+
+    # To favor smaller remaining capacities (tighter fits), we use a sigmoid-like function
+    # that increases as the remaining capacity decreases.
+    # The function `1 / (1 + exp(-x))` increases as `x` increases.
+    # We want it to increase as `post_placement_remaining_cap` decreases.
+    # So, we set `x = -steepness * post_placement_remaining_cap`.
+    # A small `post_placement_remaining_cap` (tight fit) results in a large negative `x`,
+    # leading to `exp(-x)` being large, and thus the score `1/(1+large)` being small.
+    # This is the opposite of what we want.
+
+    # Let's re-evaluate the reflection: "Prioritize bins with minimal *post-placement* remaining capacity."
+    # This means smaller (bins_remain_cap - item) should yield higher priority.
+    # A sigmoid function like `1 / (1 + exp(x))` is decreasing in `x`.
+    # To make it decrease as `(bins_remain_cap - item)` increases, we use `x = steepness * (bins_remain_cap - item)`.
+    # This was the logic in v1.
+
+    # The reflection also says: "Use smoothed, non-linear functions (like sigmoid/softmax on negative surplus)".
+    # Let's interpret "negative surplus" as `item - bins_remain_cap` for bins that *don't* fit,
+    # and perhaps `bins_remain_cap - item` (the remaining capacity) for bins that *do* fit.
+    #
+    # If we want to prioritize bins with minimal *post-placement* remaining capacity,
+    # it means we want to maximize `-(bins_remain_cap - item)` (or minimize `bins_remain_cap - item`).
+    #
+    # Consider the function `f(x) = sigmoid(k * (-x))`, where `x` is the post-placement remaining capacity.
+    # `f(x) = 1 / (1 + exp(-k * x))`
+    # This function increases as `x` decreases. So, smaller remaining capacity gives higher score.
+    # This aligns with the reflection and the goal.
+
+    # Calculate the argument for the sigmoid function: -steepness * post_placement_remaining_cap
+    # A smaller remaining capacity (tighter fit) leads to a more negative argument,
+    # which when negated by `-steepness` becomes a larger positive value,
+    # resulting in a score closer to 1.
+    # A larger remaining capacity (looser fit) leads to a less negative argument,
+    # which when negated by `-steepness` becomes a smaller positive value (or negative),
+    # resulting in a score closer to 0.5 or lower.
+    exponent_args = -steepness * post_placement_remaining_cap
+
+    # Clip the exponent arguments to prevent potential overflow/underflow in np.exp.
+    # Values like +/- 700 can cause issues. A range like [-30, 30] is generally safe.
+    # For very negative args, exp -> 0, score -> 1. For very positive args, exp -> inf, score -> 0.
+    # Here, if `post_placement_remaining_cap` is very small (tight fit), `exponent_args` is very negative,
+    # `np.exp` approaches 0, and the score approaches 1.
+    # If `post_placement_remaining_cap` is very large (loose fit), `exponent_args` is very positive,
+    # `np.exp` approaches infinity, and the score approaches 0.
+    clipped_exponent_args = np.clip(exponent_args, -30.0, 30.0)
+
+    # Calculate the priority scores for the valid bins using the sigmoid function.
+    # Scores range from ~0 (very loose fit) to ~1 (very tight fit).
+    priorities[can_fit_mask] = 1.0 / (1.0 + np.exp(clipped_exponent_args))
+
+    return priorities
+```

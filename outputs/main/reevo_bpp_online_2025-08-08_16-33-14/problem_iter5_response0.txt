@@ -1,0 +1,103 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Implements a refined priority function for the online Bin Packing Problem,
+    focusing on a more nuanced "best fit" strategy with penalized over-fitting.
+
+    The function categorizes bins based on their remaining capacity relative to the item size:
+    1. Perfect Fit: Remaining capacity is zero (or very close to it). Highest priority.
+    2. Tight Fit: Remaining capacity is positive but not excessively large. Prioritized by
+       how little space is left (closer to zero is better).
+    3. Moderate Fit: Remaining capacity is larger, but still leaves a "reasonable" amount
+       of space. These bins are prioritized less than tight fits, but more than loose fits.
+    4. Loose Fit: Remaining capacity is very large. Lowest priority among fitting bins,
+       with a small bonus to encourage exploration of potentially useful large spaces.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher scores indicate higher priority.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the current item
+    can_fit_mask = bins_remain_cap >= item
+    fitting_bins_indices = np.where(can_fit_mask)[0]
+
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit the item
+
+    fitting_bins_caps = bins_remain_cap[can_fit_mask]
+    remaining_after_fit = fitting_bins_caps - item
+
+    # Epsilon for handling floating-point comparisons, especially for perfect fits.
+    epsilon = 1e-6
+
+    # --- Scoring Components ---
+    # We aim to create scores where higher values mean higher priority.
+
+    # Perfect Fit: Highest priority. Give a large, fixed score.
+    perfect_fit_score_value = 100.0
+    perfect_mask = (remaining_after_fit < epsilon)
+    priorities[can_fit_mask][perfect_mask] = perfect_fit_score_value
+
+    # Tight Fit: Bins where remaining capacity is positive but small.
+    # These are good candidates for "best fit".
+    # Prioritize bins that leave LESS remaining space (closer to zero).
+    # Use a score that is inversely proportional to remaining capacity,
+    # but avoid division by zero by adding 1.
+    # Penalize bins that leave *too much* space within this "tight" category.
+    # We define "tight" as remaining_after_fit <= item size.
+    tight_threshold = item
+    tight_mask = (remaining_after_fit >= epsilon) & (remaining_after_fit <= tight_threshold)
+    if np.any(tight_mask):
+        # Score is inversely proportional to remaining space.
+        # Add a small constant to avoid division by zero if remaining_after_fit is exactly 0 (though epsilon handles this)
+        # Higher score for smaller remaining_after_fit.
+        tight_scores = 1.0 / (remaining_after_fit[tight_mask] + epsilon)
+        # Scale these scores to be lower than perfect fits, but still high.
+        priorities[can_fit_mask][tight_mask] += tight_scores * 5.0 # Scaled down
+
+    # Moderate Fit: Bins where remaining capacity is larger than "tight" but not excessively so.
+    # We want to encourage fits that leave *some* room, but not vast amounts.
+    # Let's define "moderate" as remaining_after_fit > item size and up to, say, 2*item size.
+    moderate_threshold = 2.0 * item
+    moderate_mask = (remaining_after_fit > tight_threshold) & (remaining_after_fit <= moderate_threshold)
+    if np.any(moderate_mask):
+        # Score inversely proportional to remaining space, but with a smaller weight.
+        # This encourages using bins that don't leave *too much* excess.
+        moderate_scores = 1.0 / (remaining_after_fit[moderate_mask] + epsilon)
+        # Scale these scores lower than tight fits.
+        priorities[can_fit_mask][moderate_mask] += moderate_scores * 2.0 # Scaled down further
+
+    # Loose Fit: Bins with very large remaining capacity.
+    # These are least preferred for "best fit" but might be needed.
+    # Give them a very low priority, but a small positive score for exploration.
+    # Define "loose" as remaining_after_fit > 2*item size.
+    loose_mask = (remaining_after_fit > moderate_threshold)
+    if np.any(loose_mask):
+        # Give a small constant boost to these bins.
+        # Could also use an inverse relationship scaled very low.
+        loose_scores = 0.1 # Small constant boost for exploration
+        priorities[can_fit_mask][loose_mask] += loose_scores
+
+    # --- Adjustments and Exploration ---
+    # Add a small stochastic component to all fitting bins to encourage exploration
+    # and break ties. The factor should be small enough not to override deterministic preferences.
+    exploration_noise_factor = 0.05
+    if np.any(can_fit_mask):
+        noise = np.random.rand(len(fitting_bins_caps)) * exploration_noise_factor
+        priorities[can_fit_mask] += noise
+
+    # Ensure no negative priorities and normalize if needed (optional, but good practice for some algorithms)
+    priorities = np.maximum(priorities, 0)
+
+    # For bins that cannot fit the item, their priority remains 0.
+    return priorities
+```

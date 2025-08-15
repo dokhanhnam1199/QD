@@ -1,0 +1,155 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined strategy.
+
+    This strategy prioritizes bins that are a "good fit" for the item,
+    meaning the remaining capacity after placing the item is small but not
+    excessively so (to avoid over-packing). It also gives a slight bonus
+    for bins that become exactly full.
+
+    The priority is calculated as:
+    1. For bins that can fit the item:
+       - Calculate `remaining_after_fit = bins_remain_cap - item`.
+       - If `remaining_after_fit` is very close to zero (perfect fit), assign a high score.
+       - If `remaining_after_fit` is small but positive (tight fit), assign a high score,
+         inversely proportional to `remaining_after_fit`.
+       - If `remaining_after_fit` is larger, assign a lower score.
+       - Penalize bins that become *too* full after placing the item, e.g.,
+         if `remaining_after_fit` is negative (which shouldn't happen if `can_fit_mask` is correct,
+         but as a conceptual extension).
+
+    A scoring function is designed to favor smaller `remaining_after_fit`,
+    with a special high score for `remaining_after_fit` close to zero,
+    and a decay for larger `remaining_after_fit`.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    num_bins = len(bins_remain_cap)
+    scores = np.full_like(bins_remain_cap, -np.inf, dtype=float)
+    epsilon = 1e-9  # For handling near-zero remaining capacities
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        # If no bin can fit, return scores that reflect no valid placement
+        return scores
+
+    fitting_bins_caps = bins_remain_cap[can_fit_mask]
+    remaining_after_fit = fitting_bins_caps - item
+
+    # Priority Calculation:
+    # We want higher scores for smaller remaining_after_fit.
+    # Exact fits (remaining_after_fit near 0) should have the highest priority.
+    # Tight fits (small positive remaining_after_fit) should be next.
+    # Loose fits (larger remaining_after_fit) should have lower priority.
+
+    # Strategy: Use a score that is inversely proportional to (remaining_after_fit + epsilon)
+    # to favor smaller values. Add a bonus for exact fits.
+    # Let's use `1.0 / (remaining_after_fit + epsilon)` as a base.
+    # For exact fits (remaining_after_fit near 0), this value will be large.
+    # For tight fits, it will be slightly smaller.
+    # For loose fits, it will be much smaller.
+
+    # A potential issue: very small remaining_after_fit could lead to huge scores.
+    # We can cap the score or use a function that saturates.
+    # Alternatively, we can define categories.
+
+    # Let's try a tiered approach:
+    # 1. Perfect/Exact Fit: remaining_after_fit < epsilon
+    # 2. Tight Fit: epsilon <= remaining_after_fit <= item_size * tightness_factor
+    # 3. Good Fit: item_size * tightness_factor < remaining_after_fit <= item_size * good_factor
+    # 4. Loose Fit: remaining_after_fit > item_size * good_factor
+
+    # Scoring:
+    # Perfect Fit: Highest score (e.g., 100)
+    # Tight Fit: High score, inversely proportional to remaining_after_fit. Add a small penalty for being *too* tight.
+    # Good Fit: Medium score, inversely proportional to remaining_after_fit.
+    # Loose Fit: Low score.
+
+    # Defining factors for categorization
+    tightness_factor = 1.5  # Bins remaining capacity up to 1.5 * item size are considered "tight"
+    good_fit_factor = 3.0   # Bins remaining capacity up to 3.0 * item size are considered "good"
+
+    # Calculate base score for all fitting bins: inverse of remaining capacity + epsilon
+    # This favors smaller remaining capacity.
+    # Adding `epsilon` to avoid division by zero and ensure even zero remaining gets a score.
+    base_scores = 1.0 / (remaining_after_fit + epsilon)
+
+    # Adjust scores based on categories:
+    # Perfect fits get a significant bonus.
+    # Tight fits get a good score.
+    # Good fits get a moderate score.
+    # Loose fits get a low score.
+
+    # Create score adjustments for each category
+    perfect_fit_mask = (remaining_after_fit < epsilon)
+    tight_fit_mask = (remaining_after_fit >= epsilon) & (remaining_after_fit <= tightness_factor * item)
+    good_fit_mask = (remaining_after_fit > tightness_factor * item) & (remaining_after_fit <= good_fit_factor * item)
+    loose_fit_mask = (remaining_after_fit > good_fit_factor * item)
+
+    # Assign base scores and then modify for category
+    category_scores = np.zeros_like(remaining_after_fit)
+
+    # Perfect Fit: Highest priority
+    category_scores[perfect_fit_mask] = 100.0
+    # Add the base score here to give some preference within perfect fits if epsilon is not exactly 0
+    category_scores[perfect_fit_mask] += base_scores[perfect_fit_mask]
+
+    # Tight Fit: Prioritize, but scale down from perfect.
+    # Use base score and scale it. A factor of 0.7 for example.
+    category_scores[tight_fit_mask] = base_scores[tight_fit_mask] * 0.8
+
+    # Good Fit: Lower priority than tight.
+    category_scores[good_fit_mask] = base_scores[good_fit_mask] * 0.4
+
+    # Loose Fit: Lowest priority.
+    category_scores[loose_fit_mask] = base_scores[loose_fit_mask] * 0.1
+
+    # Ensure perfect fits remain dominant, even if base_scores are low for other categories.
+    # If remaining_after_fit is very small, base_scores can be very large.
+    # We need to ensure that smaller *positive* remaining_after_fit is better.
+    # The current `base_scores = 1.0 / (remaining_after_fit + epsilon)` already does this.
+
+    # Let's refine the scoring for tight and good fits to be more directly based on remaining capacity.
+    # We want smaller remaining_after_fit to be better.
+    # For tight fits: Priority = C1 - C2 * remaining_after_fit
+    # For good fits: Priority = C3 - C4 * remaining_after_fit (with C3, C4 smaller than C1, C2)
+
+    # Let's use a simple piecewise scoring:
+    final_fitting_scores = np.zeros_like(remaining_after_fit)
+
+    # Perfect Fit: Very high score for bins that leave almost no space.
+    perfect_fit_bonus = 1000.0
+    final_fitting_scores[perfect_fit_mask] = perfect_fit_bonus + (epsilon - remaining_after_fit[perfect_fit_mask])
+
+    # Tight Fit: Prefer smaller remaining capacity. A linear decay from a high value.
+    # Let's set a maximum score for tight fits and linearly decrease it.
+    max_tight_score = 500.0
+    # Scale remaining_after_fit relative to item size for linear decay.
+    # The slope determines how quickly priority drops.
+    # We want priority to be high when remaining_after_fit is small, and lower as it approaches tightness_factor * item.
+    slope_tight = (max_tight_score - 50.0) / (tightness_factor * item + epsilon) # Ensure slope is reasonable
+    final_fitting_scores[tight_fit_mask] = max_tight_score - slope_tight * remaining_after_fit[tight_fit_mask]
+
+    # Good Fit: Similar logic but with lower scores and potentially shallower slope.
+    max_good_score = 100.0
+    slope_good = (max_good_score - 10.0) / (good_fit_factor * item - tightness_factor * item + epsilon)
+    final_fitting_scores[good_fit_mask] = max_good_score - slope_good * remaining_after_fit[good_fit_mask]
+
+    # Loose Fit: Very low score, possibly just a small constant.
+    final_fitting_scores[loose_fit_mask] = 10.0 - (remaining_after_fit[loose_fit_mask] / (item + epsilon)) * 5.0 # Penalize larger remaining
+
+    # Clip scores to be non-negative and ensure they don't go below a minimum.
+    final_fitting_scores = np.maximum(final_fitting_scores, 0.1) # Ensure some minimal priority
+
+    # Assign the computed priorities to the fitting bins
+    scores[can_fit_mask] = final_fitting_scores
+
+    return scores
+```

@@ -1,0 +1,89 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a blended strategy.
+
+    This strategy prioritizes exact fits, uses a decay function for near-exact fits,
+    and applies a Softmax-like normalization for smooth probability distribution.
+    It aims to favor bins where the remaining capacity is closest to the item size,
+    with a strong preference for exact matches.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    eligible_bins_cap = bins_remain_cap[can_fit_mask]
+
+    if not eligible_bins_cap.size:
+        return np.zeros_like(bins_remain_cap)
+
+    # Calculate the "fit residual": how much space is left after placing the item.
+    # Smaller values indicate a tighter fit.
+    fit_residuals = eligible_bins_cap - item
+
+    # Prioritize exact fits (residual = 0). For near-exact fits, use an exponential
+    # decay based on the residual. Bins with smaller residuals get higher scores.
+    # A small epsilon is added to the residual to ensure that exact fits (residual=0)
+    # get a distinct, higher score than bins that leave a tiny positive residual.
+    # The decay_factor controls how quickly the priority drops as the residual increases.
+    decay_factor = 0.5
+    # We want smaller residuals to have higher scores.
+    # An exponential decay is suitable: exp(-decay_factor * residual)
+    # For residual = 0 (exact fit), score is exp(0) = 1.0.
+    # For residual > 0, score decreases.
+    # Add a small constant to the exponent to ensure that even exact fits have a score
+    # that can be part of a meaningful softmax, avoiding potential issues if all residuals are 0.
+    # Alternatively, we can explicitly set exact fits to a high base value.
+    
+    # Strategy:
+    # 1. Exact fits get a high score (e.g., 1.0).
+    # 2. Near-exact fits get a score based on exponential decay of the residual.
+    # 3. Use softmax to normalize these scores into probabilities.
+
+    # Base scores: 1.0 for exact fits, and an exponentially decaying score for others.
+    # The decay_rate ensures that bins with residuals closer to 0 are preferred.
+    # We use `fit_residuals + 1e-6` to ensure that even for exact fits (residual=0),
+    # we have a non-zero value to pass to exp, and to differentiate exact from very close fits slightly.
+    # However, a cleaner approach is to handle exact fits explicitly.
+    
+    scores = np.where(fit_residuals == 0,
+                      1.0,  # High priority for exact fits
+                      np.exp(-decay_factor * fit_residuals)) # Decreasing priority for near-fits
+
+    # Apply Softmax-like normalization to convert scores into probabilities.
+    # This ensures that the priorities sum to 1 across the eligible bins and
+    # that preferences are smoothly distributed.
+    # The temperature parameter controls the "sharpness" of the distribution.
+    # A lower temperature makes the probabilities sharper (more emphasis on best fits).
+    temperature = 0.2
+    
+    try:
+        # Ensure scores are not excessively large before exponentiation
+        # Clipping can help prevent overflow, but Softmax should handle it better with exp
+        # Adding a small constant to the scores before softmax can also help stabilize.
+        # A common practice is to subtract the maximum score before exponentiating to avoid overflow.
+        max_score = np.max(scores)
+        normalized_scores = (scores - max_score) / temperature
+        exp_scores = np.exp(normalized_scores)
+        softmax_priorities = exp_scores / np.sum(exp_scores)
+    except OverflowError:
+        # In case of extreme values leading to overflow, fall back to a uniform distribution
+        # or a simpler heuristic if softmax fails. For now, uniform is a safe fallback.
+        softmax_priorities = np.ones_like(eligible_bins_cap) / eligible_bins_cap.size
+    except ZeroDivisionError:
+        # If sum of exp_scores is zero (highly unlikely with positive scores), fallback
+        softmax_priorities = np.ones_like(eligible_bins_cap) / eligible_bins_cap.size
+
+    # Map the calculated priorities back to the original bin indices
+    priorities[can_fit_mask] = softmax_priorities
+
+    return priorities
+```

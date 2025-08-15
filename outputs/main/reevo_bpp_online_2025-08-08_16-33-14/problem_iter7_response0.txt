@@ -1,0 +1,246 @@
+[Prior reflection]
+Prioritize perfect fits, then tight ones. Penalize wasted space and over-packing. Tune thresholds, weights, and explore stochastically for improved bin packing.
+The reflection suggests prioritizing perfect fits and tight fits, while penalizing wasted space. It also mentions tuning thresholds and weights, and the benefit of stochastic exploration. The current `priority_v1` seems to follow these principles.
+
+To improve `priority_v1` based on this reflection:
+1.  **Refine Thresholds:** The current thresholds (`item`, `3.0 * item`) are hardcoded. Ideally, these might be dynamic or related to the bin capacity or average item size. However, without more context on the problem instance (e.g., bin capacity, distribution of item sizes), these are reasonable starting points.
+2.  **Tuning Weights/Decay Functions:** The weights (`1000.0`, `50.0`, `20.0`, `10.0`) and decay functions (`1/(1+x)`, `1/(1+sqrt(x))`, `1/(1+x/item)`) can be adjusted. The idea is that perfect fits are *much* better than tight fits, which are better than moderate, and wasteful fits are actively discouraged. The current structure seems to capture this hierarchy.
+3.  **Stochastic Exploration:** The current `priority_v1` includes a small random jitter. This is good for exploration. We could potentially make this jitter more pronounced or strategic, but a small uniform jitter is a standard and effective approach.
+4.  **Penalize Over-packing:** The prompt doesn't explicitly mention over-packing as a case within the priority function (since `bins_remain_cap >= item` is already filtered). However, if `bins_remain_cap` could become negative due to a bad heuristic choice prior to this function, we'd need to handle that. Assuming `bins_remain_cap` is always non-negative and the item fits.
+5.  **Adaptive Thresholds:** The reflection mentions "adaptive thresholds." `priority_v1` attempts this somewhat by making `wasteful_threshold` dependent on `item` size. A more adaptive approach could consider the *distribution* of `bins_remain_cap` or the `item` size relative to the *bin capacity*. However, bin capacity isn't directly provided to the function. We only have `bins_remain_cap`. We can infer the *initial* capacity of a bin if we had the original `bins_capacity` array, but we don't.
+
+Let's try to slightly adjust the scoring to make the "tight fit" penalty steeper and the "wasteful fit" penalty more severe, while ensuring the hierarchy remains. We'll keep the core logic but refine the constants and decay rates.
+
+**Specific changes for `priority_v2`:**
+*   **Perfect Fit:** Keep the highest score, perhaps slightly reduce the multiplier for more room for other categories.
+*   **Tight Fit:** Make the decay function more aggressive (e.g., `1 / (1 + x^2)`) to strongly favor *very* tight fits over slightly less tight ones.
+*   **Moderate Fit:** Make the decay less steep than tight, but still significant.
+*   **Wasteful Fit:** Increase the penalty, perhaps making it more sensitive to the *amount* of wasted space relative to the item size.
+
+Let's define `C` as bin capacity. If we assume a standard bin capacity (e.g., 1.0, which is common in normalized BPP), we could use that. Since we don't have it, we'll rely on `item` size and `remaining_after_fit`.
+
+**Revised thought process for `priority_v2`:**
+*   **Perfect Fit:** Max score. Let's keep it high but not excessively so. `100.0`.
+*   **Tight Fit:** Remaining space `r` where `0 < r <= item`. Score proportional to `1 / (1 + k * r^2)`. A higher `k` means more penalty for larger `r`. Let's use `k=5`. Score: `80.0 * (1 / (1 + 5 * remaining_after_fit[tight_mask]^2))`.
+*   **Moderate Fit:** Remaining space `item < r <= wasteful_threshold`. Score proportional to `1 / (1 + k * r)`. Let `k=1`. Score: `50.0 * (1 / (1 + remaining_after_fit[moderate_mask]))`.
+*   **Wasteful Fit:** Remaining space `r > wasteful_threshold`. Score should be negative or very low. We want to actively avoid these. A penalty that grows linearly with `(r - wasteful_threshold) / item`. Let `wasteful_threshold = 2.0 * item` for a tighter definition of wasteful. Penalty: `- (10.0 + 15.0 * (remaining_after_fit[wasteful_mask] - wasteful_threshold) / item)`.
+
+Let's try to implement this.
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Implements an improved priority function for the online Bin Packing Problem,
+    focusing on tighter fits and stronger penalties for wasted space.
+
+    Priority calculation:
+    1. Bins that cannot fit the item get a priority of 0.
+    2. For bins that can fit the item:
+       a. Perfect Fits (remaining capacity after packing is 0): Highest priority.
+       b. Tight Fits (small remaining capacity): High priority, decreasing quadratically
+          with remaining capacity to favor very snug fits.
+       c. Moderate Fits (medium remaining capacity): Moderate priority, decreasing
+          linearly with remaining capacity.
+       d. Wasteful Fits (large remaining capacity): Significantly penalized to strongly
+          discourage selection.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher score indicates a higher priority.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    fitting_bins_indices = np.where(can_fit_mask)[0]
+
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit the item
+
+    fitting_bins_caps = bins_remain_cap[can_fit_mask]
+    remaining_after_fit = fitting_bins_caps - item
+
+    # Define thresholds adaptively based on item size
+    epsilon = 1e-9
+    
+    # Threshold for "tight" fits: remaining space is close to zero.
+    # Let's define tight as less than or equal to 10% of the item size.
+    tight_fit_threshold = 0.1 * item
+
+    # Threshold for "wasteful" fits: remaining space is significantly larger than item size.
+    # Let's define wasteful as more than 2 times the item size.
+    wasteful_threshold = 2.0 * item
+
+    # Calculate scores
+    scores = np.zeros_like(remaining_after_fit)
+
+    # 1. Perfect Fits: Highest priority
+    perfect_mask = (remaining_after_fit < epsilon)
+    scores[perfect_mask] = 100.0
+
+    # 2. Tight Fits: High priority, decreasing quadratically with remaining capacity
+    tight_mask = (remaining_after_fit > epsilon) & (remaining_after_fit <= tight_fit_threshold)
+    # Score: higher for smaller remaining_after_fit
+    # Using 1 / (1 + k*x^2) where k=5 to emphasize very small remaining spaces.
+    scores[tight_mask] = 80.0 * (1.0 / (1.0 + 5.0 * remaining_after_fit[tight_mask]**2))
+
+    # 3. Moderate Fits: Priority decreases linearly with remaining capacity
+    moderate_mask = ~perfect_mask & ~tight_mask & (remaining_after_fit <= wasteful_threshold)
+    # Score: higher for smaller remaining_after_fit
+    # Using 1 / (1 + k*x) where k=1 for a linear decay.
+    scores[moderate_mask] = 50.0 * (1.0 / (1.0 + remaining_after_fit[moderate_mask]))
+
+    # 4. Wasteful Fits: Significantly penalized
+    wasteful_mask = (remaining_after_fit > wasteful_threshold)
+    # Penalize based on how much excess space is left relative to item size.
+    # The penalty should be substantial to deter selection.
+    # Penalty = base_penalty + factor * (excess_space / item_size)
+    # The score will be negative.
+    scores[wasteful_mask] = -10.0 - 15.0 * (remaining_after_fit[wasteful_mask] / (item + epsilon))
+
+    # Ensure scores are non-negative for non-penalized categories, though wasteful can be negative.
+    # Scores for perfect, tight, moderate should ideally stay positive.
+    scores[tight_mask & (scores < 0)] = 0 # Should not happen with current formula, but good safety.
+    scores[moderate_mask & (scores < 0)] = 0
+
+    # Add a small random jitter for exploration. This helps break ties and explore.
+    exploration_factor = 0.05 # Jitter is 5% of the maximum possible score range (approx).
+    # Max score is 100, min can be negative. Let's base jitter on potential positive range.
+    max_positive_score = 100.0
+    jitter = np.random.rand(len(scores)) * exploration_factor * max_positive_score
+    final_scores = scores + jitter
+
+    # Assign the calculated scores to the corresponding bins in the original priority array
+    priorities[can_fit_mask] = final_scores
+
+    return priorities
+```
+The `priority_v1` function implements a tiered approach: perfect fits get the highest score, tight fits get a good score inversely proportional to remaining space, moderate fits get a score that decays slower, and wasteful fits are penalized. The "wasteful" threshold is `3.0 * item`, and the penalty is designed to reduce the score as remaining space increases. A small random jitter is added for exploration.
+
+The reflection asks for prioritization of perfect fits, then tight ones, and penalizing wasted space. It also mentions tuning thresholds and weights, and stochastic exploration. `priority_v1` already addresses these points.
+
+For `priority_v2`, let's refine the scoring functions and thresholds to make the preferences more pronounced and the penalties steeper, as suggested by the reflection's emphasis on "perfect fits, then tight ones" and "penalize wasted space."
+
+**Refinements for `priority_v2`:**
+1.  **Tighter "Tight Fit" Definition:** Make the threshold for tight fits even smaller relative to `item`.
+2.  **More Aggressive "Tight Fit" Scoring:** Use a steeper decay (e.g., quadratic) for tight fits, so very small remaining spaces are heavily favored over slightly larger ones within the "tight" category.
+3.  **Stricter "Wasteful Fit" Threshold:** Make the threshold for wasteful fits lower.
+4.  **Sharper "Wasteful Fit" Penalty:** Make the penalty more severe and potentially non-linear, increasing rapidly with the amount of wasted space.
+5.  **Adjust Weights:** Re-balance the base scores for each category to maintain a clear hierarchy.
+
+Let's assume a normalized bin capacity of 1.0 for scale. If `item` is large, `remaining_after_fit` can also be large.
+The previous `priority_v1` used `tight_fit_threshold = item` and `wasteful_threshold = 3.0 * item`.
+Let's try `tight_fit_threshold = 0.1 * item` and `wasteful_threshold = 1.5 * item`.
+
+**Scoring adjustments for `priority_v2`:**
+*   **Perfect Fit:** `100.0` (highest absolute score)
+*   **Tight Fit:** `80.0 * (1 / (1 + 5 * remaining_after_fit^2))` (quadratic decay, favors very small remainders)
+*   **Moderate Fit:** `50.0 * (1 / (1 + remaining_after_fit))` (linear decay)
+*   **Wasteful Fit:** `-10.0 - 15.0 * (remaining_after_fit - wasteful_threshold) / (item + epsilon)` (starts with a negative base and becomes more negative linearly)
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Implements an improved priority function for the online Bin Packing Problem,
+    focusing on tighter fits and stronger penalties for wasted space.
+
+    Priority calculation:
+    1. Bins that cannot fit the item get a priority of 0.
+    2. For bins that can fit the item:
+       a. Perfect Fits (remaining capacity after packing is ~0): Highest priority.
+       b. Tight Fits (small remaining capacity relative to item size): High priority,
+          decreasing quadratically with remaining capacity to strongly favor very snug fits.
+       c. Moderate Fits (medium remaining capacity): Moderate priority, decreasing
+          linearly with remaining capacity.
+       d. Wasteful Fits (large remaining capacity relative to item size): Significantly penalized
+          to strongly discourage selection.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Higher score indicates a higher priority.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    fitting_bins_indices = np.where(can_fit_mask)[0]
+
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit the item
+
+    fitting_bins_caps = bins_remain_cap[can_fit_mask]
+    remaining_after_fit = fitting_bins_caps - item
+
+    # Define thresholds adaptively based on item size
+    epsilon = 1e-9
+    
+    # Threshold for "tight" fits: remaining space is very small relative to item size.
+    # Set to 10% of item size.
+    tight_fit_threshold = 0.1 * item
+
+    # Threshold for "wasteful" fits: remaining space is significantly larger than item size.
+    # Set to 1.5 times item size. This makes "moderate" fits cover a larger range.
+    wasteful_threshold = 1.5 * item
+
+    # Calculate scores
+    scores = np.zeros_like(remaining_after_fit)
+
+    # 1. Perfect Fits: Highest priority
+    perfect_mask = (remaining_after_fit < epsilon)
+    scores[perfect_mask] = 100.0
+
+    # 2. Tight Fits: High priority, decreasing quadratically with remaining capacity
+    # This heavily favors bins with minimal remaining space.
+    tight_mask = (remaining_after_fit > epsilon) & (remaining_after_fit <= tight_fit_threshold)
+    # Score formula: BaseScore * (1 / (1 + k * (remaining_space / item_size)^2))
+    # Using k=5 for a steep quadratic decay.
+    scores[tight_mask] = 80.0 * (1.0 / (1.0 + 5.0 * (remaining_after_fit[tight_mask] / (item + epsilon))**2))
+
+    # 3. Moderate Fits: Priority decreases linearly with remaining capacity
+    # Covers remaining space from just above tight_fit_threshold up to wasteful_threshold.
+    moderate_mask = ~perfect_mask & ~tight_mask & (remaining_after_fit <= wasteful_threshold)
+    # Score formula: BaseScore * (1 / (1 + k * (remaining_space / item_size)))
+    # Using k=1 for linear decay.
+    scores[moderate_mask] = 50.0 * (1.0 / (1.0 + (remaining_after_fit[moderate_mask] / (item + epsilon))))
+
+    # 4. Wasteful Fits: Significantly penalized
+    # Covers remaining space greater than wasteful_threshold.
+    wasteful_mask = (remaining_after_fit > wasteful_threshold)
+    # Penalty increases with the amount of waste relative to item size.
+    # Score = BasePenalty + PenaltyFactor * (waste_amount / item_size)
+    # The score is designed to be negative to actively discourage selection.
+    scores[wasteful_mask] = -15.0 - 20.0 * (remaining_after_fit[wasteful_mask] / (item + epsilon))
+
+    # Ensure scores are not NaN or Inf, especially from division by near-zero item size.
+    # Also, ensure scores for moderate/tight fits are not negative due to formula quirks.
+    scores[np.isnan(scores)] = 0
+    scores[np.isinf(scores)] = 0
+    scores[tight_mask & (scores < 0)] = 0
+    scores[moderate_mask & (scores < 0)] = 0
+
+    # Add a small random jitter for exploration. This helps break ties and explore different bins.
+    # The jitter is a fraction of the maximum positive score.
+    exploration_factor = 0.05 
+    max_positive_score_range = 100.0 # Based on the perfect fit score.
+    jitter = np.random.rand(len(scores)) * exploration_factor * max_positive_score_range
+    final_scores = scores + jitter
+
+    # Assign the calculated scores to the corresponding bins in the original priority array
+    priorities[can_fit_mask] = final_scores
+
+    return priorities
+```

@@ -1,0 +1,78 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    This heuristic aims to improve upon previous versions by employing a multi-criteria
+    scoring mechanism that considers both the tightness of the fit and the overall
+    fullness of the bin, using a smooth, non-linear approach to scoring that is
+    tunable via parameters.
+
+    The strategy prioritizes bins based on the following:
+    1.  **Tightness of Fit (Primary):** Bins that leave minimal remaining capacity
+        after placing the item are preferred. This is crucial for packing efficiency.
+        We use a Gaussian-like function centered at zero residual capacity,
+        penalizing larger gaps more significantly.
+    2.  **Overall Bin Fullness (Secondary):** Among bins with similar tightness,
+        those that are already fuller are preferred. This encourages consolidation
+        and can lead to fewer bins being used overall.
+    3.  **Tunable Parameters:** Introduce parameters to control the emphasis on
+        tightness versus overall fullness, allowing for adaptation to different
+        item distributions or bin capacities.
+
+    Scoring Logic:
+    For bins that can accommodate the item (`bins_remain_cap >= item`):
+    -   **Tightness Score Component:** We want to maximize a function that is
+        highest when `bins_remain_cap - item` is zero and decreases as the
+        difference increases. A function like `exp(-k1 * (bins_remain_cap - item)**2)`
+        achieves this, where `k1` controls the sensitivity to the gap.
+    -   **Fullness Score Component:** We want to favor bins that are already fuller.
+        A simple linear term `k2 * bins_remain_cap` can be used, or a transformed
+        version like `k2 * (1 - exp(-k3 * bins_remain_cap))` which saturates for
+        very full bins. For simplicity and to maintain a graded score, we'll use
+        a factor that grows with `bins_remain_cap`.
+
+    The combined score for a fitting bin is a weighted sum:
+    `score = weight_tight * exp(-k1 * (bins_remain_cap - item)**2) + weight_full * bins_remain_cap`
+
+    -   `k1`: Controls how sharply the score drops as the gap `bins_remain_cap - item` increases. A larger `k1` means only very tight fits get high scores.
+    -   `weight_tight`, `weight_full`: Control the relative importance of tightness vs. overall bin fullness.
+
+    For bins that cannot fit the item (`bins_remain_cap < item`), a very low score (e.g., -infinity) is assigned.
+
+    We will set `k1` to a value that makes scores drop reasonably fast for gaps larger than a small epsilon, and balance `weight_tight` and `weight_full` to give a good trade-off.
+    A reasonable starting point could be:
+    - `k1 = 100` (emphasizes tight fits)
+    - `weight_tight = 1.0`
+    - `weight_full = 0.5` (mildly favors fuller bins)
+    """
+
+    fit_mask = bins_remain_cap >= item
+    
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+    
+    fitting_bins_remain_cap = bins_remain_cap[fit_mask]
+    
+    
+    gap = fitting_bins_remain_cap - item
+    
+    
+    k1 = 100.0  # Sensitivity to the gap. Higher k1 penalizes larger gaps more.
+    weight_tight = 1.0 # Weight for the tightness component.
+    weight_full = 0.5 # Weight for the overall fullness component.
+    
+    
+    tightness_score = np.exp(-k1 * (gap**2))
+    
+    
+    fullness_score = fitting_bins_remain_cap 
+    
+    
+    combined_score = weight_tight * tightness_score + weight_full * fullness_score
+    
+    
+    priorities[fit_mask] = combined_score
+    
+    
+    return priorities
+```

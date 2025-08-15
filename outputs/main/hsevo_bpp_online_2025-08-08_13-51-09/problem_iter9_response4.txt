@@ -1,0 +1,64 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+
+    # Metric 1: Adjusted Best Fit - Prioritize bins with minimal remaining capacity after placement,
+    # but with a diminishing return as the fit gets tighter. This avoids overly aggressive
+    # filling of very small remaining capacities if other good options exist.
+    remaining_after_placement = suitable_bins_caps - item
+    # Using a sigmoid-like transformation to penalize extremely tight fits less severely
+    # and give more preference to moderately tight fits. Add a small constant to avoid division by zero.
+    best_fit_scores = 1.0 / (1.0 + np.exp(-(remaining_after_placement + 1e-6) * 5))
+
+    # Metric 2: Capacity Diversity Score - Prioritize bins that are "different" in terms of
+    # remaining capacity, encouraging exploration of a wider range of bin states.
+    # This can be achieved by measuring how far a bin's capacity is from the median capacity
+    # of suitable bins.
+    if suitable_bins_caps.size > 1:
+        median_cap = np.median(suitable_bins_caps)
+        # Calculate absolute difference from the median, then normalize.
+        capacity_diversity_scores = np.abs(suitable_bins_caps - median_cap)
+        min_diff = np.min(capacity_diversity_scores)
+        max_diff = np.max(capacity_diversity_scores)
+        if max_diff - min_diff > 1e-6:
+            normalized_diversity = (capacity_diversity_scores - min_diff) / (max_diff - min_diff)
+        else:
+            normalized_diversity = np.zeros_like(suitable_bins_caps) # All suitable bins have same capacity
+    elif suitable_bins_caps.size == 1:
+        normalized_diversity = np.array([0.5]) # Only one bin, assign a neutral score
+    else:
+        normalized_diversity = np.array([])
+
+    # Metric 3: Item Fit Proportionality - Consider how large the item is relative to the
+    # bin's capacity. Larger items might benefit more from bins that have more absolute
+    # remaining space to avoid fragmentation later.
+    # Normalize by the maximum remaining capacity among suitable bins.
+    item_fit_scores = suitable_bins_caps / (np.max(suitable_bins_caps) + 1e-6)
+
+
+    # Normalize Best Fit scores for comparability
+    if np.max(best_fit_scores) > 1e-6:
+        normalized_best_fit = best_fit_scores / np.max(best_fit_scores)
+    else:
+        normalized_best_fit = np.zeros_like(best_fit_scores)
+
+    # Combine scores with adaptive weights.
+    # The weights can be dynamically adjusted. For this example, we use fixed weights
+    # that blend the objectives:
+    # - Balanced Fit (50%): Combines best fit with a slight preference for moderate tightness.
+    # - Diversity (25%): Encourages exploring less occupied bins.
+    # - Item Proportionality (25%): Favors bins with more absolute space for larger items.
+    combined_scores = 0.5 * normalized_best_fit + 0.25 * normalized_diversity + 0.25 * item_fit_scores
+
+    priorities[suitable_bins_mask] = combined_scores
+
+    return priorities
+```

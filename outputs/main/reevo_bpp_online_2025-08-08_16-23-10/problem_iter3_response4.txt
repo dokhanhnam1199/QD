@@ -1,0 +1,176 @@
+[Prior reflection]
+The current `priority_v1` function calculates priority based on remaining capacity after fitting. While it favors smaller remaining capacities, it doesn't explicitly prioritize *exact* fits (zero remaining capacity) over slightly larger remaining capacities. The sigmoid function, while providing a smooth curve, might not sufficiently differentiate between a perfect fit and a very close fit.
+
+To improve this, we can:
+1.  **Introduce an explicit bonus for perfect fits:** A bin with `remaining_capacity == item` should have the highest possible priority.
+2.  **Soften the penalty for slight mismatches:** Instead of a sharp drop in priority for slightly larger remaining capacities, we can use a function that emphasizes the difference between `remaining_capacity` and `item` more directly but still rewards closeness. A potential approach is to consider the ratio of the item size to the bin's original capacity, or the difference in remaining capacity scaled by the item size.
+3.  **Consider the "waste" relative to the item size:** Instead of `remaining_capacity - item`, we could use `(remaining_capacity - item) / item` or similar to normalize the "badness" of a fit by the item's size. This might better capture "loose fit" relative to what the item *needs*.
+
+Let's try a hybrid approach:
+-   A perfect fit (`remaining_capacity == item`) gets a maximum priority (e.g., 1.0).
+-   For other fits, we want to prioritize smaller `remaining_capacity - item`. A scaled difference or a ratio might be good.
+-   We can use a softmax-like approach to generate scores that sum to 1 for all *valid* bins, ensuring a clear ranking. Or, keep the sigmoid but adjust its behavior.
+
+Refined strategy:
+We want to prioritize bins where `bins_remain_cap[i] - item` is minimized (and non-negative).
+Let `diff = bins_remain_cap[i] - item`.
+If `diff == 0`, highest priority.
+If `diff > 0`, we want a high score for small `diff`.
+
+A modified sigmoid or a different function could work.
+Consider `score = exp(-k * diff)` for `diff >= 0`. This gives 1 for `diff=0` and decreases as `diff` increases.
+To make it more distinct: `score = exp(-k * diff)`.
+Maybe a step function for perfect fit, then sigmoid for others?
+
+Let's try a function that emphasizes the *relative* slack.
+`slack = (bins_remain_cap[i] - item) / item` (if item > 0, else handle appropriately)
+If `slack == 0` (perfect fit), score is high.
+If `slack > 0`, we want smaller `slack` to give higher scores.
+Function: `1 / (1 + exp(steepness * slack))`?
+
+Or, let's try to directly encode the "best fit" property:
+Priority is high if `bins_remain_cap[i] - item` is small.
+Let's also consider a penalty for bins that are *almost* full but can't fit the item.
+The original `priority_v1` already handles non-fitting bins with 0 priority.
+
+Let's focus on the "exact match" and "minimizing remaining capacity" aspects.
+A simple way to prioritize exact fits is to add a large bonus if `bins_remain_cap[i] == item`.
+
+Revised approach:
+1.  Identify bins that can fit.
+2.  For those that can fit:
+    *   If `bins_remain_cap[i] == item`: assign a very high score (e.g., 1.0 + epsilon or a large number).
+    *   Otherwise: calculate a score based on `bins_remain_cap[i] - item`. The original sigmoid `1 / (1 + exp(steepness * (remaining_capacity - item)))` is good for this.
+3.  Combine these scores. We need a consistent scale. If using softmax later, these scores don't need to sum to 1. They just need to represent relative desirability.
+
+Let's try to make the "best fit" property more pronounced:
+Instead of `exp(steepness * (remaining_capacity - item))`, let's use something that penalizes larger `remaining_capacity - item` more aggressively when it's small, but is still smooth.
+Consider `(remaining_capacity - item) / bins_remain_cap[i]`? This ratio represents the proportion of *unused* capacity in the bin *before* packing, after accommodating the item.
+
+Let's try a simpler modification that directly rewards smaller slack.
+The current sigmoid is `1 / (1 + exp(S * (R - I)))`.
+This means slack `R-I` maps to `exp(S * (R-I))`.
+If `R-I = 0` (perfect fit), `exp(0) = 1`, score = `1/2`.
+If `R-I = 0.1` and `S=5`, `exp(0.5) = 1.65`, score = `1/2.65 ≈ 0.37`.
+If `R-I = 0.01` and `S=5`, `exp(0.05) = 1.05`, score = `1/2.05 ≈ 0.48`.
+
+What if we want perfect fits to be *even better*?
+We could use a different functional form or add a bonus.
+Let's use a power function for the slack: `slack^p` where `p` is a positive exponent.
+If `slack = 0`, score is 0. We want higher scores.
+So, we need `1 / (1 + f(slack))` where `f(0)` is small.
+
+Alternative: Consider the ratio of unused capacity to item size.
+`ratio = (bins_remain_cap[i] - item) / item`
+If `item` is very small, this ratio can become very large even for small absolute slack.
+This might not be ideal.
+
+Let's stick to the sigmoid but adjust the "steepness" logic.
+What if we want tighter fits (smaller `remaining_capacity - item`) to be significantly more prioritized?
+The original `steepness` already controls this. A higher `steepness` makes the transition sharper.
+`steepness = 5.0` means a difference of `1/5.0 = 0.2` changes the exponent by `1`, halving the score effectively.
+
+Let's consider the reflection's suggestion: "prioritize exact matches, then bins minimizing remaining capacity."
+How to make exact matches *strictly* better?
+We can define priority as:
+`P = BaseScore(remaining_capacity, item) + Bonus(exact_match)`
+
+Let's use a function that maps `remaining_capacity - item` to a priority score.
+We want `f(0)` to be highest, and `f(x)` to decrease as `x` increases.
+
+Consider: `score = 1.0 - tanh(steepness * (bins_remain_cap[i] - item))` for bins that fit.
+If `bins_remain_cap[i] - item = 0`, `tanh(0) = 0`, score = `1.0`. (Perfect!)
+If `bins_remain_cap[i] - item = 0.1`, `steepness = 5`, `tanh(0.5) ≈ 0.46`, score = `1 - 0.46 = 0.54`.
+If `bins_remain_cap[i] - item = 0.2`, `steepness = 5`, `tanh(1.0) ≈ 0.76`, score = `1 - 0.76 = 0.24`.
+
+This looks promising. The `tanh` function is good because it saturates at 1 and -1.
+`tanh(x)` goes from -1 to 1.
+`1 - tanh(x)` goes from 2 to 0.
+We want scores between 0 and 1.
+
+Let's rescale or use a different function.
+How about `exp(-k * (bins_remain_cap[i] - item))`?
+This gives 1 for perfect fit, and decreases.
+If `bins_remain_cap[i] - item = 0.1`, `k=10`, `exp(-1) ≈ 0.36`.
+If `bins_remain_cap[i] - item = 0.01`, `k=10`, `exp(-0.1) ≈ 0.90`.
+
+This `exp(-k * slack)` form seems to achieve the goal:
+-   Perfect fit (slack=0) yields `exp(0) = 1`.
+-   Small slack yields scores close to 1.
+-   Larger slack yields scores that decrease exponentially.
+
+We can control the steepness of this decrease with `k`.
+Let's make `k` tunable.
+
+What about the reflection's point about "penalizing large unused space to improve bin utilization"?
+The `exp(-k * slack)` function naturally penalizes larger slack.
+
+Let's try implementing this `exp(-k * slack)` approach.
+We need to ensure we handle the `bins_remain_cap[i] < item` case correctly (priority 0).
+And for `bins_remain_cap[i] >= item`, calculate `slack = bins_remain_cap[i] - item`.
+The priority score will be `exp(-k * slack)`.
+We need to clip `k * slack` to avoid `exp` overflow/underflow if `slack` becomes extremely large or negative (though `slack` should always be non-negative here).
+Since `slack >= 0`, `k * slack >= 0`. We only need to worry about `exp` underflow if `k * slack` is very large positive. A safe upper bound like `exp(-30)` is reasonable.
+
+Let's choose `k` such that a "small but noticeable" slack is significantly penalized.
+If slack is `0.1` and `k=5`, `exp(-0.5) ≈ 0.6`.
+If slack is `0.2` and `k=5`, `exp(-1.0) ≈ 0.36`.
+This seems to provide a good decay.
+
+Let's refine the tunable parameter. `steepness` is a good name.
+`k = steepness`.
+
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using an
+    exponentially decaying Best Fit heuristic.
+
+    This heuristic prioritizes bins that can accommodate the item. It assigns
+    a higher priority to bins with smaller remaining capacity after packing,
+    effectively implementing a "Best Fit" strategy. A perfect fit (zero remaining
+    capacity after packing) receives the highest possible score (1.0). The
+    priority decays exponentially as the slack (remaining capacity - item) increases.
+
+    The score for a bin is 0 if the item cannot fit. For bins that can fit,
+    the score is calculated as exp(-steepness * (remaining_capacity - item)).
+    This function ensures that perfect fits have a score of 1, and the score
+    decreases as the slack increases. The 'steepness' parameter controls how
+    rapidly the priority drops with increasing slack.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        Scores range from 0 (cannot fit or very loose fit) to 1 (perfect fit).
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    steepness = 10.0  # Tunable parameter: Higher values mean stronger preference for tighter fits.
+
+    # Identify bins where the item can fit.
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the slack (unused capacity) for bins that can fit the item.
+    # slack = remaining_capacity - item. This is always >= 0 for bins in can_fit_mask.
+    slack_valid = bins_remain_cap[can_fit_mask] - item
+
+    # Calculate the priority scores for the valid bins using the exponential function.
+    # score = exp(-steepness * slack).
+    # A slack of 0 (perfect fit) gives exp(0) = 1.
+    # Larger slacks result in scores closer to 0.
+    # We clip the argument to exp to prevent potential overflow/underflow.
+    # Since slack_valid >= 0, the argument `steepness * slack_valid` is also >= 0.
+    # We only need to worry about very large positive arguments, which cause underflow
+    # (score approaching 0). Clipping at -30.0 for the exponent is usually safe.
+    exponent_args = -steepness * slack_valid
+    clipped_exponent_args = np.clip(exponent_args, -30.0, None) # Allow positive values, but limit large negative exp(large_pos)
+
+    priorities[can_fit_mask] = np.exp(clipped_exponent_args)
+
+    return priorities
+
+```

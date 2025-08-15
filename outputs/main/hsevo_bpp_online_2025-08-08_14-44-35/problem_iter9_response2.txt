@@ -1,0 +1,213 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines a refined Best Fit approach with a dynamic exploration strategy.
+    Prioritizes bins that leave the smallest remaining capacity, but with
+    an adaptive exploration that favors bins with larger remaining capacity
+    when the item size is small relative to the bin capacities, encouraging
+    more flexible packing.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_indices = np.where(suitable_bins_mask)[0]
+
+    if suitable_bins_indices.size == 0:
+        return priorities
+
+    suitable_bins_capacities = bins_remain_cap[suitable_bins_indices]
+    
+    # Calculate potential remaining capacities
+    potential_remain_caps = suitable_bins_capacities - item
+
+    # Calculate 'fit_score': higher means a tighter fit (smaller remaining capacity)
+    # We use a small constant to avoid division by zero if an item perfectly fills a bin.
+    fit_score = 1.0 / (potential_remain_caps + 1e-6)
+
+    # Calculate 'exploration_score': favors larger remaining capacities,
+    # especially when the item is relatively small compared to the bin.
+    # This is scaled by the item's proportion to the bin's current capacity.
+    # A higher exploration_score means a more exploratory choice.
+    exploration_score = (suitable_bins_capacities / (item + 1e-6))
+
+    # Combine scores. We want to prioritize tight fits (high fit_score)
+    # but also allow exploration (exploration_score).
+    # A simple combination: prioritize tight fit, but if there's significant
+    # "slack" in fitting (item is much smaller than bin), give it a boost.
+    # We can use a non-linear scaling for exploration_score to make it more impactful
+    # when the item is very small relative to the bin.
+    
+    # Using a sigmoid-like scaling for exploration to modulate its influence
+    # and a power for fit_score to emphasize tighter fits.
+    
+    # Scale exploration score to be between 0 and 1, emphasizing larger ratios
+    # using a hyperbola-like function and then clamping.
+    # The function x/(1+x) or similar could be used. Let's try a simpler approach first.
+    
+    # A more direct approach: combine fit and exploration with a weighting that can adapt.
+    # For simplicity here, we'll use a fixed combination, but in a real adaptive system,
+    # this combination could be learned or tuned.
+    
+    # Let's try a weighted sum where exploration is boosted if the item is small relative to the bin.
+    # Define a threshold for "small item relative to bin".
+    item_size_ratio = item / suitable_bins_capacities
+    
+    # A simple heuristic: exploration priority is higher when the item_size_ratio is low.
+    # We can use 1 - item_size_ratio as a base for exploration contribution.
+    # Let's try to give a slight boost to exploration based on how much "space" is left.
+    
+    # Revised combination:
+    # Priority = (1-alpha) * Tightly_Fit_Score + alpha * Exploration_Score
+    # Tightly_Fit_Score: Higher for smaller remaining capacity (inverse of remaining capacity)
+    # Exploration_Score: Higher for bins that have more remaining capacity *after* packing,
+    #                    weighted by how "easy" it was to fit the item.
+    
+    # Let's simplify the exploration component: it's about picking a bin that
+    # has enough space but isn't necessarily the *tightest* fit.
+    # A simple exploration bonus could be added to bins that have significantly more capacity
+    # than needed.
+    
+    # We want a priority that favors bins that leave small capacity (Best Fit)
+    # but also considers bins that have a lot of room left as a secondary consideration
+    # for exploration.
+    
+    # Let's assign a "fitness score" based on how well the item fits.
+    # A perfect fit (remaining_capacity = 0) gets a high score.
+    # The remaining capacity after packing:
+    remaining_after_packing = suitable_bins_capacities - item
+    
+    # Score for "tightness": higher is better (smaller remaining capacity)
+    # We can use inverse of remaining capacity, scaled. Add a small constant to avoid division by zero.
+    tightness_score = 1.0 / (remaining_after_packing + 1e-6)
+    
+    # Score for "exploration": encourage picking bins with more free space if it's not a very tight fit.
+    # We can base this on the original capacity of the bin. Bins with larger original capacity
+    # might be more flexible for future items.
+    # Let's use the original bin capacity as a proxy for flexibility.
+    exploration_score_component = suitable_bins_capacities
+    
+    # Combine scores: Prioritize tightness, but add a bonus for exploration
+    # if the fit isn't extremely tight.
+    # If remaining_after_packing is very small, exploration_score_component is less relevant.
+    # We can modulate exploration_score_component by how "loose" the fit is.
+    
+    # Let's use a weighted sum where the weight on exploration depends on the tightness.
+    # A simple approach: Base priority is tightness. If the item is relatively small
+    # for the bin, give it an additional boost.
+    
+    # Consider the "slack" in the bin: original_capacity - item
+    slack = suitable_bins_capacities - item
+    
+    # A combined priority that emphasizes tight fits but also rewards bins with
+    # significant remaining capacity when the item is small.
+    # Let's use a formulation that combines inverse remaining capacity with a scaled slack.
+    # The scaling for slack should encourage larger slack values.
+    
+    # Base priority: inverse of remaining capacity (tight fit)
+    base_priority = 1.0 / (slack + 1e-6)
+    
+    # Exploration boost: proportional to slack, but maybe scaled non-linearly
+    # to avoid over-emphasis on very large slacks.
+    # Using a log scale for slack can help temper very large values.
+    # We add 1 to slack before log to handle slack=0.
+    exploration_boost = np.log1p(slack)
+    
+    # Combine them: a weighted sum, where exploration_boost is added.
+    # The relative importance can be adjusted.
+    # For a balanced approach, we can normalize these components or use a weighting factor.
+    
+    # Let's try a direct approach: prioritize bins with minimal slack.
+    # For bins with similar slack, pick the one that was more "empty" initially.
+    
+    # Final approach idea: prioritize bins that leave the smallest capacity after packing.
+    # If multiple bins have the same minimal remaining capacity, pick the one
+    # that had the largest original capacity among them (to allow for future flexibility).
+    
+    # Calculate the remaining capacity after packing.
+    remaining_after_packing = suitable_bins_capacities - item
+    
+    # We want to prioritize bins with minimum remaining_after_packing.
+    # If there are ties, we want to break ties by choosing the bin with the largest
+    # original capacity from the tied set.
+    
+    # To achieve this, we can create a composite score.
+    # A common way to break ties is to add a small value related to the tie-breaking
+    # criterion to the primary criterion.
+    # However, directly adding original capacity to remaining capacity might be problematic
+    # as we want to MINIMIZE remaining capacity.
+    
+    # Instead, we can construct a tuple for sorting: (-remaining_after_packing, original_capacity)
+    # Or, create a score where we invert the primary objective and add a scaled tie-breaker.
+    
+    # Let's create a score where smaller values are better for the primary objective (remaining capacity).
+    # And larger values are better for the secondary objective (original capacity).
+    # Score = remaining_after_packing - C * original_capacity (where C is a small positive constant)
+    # This way, minimizing the score means minimizing remaining capacity, and if they are equal,
+    # we prefer larger original capacity.
+    
+    # However, we need to return priorities where HIGHER is better.
+    # So we invert this score.
+    # Priority = -(remaining_after_packing - C * original_capacity)
+    # Priority = -remaining_after_packing + C * original_capacity
+    
+    # Let's choose C such that original_capacity has a noticeable but not overwhelming impact.
+    # A common strategy is to scale the tie-breaker by a factor related to the range
+    # of the primary objective.
+    
+    # Let's assume a maximum possible original capacity.
+    max_original_capacity = np.max(bins_remain_cap) # or a predefined bin capacity limit
+    
+    # A scale factor could be 1 / (max_original_capacity + 1).
+    # This ensures that the contribution from original_capacity is smaller than the contribution
+    # from remaining_after_packing for typical values.
+    
+    # Let's use a simpler composite score that directly prioritizes minimum remaining capacity,
+    # and then maximum original capacity for ties.
+    
+    # We can achieve this by creating a score where we multiply the primary criterion
+    # by a large number and add the secondary criterion.
+    # Score = remaining_after_packing * LargeMultiplier - original_capacity
+    # We want to MINIMIZE this score.
+    
+    # To get priorities where HIGHER is better:
+    # Priority = - (remaining_after_packing * LargeMultiplier - original_capacity)
+    # Priority = -remaining_after_packing * LargeMultiplier + original_capacity
+    
+    # Let's set LargeMultiplier to be significantly larger than the maximum possible original_capacity.
+    # This ensures that the remaining_after_packing dominates the score.
+    
+    # Consider the range of remaining_after_packing. It's from 0 up to (max_suitable_capacity - item).
+    # Max value of original_capacity is max(bins_remain_cap).
+    
+    # A safe LargeMultiplier:
+    large_multiplier = 1e9 # A sufficiently large number
+    
+    # Calculate the priority for each suitable bin
+    # Priority = -remaining_after_packing + original_capacity_component
+    # We want to prioritize bins with smallest `remaining_after_packing`.
+    # So, `-remaining_after_packing` will be higher for smaller values.
+    # We want to prioritize bins with largest `original_capacity` for ties.
+    # So, `original_capacity` contributes positively.
+    
+    # Construct the composite priority:
+    # This priority is designed such that sorting these values in descending order
+    # will first pick bins with minimum remaining capacity, and then among those,
+    # pick bins with maximum original capacity.
+    
+    composite_priorities = (
+        -remaining_after_packing * large_multiplier +
+        suitable_bins_capacities
+    )
+    
+    # Assign these composite priorities to the original bin indices
+    priorities[suitable_bins_indices] = composite_priorities
+
+    # Normalize priorities to be between 0 and 1 for a cleaner distribution if needed,
+    # or just use the raw scores for selection. For selection, raw scores are fine.
+    # If we want a probabilistic selection based on these priorities (like Softmax), normalization is needed.
+    # For picking the max priority, raw scores are sufficient.
+
+    return priorities
+```

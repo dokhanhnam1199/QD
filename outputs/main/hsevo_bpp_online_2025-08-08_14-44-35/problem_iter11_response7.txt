@@ -1,0 +1,77 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines a normalized tight-fitting score with adaptive exploration favoring
+    less utilized bins, using a dynamic probability based on bin availability.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon_base = 0.1  # Base probability for exploration
+
+    can_fit_mask = bins_remain_cap >= item
+    
+    if not np.any(can_fit_mask):
+        return priorities
+
+    suitable_bins_remain_cap = bins_remain_cap[can_fit_mask]
+    num_suitable_bins = suitable_bins_remain_cap.size
+
+    # Component 1: Tight Fitting Score (normalized)
+    remaining_after_packing = suitable_bins_remain_cap - item
+    # Higher score for smaller remaining capacity (tighter fit). Add small epsilon for stability.
+    tight_fit_scores = 1.0 / (remaining_after_packing + 1e-9)
+    
+    # Normalize tight fit scores to be between 0 and 1
+    max_tight_fit_score = np.max(tight_fit_scores)
+    if max_tight_fit_score > 1e-9:
+        normalized_tight_fit_scores = tight_fit_scores / max_tight_fit_score
+    else:
+        normalized_tight_fit_scores = np.zeros_like(tight_fit_scores)
+
+    # Component 2: Adaptive Exploration favoring less utilized bins
+    # Exploration probability decreases as more bins become available, encouraging exploitation
+    exploration_prob = epsilon_base * (1.0 / (1.0 + num_suitable_bins))
+    
+    # Generate exploration scores: Favor bins with more remaining capacity (less utilized)
+    # Use log1p for non-linear scaling, making differences more pronounced for smaller capacities
+    exploration_scores = np.log1p(suitable_bins_remain_cap - item + 1e-9)
+    
+    # Combine normalized tight fit score with exploration score for the final priority
+    # We want to favor tighter fits but have an exploration mechanism.
+    # A simple weighted sum can work, where exploration probability influences the choice.
+    
+    # For exploitation (when not exploring), use the normalized tight fit score.
+    exploitation_priorities = normalized_tight_fit_scores
+
+    # For exploration, we need to select a bin probabilistically.
+    # The 'exploration_scores' are used to define the probability distribution for selection.
+    # Normalize exploration scores to create probabilities.
+    sum_exploration_scores = np.sum(exploration_scores)
+    if sum_exploration_scores > 1e-9:
+        exploration_probabilities = exploration_scores / sum_exploration_scores
+    else:
+        # If all exploration scores are zero (e.g., all bins have item + epsilon capacity),
+        # fall back to uniform probability.
+        exploration_probabilities = np.ones(num_suitable_bins) / num_suitable_bins
+
+    # Determine if we explore or exploit
+    if np.random.rand() < exploration_prob:
+        # Exploration: Choose a bin based on exploration probabilities
+        chosen_bin_idx_in_subset = np.random.choice(num_suitable_bins, p=exploration_probabilities)
+        # Assign a high priority to the explored bin
+        priorities[can_fit_mask][chosen_bin_idx_in_subset] = 1.0
+    else:
+        # Exploitation: Assign priorities based on the normalized tight fit scores
+        priorities[can_fit_mask] = exploitation_priorities
+        
+        # Normalize final priorities to ensure they are in a comparable range if multiple bins are chosen
+        max_final_priority = np.max(priorities[can_fit_mask])
+        if max_final_priority > 1e-9:
+            priorities[can_fit_mask] /= max_final_priority
+        else:
+            priorities[can_fit_mask] = np.zeros_like(priorities[can_fit_mask])
+
+
+    return priorities
+```

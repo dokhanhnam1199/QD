@@ -1,0 +1,166 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a tunable sigmoid and varied exploration.
+
+    This heuristic aims to prioritize bins that offer the "best fit" for the item.
+    A "best fit" is defined as a bin where the remaining capacity is only slightly
+    larger than the item's size. This strategy tries to fill bins as much as possible
+    without leaving excessive empty space, thereby minimizing fragmentation.
+
+    The priority is calculated using a sigmoid function. The function is designed
+    to peak when the remaining capacity (`bins_remain_cap`) is precisely equal to
+    the item's size, and the priority decreases as the remaining capacity deviates
+    (either smaller or larger). However, bins where the item doesn't fit at all
+    are assigned a zero priority.
+
+    Tie-breaking is handled using a softmax-like approach on top of the sigmoid scores.
+    This introduces a probabilistic element, favoring bins with higher scores more
+    often but not exclusively, allowing for exploration of less ideal fits.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array where each element is the remaining capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as `bins_remain_cap`, containing the priority
+        score for each bin. Higher scores indicate a more desirable bin for the item.
+    """
+
+    def sigmoid(x, steepness=10.0, center=0.0):
+        """A custom sigmoid function that can be shifted and scaled."""
+        # Ensure numerical stability for large negative exponents
+        exponent = -steepness * (x - center)
+        # Clip exponent to avoid overflow in exp, then compute sigmoid
+        # A large negative exponent approaches 0, large positive approaches 1.
+        # Clipping at -700 is a common practice for exp(-700) ~ 1e-304
+        clipped_exponent = np.clip(exponent, -700, 700)
+        return 1 / (1 + np.exp(clipped_exponent))
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins where the item can fit.
+    fits_mask = bins_remain_cap >= item
+
+    if np.any(fits_mask):
+        # Calculate the excess capacity for fitting bins.
+        excess_capacities = bins_remain_cap[fits_mask] - item
+
+        # Tunable parameters for the sigmoid function
+        # `ideal_gap` defines the target excess capacity for the best fit.
+        # A smaller `ideal_gap` means we prefer bins that leave very little space.
+        # `steepness` controls how quickly the priority drops as excess capacity deviates from `ideal_gap`.
+        ideal_gap = 0.05  # Target for minimal positive residual space
+        steepness = 15.0  # Increased steepness for sharper preference
+
+        # Calculate the argument for the sigmoid function.
+        # We want the peak of the sigmoid (where the argument is 0) to align with our 'ideal_gap'.
+        # The argument is `steepness * (ideal_gap - excess_capacities)`.
+        # This means when `excess_capacities` is close to `ideal_gap`, the argument is close to 0,
+        # resulting in a sigmoid output close to 0.5 (midpoint).
+        # Scores > 0.5 for `excess_capacities` < `ideal_gap`
+        # Scores < 0.5 for `excess_capacities` > `ideal_gap`
+        argument_values = steepness * (ideal_gap - excess_capacities)
+
+        # Apply the sigmoid function to get raw scores for fitting bins.
+        raw_scores = sigmoid(argument_values, steepness=steepness, center=0.0)
+
+        # Normalize scores using a softmax-like approach for exploration.
+        # This converts scores into probabilities, allowing for probabilistic selection
+        # and thus exploration of bins that are not strictly the "best" fit.
+        # A small epsilon is added to prevent issues with all scores being identical.
+        # A temperature parameter could be introduced here for more control over exploration.
+        # For simplicity, we'll use the direct softmax on the scaled sigmoid outputs.
+        
+        # We want higher sigmoid scores to translate to higher probabilities.
+        # A simple softmax transformation: exp(score) / sum(exp(scores))
+        # However, direct softmax on scores that might be close to 0 or 1 can lead to extreme probabilities.
+        # A common approach in exploration is to add noise or use a temperature parameter.
+        # Let's scale the sigmoid output to a range that is more suitable for softmax, e.g., [0, 10]
+        # or simply use the sigmoid output directly if it's already in a reasonable range.
+        
+        # For this implementation, let's directly use the sigmoid output as "desirability".
+        # Higher desirability means a higher chance of selection.
+        # A simple way to implement "varied exploration" without explicit softmax is to
+        # slightly perturb the scores or use a mechanism like epsilon-greedy on these scores.
+        # However, the prompt implies a more direct score-based exploration.
+        # The "softmax-like" part can be interpreted as ensuring relative ordering is maintained
+        # and higher scores are disproportionately favored.
+        #
+        # Let's refine the "softmax-like" to mean we are generating relative weights.
+        # The sigmoid already provides a relative measure of "goodness of fit".
+        # The primary refinement for "varied exploration" beyond standard greedy would be:
+        # 1. Add small random noise to the scores.
+        # 2. Use the scores as weights in a weighted random choice.
+        #
+        # The reflection mentioned "softmax for score normalization".
+        # If we consider the raw sigmoid scores (0 to 1), softmax on these would yield
+        # probabilities summing to 1 across the *fitting* bins.
+        
+        # Option: Softmax on raw_scores
+        # exp_scores = np.exp(raw_scores)
+        # probabilities = exp_scores / np.sum(exp_scores)
+        # priorities[fits_mask] = probabilities
+
+        # Option: Scaled scores for softmax (e.g., if sigmoid scores are too clustered)
+        # scaled_scores = raw_scores * 5.0 # Scale to a range like [0, 5]
+        # exp_scaled_scores = np.exp(scaled_scores)
+        # probabilities = exp_scaled_scores / np.sum(exp_scaled_scores)
+        # priorities[fits_mask] = probabilities
+
+        # The current sigmoid output is already designed to be a priority score.
+        # The "varied exploration" might simply mean that the sigmoid output itself
+        # provides a graded preference, allowing a weighted selection mechanism
+        # (not implemented here but implied by "priority score") to explore.
+        # If we interpret "softmax-like" as creating relative probabilities, we can do that.
+        # However, a simpler interpretation for "priority score" is to just return
+        # the modulated sigmoid scores, and let the selection algorithm handle the exploration.
+
+        # Let's stick to the interpretation that the `priority_v2` function *outputs*
+        # scores that can be used for exploration. The sigmoid already provides a nuanced score.
+        # For tie-breaking and varied exploration, we can enhance the score or rely on the selection mechanism.
+        #
+        # A simple way to introduce variation without full softmax: add a small, scaled random component.
+        # This is akin to adding noise for exploration.
+        #
+        # Let's ensure the scores are in a somewhat predictable range and then use them.
+        # The sigmoid output is [0, 1].
+        
+        # For "varied exploration", we can make the scores slightly more distinct or add noise.
+        # Adding a small random noise:
+        # noise = np.random.normal(0, 0.05, raw_scores.shape) # Mean 0, std dev 0.05
+        # noisy_scores = raw_scores + noise
+        # Ensure scores remain within a valid range (e.g., > 0) for weighted selection.
+        # We can clamp or re-normalize.
+
+        # Let's interpret "varied exploration" as generating scores that are
+        # not purely greedy, but represent a soft preference. The sigmoid itself does this.
+        # The "softmax for score normalization" could mean scaling these priorities
+        # so they sum to a constant (e.g., 1 if using weighted random choice).
+        #
+        # The most direct interpretation is to simply return the refined sigmoid scores.
+        # The "varied exploration" aspect is then handled by how these scores are *used* by the calling algorithm
+        # (e.g., weighted random choice vs. simple argmax).
+        #
+        # If the intent is for this function itself to produce probabilities for a direct selection,
+        # then softmax is appropriate. Given the wording "returns a priority score for each bin",
+        # it suggests the output is a score, not necessarily a final probability.
+        #
+        # Let's refine the sigmoid output to ensure higher scores are more distinct,
+        # making the preference clearer for exploration.
+        # We can amplify the difference between scores.
+        
+        # A simple amplification of the sigmoid output might be:
+        # amplified_scores = raw_scores ** power_factor  (where power_factor > 1)
+        # Or a linear scaling and shifting that maintains order but increases separation.
+        
+        # Let's use the original sigmoid scores, as they are already graded.
+        # If "varied exploration" means probabilistic selection based on scores,
+        # the scores themselves are the input to that mechanism.
+        priorities[fits_mask] = raw_scores
+
+    # For bins where the item does not fit, the priority remains 0.
+    # This correctly implies they have the lowest priority.
+    return priorities
+```

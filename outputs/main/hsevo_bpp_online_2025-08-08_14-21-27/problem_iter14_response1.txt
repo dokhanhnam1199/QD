@@ -1,0 +1,51 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit and Fullness Ratio with an adaptive bonus,
+    prioritizing bins that offer a tight fit and are already well-utilized.
+    This aims for efficient packing by balancing immediate fit with future bin usage.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    fittable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(fittable_bins_mask):
+        return priorities
+
+    fittable_bins_remain_cap = bins_remain_cap[fittable_bins_mask]
+    
+    # Best Fit Score: Inverted remaining capacity after fit. Tighter fits get higher scores.
+    best_fit_scores = 1.0 / (fittable_bins_remain_cap - item + 1e-9)
+    
+    # Fullness Score: (Bin Capacity - Remaining Capacity) / Bin Capacity. Higher for fuller bins.
+    # Assuming a bin capacity of 1.0 for normalization.
+    bin_capacity = 1.0
+    current_fill_ratio = (bin_capacity - fittable_bins_remain_cap) / bin_capacity
+    fill_ratio_score = current_fill_ratio
+
+    # Adaptive Bonus: Penalizes bins with large remaining capacity more heavily.
+    # This encourages using bins that would leave smaller unusable gaps.
+    # A lower remaining capacity (higher fill ratio) leads to a smaller (less negative) adaptive bonus.
+    adaptive_bonus = -np.log(fittable_bins_remain_cap + 1e-9) * 0.5
+
+    # Combine scores: Multiplicatively combine Best Fit and Fill Ratio,
+    # then add the adaptive bonus. This prioritizes tight fits and full bins,
+    # with an adjustment for leftover space.
+    combined_scores = best_fit_scores * (1 + fill_ratio_score) + adaptive_bonus
+    
+    # Ensure that even if combined_scores are very low or negative, a small positive priority exists
+    # for fittable bins, mainly driven by the best_fit_scores component.
+    # This prevents entirely eliminating bins that are only a decent fit.
+    priorities[fittable_bins_mask] = np.maximum(combined_scores, best_fit_scores * 0.1)
+
+    # Normalize priorities to a [0, 1] range for consistent behavior.
+    max_priority = np.max(priorities)
+    if max_priority > 1e-9:
+        priorities[fittable_bins_mask] /= max_priority
+    else:
+        # Fallback for cases where all calculated priorities are near zero.
+        priorities[fittable_bins_mask] = 0.1
+
+    return priorities
+```

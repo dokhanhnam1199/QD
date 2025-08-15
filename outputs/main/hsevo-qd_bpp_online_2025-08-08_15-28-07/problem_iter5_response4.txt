@@ -1,0 +1,63 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Combines Best Fit with a slight penalty for very tight fits.
+
+    Prioritizes bins that minimize leftover space after packing, but slightly
+    reduces priority for bins that result in extremely minimal remaining space.
+    This aims to balance tight packing with leaving slightly more usable space.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    
+    # Filter for bins that can fit the item
+    fitting_bins_caps = bins_remain_cap[can_fit_mask]
+    
+    # If no bins can fit the item, return all zeros
+    if not np.any(can_fit_mask):
+        return priorities
+    
+    # Calculate the remaining capacity after packing the item
+    remaining_space_after_packing = fitting_bins_caps - item
+    
+    # Heuristic Idea: Combine "Best Fit" (minimize remaining_space_after_packing)
+    # with a slight penalty for excessively tight fits.
+    # The "Best Fit" score is inversely proportional to remaining_space_after_packing.
+    # A common way to implement this is `1 / (remaining_space_after_packing + epsilon)`.
+    # To penalize extremely tight fits, we can slightly increase the denominator.
+    # A common approach is to add a small fraction of the item size or bin capacity.
+    # Let's use a fraction of the item size for the penalty.
+    
+    # Smoothing factor to slightly penalize extremely tight fits.
+    # We add a fraction of the item size to the remaining space.
+    # This makes the denominator larger, thus reducing the priority for bins
+    # where remaining_space_after_packing is very small.
+    smoothing_factor = 0.15 * item # Tunable parameter: adjust based on observed performance
+    
+    # Calculate the priority for bins that can fit the item.
+    # The priority is the item size divided by (remaining space after packing + smoothing factor).
+    # This prioritizes bins where the item fills a larger proportion of the available space,
+    # but slightly de-emphasizes bins where the remaining space is near zero.
+    # We use `fitting_bins_caps` (original remaining capacity) in the numerator
+    # to favor bins that already had more capacity to begin with, as this can sometimes
+    # be beneficial in online settings, providing a slightly "Worst Fit"-like secondary effect.
+    # The combination `fitting_bins_caps / (remaining_space_after_packing + smoothing_factor + epsilon)`
+    # aims to balance tight packing (small denominator) with not being excessively tight (smoothing factor)
+    # and also considering the initial capacity (numerator).
+    
+    denominator = remaining_space_after_packing + smoothing_factor + 1e-9
+    
+    # Calculate priorities for available bins.
+    # The term `fitting_bins_caps` in the numerator slightly favors bins that were initially fuller.
+    # The term `denominator` strongly favors bins that leave less space after packing.
+    # The `smoothing_factor` reduces the priority for bins that leave *very little* space.
+    priorities_for_available = fitting_bins_caps / denominator
+    
+    # Assign the calculated priorities back to the original array structure
+    priorities[can_fit_mask] = priorities_for_available
+    
+    return priorities
+```

@@ -1,0 +1,188 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Prioritize bins that offer a tight fit, with a secondary preference for bins that are not excessively empty after packing."""
+    
+    # Calculate remaining capacity after placing the item.
+    remaining_after_fit = bins_remain_cap - item
+    
+    # We want to prioritize bins where 'remaining_after_fit' is small and non-negative.
+    # A perfect fit (remaining_after_fit = 0) should get a high score.
+    # Loose fits (large positive remaining_after_fit) should get lower scores.
+    # Bins where the item doesn't fit (negative remaining_after_fit) should get zero priority.
+    
+    # Use a sigmoid function: 1 / (1 + exp(-x)).
+    # To favor small positive 'remaining_after_fit', we want 'x' in sigmoid to be
+    # inversely related to 'remaining_after_fit'.
+    # So, use -k * (remaining_after_fit).
+    # Let 'k' be a sensitivity parameter.
+    
+    sensitivity = 2.0  # Controls how quickly priority drops for looser fits.
+    
+    # Argument for the sigmoid. If the item fits, we use -sensitivity * remaining_after_fit.
+    # If it doesn't fit, we use a very small number to ensure the sigmoid output is close to 0.
+    argument = np.where(
+        remaining_after_fit >= 0,
+        -sensitivity * remaining_after_fit,
+        -1e9  # Effectively zero priority for bins where the item doesn't fit.
+    )
+    
+    # Calculate the primary "best fit" priority score.
+    # This maps remaining_after_fit=0 to 0.5, and larger positive values to scores closer to 0.
+    best_fit_priority = 1 / (1 + np.exp(-argument))
+    
+    # Secondary preference: Slightly favor bins that are not excessively empty AFTER packing.
+    # This encourages filling bins more completely, without sacrificing the best fit.
+    # We can add a small bonus proportional to the inverse of the remaining capacity,
+    # but only if the bin already offers a decent fit (to avoid favoring very full bins
+    # that lead to poor fits).
+    
+    # Let's scale the remaining capacity after fit. Small positive remaining means a good fit.
+    # We want to give a slight boost to bins where this value is not *too* large,
+    # but also not so small that it's an immediate "waste".
+    
+    # A simple approach: add a term that slightly rewards bins with less slack.
+    # `slack_penalty = remaining_after_fit`
+    # We want to reward bins with *smaller* slack.
+    # Let's add `1.0 / (remaining_after_fit + 1e-6)` but this can be volatile.
+    
+    # A more stable approach: add a term proportional to the *inverse* of the
+    # remaining capacity, scaled. This boosts bins that leave less space.
+    # This term should be applied only to bins that already have a good fit.
+    
+    # Let's combine by scaling the "remaining_after_fit" term before the sigmoid.
+    # We want to slightly increase the priority for bins with less remaining capacity.
+    # `sigmoid(-sensitivity * (remaining_after_fit - capacity_bonus_factor * bins_remain_cap))`
+    # This is complex.
+    
+    # Let's use a simpler additive combination:
+    # `priority = best_fit_priority + alpha * secondary_score`
+    # `secondary_score` should be higher for smaller `remaining_after_fit`.
+    # `secondary_score = exp(-remaining_after_fit / scale_secondary)`
+    
+    # Let's refine the `argument` itself to implicitly include this.
+    # We want to increase the priority for smaller `remaining_after_fit`.
+    # `sigmoid(-sensitivity * remaining_after_fit + bonus_for_fullness)`
+    # `bonus_for_fullness` should be higher for bins that are already fuller (and can still fit).
+    # So, `bonus_for_fullness` could be proportional to `item / bins_remain_cap` if we consider
+    # how much of the bin the item occupies, or proportional to `1/bins_remain_cap`.
+    
+    # Let's combine by slightly reducing the effective remaining capacity for fuller bins.
+    # Consider a bin that is 80% full and an item takes 20% of it.
+    # Consider a bin that is 20% full and an item takes 10% of it.
+    
+    # Let's add a term that is higher for bins that are already relatively full.
+    # `fullness_score = item / (bins_remain_cap + 1e-6)` (ratio of item size to bin's current capacity)
+    # This score is high if the item takes up a large portion of the bin.
+    
+    # The argument for sigmoid could be: `-sensitivity * remaining_after_fit + weight_fullness * fullness_score`
+    
+    weight_fullness = 0.5 # Controls how much we favor fuller bins
+    
+    # Calculate fullness score. Normalize by bin capacity to avoid extreme values.
+    # A simpler fullness metric: `bins_remain_cap / MAX_CAPACITY`.
+    # Or, how much space is left *relative* to total capacity.
+    # `relative_remaining = bins_remain_cap / MAX_CAPACITY`
+    # We want to prioritize bins with *low* `relative_remaining` (i.e., fuller bins).
+    # So, `bonus = -weight_fullness * (bins_remain_cap / MAX_CAPACITY)`
+    
+    # Let's simplify: a slight preference for bins that are "just right" - not too empty, not too full.
+    # This is hard to capture with a single sigmoid input directly without peaks.
+    
+    # Let's stick to the Best Fit principle and add a small bonus for bins that are already
+    # somewhat filled, as long as they provide a good fit.
+    
+    # The current `best_fit_priority` is good.
+    # We can add a small, positive bonus for bins that are not excessively empty *after* fitting.
+    # The "excessive emptiness" is captured by `remaining_after_fit`.
+    # A smaller `remaining_after_fit` is good.
+    
+    # Let's add a term that is proportional to `1 / (remaining_after_fit + epsilon)`.
+    # This rewards smaller remaining capacities.
+    
+    bonus_for_tightness = 1.0 / (remaining_after_fit + 1e-6) # Higher for smaller positive remaining
+    
+    # Combine the best fit priority with a scaled bonus.
+    # Scale the bonus so it doesn't overwhelm the best fit score.
+    scale_bonus = 0.1 # Controls the influence of the secondary bonus.
+    
+    # Apply bonus only where the item fits.
+    combined_priority = np.where(
+        remaining_after_fit >= 0,
+        best_fit_priority + scale_bonus * (bonus_for_tightness / np.max(bonus_for_tightness[remaining_after_fit >= 0] + 1e-6)), # Normalize bonus
+        0.0 # Zero priority if item doesn't fit
+    )
+    
+    # Ensure priorities are within a reasonable range, though sigmoid already ensures [0,1] for best_fit_priority.
+    # The bonus might push it slightly above 1 if not careful.
+    # Let's reconsider the sigmoid argument to directly incorporate this.
+    
+    # Final attempt: Modify the sigmoid argument directly.
+    # We want `sigmoid(arg)` to be high when `remaining_after_fit` is small and positive.
+    # `arg = -sensitivity * remaining_after_fit` gives this.
+    # To add preference for smaller `remaining_after_fit`, we can add a term proportional to
+    # `1 / remaining_after_fit`.
+    # `arg = -sensitivity * remaining_after_fit - weight_fill * (1.0 / (remaining_after_fit + epsilon))`
+    # This will shift the peak preference to smaller positive values.
+    
+    sensitivity = 3.0
+    weight_fill = 0.5 # How much to favor bins that are already quite full (leaving less space)
+    epsilon = 1e-6
+    
+    # Calculate argument for sigmoid
+    # If item fits: use `-sensitivity * remaining_after_fit - weight_fill * (1.0 / (remaining_after_fit + epsilon))`
+    # This term `1.0 / (remaining_after_fit + epsilon)` is large for small positive `remaining_after_fit`,
+    # and small for large positive `remaining_after_fit`.
+    # By subtracting it, we are *reducing* the sigmoid argument for small `remaining_after_fit`.
+    # This means `sigmoid` will be *lower* for tight fits. This is the opposite of what we want.
+    
+    # Let's try adding a term that increases as remaining_after_fit decreases.
+    # `arg = -sensitivity * remaining_after_fit + weight_fill * (1.0 / (remaining_after_fit + epsilon))`
+    # This is still problematic as it peaks.
+    
+    # Revert to Best Fit using sigmoid, and then add a simple bonus.
+    
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    fits_mask = bins_remain_cap >= item
+    
+    # Best Fit score (higher for tighter fits)
+    # sigmoid(-sensitivity * (bins_remain_cap - item))
+    sensitivity = 3.0
+    best_fit_arg = -sensitivity * (bins_remain_cap - item)
+    
+    # Apply the sigmoid, but only to bins that fit.
+    best_fit_score = np.zeros_like(bins_remain_cap, dtype=float)
+    best_fit_score[fits_mask] = 1 / (1 + np.exp(-best_fit_arg[fits_mask]))
+    
+    # Secondary score: Bonus for being "almost full" after placing the item.
+    # Higher score for smaller (but positive) remaining_after_fit.
+    # Use 1 / (remaining_after_fit + epsilon) for this.
+    
+    remaining_after_fit = bins_remain_cap - item
+    
+    # Calculate bonus only for bins that fit
+    bonus_score = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Calculate the bonus term for fitting bins. Normalize it to be between 0 and 1.
+    fitting_remaining = remaining_after_fit[fits_mask]
+    if fitting_remaining.size > 0:
+        normalized_bonus_term = 1.0 / (fitting_remaining + epsilon)
+        # Normalize this term to prevent it from overwhelming the best_fit_score
+        max_bonus_term = np.max(normalized_bonus_term)
+        if max_bonus_term > 0:
+            normalized_bonus = normalized_bonus_term / max_bonus_term
+            bonus_score[fits_mask] = normalized_bonus
+    
+    # Combine scores: weighted sum of best fit and the bonus.
+    # Give more weight to the best fit aspect.
+    weight_best_fit = 0.8
+    weight_bonus = 0.2
+    
+    final_priorities = weight_best_fit * best_fit_score + weight_bonus * bonus_score
+    
+    # Ensure no negative priorities and cap at 1.0 (though combination should be okay)
+    final_priorities = np.clip(final_priorities, 0.0, 1.0)
+    
+    return final_priorities
+```

@@ -1,0 +1,119 @@
+[Prior reflection]
+Prioritize tight fits using a unified scoring mechanism. Employ Softmax with tunable temperature for adaptive exploration/exploitation, balancing fit and bin scarcity. Simplify scoring for exploitability.
+
+[Code]
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a Softmax approach
+    that balances tight fits and bin scarcity.
+
+    This heuristic aims to select the "best" bin for an incoming item. It combines two
+    considerations:
+    1. Tight Fit: Prefer bins where the remaining capacity is close to the item size,
+       minimizing wasted space.
+    2. Bin Scarcity: Prefer bins that have less remaining capacity overall, as these
+       bins are "scarcer" and might be more difficult to fill later.
+
+    The scoring mechanism uses a Softmax function. For each suitable bin (where
+    `remaining_capacity >= item`), a score is calculated based on the negative of
+    the "mismatch" (`remaining_capacity - item`). The Softmax then converts these scores
+    into probabilities, effectively prioritizing bins with smaller mismatches.
+
+    A temperature parameter `T` is introduced to control the trade-off between
+    exploration (higher T, more uniform probabilities) and exploitation (lower T,
+    sharper focus on the best bin).
+
+    The scoring for each suitable bin is:
+    `score = - (remaining_capacity - item)`
+
+    Then, these scores are normalized using Softmax:
+    `priority = exp(score / T) / sum(exp(score_i / T) for all suitable bins i)`
+
+    If `T` is very small, the bin with the smallest mismatch gets a much higher score.
+    If `T` is large, the scores are more evenly distributed among suitable bins.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A NumPy array representing the remaining capacity of each bin.
+
+    Returns:
+        A NumPy array of the same size as `bins_remain_cap`, where each element
+        is the priority score (probability) for the corresponding bin. Bins that
+        cannot fit the item will have a priority of 0.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    suitable_bins_cap = bins_remain_cap[suitable_bins_mask]
+
+    # If no bin can fit the item, return all zeros
+    if suitable_bins_cap.size == 0:
+        return priorities
+
+    # Temperature parameter for Softmax.
+    # Controls the trade-off between exploitation (low T) and exploration (high T).
+    # A low T will favor the bin with the tightest fit.
+    # A high T will distribute priorities more evenly among suitable bins.
+    T = 0.1  # Tunable parameter, adjusted to favor tighter fits initially.
+
+    # Calculate scores for suitable bins. We want to prioritize smaller
+    # `remaining_capacity - item`. So, the score should increase as this difference
+    # decreases. A simple way is to use the negative of the difference.
+    # score = - (suitable_bins_cap - item)
+    # This means perfect fits (difference = 0) get a score of 0, and
+    # larger differences get more negative scores.
+    scores = -(suitable_bins_cap - item)
+
+    # Apply Softmax to get probabilities.
+    # To avoid potential issues with very large negative scores (leading to exp(very_small_number) -> 0),
+    # we can shift the scores so the maximum score is 0 before applying exp.
+    # This is equivalent to exp(score_i / T) / sum(exp(score_j / T)).
+    # Let max_score = max(scores). Then exp((score - max_score) / T) / sum(exp((score_j - max_score) / T)).
+    # This is numerically more stable.
+    if scores.size > 0:
+        max_score = np.max(scores)
+        shifted_scores = (scores - max_score) / T
+        
+        # Handle potential overflow in exp if shifted_scores are still very large
+        # (though shifting by max_score should mitigate this for typical cases).
+        # Clipping the input to exp is a common technique.
+        # If T is very small, shifted_scores can become very large positive for the max_score bin.
+        # If T is very large, shifted_scores can become very small (negative).
+        
+        # Let's cap the argument to exp to avoid overflow for very small T.
+        # The maximum value for exp is generally around exp(700).
+        # If T is small, `scores - max_score` can be 0. `0/T` is 0. `exp(0)=1`.
+        # If T is small and there's a bin with slightly less capacity, score is slightly negative.
+        # `negative_value / T` can be a large negative number. exp of large negative is ~0.
+        # If T is small, and there's a bin with much less capacity, score is more negative.
+        # `more_negative_value / T` is a larger negative number. exp is closer to 0.
+        # So, for small T, the bin with max_score (tightest fit) gets priority 1.
+        
+        # For stability, we can clip the arguments to `exp`.
+        # A typical value like 35 is often used as a safe upper bound for `x` in `exp(x)`.
+        # If `shifted_scores` are negative, `exp` is fine.
+        # If `shifted_scores` are positive (due to the `scores - max_score` part),
+        # they should be 0 for the max score itself.
+        # The `shifted_scores` calculation `(scores - max_score) / T` means:
+        # For the bin with `max_score`: `(max_score - max_score) / T = 0`. `exp(0) = 1`.
+        # For bins with `score < max_score`: `(score - max_score)` is negative.
+        # `(negative_value) / T`. If T is small, this becomes a large negative number.
+        # `exp(large_negative_number)` is close to 0.
+        
+        # The normalization step `np.sum(np.exp(shifted_scores))` will handle the sum.
+        # If the sum is 0 (e.g., all shifted scores were -inf), we'd have division by zero.
+        # However, `exp(0)` for the max score prevents this.
+
+        # Ensure no division by zero if all scores lead to exp(large_negative)
+        exp_scores = np.exp(shifted_scores)
+        sum_exp_scores = np.sum(exp_scores)
+
+        if sum_exp_scores > 0:
+            priorities[suitable_bins_mask] = exp_scores / sum_exp_scores
+        # If sum_exp_scores is 0, it implies all suitable bins resulted in exp(-inf),
+        # which shouldn't happen with the max_score normalization unless T is extremely large
+        # and scores are vastly different, leading to underflow. In such edge cases,
+        # we could assign equal probability or handle as an error. For typical T values, this is safe.
+
+    return priorities
+```

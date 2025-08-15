@@ -1,0 +1,251 @@
+[Prior reflection]
+The previous `priority_v1` function implements the "Almost Full Fit" (AFF) strategy by prioritizing bins with the smallest remaining capacity after an item is placed. This is a good heuristic for minimizing wasted space. However, the reflection suggests improvements:
+
+1.  **Smooth Preference with Sigmoid:** Instead of a linear relationship, use a sigmoid function to provide a smoother preference for bins that are "almost full." This can prevent drastic jumps in priority and might lead to more stable packing decisions.
+2.  **Ensure Items Always Fit:** The current logic already ensures items fit by using `can_fit_mask`. The sigmoid function should also be designed such that it only applies to bins where the item *can* fit.
+3.  **Tie-breaking with Lower Bin Indices:** While `v1` has implicit tie-breaking due to NumPy's behavior, explicitly adding a penalty for higher indices could make this tie-breaking mechanism more robust and predictable.
+
+Let's break down the implementation of `priority_v2`:
+
+*   **Sigmoid Function:** A sigmoid function like `1 / (1 + exp(-x))` squashes values between 0 and 1. We want higher priority for smaller remaining capacities. So, we can apply sigmoid to a transformation of the remaining capacity.
+    *   The core idea of AFF is to prioritize bins where `remaining_capacity - item` is small. Let `r = remaining_capacity - item`. We want higher priority for smaller `r`.
+    *   A simple sigmoid applied to `-r` would work: `sigmoid(-r) = 1 / (1 + exp(r))`. As `r` gets smaller (closer to 0), `exp(r)` gets closer to 1, and the sigmoid approaches `1/2`. As `r` gets larger, `exp(r)` gets larger, and the sigmoid approaches 0. This is not quite right; we want *higher* priority for *smaller* `r`.
+    *   Let's re-evaluate: we want to maximize priority for bins where `remaining_capacity - item` is minimal and positive.
+    *   Consider `f(r) = K - r` for some large `K`. We want to maximize this. This is essentially what `v1` does.
+    *   To make it smooth, we can use a sigmoid on a transformed `r`. If `r` is small positive, we want high priority. If `r` is large positive, we want low priority.
+    *   Let's map `r` to a value where a sigmoid function makes sense. We want small `r` to map to a high value in the sigmoid's steep region, and large `r` to map to a lower value.
+    *   A function like `sigmoid(C - r)` where `C` is a scaling constant might work. If `r` is small, `C - r` is large, sigmoid is close to 1. If `r` is large, `C - r` is small, sigmoid is closer to 0. This seems appropriate.
+    *   We need to choose `C` and potentially scale the output. The `bins_remain_cap` can vary. A fixed `C` might not generalize well.
+    *   Alternatively, consider prioritizing based on `1 / (1 + (remaining_capacity - item))`. Small positive `remaining_capacity - item` gives a high score. Large positive gives a low score. This is still linear-ish.
+    *   Let's stick to the idea of prioritizing bins with small *positive* remaining capacity *after* placing the item.
+    *   Let `residual_capacity = bins_remain_cap[can_fit_mask] - item`. We want to prioritize smaller `residual_capacity`.
+    *   A possible transformation for sigmoid: `priority_score = sigmoid(k * (some_value - residual_capacity))`. If `some_value` is large, smaller `residual_capacity` leads to larger argument, higher sigmoid.
+    *   What if we use the *proportion* of capacity used? If a bin is `c` capacity and item is `i`, after placing it, remaining is `c-i`. The proportion used is `i/c`. Prioritizing bins that are "almost full" means prioritizing those where `i/c` is large, or `c-i` is small.
+    *   Let's focus on `residual_capacity = bins_remain_cap[can_fit_mask] - item`.
+    *   We want a score that is high for small `residual_capacity` and low for large `residual_capacity`.
+    *   The sigmoid function `sigmoid(x) = 1 / (1 + exp(-x))` is increasing. If we want higher priority for smaller `residual_capacity`, we need to feed it a value that *decreases* as `residual_capacity` increases.
+    *   So, let's consider `priority_component = sigmoid(-k * residual_capacity)` for some scaling factor `k`.
+        *   If `residual_capacity` is small (e.g., 0.1), `-k * 0.1` is negative but close to zero. Sigmoid is around 0.5.
+        *   If `residual_capacity` is very small positive (e.g., epsilon), `-k * epsilon` is close to zero, sigmoid is near 0.5.
+        *   If `residual_capacity` is slightly larger (e.g., 1), `-k * 1` is more negative, sigmoid is smaller.
+        *   This is still not quite right. We want small positive `residual_capacity` to yield the *highest* priority.
+    *   Let's reconsider the goal: prioritize bins that are *almost full*. This means the remaining capacity `bins_remain_cap` is just slightly larger than `item`.
+    *   So, we are interested in `bins_remain_cap - item` being small and positive.
+    *   Let's use `sigmoid(a - b * residual_capacity)` where `a` is an offset and `b` is a steepness factor.
+    *   If `residual_capacity` is small, `a - b * residual_capacity` is large, sigmoid is close to 1 (high priority).
+    *   If `residual_capacity` is large, `a - b * residual_capacity` is small, sigmoid is close to 0 (low priority).
+    *   We need to choose `a` and `b`. A simple approach might be to normalize `residual_capacity`.
+    *   However, a direct mapping using a sigmoid centered around zero remaining capacity might be simpler. `sigmoid(k * (item - bins_remain_cap[can_fit_mask]))`.
+        *   If `bins_remain_cap` is just slightly larger than `item`, then `item - bins_remain_cap` is small and negative. `-k * small_negative` is small positive. Sigmoid is > 0.5.
+        *   If `bins_remain_cap` is much larger than `item`, then `item - bins_remain_cap` is large and negative. `-k * large_negative` is large positive. Sigmoid is close to 1. This is the opposite of what we want!
+    *   Let's try `sigmoid(k * (bins_remain_cap[can_fit_mask] - item))`.
+        *   If `bins_remain_cap` is slightly larger than `item`, then `bins_remain_cap - item` is small positive. `k * small_positive` is small positive. Sigmoid is > 0.5.
+        *   If `bins_remain_cap` is much larger than `item`, then `bins_remain_cap - item` is large positive. `k * large_positive` is large positive. Sigmoid is close to 1. This is still prioritizing *less full* bins.
+    *   The core idea of AFF is to prioritize bins that leave the *least* space. So, we want to maximize `-(bins_remain_cap - item)`.
+    *   Let's apply sigmoid to this value, possibly scaled. `sigmoid(k * -(bins_remain_cap - item))`.
+        *   If `bins_remain_cap - item` is small positive (e.g., 0.1), then `-0.1k`. If `k` is positive, this is negative. Sigmoid is < 0.5.
+        *   If `bins_remain_cap - item` is larger positive (e.g., 5), then `-5k`. Sigmoid is much smaller.
+        *   This is also not quite right. We want high priority for small positive `remaining_capacity - item`.
+    *   Perhaps the sigmoid should be applied to a value that is *inversely* related to `remaining_capacity - item`.
+    *   Consider `1 / (1 + (bins_remain_cap[can_fit_mask] - item))`. As `residual_capacity` approaches 0, this goes to 1. As it goes to infinity, it goes to 0. This looks promising, but it's not sigmoid.
+    *   Let's use `sigmoid` on a transformed version of `residual_capacity`. We want small `residual_capacity` to map to values near 1.
+    *   Let `x = bins_remain_cap[can_fit_mask] - item`. We want high priority for small `x`.
+    *   Consider `priority = sigmoid(k * (M - x))` where `M` is a threshold. If `x < M`, `M-x` is positive, sigmoid is > 0.5. If `x > M`, `M-x` is negative, sigmoid is < 0.5. This gives preference to bins below a threshold.
+    *   To make it smoothly prefer smaller `x`, we want the sigmoid's steep part around small `x`.
+    *   Let's try `sigmoid(k * (TargetCapacity - residual_capacity))`. If `TargetCapacity` is the bin capacity, and `residual_capacity` is `bins_remain_cap[i] - item`, this means we're prioritizing bins that are closest to having `TargetCapacity - item` remaining.
+    *   Let's use the concept of "slack": `slack = bins_remain_cap[can_fit_mask] - item`. We want to minimize slack.
+    *   A sigmoid function that increases as slack decreases: `sigmoid(k * (-slack))`.
+        *   If `slack` is small positive (0.1), `-0.1k`. If `k` is large positive, this is negative. Sigmoid < 0.5.
+        *   If `slack` is close to zero (epsilon), `-epsilon*k` is near zero. Sigmoid is near 0.5.
+        *   If `slack` is negative (item doesn't fit), this is positive. Sigmoid is > 0.5. But we've filtered these out.
+    *   The reflection mentions "smallest *positive* remaining capacity." This means `bins_remain_cap[i] - item > 0`.
+    *   Let's define `slack = bins_remain_cap[can_fit_mask] - item`. We want to maximize a function that decreases with `slack`.
+    *   Consider `sigmoid(k * (1.0 / (slack + epsilon)))` for small `epsilon`.
+        *   If `slack` is small positive (0.1), `1/(0.1+eps)` is large. Sigmoid is near 1.
+        *   If `slack` is large positive (5), `1/(5+eps)` is small. Sigmoid is near 0.5.
+    *   This seems to capture the "smallest positive remaining capacity" preference smoothly. Let's choose `k=1` and `epsilon = 1e-9` for numerical stability.
+
+*   **Tie-breaking:** Add a small penalty based on the bin index. We want to prefer lower indices. So, we should subtract a value proportional to the index.
+    *   `priority = sigmoid_score - index_penalty * bin_index`.
+    *   The sigmoid scores are between 0 and 1. The penalty should be small enough not to override the sigmoid preference but significant enough for tie-breaking. A small fraction of the sigmoid range, like `0.1 * index / num_bins`, could work. Or simply subtract `index * small_constant`.
+    *   Let's use `priorities[can_fit_mask] = sigmoid_score - tie_breaker_weight * np.arange(bins_remain_cap.shape[0])[can_fit_mask]`. The `tie_breaker_weight` should be small. A value like `0.01` might be sufficient.
+
+Let's try combining these.
+The sigmoid should be applied to `k * (1.0 / (slack + epsilon))`.
+`slack = bins_remain_cap[can_fit_mask] - item`.
+We need a scaling factor `k` for the sigmoid argument. The range of `1.0 / (slack + epsilon)` can be large. A sigmoid `1/(1+exp(-x))` has its steepest part around `x=0`. We want the steep part to cover the typical range of `1.0 / (slack + epsilon)`. If `slack` is typically between 0 and, say, 5, then `1/(slack+eps)` is between 0.2 and 10.
+Let's scale the sigmoid argument by a factor `k` such that the typical values of `1/(slack+eps)` are in the "middle" range of the sigmoid.
+If we use `sigmoid(k * arg)`, and we want the steep region around `arg = 0`, then `arg` should be `1.0 / (slack + epsilon)`.
+If we want the steep part around `slack` values that are "small", say `slack` around `0.5`, then `1/(0.5+eps)` is around `2`. So we want the sigmoid to be centered around `arg = 2`.
+Let's rethink the sigmoid transformation.
+The goal is to prioritize bins with `slack = bins_remain_cap - item` being small and positive.
+The function `f(slack) = 1 / (slack + epsilon)` is decreasing.
+We want a smooth function that maps small positive slack to high priority, and large positive slack to low priority.
+The sigmoid `S(x) = 1 / (1 + exp(-x))` is increasing.
+So we need to map slack to an argument `y` such that `S(y)` increases as slack decreases. This means `y` must decrease as slack decreases.
+Thus, `y` should be something like `k * (C - slack)`.
+Let's try `y = k * (1.0 / (slack + epsilon))`. This is decreasing in slack.
+If `slack` is small (e.g., 0.1), `y` is large positive. `sigmoid(y)` is near 1.
+If `slack` is larger (e.g., 5), `y` is smaller positive. `sigmoid(y)` is less than 1, approaching 0.5.
+This appears to work. Let's choose `k`. The range of `1.0 / (slack + epsilon)` for typical `slack` values (e.g., 0 to 10) is roughly 0.1 to 10.
+If `k=0.5`, then `y` ranges from 0.05 to 5. `sigmoid(0.05)` is ~0.51, `sigmoid(5)` is ~0.99. This prioritizes smaller slack too much.
+If `k=0.1`, `y` ranges from 0.01 to 1. `sigmoid(0.01)` is ~0.505, `sigmoid(1)` is ~0.73. This is too flat.
+The "steepest" part of sigmoid is around argument 0. We want small slack values to map to arguments around 0, or slightly positive.
+If we want the steep part to be around `slack=0.5`, we'd want `1/(0.5+eps)` to map to argument 0. This is tricky.
+
+Let's simplify the sigmoid application.
+The problem statement implies we want bins that are "almost full". This means `bins_remain_cap` is small, but still greater than or equal to `item`.
+So, we are prioritizing small values of `bins_remain_cap` *among those that can fit the item*.
+Consider `bins_remain_cap[can_fit_mask]`. We want to prioritize the smallest values in this subset.
+A sigmoid applied to `(-bins_remain_cap[can_fit_mask])` would give higher values for smaller `bins_remain_cap`.
+`sigmoid(-bins_remain_cap[can_fit_mask])`:
+If `bins_remain_cap` is 3, `-3`. Sigmoid is small.
+If `bins_remain_cap` is 1, `-1`. Sigmoid is larger.
+This prioritizes bins with less *absolute* remaining capacity, which is good.
+
+Let's try applying sigmoid to `k * (TargetValue - bins_remain_cap[can_fit_mask])`.
+If `TargetValue` is the bin capacity, and we want bins where `bins_remain_cap` is small.
+A better approach for AFF is to prioritize bins that, after packing the item, will have the smallest *remaining capacity*.
+This is `bins_remain_cap[can_fit_mask] - item`. We want to minimize this.
+Let `residual = bins_remain_cap[can_fit_mask] - item`. We want to prioritize smaller `residual`.
+Consider `sigmoid(k * (M - residual))`.
+If `M` is some target value (e.g., average residual capacity, or just a constant).
+If `residual` is small (e.g., 0.1), `M - 0.1` is large positive (if M is positive). Sigmoid is near 1.
+If `residual` is large (e.g., 5), `M - 5` is small positive or negative. Sigmoid is < 0.5 or near 0.5.
+
+Let's use a sigmoid on the *negative* of the residual capacity, scaled.
+`sigmoid(k * -(bins_remain_cap[can_fit_mask] - item))`
+`sigmoid(k * (item - bins_remain_cap[can_fit_mask]))`
+Let `r = bins_remain_cap[can_fit_mask] - item`.
+`sigmoid(k * (-r))`
+If `r` is small positive (0.1): `sigmoid(-0.1k)`. If `k=10`, `sigmoid(-1)` ~ 0.27.
+If `r` is large positive (5): `sigmoid(-5k)`. If `k=10`, `sigmoid(-50)` ~ 0.
+This gives low priority to small residuals and high priority to large residuals. Again, the opposite.
+
+The key is that `sigmoid` is *increasing*. We want a priority that *decreases* with residual capacity.
+So the argument to sigmoid must *decrease* as residual capacity increases.
+`Argument = f(residual_capacity)` where `f` is a decreasing function.
+And we want the steep part of the sigmoid to cover the typical range of `residual_capacity`.
+
+Let's use the inverse of residual capacity, plus a small epsilon for stability, as the argument.
+`residual_capacity = bins_remain_cap[can_fit_mask] - item`
+`argument = 1.0 / (residual_capacity + epsilon)`
+This argument decreases as `residual_capacity` increases.
+Now, we need to apply sigmoid. `sigmoid(k * argument)`
+If `residual_capacity` is small (0.1), `argument` is large (~10). `k * 10`. If `k` is moderate, e.g., `0.1`, then `argument` is `1`. `sigmoid(1)` ~ 0.73.
+If `residual_capacity` is larger (5), `argument` is smaller (~0.2). `k * 0.2`. If `k=0.1`, then `argument` is `0.02`. `sigmoid(0.02)` ~ 0.505.
+This works! Small residual gives higher priority.
+
+Now, the tie-breaking.
+We want to prefer lower bin indices.
+Let `sigmoid_priority = sigmoid(k * (1.0 / (residual_capacity + epsilon)))`.
+`total_priority = sigmoid_priority - tie_breaker_weight * bin_indices_that_fit`.
+The `tie_breaker_weight` should be small. Let's pick `0.01`.
+The `bin_indices_that_fit` are `np.arange(bins_remain_cap.shape[0])[can_fit_mask]`.
+
+We need to determine a reasonable `k`.
+The range of `residual_capacity` might depend on the bin capacity and item sizes.
+If bin capacity is 10, items are 1-9. Residuals can be 1 to 9.
+`1.0 / (residual_capacity + epsilon)` range:
+If residual = 1, arg = 1.0/(1+eps) ~ 1.
+If residual = 9, arg = 1.0/(9+eps) ~ 0.11.
+So `argument` is roughly in [0.11, 1].
+We want `sigmoid(k * argument)` to smoothly transition from low to high priority.
+If `k=1`, `arg` in [0.11, 1]. `sigmoid(0.11)` ~ 0.53, `sigmoid(1)` ~ 0.73. Too flat.
+If `k=5`, `arg` in [0.55, 5]. `sigmoid(0.55)` ~ 0.63, `sigmoid(5)` ~ 0.99. This looks good.
+Let's choose `k=5`.
+
+Final check on the logic:
+1.  Initialize priorities to `-np.inf`.
+2.  Identify bins that can fit: `can_fit_mask`.
+3.  Calculate `residual_capacity = bins_remain_cap[can_fit_mask] - item`.
+4.  Calculate `epsilon = 1e-9` for stability.
+5.  Calculate `argument = 1.0 / (residual_capacity + epsilon)`.
+6.  Calculate `k = 5.0` (scaling for sigmoid).
+7.  Calculate `sigmoid_priority = 1.0 / (1.0 + np.exp(-k * argument))`.
+8.  Get indices of bins that fit: `fitting_indices = np.arange(bins_remain_cap.shape[0])[can_fit_mask]`.
+9.  Calculate tie-breaker penalty: `tie_breaker_penalty = 0.01 * fitting_indices`.
+10. Combine: `priorities[can_fit_mask] = sigmoid_priority - tie_breaker_penalty`.
+This seems to fulfill all requirements.
+
+Need to import `numpy`.
+```python
+import numpy as np
+
+def sigmoid(x):
+    """Numerically stable sigmoid function."""
+    return 1.0 / (1.0 + np.exp(-x))
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using an
+    improved Almost Full Fit strategy with sigmoid smoothing and tie-breaking.
+
+    This strategy prioritizes bins that are "almost full" after placing the item.
+    It uses a sigmoid function to provide a smooth preference for bins with the
+    smallest positive remaining capacity. Tie-breaking favors bins with lower indices.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+        A higher score indicates a higher priority.
+    """
+    # Initialize priorities to a very low value (effectively -infinity for maximization)
+    # This ensures that bins that cannot fit the item receive no priority.
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Proceed only if at least one bin can fit the item
+    if np.any(can_fit_mask):
+        # Calculate the residual capacity after placing the item in fitting bins
+        residual_capacity = bins_remain_cap[can_fit_mask] - item
+
+        # Use a small epsilon for numerical stability to avoid division by zero
+        epsilon = 1e-9
+
+        # Calculate a score that decreases as residual_capacity increases.
+        # We use the inverse of residual_capacity (plus epsilon) for this.
+        # This score will be high for small positive residuals (bins that are almost full).
+        # The range of this score depends on the typical residual_capacity values.
+        score_argument = 1.0 / (residual_capacity + epsilon)
+
+        # Scaling factor for the sigmoid function.
+        # A value of k=5.0 aims to place the steep part of the sigmoid
+        # around typical values of score_argument, providing a smooth preference.
+        k = 5.0
+
+        # Apply sigmoid to the argument to get a smooth priority score between 0 and 1.
+        # Higher score_argument (meaning smaller residual_capacity) leads to higher sigmoid output.
+        sigmoid_priorities = sigmoid(k * score_argument)
+
+        # Tie-breaking: Prefer bins with lower indices.
+        # We subtract a small penalty proportional to the bin index.
+        fitting_indices = np.arange(bins_remain_cap.shape[0])[can_fit_mask]
+        tie_breaker_weight = 0.01  # Small weight to ensure tie-breaking doesn't dominate
+        tie_breaker_penalties = tie_breaker_weight * fitting_indices
+
+        # Combine sigmoid priorities and tie-breaking penalties
+        # Subtract penalty to give lower indices higher priority in case of ties
+        priorities[can_fit_mask] = sigmoid_priorities - tie_breaker_penalties
+
+    return priorities
+
+```
+Self-reflection on the code:
+*   The `sigmoid` helper function is good for numerical stability.
+*   Initialization with `-np.inf` correctly handles bins that cannot fit.
+*   `can_fit_mask` correctly identifies eligible bins.
+*   The calculation `residual_capacity = bins_remain_cap[can_fit_mask] - item` is correct.
+*   The transformation `score_argument = 1.0 / (residual_capacity + epsilon)` correctly makes the argument inversely related to residual capacity.
+*   The sigmoid function `sigmoid(k * score_argument)` with `k=5.0` provides a smooth preference for smaller residual capacities. The choice of `k` is heuristic and might need tuning based on typical problem instances.
+*   The tie-breaking mechanism `priorities[can_fit_mask] = sigmoid_priorities - tie_breaker_penalties` correctly subtracts a penalty based on the bin index, favoring lower indices.
+*   The `tie_breaker_weight` is set to a small value, ensuring it primarily affects ties.
+*   The code is efficient, operating only on eligible bins.
+
+The implementation seems solid and addresses the reflection points.
+```

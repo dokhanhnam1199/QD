@@ -1,0 +1,232 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using Sigmoid Fit Score.
+
+    The Sigmoid Fit Score aims to prioritize bins that are a "good fit" for the item.
+    A good fit is generally considered to be a bin where the remaining capacity
+    is slightly larger than the item size, avoiding both empty bins and bins that
+    are almost full.
+
+    The sigmoid function `1 / (1 + exp(-k * (x - x0)))` maps any real number
+    to a value between 0 and 1. We use it here to score how "close" the remaining
+    capacity is to the item size.
+
+    We want bins where `bin_remain_cap - item` is close to 0.
+    So, a bin with `bin_remain_cap >= item` is a candidate.
+    Among these candidates, we prefer those where `bin_remain_cap` is just enough
+    to fit the item.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Consider only bins that have enough capacity for the item
+    available_bins_mask = bins_remain_cap >= item
+    available_bins_cap = bins_remain_cap[available_bins_mask]
+
+    if available_bins_cap.size == 0:
+        return priorities  # No bins can accommodate the item
+
+    # Calculate the "mismatch" for available bins: remaining_cap - item
+    mismatch = available_bins_cap - item
+
+    # We want to give higher scores to bins where mismatch is close to 0.
+    # The sigmoid function can be used to create a score that peaks around 0.
+    # We can transform the mismatch values. A negative value for mismatch
+    # means the bin is too small (already handled by the mask), so we focus on
+    # non-negative mismatches.
+
+    # A simple approach is to invert the mismatch so that smaller mismatches
+    # become larger values, and then apply a sigmoid.
+    # However, a direct sigmoid on mismatch might not be ideal because it
+    # emphasizes very large remaining capacities.
+
+    # Let's try to design a sigmoid function that peaks when mismatch is zero.
+    # The function f(x) = 1 / (1 + exp(-k * x)) peaks at x=0 if we shift it or
+    # use it as is. We want to reward bins where `mismatch` is small (close to 0).
+
+    # Let's map `mismatch` to a value where 0 mismatch is the optimal value.
+    # Consider `score = sigmoid(k * (threshold - mismatch))`
+    # Where `threshold` is the ideal mismatch (e.g., 0).
+    # A large `k` makes the transition steeper.
+    # We want to give a high score if `mismatch` is small.
+    # So, if `mismatch` is 0, we want a high score.
+    # If `mismatch` is large, we want a low score.
+
+    # Let's try `sigmoid(k * (-(mismatch)))` which is `sigmoid(-k * mismatch)`.
+    # If mismatch is 0, score is 0.5.
+    # If mismatch is positive, score is < 0.5.
+    # If mismatch is negative, score is > 0.5.
+
+    # This is not quite right as it gives lower scores for small positive mismatches.
+    # We want to incentivize fitting tightly but still fitting.
+
+    # Let's use a shifted and scaled sigmoid.
+    # We can define a score function that is high when `mismatch` is small and positive.
+    # Consider `score = 1 / (1 + exp(-k * (ideal_mismatch - mismatch)))`.
+    # If `ideal_mismatch` is 0, this is `1 / (1 + exp(-k * (-mismatch)))`.
+    # This will give higher scores for negative mismatch (bins too small, which we filter).
+
+    # Alternative: Focus on `item / bin_remain_cap`.
+    # If `bin_remain_cap` is very large, this ratio is small.
+    # If `bin_remain_cap` is just above `item`, this ratio is close to 1.
+    # We want to maximize this ratio, but not exceed 1.
+    # We can use a sigmoid that maps values close to 1 (but less than 1) to high scores.
+
+    # Let's refine the mismatch approach:
+    # We want to reward bins where `bin_remain_cap` is close to `item`.
+    # The difference `bin_remain_cap - item` should be small.
+    # A value close to 0 for this difference is good.
+    # Let's scale and shift the mismatch: `scaled_mismatch = (mismatch - mean_mismatch) / std_mismatch`
+    # Or, a simpler approach: normalize mismatch relative to some max possible mismatch.
+
+    # Sigmoid strategy: score = 1 / (1 + exp(-k * (target_val - current_val)))
+    # We want `current_val` (which is `mismatch`) to be close to `target_val` (e.g., 0).
+    # If `target_val = 0`, then `score = 1 / (1 + exp(-k * (-mismatch)))`.
+    # This gives high scores for negative `mismatch` (too small).
+    # This is not ideal because we already filter `mismatch < 0`.
+
+    # Let's try: `score = 1 / (1 + exp(-k * (mismatch)))`
+    # Mismatch = 0 -> score = 0.5
+    # Mismatch > 0 -> score < 0.5 (worse fit)
+    # Mismatch < 0 -> score > 0.5 (better fit)
+
+    # This still seems to penalize small positive mismatches.
+    # We need a function that peaks at mismatch = 0.
+
+    # Consider a Gaussian-like shape using exp(-x^2).
+    # `score = exp(-k * mismatch**2)`
+    # Mismatch = 0 -> score = 1
+    # Mismatch != 0 -> score < 1. This is a good candidate.
+    # This can be approximated with a sigmoid.
+
+    # Let's re-think the sigmoid target.
+    # We want `bin_remain_cap` to be just enough.
+    # If we focus on `bin_remain_cap`, we want it to be close to `item`.
+    # `score = sigmoid(k * (item - bin_remain_cap))`
+    # If `bin_remain_cap` is slightly larger than `item`, `item - bin_remain_cap` is small and negative.
+    # `sigmoid(small_negative_val)` is close to 0.
+    # If `bin_remain_cap` is much larger than `item`, `item - bin_remain_cap` is a large negative.
+    # `sigmoid(large_negative_val)` is close to 0.
+    # If `bin_remain_cap` is exactly `item`, `item - bin_remain_cap` is 0.
+    # `sigmoid(0)` is 0.5.
+
+    # This function favors bins with `item - bin_remain_cap` being small negative,
+    # which means `bin_remain_cap` is slightly larger than `item`.
+
+    # Let's define k as a parameter controlling sensitivity. A higher k means
+    # a sharper peak around the ideal fit.
+    k = 5.0  # Sensitivity parameter, can be tuned.
+
+    # Calculate the sigmoid score for available bins.
+    # We want `bin_remain_cap` to be as close to `item` as possible, but >= `item`.
+    # This means we want `bin_remain_cap - item` to be small and non-negative.
+    # Let's transform this difference to get a score.
+
+    # A score that peaks when `bin_remain_cap - item` is 0.
+    # `score = 1 / (1 + exp(-k * (max_possible_item_size - (bin_remain_cap - item))))`
+    # This seems complicated.
+
+    # Let's use the mismatch and map it.
+    # We want to reward small positive mismatch values.
+    # We can use a sigmoid with a shift.
+    # `score = 1 / (1 + exp(-k * (mismatch_target - mismatch)))`
+    # If `mismatch_target` is 0, then `score = 1 / (1 + exp(-k * (-mismatch)))`.
+    # This would give high scores for negative mismatch values.
+
+    # Let's consider what `bins_remain_cap - item` represents:
+    # Small positive value: good fit
+    # Large positive value: too much space, potentially wasted
+    # Zero: perfect fit
+
+    # We can try to penalize large positive values.
+    # `score = 1 - sigmoid(k * (mismatch))`
+    # `score = 1 - 1 / (1 + exp(-k * mismatch))`
+    # `score = exp(-k * mismatch) / (1 + exp(-k * mismatch))`
+    # If mismatch is 0, score = 0.5.
+    # If mismatch is large positive, score -> 0.
+    # If mismatch is large negative, score -> 1.
+
+    # This gives high scores to bins that are too small, which is counter-intuitive.
+
+    # The common way to implement a "best fit" using sigmoid is to target
+    # the difference `bin_remain_cap - item` being close to 0.
+    # `sigmoid(k * (target_val - x))` where x is the value being measured.
+    # Here, we want to measure `bin_remain_cap`.
+    # `target_val` would be `item`.
+    # So, `score = 1 / (1 + exp(-k * (item - bin_remain_cap)))`
+
+    # Let's re-evaluate `score = 1 / (1 + exp(-k * (bin_remain_cap - item)))`.
+    # If `bin_remain_cap == item` (mismatch=0), score = 0.5.
+    # If `bin_remain_cap` > `item` (mismatch > 0), e.g., `bin_remain_cap = item + delta`
+    # `score = 1 / (1 + exp(-k * delta))`. If delta > 0, exp(-k*delta) < 1.
+    # So `1 + exp < 2`, and `score > 0.5`. The larger delta, the smaller exp(-k*delta), closer to 0. So score gets closer to 1.
+    # This penalizes larger remaining capacity, which is WRONG.
+
+    # Let's flip it: `score = 1 / (1 + exp(-k * (item - bin_remain_cap)))`
+    # If `bin_remain_cap == item` (mismatch=0), score = 0.5.
+    # If `bin_remain_cap` > `item` (mismatch > 0), e.g., `bin_remain_cap = item + delta`
+    # `score = 1 / (1 + exp(-k * (-delta))) = 1 / (1 + exp(k * delta))`.
+    # If delta > 0, k*delta > 0. exp(k*delta) > 1. `1 + exp > 2`.
+    # So `score < 0.5`. The larger delta, the smaller the score. This is CORRECT.
+    # If `bin_remain_cap` < `item` (mismatch < 0), this case is filtered.
+    # If we didn't filter, and `bin_remain_cap = item - delta'`, where delta' > 0.
+    # `score = 1 / (1 + exp(-k * (item - (item - delta')))) = 1 / (1 + exp(k * delta'))`.
+    # If delta' > 0, k*delta' > 0. exp(k*delta') > 1. `1 + exp > 2`. So `score < 0.5`.
+    # This would give low scores to bins that are too small. This is also fine,
+    # but we already use a mask for this.
+
+    # So, the expression `1 / (1 + exp(-k * (item - bin_remain_cap)))` for `bin_remain_cap >= item`
+    # appears to be a reasonable Sigmoid Fit Score. It assigns higher scores to bins
+    # where `bin_remain_cap` is closer to `item`.
+
+    # We want to make sure the range of arguments to sigmoid is reasonable.
+    # If `bin_remain_cap` is very large, `item - bin_remain_cap` can be a large negative number.
+    # `exp(large_positive)` can overflow.
+    # If `bin_remain_cap` is exactly `item`, argument is 0.
+    # If `bin_remain_cap` is slightly larger than `item`, argument is small negative.
+
+    # To prevent potential issues with very large capacities and the sigmoid argument:
+    # We can clip the `bin_remain_cap` for calculating the argument, or scale.
+    # Alternatively, we can use `1 / (1 + exp(k * (bin_remain_cap - item)))`
+    # Let's check this:
+    # `score = 1 / (1 + exp(k * (bin_remain_cap - item)))`
+    # If `bin_remain_cap == item` (mismatch=0), score = 1 / (1 + exp(0)) = 1 / (1 + 1) = 0.5.
+    # If `bin_remain_cap` > `item` (mismatch > 0), e.g., `bin_remain_cap = item + delta`.
+    # `score = 1 / (1 + exp(k * delta))`. If delta > 0, k*delta > 0. exp(k*delta) > 1.
+    # `1 + exp > 2`. So `score < 0.5`. The larger delta, the smaller the score. CORRECT.
+    # This expression seems more numerically stable for large positive differences.
+
+    # Let's use this expression.
+    # We'll compute it for the available bins.
+
+    # Parameters for sigmoid: k (steepness)
+    k = 5.0 # Sensitivity. Higher k means score drops faster as capacity increases beyond item.
+
+    # Calculate the argument for the sigmoid: k * (remaining_capacity - item)
+    # We are interested in `bins_remain_cap >= item`.
+    # `argument = k * (available_bins_cap - item)`
+
+    # The sigmoid function: `sigmoid(x) = 1 / (1 + exp(-x))`
+    # Our chosen formula is `1 / (1 + exp(k * (bin_remain_cap - item)))`.
+    # Let `x = k * (bin_remain_cap - item)`. Then `sigmoid_val = 1 / (1 + exp(x))`.
+    # This is also equivalent to `1 - sigmoid(-x) = 1 - 1 / (1 + exp(-(-x))) = 1 - 1 / (1 + exp(x))`.
+    # So, it's 1 minus a standard sigmoid applied to `k * (bin_remain_cap - item)`.
+    # This shape is suitable: peaks at 0.5, decreases for positive arguments.
+
+    # Applying the sigmoid to the mismatches for the available bins
+    # We want to assign these calculated priorities back to the original `priorities` array.
+    sigmoid_scores = 1 / (1 + np.exp(k * (available_bins_cap - item)))
+
+    # Place the calculated sigmoid scores back into the priorities array
+    priorities[available_bins_mask] = sigmoid_scores
+
+    return priorities
+```

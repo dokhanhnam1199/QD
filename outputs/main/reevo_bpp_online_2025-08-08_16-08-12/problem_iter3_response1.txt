@@ -1,0 +1,81 @@
+[Prior reflection]
+Prioritize minimal slack for 'Best Fit', favoring exact fits. Explore diverse bins to balance exploitation and exploration, leaving room for larger items by not overfilling.
+
+[Code]
+def priority_v1(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+
+    """Returns priority with which we want to add item to each bin using a First Fit strategy with a twist.
+
+    This heuristic prioritizes bins that can fit the item. Among those that fit,
+    it assigns a higher priority to bins that will have less remaining capacity
+    after the item is placed. This is a greedy approach aiming to fill bins
+    as much as possible, encouraging denser packing.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity if the item is placed in a fitting bin
+    remaining_after_placement = bins_remain_cap[can_fit_mask] - item
+
+    # Assign higher priority to bins that will have less remaining capacity
+    # This is equivalent to prioritizing bins where the item fills a larger
+    # proportion of the remaining space.
+    # We invert the remaining capacity so that smaller remaining capacity gets higher priority.
+    # Adding a small epsilon to avoid division by zero if remaining capacity is exactly 0,
+    # although with this logic, that case would already have a high priority.
+    priorities[can_fit_mask] = 1.0 / (remaining_after_placement + 1e-9)
+
+    return priorities
+
+[Improved code]
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a Best Fit strategy with exploration.
+
+    This heuristic prioritizes bins that can fit the item. Among those that fit,
+    it assigns a higher priority to bins that will have less remaining capacity
+    after the item is placed (minimizing slack). It also introduces a factor
+    to slightly de-prioritize bins that are *too* full after placement,
+    encouraging exploration of slightly less-filled bins to leave more room
+    for potentially larger future items.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity if the item is placed in a fitting bin
+    remaining_after_placement = bins_remain_cap[can_fit_mask] - item
+
+    # Base priority: Inverse of remaining capacity (favoring less slack)
+    # Add epsilon to prevent division by zero and ensure positive priority
+    base_priority = 1.0 / (remaining_after_placement + 1e-9)
+
+    # Exploration factor: Penalize bins that become very full after placement.
+    # This is a simple approach to avoid over-filling bins and leaving some space.
+    # For example, if remaining_after_placement is small, this factor will be large (penalizing).
+    # If remaining_after_placement is large, this factor will be small (less penalty).
+    # We use a power to control the steepness of the penalty.
+    exploration_penalty = np.exp(-remaining_after_placement * 0.5)  # Adjust multiplier (0.5) as needed
+
+    # Combine priorities: Primarily favor minimal slack, then apply exploration penalty
+    # We want to multiply by the exploration penalty so that higher penalty means lower final priority.
+    priorities[can_fit_mask] = base_priority * exploration_penalty
+
+    return priorities
+```

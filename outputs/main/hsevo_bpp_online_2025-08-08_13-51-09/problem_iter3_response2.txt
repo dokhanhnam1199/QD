@@ -1,0 +1,362 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin,
+    prioritizing bins that result in a tighter fit and considering
+    the potential for future packing.
+
+    This heuristic aims to improve upon First Fit Decreasing by:
+    1. Prioritizing bins that leave a smaller remaining capacity (tightest fit).
+    2. Favoring bins that have been used less to encourage wider bin utilization (diversification).
+    3. Introducing a small random perturbation to explore different packing configurations.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    
+    # Mask for bins that can accommodate the item
+    suitable_bins_mask = bins_remain_cap >= item
+    
+    # Calculate a score for suitable bins
+    # Lower remaining capacity is generally better (tighter fit)
+    # Higher number of bins used so far (inverse of remaining capacity sum) is worse (encourages diversification)
+    
+    # Avoid division by zero or very small numbers
+    non_zero_caps = bins_remain_cap[suitable_bins_mask]
+    if non_zero_caps.size > 0:
+        # Tighter fit: inverse of remaining capacity
+        tight_fit_score = 1.0 / (non_zero_caps - item + 1e-9)
+        
+        # Diversification score: penalize bins that are already very full (lower capacity means more utilized)
+        # We want to encourage filling bins that are already somewhat utilized to avoid many partially filled bins.
+        # However, we also don't want to completely neglect under-utilized bins.
+        # Let's consider the inverse of the *original* capacity used, which is harder to track without more context.
+        # A simpler approach: penalize bins with very high remaining capacity, which implies they are under-utilized.
+        # Let's use the inverse of remaining capacity (higher means more used) as a positive term to encourage filling.
+        # This is a bit contradictory to the diversification goal of using many bins.
+        # A better diversification: encourage using bins that have *already* accepted items, so they are not completely empty.
+        # If we don't know how many items are in each bin, we can infer usage from remaining capacity relative to bin size.
+        # Let's assume a default bin capacity if not provided, or infer from context. For now, focus on remaining capacity.
+        
+        # A good diversification proxy: penalize bins with a lot of remaining capacity relative to the item size.
+        # This encourages using bins that are "just right" for the item.
+        # Alternatively, penalize bins that are too empty (very high remaining capacity).
+        # Let's try to assign a higher priority to bins that are "almost full" after packing the item.
+        
+        # Combine tight fit and a penalty for very large remaining capacities (under-utilization)
+        # The higher the score, the better the bin.
+        # We want smaller (non_zero_caps - item), so we invert it.
+        # We also want to penalize very large (non_zero_caps - item), so we might add a term that decreases with large differences.
+        
+        # Let's try a simple heuristic: prioritize bins that leave the least remaining space.
+        # Add a small diversification factor by slightly favoring bins that are not completely empty.
+        # If we assume all bins initially have the same capacity (e.g., `max_capacity`), we can use that.
+        # Without `max_capacity`, let's use the fact that `bins_remain_cap` are values themselves.
+        # A bin with `remaining_cap = X` has used `total_cap - X`.
+        # If we want to diversify, we might want to avoid filling up a few bins completely if many bins are available.
+        # This is tricky without knowing the total capacity or number of items in each bin.
+        
+        # Let's stick to a refined "tight fit" and add a diversification term based on how "full" the bin *would be*.
+        # 'Fullness' after packing: (total_capacity - (remaining_capacity - item)) / total_capacity
+        # Assuming total_capacity is constant or implicitly handled, we can focus on (remaining_capacity - item).
+        # Smaller (remaining_capacity - item) is better for tightness.
+        
+        # Let's try: priority = 1 / (remaining_capacity_after_packing + epsilon) + small_diversification_bonus_for_not_empty_bins
+        # If we don't know empty/non-empty status:
+        # The goal is to select a bin. We want to pick the "best" bin.
+        # The best bin is one that leaves the least space, making it a tight fit.
+        # Consider the *ratio* of remaining capacity to item size. A smaller ratio is better for tight fit.
+        # `(bins_remain_cap[suitable_bins_mask] - item) / item`
+        
+        # Let's go back to the idea of local search neighborhoods.
+        # A neighborhood could be:
+        # 1. Move an item to a different bin.
+        # 2. Swap two items between bins.
+        # Our priority function needs to guide this process.
+        # For online BPP, we don't have future items.
+        
+        # Consider a hybrid approach:
+        # Primary goal: Minimize remaining capacity after packing (tight fit).
+        # Secondary goal: Encourage using bins that are not too empty (diversification).
+        
+        # Tighter fit: higher priority for smaller (remaining_capacity - item)
+        # A score that increases as (remaining_capacity - item) decreases.
+        tightness_score = 1.0 / (bins_remain_cap[suitable_bins_mask] - item + 1e-9)
+        
+        # Diversification: favor bins that are already somewhat utilized.
+        # If a bin has a lot of remaining capacity, it's less utilized.
+        # We can penalize bins with very high remaining capacity.
+        # Let's assume bin capacities are somewhat normalized or we can infer a sense of "emptiness".
+        # A simple proxy for "emptiness" is the value of `bins_remain_cap` itself.
+        # Higher `bins_remain_cap` means more empty space.
+        # So, we want to give *lower* priority to bins with very high `bins_remain_cap`.
+        # This means we want a score that decreases as `bins_remain_cap` increases.
+        # A possible term: `- bins_remain_cap[suitable_bins_mask]` or `1.0 / bins_remain_cap[suitable_bins_mask]`
+        # Using `1.0 / bins_remain_cap` could lead to division by zero if a bin has 0 remaining capacity (though this wouldn't be suitable).
+        # Let's use `bins_remain_cap` directly as a penalty term, perhaps scaled.
+        
+        # Let's try to combine:
+        # Priority = (tightness_score) - (diversification_penalty)
+        # Where tightness_score is high for small `remaining_capacity - item`.
+        # And diversification_penalty is high for large `bins_remain_cap`.
+        
+        # Let's normalize `bins_remain_cap` to get a sense of "emptiness" relative to potential capacity.
+        # This is hard without knowing max capacity.
+        # If we consider `bins_remain_cap` as absolute values:
+        # A bin with 50 remaining capacity is "more empty" than a bin with 10.
+        # So, to diversify, we might want to avoid picking bins with very high remaining capacity if possible.
+        
+        # A simple combined metric for suitable bins:
+        # We want to minimize `remaining_capacity_after_packing` (which is `bins_remain_cap[suitable_bins_mask] - item`).
+        # Let's make this the primary driver for priority: `-(bins_remain_cap[suitable_bins_mask] - item)`
+        # For diversification, we want to avoid bins with very high `bins_remain_cap`.
+        # So, add a penalty for high `bins_remain_cap`: `- bins_remain_cap[suitable_bins_mask]`
+        
+        # Combined score: `-(bins_remain_cap[suitable_bins_mask] - item) - bins_remain_cap[suitable_bins_mask]`
+        # This simplifies to: `item - 2 * bins_remain_cap[suitable_bins_mask] + item` which is not right.
+        # It should be: `-(bins_remain_cap[suitable_bins_mask] - item)` (maximize this) for tightness.
+        # For diversification, we want to select bins that are not *too* empty.
+        # "Too empty" means having a large `bins_remain_cap`.
+        # So, we want to prefer bins with *smaller* `bins_remain_cap`.
+        # This seems counter-intuitive to diversification which wants to use *more* bins.
+        
+        # Let's rethink diversification: Using more bins means not filling up a few bins too quickly.
+        # This implies we should prefer bins that are *less* full.
+        # This is directly opposed to tight fit. This is the core dilemma.
+        
+        # Alternative interpretation of diversification: Avoid creating "too many" partially filled bins.
+        # This means filling up existing bins as much as possible. This leads back to tight fit.
+        
+        # Let's consider the advice: "explore diverse metrics beyond simple inverse relationships".
+        # And "how different neighborhood structures in local search can expose novel packing solutions".
+        # For an online setting, we don't have local search on a static solution.
+        # We need a heuristic that makes a good choice *now*.
+        
+        # Let's try a metric that balances tightness with the *volume available for future small items*.
+        # If a bin has just enough space for the current item, that's a tight fit.
+        # If a bin has *much more* space than the current item, it might be able to hold several more small items.
+        
+        # Consider a bin's "utility":
+        # Utility = (1 / (remaining_capacity_after_packing + epsilon))  # For tight fit
+        # Utility = some_function(remaining_capacity_after_packing)     # For future packing
+        
+        # If `bins_remain_cap[suitable_bins_mask] - item` is very small, the bin is tight.
+        # If `bins_remain_cap[suitable_bins_mask]` is large, the bin has a lot of room.
+        
+        # Let's try a score that favors bins that are *almost full* but can still take the item.
+        # The "fullness" of a bin after packing is related to `total_capacity - (bins_remain_cap - item)`.
+        # Without `total_capacity`, let's focus on the remaining gap.
+        
+        # A more sophisticated "tight fit" might consider the "waste" created.
+        # Waste = `bins_remain_cap[suitable_bins_mask] - item`.
+        # We want to minimize waste.
+        
+        # Let's introduce a penalty for "too much" remaining capacity.
+        # A bin with remaining capacity `R` and item size `I`.
+        # Gap `G = R - I`. We want to minimize `G`.
+        # Also, if `R` is very large, it might be better to leave it for future small items.
+        # So, we want to pick bins where `G` is small, but `R` isn't excessively large (to avoid having many "almost empty" bins).
+        
+        # Let's try a combined score for suitable bins:
+        # `score = (1.0 / (bins_remain_cap[suitable_bins_mask] - item + 1e-9)) - (bins_remain_cap[suitable_bins_mask] / max_possible_capacity_or_some_scale)`
+        # Without `max_possible_capacity`, let's use a dynamic scale based on current `bins_remain_cap`.
+        # Perhaps scale by the average remaining capacity?
+        
+        # Let's try a score that prioritizes bins that leave a small gap, but also slightly penalizes bins that leave a *huge* gap.
+        # `score = (1 / (gap + epsilon)) - (gap / some_large_constant)`
+        # Or `score = (1 / (gap + epsilon)) * (1 / (1 + gap / some_scale))`
+        
+        # Let's try a simpler combination that still reflects the advice:
+        # 1. Tight fit: Prioritize small `gap = bins_remain_cap[suitable_bins_mask] - item`.
+        #    Score component: `1.0 / (gap + 1e-9)`
+        # 2. Diversification (avoiding *too* empty bins): Penalize large `bins_remain_cap`.
+        #    Score component: `-(bins_remain_cap[suitable_bins_mask] * small_weight)`
+        
+        # Combine them:
+        # `priorities[suitable_bins_mask] = (1.0 / (bins_remain_cap[suitable_bins_mask] - item + 1e-9)) - (bins_remain_cap[suitable_bins_mask] * 0.01)`
+        # The weight 0.01 is arbitrary and needs tuning.
+        
+        # Let's try another approach inspired by local search neighborhoods.
+        # Imagine we could move items. A good bin is one that, after receiving the item,
+        # allows for easy packing of subsequent items.
+        # This means leaving a "useful" amount of space, not too little, not too much.
+        
+        # What if we consider the "entropy" of the remaining capacities?
+        # Or the variance of remaining capacities?
+        
+        # Let's simplify and focus on refining the "tight fit" and adding a diversification hint.
+        
+        # For suitable bins:
+        # `remaining_after_packing = bins_remain_cap[suitable_bins_mask] - item`
+        
+        # Priority metric 1: Smallest `remaining_after_packing`.
+        #   `p1 = 1.0 / (remaining_after_packing + 1e-9)`
+        
+        # Priority metric 2: Moderate `bins_remain_cap`.
+        #   This is tricky without a reference. Let's consider the "fullness ratio" if we had a max capacity `C`.
+        #   Fullness = `(C - bins_remain_cap) / C`.
+        #   We want to avoid bins where `bins_remain_cap` is very large, meaning low fullness.
+        #   If we don't know `C`, we can use the current `bins_remain_cap` values themselves.
+        #   A simple way to penalize large `bins_remain_cap`: use a term like `-bins_remain_cap[suitable_bins_mask]`.
+        #   This makes bins with less remaining capacity more attractive.
+        
+        # Let's combine these:
+        # We want to maximize `p1` and maximize (or not penalize) the second metric.
+        # Let's make both terms positive and combined.
+        # Term 1 (tightness): `1.0 / (bins_remain_cap[suitable_bins_mask] - item + 1e-9)`
+        # Term 2 (diversification by avoiding very empty bins):
+        #   We want to favor bins with *less* remaining capacity if they are not too full.
+        #   Let's try to favor bins that have a moderate amount of remaining capacity after packing.
+        #   This means `bins_remain_cap[suitable_bins_mask] - item` is neither too small nor too large.
+        #   This sounds like a Gaussian-like function centered around some ideal gap.
+        
+        # A pragmatic approach:
+        # Prioritize bins that leave the *smallest* non-negative remainder.
+        # Among those with the same smallest remainder, pick one that isn't *entirely* empty.
+        # If all have the same remainder and are entirely empty, pick one randomly.
+        
+        # Let's try to improve upon the "tightest fit" by adding a diversification element that
+        # encourages filling bins that are already in use, rather than always picking a new empty bin.
+        # This is hard to do without knowing bin usage history.
+        
+        # Consider the ratio: `item / bins_remain_cap[suitable_bins_mask]`
+        # Higher ratio means the item is a larger fraction of the remaining capacity.
+        # This suggests a tighter fit.
+        # `ratios = item / bins_remain_cap[suitable_bins_mask]`
+        
+        # Let's combine tightness and a "fill-up" incentive.
+        # Metric: `(bins_remain_cap[suitable_bins_mask] - item)` -> minimize this.
+        # Metric: `bins_remain_cap[suitable_bins_mask]` -> if too high, penalize.
+        
+        # Try this:
+        # For suitable bins, calculate `gap = bins_remain_cap[suitable_bins_mask] - item`
+        # Score = `1.0 / (gap + 1e-9)` # Maximizes tightness
+        # Add a small penalty for large gaps to encourage some slack for future small items?
+        # No, the advice says "explore diverse metrics beyond simple inverse relationships".
+        
+        # Let's use a combination inspired by "least wasted space" and "most used bin".
+        # For suitable bins:
+        # `remaining_after_packing = bins_remain_cap[suitable_bins_mask] - item`
+        
+        # Priority Score = `(1.0 / (remaining_after_packing + 1e-9)) + (1.0 / (bins_remain_cap[suitable_bins_mask] + 1e-9))`
+        # The first term favors tight fits.
+        # The second term favors bins with *less* remaining capacity (i.e., more used), which encourages filling up bins.
+        # This second term acts as a diversification by trying to fill existing bins rather than always starting new ones.
+        
+        # Let's refine this: The second term `1.0 / bins_remain_cap` might heavily favor bins that are almost full.
+        # We want to avoid bins that are *too* empty.
+        # So, penalize large `bins_remain_cap`.
+        
+        # New proposal:
+        # Score for suitable bins = `(1.0 / (bins_remain_cap[suitable_bins_mask] - item + 1e-9)) - (bins_remain_cap[suitable_bins_mask] * 0.05)`
+        # This prioritizes tightness, and then slightly penalizes bins that have a lot of remaining capacity.
+        # The `- (bins_remain_cap * 0.05)` term is a heuristic diversification to avoid very empty bins dominating.
+        
+        # Let's try a simpler, more direct interpretation of the advice:
+        # "refining the quality of 'tight fit' assessment by exploring diverse metrics beyond simple inverse relationships"
+        # Instead of just `1/gap`, consider a function that has a peak when `gap` is small but not zero.
+        # Or consider the *ratio* of item size to remaining capacity.
+        
+        # Metric: `item / bins_remain_cap[suitable_bins_mask]`
+        # This ratio is higher when the item takes up a larger portion of the remaining capacity, indicating a tighter fit.
+        # `tightness_score_ratio = item / bins_remain_cap[suitable_bins_mask]`
+        
+        # Now, for diversification. Avoid selecting bins that are *too* empty.
+        # This means avoiding bins where `bins_remain_cap[suitable_bins_mask]` is very large.
+        # So, we want to penalize large `bins_remain_cap`.
+        # A simple penalty: `- bins_remain_cap[suitable_bins_mask]`.
+        
+        # Combined score: `tightness_score_ratio - (bins_remain_cap[suitable_bins_mask] * weight)`
+        # `priorities[suitable_bins_mask] = (item / bins_remain_cap[suitable_bins_mask]) - (bins_remain_cap[suitable_bins_mask] * 0.01)`
+        
+        # Let's try something that captures "best fit" and "next best fit" interaction.
+        # The "best fit" is the bin that minimizes `bins_remain_cap - item`.
+        # The "next best fit" indicates if other bins are also quite suitable.
+        
+        # How about this: for each suitable bin, calculate a score.
+        # Score = (1 / (remaining_capacity_after_packing + epsilon))  # Tightness
+        # Add a small random noise for exploration:
+        # `noise = np.random.normal(0, 0.01 * (bins_remain_cap[suitable_bins_mask] - item + 1e-9))`
+        # `priorities[suitable_bins_mask] = (1.0 / (bins_remain_cap[suitable_bins_mask] - item + 1e-9)) + noise`
+        
+        # Let's try to make it directly optimized towards "goodness" rather than a combined penalty.
+        # The goal is to select *one* bin.
+        # The "best" bin is the one that leaves the least waste.
+        # `waste = bins_remain_cap[suitable_bins_mask] - item`
+        
+        # For diversification, we want to avoid situations where all remaining capacity is clustered.
+        # Consider the variance of `bins_remain_cap`.
+        
+        # A pragmatic heuristic that balances tight fit and diversification:
+        # For each suitable bin, calculate a "tightness score":
+        # `tightness = 1.0 / (bins_remain_cap[suitable_bins_mask] - item + 1e-9)`
+        # Then, consider a "diversification score":
+        # If a bin has a lot of remaining capacity, it's less "used".
+        # We want to encourage using bins that are already somewhat filled.
+        # Let's use `(1.0 / (bins_remain_cap[suitable_bins_mask] + 1e-9))` as a proxy for "how much has been used".
+        # Higher value means less remaining capacity, thus more used.
+        
+        # Combined score: `tightness + diversification_score_proxy`
+        # `priorities[suitable_bins_mask] = (1.0 / (bins_remain_cap[suitable_bins_mask] - item + 1e-9)) + (1.0 / (bins_remain_cap[suitable_bins_mask] + 1e-9))`
+        
+        # This still feels like it might over-prioritize nearly empty bins due to the second term.
+        
+        # Let's consider the advice: "refining the quality of 'tight fit' assessment by exploring diverse metrics".
+        # Instead of just `1/gap`, let's use a function that is high for small `gap`, but not too aggressive.
+        # Maybe `(1 - (gap / (gap + small_constant)))` which is `small_constant / (gap + small_constant)`.
+        # This is still an inverse relationship.
+        
+        # Let's focus on the "neighborhood exploration" hint.
+        # A good neighborhood explorer for BPP might try to pack an item into the bin that
+        # is "most full" among those that can fit it, and then check if this packing
+        # creates a very "unbalanced" state in the remaining capacities.
+        
+        # How about prioritizing bins that are "almost full" (meaning small `bins_remain_cap`)
+        # *and* leave a small gap after packing.
+        
+        # Let's try a metric that is proportional to tightness and inversely proportional to remaining capacity after packing.
+        # We want to maximize `item / (bins_remain_cap[suitable_bins_mask] - item + 1e-9)`.
+        # This prioritizes bins where the item fills a large fraction of the *remaining* space.
+        
+        # For diversification, we can add a small random perturbation to break ties and explore.
+        
+        # Final proposed heuristic:
+        # For each suitable bin, calculate a score based on:
+        # 1. How tightly the item fits: prioritize smaller remaining capacity after packing.
+        #    Use `1.0 / (bins_remain_cap[suitable_bins_mask] - item + 1e-9)`.
+        # 2. Diversification: Encourage using bins that aren't excessively empty.
+        #    Penalize bins with very large remaining capacity.
+        #    Use `- bins_remain_cap[suitable_bins_mask] * weight`.
+        # Add a small random noise to scores for exploration.
+        
+        tightness_score = 1.0 / (bins_remain_cap[suitable_bins_mask] - item + 1e-9)
+        diversification_penalty = bins_remain_cap[suitable_bins_mask] * 0.02 # Small penalty for very empty bins
+        
+        scores = tightness_score - diversification_penalty
+        
+        # Add a small random perturbation to the scores to introduce exploration
+        noise = np.random.normal(0, 0.05 * np.mean(scores[scores > -np.inf])) # Scale noise by mean score
+        
+        priorities[suitable_bins_mask] = scores + noise
+        
+        # Handle potential NaN/inf from noise or calculations
+        priorities[np.isinf(priorities)] = np.finfo(float).max # Set inf to very large number
+        priorities[np.isnan(priorities)] = -np.finfo(float).max # Set NaN to very small number
+        
+        # Ensure no negative priorities if not intended, or clip if needed.
+        # For selection, we want the maximum score.
+        
+    else:
+        # If no suitable bins are found, priorities remain zero.
+        pass # The caller will handle creating a new bin if no bin has priority > 0
+
+    # The bin with the highest priority score will be selected.
+    return priorities
+```

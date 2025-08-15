@@ -1,0 +1,123 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    suitable_bins_mask = bins_remain_cap >= item
+
+    if not np.any(suitable_bins_mask):
+        return priorities
+
+    suitable_bins_caps = bins_remain_cap[suitable_bins_mask]
+    
+    # Metric 1: Best Fit - score based on how tightly the item fits.
+    # Use inverse of remaining capacity after placement. Add epsilon for stability.
+    remaining_after_placement = suitable_bins_caps - item
+    best_fit_scores = 1.0 / (remaining_after_placement + 1e-9)
+
+    # Metric 2: Utilization - encourage bins that are already utilized to some extent.
+    # This is the inverse of how much capacity is *remaining*.
+    # We normalize the *used* capacity relative to the *original* capacity of the bin.
+    # For simplicity, let's assume a target 'fullness' and score based on proximity to it.
+    # A simpler heuristic: reward bins with less remaining capacity (i.e., higher utilization)
+    # without being too tight. This is a balance.
+    # Let's score based on how much is *left* after placing the item, but penalize very large remaining capacities.
+    # A smaller remaining capacity after placement is generally good for 'best fit',
+    # but here we want to balance with utilization.
+    # Let's consider the ratio of the item size to the bin's remaining capacity *before* placement.
+    # A higher ratio suggests the item is filling up a significant portion of what's available.
+    utilization_scores = item / (suitable_bins_caps + 1e-9)
+    
+    # Metric 3: Diversity/Exploration - Favor bins that are less full, but not completely empty.
+    # This aims to keep options open for future, possibly larger items.
+    # Normalize the remaining capacity and use a function that peaks at some intermediate value.
+    # Let's use remaining capacity relative to the item's size.
+    # If remaining_after_placement is large, it means the bin is quite empty.
+    # We want to slightly favor bins that are not excessively empty.
+    # A simple approach: score based on remaining capacity, but capped or dampened.
+    # Let's try a score that increases with remaining capacity but saturates.
+    # A simple linear scaling, then capping, or using a mild sigmoid.
+    # Let's normalize remaining capacity relative to item size. High value means very empty.
+    # We want to reward bins that have some remaining capacity but not an overwhelming amount.
+    # Max remaining capacity could be a reference.
+    # Let's define "emptiness" as (bin_capacity - item_size) / bin_capacity.
+    # We want to avoid bins that are too empty.
+    # A score inversely proportional to remaining capacity, but also considering the overall bin capacity.
+    # Let's consider the *gap* between the item and the bin's remaining capacity.
+    # We want to avoid very large gaps after placement if possible, but also avoid bins that are too full.
+    # Let's re-evaluate: for diversity, we want bins that are not too full.
+    # Score based on (suitable_bins_caps - item) but normalized.
+    # Consider the ratio: (remaining_after_placement) / (suitable_bins_caps)
+    # This is the proportion of space left *after* placing the item.
+    # We want to avoid this proportion being too large (meaning the bin is still very empty).
+    # So, we invert this ratio.
+    diversity_scores = suitable_bins_caps / (remaining_after_placement + 1e-9)
+    
+    # --- Normalization and Combination ---
+    
+    # Robust normalization: scale each metric to [0, 1] using min-max scaling,
+    # but use a small epsilon to prevent division by zero if all values are the same.
+    
+    def robust_scale(scores):
+        min_val = np.min(scores)
+        max_val = np.max(scores)
+        if max_val - min_val < 1e-9:
+            return np.zeros_like(scores)
+        return (scores - min_val) / (max_val - min_val)
+
+    normalized_best_fit = robust_scale(best_fit_scores)
+    normalized_utilization = robust_scale(utilization_scores)
+    normalized_diversity = robust_scale(diversity_scores)
+    
+    # Dynamic weighting:
+    # The weights should adapt to the item size.
+    # For small items: Prioritize diversity and utilization.
+    # For large items: Prioritize best fit.
+    # Let's use a simple linear interpolation based on item size relative to a typical bin capacity (e.g., 1.0).
+    # Assume item is in a normalized range, e.g., 0 to 1.
+    
+    # Weight for best fit increases with item size.
+    # Weight for diversity decreases with item size.
+    # Weight for utilization can be moderate and perhaps less sensitive to item size,
+    # or also decrease slightly with item size as the "choice" of bins for large items is more restricted.
+    
+    # Let's refine weights:
+    # Best Fit: Should be higher for larger items.
+    # Utilization: Moderate, maybe slightly favoring items that fit well into partially filled bins.
+    # Diversity: Should be higher for smaller items to keep bins open.
+    
+    # Linear interpolation between weights
+    # Small item (e.g., size ~0.1): BF=0.3, Util=0.4, Div=0.3
+    # Large item (e.g., size ~0.9): BF=0.7, Util=0.2, Div=0.1
+    
+    # Define weights based on item size relative to a conceptual maximum bin capacity (e.g., 1.0)
+    # Clamp item size to a reasonable range if not guaranteed.
+    clamped_item_size = np.clip(item, 0.01, 1.0) # Assuming item size is normalized between 0 and 1
+    
+    # Interpolation factor (0 for small item, 1 for large item)
+    interp_factor = clamped_item_size
+    
+    # Weights for a 'small' item scenario
+    w_bf_small, w_util_small, w_div_small = 0.3, 0.4, 0.3
+    # Weights for a 'large' item scenario
+    w_bf_large, w_util_large, w_div_large = 0.7, 0.2, 0.1
+    
+    # Interpolate weights
+    weight_best_fit = w_bf_small + (w_bf_large - w_bf_small) * interp_factor
+    weight_utilization = w_util_small + (w_util_large - w_util_small) * interp_factor
+    weight_diversity = w_div_small + (w_div_large - w_div_small) * interp_factor
+    
+    # Ensure weights sum to 1 (normalize if needed, though interpolation should keep it close)
+    total_w = weight_best_fit + weight_utilization + weight_diversity
+    weight_best_fit /= total_w
+    weight_utilization /= total_w
+    weight_diversity /= total_w
+    
+    combined_scores = (weight_best_fit * normalized_best_fit +
+                       weight_utilization * normalized_utilization +
+                       weight_diversity * normalized_diversity)
+    
+    priorities[suitable_bins_mask] = combined_scores
+    
+    return priorities
+```

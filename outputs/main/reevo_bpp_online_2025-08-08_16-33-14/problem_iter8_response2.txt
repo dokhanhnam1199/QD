@@ -1,0 +1,106 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Implements an improved priority function for the online Bin Packing Problem,
+    focusing on prioritizing tight fits, penalizing wasted space effectively,
+    and using adaptive thresholds based on item size and bin capacities.
+
+    The priority is calculated as follows:
+    1. Bins that cannot fit the item receive a priority of 0.
+    2. For bins that can fit the item:
+       a. Perfect Fits (remaining capacity after packing is 0): Highest priority.
+       b. Tight Fits (remaining capacity after packing is small and positive):
+          High priority, inversely proportional to the remaining capacity. This
+          encourages filling bins as much as possible.
+       c. Good Fits (remaining capacity after packing is moderate): Priority
+          decreases as remaining capacity increases, but at a slower rate than
+          tight fits.
+       d. Wasteful Fits (remaining capacity after packing is large):
+          Significantly penalized to strongly discourage using bins that would
+          leave substantial empty space. The penalty increases with the amount
+          of wasted space relative to the item size.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A NumPy array representing the remaining capacity of each bin.
+
+    Returns:
+        A NumPy array of the same size as bins_remain_cap, where each element
+        represents the priority score for placing the item in the corresponding bin.
+        Higher scores indicate higher priority.
+    """
+    num_bins = len(bins_remain_cap)
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+    
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit the item
+
+    fitting_bins_caps = bins_remain_cap[can_fit_mask]
+    remaining_after_fit = fitting_bins_caps - item
+
+    # Define thresholds adaptively, primarily based on item size for relative comparison.
+    epsilon = 1e-9  # Tolerance for floating-point comparisons
+
+    # Threshold for "tight" fits: remaining space is less than the item size.
+    # This encourages using bins that are already somewhat filled.
+    tight_fit_threshold = item
+
+    # Threshold for "wasteful" fits: remaining space is significantly larger than item size.
+    # Using a factor of the item size helps in relative comparison across different item sizes.
+    # A factor of 3.0 means if the remaining space is more than 3 times the item size, it's wasteful.
+    wasteful_threshold = 3.0 * item
+
+    # --- Scoring Logic ---
+    scores = np.zeros_like(remaining_after_fit)
+
+    # 1. Perfect Fits: Highest priority. Assign a very high score.
+    perfect_mask = (remaining_after_fit < epsilon)
+    scores[perfect_mask] = 1000.0
+
+    # 2. Tight Fits: High priority, inversely proportional to remaining capacity.
+    # Use a steep decay function, e.g., 1/(1+x), scaled to provide a good range.
+    tight_mask = (remaining_after_fit > epsilon) & (remaining_after_fit <= tight_fit_threshold)
+    # Scale factor for the reciprocal to modulate the steepness of the priority drop-off.
+    scores[tight_mask] = 50.0 / (1.0 + remaining_after_fit[tight_mask] * 4.0)
+
+    # 3. Good Fits: Priority decreases with remaining capacity, but less steeply.
+    # These are bins that fit, but are not "tight" and not yet "wasteful".
+    good_mask = ~perfect_mask & ~tight_mask & (remaining_after_fit <= wasteful_threshold)
+    # Use a less steep decay, like 1/(1+sqrt(x)), to retain more relative priority.
+    scores[good_mask] = 25.0 / (1.0 + np.sqrt(remaining_after_fit[good_mask]))
+
+    # 4. Wasteful Fits: Significantly penalized.
+    # These bins have remaining space significantly larger than the item.
+    wasteful_mask = (remaining_after_fit > wasteful_threshold)
+    # Penalize based on how much excess space is left, normalized by item size.
+    # A linear or exponential penalty can be used. Here, we use a rational function
+    # that decreases rapidly as remaining_after_fit increases.
+    # The penalty is subtracted from a base score to ensure that even wasteful bins
+    # that *could* fit still get a non-zero (though low) initial score before penalty.
+    base_wasteful_score = 10.0
+    penalty_strength = 2.0  # Controls how aggressively large remaining capacities are penalized.
+    scores[wasteful_mask] = base_wasteful_score / (1.0 + penalty_strength * (remaining_after_fit[wasteful_mask] / item))
+
+    # Ensure all calculated scores are non-negative.
+    scores[scores < 0] = 0
+
+    # Add a small amount of random jitter to scores of bins with very similar calculated priorities.
+    # This helps to break ties randomly and can improve exploration without a strict exploration bonus.
+    exploration_jitter_scale = 0.01  # Controls the magnitude of the jitter relative to max possible score.
+    max_potential_score = 1000.0 # An estimate of the highest possible score.
+    jitter = np.random.uniform(-exploration_jitter_scale * max_potential_score, exploration_jitter_scale * max_potential_score, size=len(scores))
+    final_scores = scores + jitter
+
+    # Ensure jitter doesn't make scores negative.
+    final_scores[final_scores < 0] = 0
+
+    # Assign the calculated scores to the corresponding bins in the original priority array.
+    priorities[can_fit_mask] = final_scores
+
+    return priorities
+```

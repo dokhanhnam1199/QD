@@ -1,0 +1,69 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray, temperature: float = 1.0) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a softmax-based heuristic.
+
+    This heuristic prioritizes bins that can accommodate the item, with a stronger
+    preference for "tight fits" (bins with remaining capacity close to the item size).
+    The `temperature` parameter controls the exploration vs. exploitation trade-off.
+    Higher temperatures lead to more uniform probabilities (more exploration), while
+    lower temperatures focus on the best-fitting bins (more exploitation).
+    Bins that are too small for the item receive a priority of 0.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+        temperature: Controls the sharpness of the softmax distribution. A higher
+                     temperature leads to more exploration (probabilities closer
+                     to uniform), while a lower temperature leads to more
+                     exploitation (probabilities concentrated on the best bins).
+
+    Return:
+        Array of same size as bins_remain_cap with priority score (probability) of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can fit the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # For bins that can fit, calculate a "goodness" score.
+    # We want to prioritize bins where the remaining capacity is close to the item size.
+    # The "wasted space" after packing is `bins_remain_cap - item`.
+    # To prioritize bins with minimal wasted space, we want a score that is higher
+    # for smaller non-negative `wasted_space`.
+    # A good transformation is `1.0 / (1.0 + wasted_space)`.
+    # This maps wasted_space = 0 (perfect fit) to 1.0, and increasingly larger
+    # wasted_space to scores approaching 0.
+    wasted_space = bins_remain_cap[can_fit_mask] - item
+    scores_for_softmax = 1.0 / (1.0 + wasted_space)
+
+    # Apply softmax to convert scores into probabilities.
+    # Ensure temperature is positive to avoid division by zero or invalid operations.
+    if temperature <= 0:
+        raise ValueError("Temperature must be positive.")
+
+    # Calculate exponentiated scores, scaled by temperature.
+    # Lower temperature -> sharper distribution (more exploitation).
+    # Higher temperature -> flatter distribution (more exploration).
+    exp_scores = np.exp(scores_for_softmax / temperature)
+
+    # Normalize to get probabilities.
+    # If no bins can fit the item, np.sum(exp_scores) will be 0, leading to NaNs.
+    # Handle this case: if exp_scores is all zeros (or effectively so due to temperature),
+    # all probabilities should be zero.
+    sum_exp_scores = np.sum(exp_scores)
+    if sum_exp_scores > 0:
+        probabilities = exp_scores / sum_exp_scores
+    else:
+        # This case should ideally not happen if can_fit_mask has at least one True
+        # and scores_for_softmax are finite. If it does, it implies no effective scores.
+        probabilities = np.zeros_like(exp_scores)
+
+    # Assign the calculated probabilities to the appropriate bins.
+    priorities[can_fit_mask] = probabilities
+
+    # The `priorities` array now contains probabilities for bins that can fit the item,
+    # and zeros for bins that cannot. The sum of probabilities over all bins is 1
+    # if at least one bin could fit the item.
+
+    return priorities
+```

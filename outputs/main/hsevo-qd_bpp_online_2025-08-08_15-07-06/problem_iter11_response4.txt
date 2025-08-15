@@ -1,0 +1,87 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines Best Fit (tightest fit) with a penalty for excessive remaining capacity.
+    Uses exponential scaling for better distribution and sensitivity control.
+    """
+    fit_mask = bins_remain_cap >= item
+    
+    priorities = np.full_like(bins_remain_cap, -np.inf)
+    
+    if np.any(fit_mask):
+        valid_capacities = bins_remain_cap[fit_mask]
+        
+        # Calculate the "tightness of fit" score: smaller difference is better.
+        # We use the negative difference to make larger values preferred.
+        # Add a small epsilon to avoid log(0) or division by zero if difference is exactly 0.
+        diffs = valid_capacities - item
+        epsilon = 1e-9
+        
+        # Score based on tightness of fit: 1 / (diff + epsilon) gives higher score for smaller diff.
+        # Using negative diff directly and then exponentiating is more common for softmax-like scores.
+        # Let's use -diffs directly.
+        
+        # Consider the "excess capacity" score: higher remaining capacity is less desirable.
+        # Normalize remaining capacity to be between 0 and 1 (assuming a max bin capacity, or just use inverse for simplicity).
+        # Here, we'll use a simple penalty for larger remaining capacities.
+        # A score that decreases as remaining_capacity increases: exp(-remaining_capacity) or similar.
+        # Let's try to use the ratio of remaining capacity to item size, inverted.
+        # Or, simply penalize larger remaining capacities using their inverse.
+        
+        # Combining tightness and fullness:
+        # We want to maximize -diffs (tight fit) AND minimize remaining_capacities.
+        # A product of scaled values can work, or sum if they are on similar scales.
+        # Let's try to prioritize by making larger values of (item - remaining_capacity) contribute positively,
+        # and penalizing large remaining capacities.
+        
+        # Inspired by Heuristic 18: exp(-diffs/temp) * excess_capacity_scores
+        # Let's use `item - remaining_capacity` which is `-diffs`.
+        # So, `exp((-diffs) / temperature)` where `temperature` controls sensitivity.
+        # High temperature makes all fits similar. Low temperature favors the best fit strongly.
+        
+        temperature = 0.5 # Tunable parameter for sensitivity to fit
+        
+        # Score for tightness of fit: higher for smaller `diffs`.
+        # Use `exp(-diffs / temperature)`
+        tightness_scores = np.exp(-diffs / temperature)
+        
+        # Score for penalizing large remaining capacity.
+        # We want higher priority for smaller `valid_capacities`.
+        # Let's use `exp(-valid_capacities / some_scale)`
+        # Using `item` as a scale here to relate it to the item size.
+        # Or even simpler, use `1.0 / (valid_capacities + epsilon)` and then scale it.
+        # A simple way to penalize larger capacities is to use their inverse.
+        # Let's try to scale the inverse capacity.
+        
+        # Let's refine the combined score. We want to maximize `tightness_scores`.
+        # We also want to penalize bins with very large remaining capacity.
+        # If we use `exp(-valid_capacities)`, large `valid_capacities` lead to small scores.
+        
+        # Consider a score that is high for tight fits and small remaining capacities.
+        # Let's use `tightness_scores` directly as the primary driver, as `diffs` already incorporates `item`.
+        # The intuition is that a tight fit into a bin that has *just* enough capacity is better than a tight fit into a bin that has *way* too much.
+        # The `diffs` already capture this for the "just enough" part.
+        # The `remaining_capacity` itself becomes important if multiple bins have similar `diffs`.
+        
+        # Let's try to use `item - remaining_capacity` which is `-diffs`.
+        # Higher values are better.
+        
+        # Heuristic 18 used `exp(-diffs/temp) * excess_capacity_scores`.
+        # `excess_capacity_scores` was `1.0 / (valid_capacities + epsilon)`.
+        # Let's use that.
+        
+        excess_capacity_scores = 1.0 / (valid_capacities + epsilon)
+        
+        # Combine them multiplicatively.
+        combined_scores = tightness_scores * excess_capacity_scores
+        
+        # Assign these combined scores to the valid bins.
+        priorities[fit_mask] = combined_scores
+    
+    # Replace -inf with a very low value for bins that don't fit.
+    priorities[np.isinf(priorities)] = -1e9 # A very small number, but not negative infinity.
+    
+    return priorities
+```

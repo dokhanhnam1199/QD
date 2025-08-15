@@ -1,0 +1,859 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a refined Sigmoid Fit Score.
+
+    This heuristic aims to prioritize bins that offer the "best fit" for the item,
+    defined as a bin where the remaining capacity is only slightly larger than the
+    item's size. This strategy tries to fill bins as much as possible without leaving
+    excessive empty space, thereby minimizing fragmentation.
+
+    Additionally, it incorporates a "worst fit reduction" concept by slightly penalizing
+    bins that have a very large remaining capacity, pushing towards using bins that
+    are closer to being full if a good fit isn't available, but still prioritizing
+    exact or near-exact fits.
+
+    The priority is calculated using a sigmoid function for near-exact fits and a
+    linear decay for larger excesses to slightly favor smaller remaining capacities
+    among the non-ideal fits.
+
+    Args:
+        item: The size of the item to be packed.
+        bins_remain_cap: A numpy array where each element is the remaining capacity of a bin.
+
+    Returns:
+        A numpy array of the same size as `bins_remain_cap`, containing the priority
+        score for each bin. Higher scores indicate a more desirable bin for the item.
+    """
+
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins where the item can fit.
+    fits_mask = bins_remain_cap >= item
+
+    if np.any(fits_mask):
+        fitting_caps = bins_remain_cap[fits_mask]
+        excess_capacities = fitting_caps - item
+
+        # --- Refined Priority Calculation ---
+        # Objective 1: Prioritize exact or near-exact fits (minimal positive excess capacity)
+        # We use a sigmoid centered slightly above zero to give a boost to bins with a small positive gap.
+        ideal_gap = 0.05  # Target for the best fit (small positive remaining capacity)
+        sigmoid_steepness = 20.0 # Higher steepness for a sharper peak around ideal_gap
+
+        # Calculate scores for the "best fit" aspect.
+        # sigmoid(steepness * (ideal_gap - excess_capacity)) -> peak at ideal_gap
+        best_fit_scores = 1 / (1 + np.exp(-sigmoid_steepness * (ideal_gap - excess_capacities)))
+
+        # Objective 2: Worst Fit Reduction - slightly penalize very large remaining capacities
+        # This encourages using bins that are closer to full if an exact fit isn't found.
+        # We can achieve this by slightly lowering the priority of bins with large excess_capacities.
+        # A simple linear decay or another sigmoid-like function can work.
+        # Let's use a transformation that gives higher scores to smaller excess capacities.
+        # We want to reduce the advantage of bins with very large excess.
+        # A simple approach is to invert the excess capacity (scaled) and add it.
+        # We need to be careful not to let this override the best-fit priority.
+
+        # Normalize excess capacities to a reasonable range for scaling.
+        # Clamp to avoid issues with extremely large or negative (already handled by fits_mask) capacities.
+        max_relevant_capacity = 5.0 # Consider capacities up to this as relevant for this penalty
+        scaled_excess = np.clip(excess_capacities, 0, max_relevant_capacity) / max_relevant_capacity
+
+        # Penalty term: higher score for smaller scaled_excess.
+        # Using 1 - scaled_excess means bins with excess close to 0 get a score of 1,
+        # and bins with excess close to max_relevant_capacity get a score of 0.
+        # We want this to be a *reduction* from the best_fit_score, so we can add a small negative component,
+        # or modulate the best_fit_score.
+        #
+        # A simpler approach: linearly map excess capacity to a penalty factor.
+        # Excess 0 -> penalty 1 (no reduction)
+        # Excess max_relevant_capacity -> penalty 0 (max reduction)
+        penalty_factor = np.maximum(0, 1 - scaled_excess) # ensures it's between 0 and 1
+
+        # Combine best-fit score with a penalty reduction.
+        # The penalty factor reduces the score when excess capacity is large.
+        # We can think of this as: priority = best_fit_score * (1 - penalty_weight * penalty_factor)
+        # Or more directly: priority = best_fit_score - penalty_weight * scaled_excess
+        # Let's try a combination that ensures smaller excess is generally better,
+        # while still prioritizing near-zero excess.
+
+        # Option: Summation with weights, adjusted for the desired behavior.
+        # Higher weight for best-fit.
+        best_fit_weight = 1.0
+        least_waste_weight = 0.5 # Encourages smaller waste, but less than perfect fit
+
+        # Score based on how close to zero the excess is.
+        # We can use `1 / (1 + excess_capacity)` for a decay.
+        # Or a normalized inverse.
+        # Let's try to make priority decrease as excess_capacity increases.
+        # We want to avoid the extreme penalty of a simple inverse for large excesses.
+        # Let's use a sigmoid for the "least waste" aspect too, but centered differently or scaled.
+        #
+        # Simpler strategy: Combine the best_fit_score with a term that favors smaller waste.
+        # A bin with excess 0 is better than excess 0.01, which is better than excess 0.1.
+        # The sigmoid already handles the "peak" at ideal_gap. For excess > ideal_gap,
+        # the sigmoid score drops. We can amplify this drop slightly.
+
+        # Let's define a score that directly favors smaller excess, but capped.
+        # For excess > ideal_gap, we want a smooth decrease.
+        # Consider `1 / (1 + excess_capacity * scale_factor)`.
+        # If excess_capacity is 0, score is 1. If excess_capacity is 1, score is 0.5.
+        # If excess_capacity is 0.1, score is 1/(1+0.1) = 0.9.
+        # This might be too strong.
+
+        # Let's try a direct combination: Best fit + a bonus for minimal waste.
+        # The best_fit_scores are already high for small excess.
+        # We can introduce a "least waste" bonus.
+        # Minimal waste means excess_capacity close to 0.
+        # Let's add a term that is high for small excess_capacity and decays.
+        # Use another sigmoid, but one that peaks at 0 excess.
+        least_waste_steepness = 5.0
+        least_waste_scores = 1 / (1 + np.exp(least_waste_steepness * excess_capacities))
+        # This gives 1 for 0 excess, ~0.5 for excess=0, and decays.
+
+        # Combine: Prioritize the best fit, and add a bonus for minimal waste.
+        # The best_fit_scores already give high values to excess ~ ideal_gap.
+        # We want to ensure that excess = 0 (if it exists) is also highly rated, and potentially higher.
+        #
+        # Let's refine `best_fit_scores` to be more peaky at `ideal_gap` and then decay.
+        # The current sigmoid `1/(1+exp(-steepness*(ideal_gap - excess)))` means:
+        # excess < ideal_gap -> score > 0.5
+        # excess = ideal_gap -> score = 0.5
+        # excess > ideal_gap -> score < 0.5
+        # This isn't quite right for "peak priority at ideal_gap".
+        # For peak priority at `ideal_gap`, the argument should be 0.
+        # `f(x) = 1 / (1 + exp(-k * (x - c)))` has midpoint at `c`.
+        # To peak at `ideal_gap`, we want `ideal_gap` to map to the maximum.
+        # If we invert the argument or shift it:
+        # `sigmoid(steepness * (excess_capacities - ideal_gap))` has midpoint at `ideal_gap`.
+        # This will give scores that *increase* as excess increases. Not good.
+        #
+        # Correct sigmoid for peak at `ideal_gap` for `excess_capacities`:
+        # Consider a Gaussian-like shape, or a different function.
+        # Or adjust the sigmoid's range.
+        # If we want scores to be highest at `ideal_gap`, we want the argument to `exp` to be minimal (most negative) at `ideal_gap`.
+        # Let the argument be `-steepness * abs(excess_capacities - ideal_gap)`.
+        # This is not a sigmoid.
+        #
+        # Let's stick to the idea of `sigmoid(steepness * (center - x))`.
+        # If `center = ideal_gap`, scores increase with `excess`.
+        # If we want scores to *decrease* from a peak at `ideal_gap`:
+        # Consider `1 - sigmoid(...)`. `1 - sigmoid(x)` is a sigmoid itself, just inverted.
+        # `1 - sigmoid(steepness * (excess_capacities - ideal_gap))`
+        # This peaks at 1 when `excess_capacities = ideal_gap`.
+
+        # Re-evaluate the sigmoid for best fit:
+        # We want a high score when `excess_capacity` is close to `ideal_gap`.
+        # Let `score = exp(-k * (excess_capacity - ideal_gap)^2)` - Gaussian, but not a sigmoid.
+        #
+        # Let's use the sigmoid for a smooth transition.
+        # A common way to get a peak is to use a logistic function centered on the desired value.
+        # `sigmoid(steepness * (ideal_gap - excess_capacity))`
+        # This gives priority values that decrease from 1 (at `excess_capacity << ideal_gap`) to 0 (at `excess_capacity >> ideal_gap`), with a transition around `ideal_gap`.
+        # This means it prioritizes bins with *less* excess capacity.
+        #
+        # To prioritize `ideal_gap` specifically:
+        # We can use a "bell curve" shape, or combine two sigmoids.
+        # For simplicity and staying within sigmoid framework, let's modify the `sigmoid` to map values.
+        # `sigmoid(x)` ranges from 0 to 1. We want a function `g(excess_capacity)` that is max at `ideal_gap`.
+        #
+        # Let's define a priority score that captures:
+        # 1. High priority for `excess_capacity` near `ideal_gap`.
+        # 2. Decent priority for `excess_capacity == 0` (exact fit).
+        # 3. Priority decreases as `excess_capacity` increases.
+
+        # Re-thinking: Prioritize "best fit" = minimal positive remainder.
+        # Then, prioritize "least waste" = minimal non-negative remainder.
+        # So, `excess_capacity = 0` is good, `excess_capacity = 0.01` is better, `excess_capacity = 0.1` is okay, `excess_capacity = 1` is bad.
+
+        # Let's assign scores based on the magnitude of `excess_capacity`:
+        # Small excess_capacity (near 0) should be penalized slightly less than larger ones.
+        # This sounds like a decreasing function of `excess_capacity`.
+
+        # Priority = 1 / (1 + `excess_capacity`^p) or similar decay.
+        # `excess_capacity` itself is a strong indicator.
+        # `sigmoid(k * (ideal_gap - excess_capacity))` already makes it decrease.
+        # Let's use `ideal_gap = 0` for absolute minimal waste, and then consider the "slightly larger" aspect.
+
+        # --- Revised Strategy ---
+        # 1. Exact fit (`excess_capacity == 0`) is best.
+        # 2. Near-exact fit (`excess_capacity` small positive) is also very good.
+        # 3. Larger excess is progressively worse.
+
+        # We can use a function that maps `excess_capacity` to priority.
+        # Let `p(x)` be the priority for excess `x`.
+        # `p(0)` should be high.
+        # `p(small_positive)` should be high, potentially even higher than `p(0)`.
+        # `p(large_positive)` should be low.
+
+        # Let's use a function `f(x) = exp(-k * x)`.
+        # `f(0) = 1`. `f(small_positive)` < 1. This favors exact fits.
+        # To favor `ideal_gap`: `f(x) = exp(-k * abs(x - ideal_gap))`.
+        # This gives a peak at `ideal_gap`, but the function decays on both sides.
+        # This is closer to the original description's intent ("slightly larger").
+
+        # Let's use `sigmoid(steepness * (center - x))` where `center` is `ideal_gap`.
+        # `priority = sigmoid(steepness * (ideal_gap - excess_capacities))`
+        # This gives high scores for `excess_capacities < ideal_gap` and low for `excess_capacities > ideal_gap`.
+        # The peak of this function is not at `ideal_gap` itself, it's where the argument is 0.
+        # The *midpoint* of the sigmoid is at `ideal_gap`.
+        #
+        # If we want the highest score to be associated with `ideal_gap`, we can use the sigmoid's output as a base.
+        #
+        # Let's consider `excess_capacity` directly:
+        # Score = 1 / (1 + `excess_capacity`**power)
+        # If power=1, Score = 1 / (1 + excess_capacity). Decays from 1 to 0.
+        # If power=2, Score = 1 / (1 + excess_capacity**2). Decays faster.
+        # This favors smaller excesses.
+
+        # Let's try a combination that specifically targets "minimal excess" and then "least waste".
+        # Minimal excess = `excess_capacity` near 0.
+        # Least waste = `excess_capacity` is small.
+
+        # We can use a two-part function or a single function that behaves piecewise.
+        # `priority(excess_capacity)`:
+        # If `excess_capacity` < `ideal_gap`: `sigmoid(steepness_early * (ideal_gap - excess_capacity))` (favoring smaller gaps)
+        # If `excess_capacity` >= `ideal_gap`: `sigmoid(steepness_late * (excess_capacity - ideal_gap))` (penalizing larger gaps)
+        # This creates a peak at `ideal_gap`.
+
+        # Let's use `ideal_gap = 0.01` (a very small positive value).
+        ideal_gap = 0.01
+        steepness_early = 20.0 # Steep decline for small excesses below ideal_gap
+        steepness_late = 10.0  # Gradual decline for excesses above ideal_gap
+
+        # For excess < ideal_gap, we want higher scores as excess approaches 0.
+        # `sigmoid(steepness * (ideal_gap - excess))` gives scores that DECREASE as excess increases.
+        # This is correct for "preferring less excess".
+        # So, for `excess < ideal_gap`, `sigmoid(steepness_early * (ideal_gap - excess))` is good.
+
+        # For excess >= ideal_gap, we want scores to decrease as excess increases.
+        # `sigmoid(steepness * (ideal_gap - excess))` still works for this part.
+        # The transition is what matters.
+
+        # Let's use a single sigmoid that peaks appropriately.
+        # Consider a function that is high for `excess = 0` and `excess = ideal_gap`, and lower in between or for larger values.
+        #
+        # How about:
+        # Priority = `(1 - sigmoid(steepness_1 * excess))`  # Prioritizes exact fits (score 1 at excess=0)
+        #            + `sigmoid(steepness_2 * (ideal_gap - excess))` # Bonus for near-exact fits
+        # Need to normalize weights.
+
+        # Let's try a different perspective: the "worst fit reduction" aims to pick the bin
+        # that *least* increases the total waste.
+        # If we have bins with capacities [10, 5, 2] and item is 3:
+        # Bin 1: remains [7, 5, 2]. Waste = 7.
+        # Bin 2: remains [10, 2, 2]. Waste = 10.
+        # Bin 3: remains [10, 5, -1]. Invalid.
+        # Worst fit would pick bin 2.
+
+        # For online BPP with the goal of minimizing bins, we want to fill bins.
+        # Prioritize "best fit" for tight packing.
+        # If no good fit, then "first fit" or "worst fit" among valid bins.
+        #
+        # The reflection says: "Prioritize exact fits, then minimal residual space. Combine 'best fit' with 'worst fit reduction'."
+        #
+        # Minimal residual space = `excess_capacity` close to 0.
+        # "Worst fit reduction" can mean: among bins that are NOT near-perfect fits, pick the one that is "least empty".
+        # This means picking the bin with largest remaining capacity among those that aren't "best fits".
+        # This sounds contradictory to minimizing total waste.
+
+        # Let's interpret "worst fit reduction" as: "Don't leave *too much* excess if a better option exists".
+        # OR: "Among bins that aren't perfect/near-perfect fits, pick the one that is relatively fullest."
+        #
+        # The current `priority_v1` is essentially a "best fit" heuristic.
+        #
+        # Let's focus on the "refined Sigmoid Fit Score".
+        # The description for v1 implies a peak at a slight positive excess.
+        # `sigmoid(steepness * (ideal_gap - excess_capacity))`
+        # This function maps `ideal_gap` to 0.5.
+        # For `excess < ideal_gap`, scores > 0.5.
+        # For `excess > ideal_gap`, scores < 0.5.
+        # So, it favors LESS excess capacity.
+
+        # To make it peak at `ideal_gap`:
+        # We need a function that is maximal at `ideal_gap`.
+        # Let's scale the `excess_capacities` and use a Sigmoid that peaks.
+        # A common way to model this is using a modified logistic function or a bell curve.
+        #
+        # Consider a function `f(x)` where `x = excess_capacity`.
+        # Peak at `ideal_gap`.
+        # `f(x) = exp(-k * (x - ideal_gap)**2)` (Gaussian)
+        #
+        # Alternative sigmoid approach:
+        # Map `excess_capacity` to a range, then apply sigmoid.
+        # `priorities[fits_mask] = sigmoid(steepness, center=ideal_gap)` applied to `excess_capacities`.
+        # The `sigmoid` function is `1 / (1 + exp(-steepness * (x - center)))`.
+        # This means `center` is where the sigmoid value is 0.5.
+        #
+        # If we want peak at `ideal_gap`, we can use `1 - sigmoid(steepness * (excess - ideal_gap))`
+        # `1 - (1 / (1 + exp(-steepness * (excess - ideal_gap))))`
+        # `= exp(-steepness * (excess - ideal_gap)) / (1 + exp(-steepness * (excess - ideal_gap)))`
+        # This is the logistic function `logistic(steepness * (ideal_gap - excess))`.
+        # This function peaks at `ideal_gap`.
+
+        # Let's use `logistic(k * (ideal_gap - x))`
+        def logistic(x, steepness=10.0):
+            return 1 / (1 + np.exp(-steepness * x))
+
+        # Priority score where the peak is at `ideal_gap`.
+        # Scores are higher for `excess_capacity` closer to `ideal_gap`.
+        # For `excess_capacity` < `ideal_gap`, scores will be > 0.5.
+        # For `excess_capacity` > `ideal_gap`, scores will be < 0.5.
+        # This aligns with "minimal residual space" and prioritizing slight gaps.
+        ideal_gap = 0.01 # Very small positive remainder is ideal.
+        steepness = 25.0
+
+        # We want priority to be high when excess_capacity is close to ideal_gap.
+        # Function: logistic(steepness * (ideal_gap - excess_capacity))
+        # This peaks at 1 when excess_capacity = ideal_gap.
+        # When excess_capacity = 0, score = logistic(steepness * ideal_gap) (slightly less than 1)
+        # When excess_capacity = 2*ideal_gap, score = logistic(-steepness * ideal_gap) (less than 0.5)
+        # This favors small positive gaps over exact fits, which is what "slightly larger" implies.
+
+        priority_scores = logistic(steepness * (ideal_gap - excess_capacities))
+
+        # Now, incorporate "worst fit reduction".
+        # This part is tricky to interpret as a *reduction* while also prioritizing *minimal* residual space.
+        # If "worst fit reduction" means: don't pick a bin with excessively large remaining capacity if other good options exist.
+        # The current scores already decay for larger excesses.
+        #
+        # Let's consider a slight adjustment:
+        # For bins with `excess_capacity > some_threshold`, slightly reduce their score to favor bins that are generally fuller.
+        #
+        # If we want to also capture "least waste" as a secondary objective:
+        # Use a combined score.
+        # Score = w1 * (priority for ideal_gap) + w2 * (priority for minimal excess)
+        #
+        # Let's re-read: "Prioritize exact fits, then minimal residual space. Combine 'best fit' with 'worst fit reduction'."
+        # Minimal residual space = minimal `excess_capacity`.
+        # Best fit = `excess_capacity` near 0 or `ideal_gap`.
+        # Worst fit reduction: This usually means choosing the bin with the largest remaining capacity.
+        # Applying a "reduction" to this could mean making it less attractive, or capping its benefit.
+        #
+        # If we want to combine:
+        # 1. High score for `excess_capacity` near 0.
+        # 2. High score for `excess_capacity` near `ideal_gap`.
+        # 3. Lower scores for larger `excess_capacity`.
+        #
+        # Let's try a score that is a weighted sum of two components:
+        # Component A: Favoring `ideal_gap` (slight positive remainder).
+        # Component B: Favoring exact fits (zero remainder).
+        # Component C: Penalizing large remainders (worst fit reduction).
+
+        # Component A: Use the logistic function as defined above.
+        # `score_A = logistic(steepness_ideal * (ideal_gap - excess_capacities))`
+        ideal_gap_for_peak = 0.01
+        steepness_peak = 30.0
+        score_A = logistic(steepness_peak * (ideal_gap_for_peak - excess_capacities))
+
+        # Component B: Favoring exact fits (zero remainder).
+        # Use a steep sigmoid for excess=0.
+        # `score_B = sigmoid(steepness_zero * (0 - excess_capacities))`
+        # `score_B = sigmoid(-steepness_zero * excess_capacities)`
+        steepness_zero = 20.0
+        score_B = logistic(steepness_zero * (0 - excess_capacities)) # same as sigmoid(steepness_zero * excess) but inverted
+
+        # Wait, `logistic(x)` increases. `logistic(-x)` decreases.
+        # We want score_B to be high for excess=0, decrease for excess>0.
+        # So `logistic(steepness * (0 - excess))` or `sigmoid(steepness * (0 - excess))`.
+        # `score_B = logistic(-steepness_zero * excess_capacities)` is good.
+        # This gives 0.5 at excess=0 and decays.
+
+        # Combine A and B:
+        # We want `ideal_gap` to be the absolute peak, followed by 0 excess, then decay.
+        # `score_A` peaks at `ideal_gap`. `score_B` peaks at 0.
+        # If `ideal_gap` is small and positive, `score_A` will be higher than `score_B` at `ideal_gap`.
+        # At `excess = 0`: `score_A = logistic(steepness_peak * (ideal_gap))` (slightly < 1)
+        #                `score_B = logistic(0)` = 0.5
+        # This means `score_A` will be higher at 0 as well if `ideal_gap` is small.
+        #
+        # Let's give `score_A` more weight.
+        weight_A = 1.0
+        weight_B = 0.5 # Give less weight to exact fit bonus
+
+        combined_score = weight_A * score_A + weight_B * score_B
+
+        # Component C: "Worst fit reduction".
+        # This implies that if there are many bins with large excess capacities,
+        # we might want to pick the one with the largest capacity to keep smaller capacities for later small items.
+        # This is the core of "worst fit".
+        # "Worst fit reduction" might mean: DO NOT pick the bin with the largest excess if a near-perfect fit exists.
+        # Or: Slightly penalize bins with large excess to encourage fuller bins overall.
+
+        # Let's adjust the combined score to penalize large excesses more.
+        # If `excess_capacity` is large, the current scores already drop.
+        # We can add a term that aggressively reduces scores for large excesses.
+        #
+        # Let's define a "penalty" for large excess.
+        # `penalty = sigmoid(steepness_penalty * (excess_capacities - large_threshold))`
+        # This penalty is 0.5 at `large_threshold`, and increases.
+        # We want to SUBTRACT this penalty.
+        #
+        # Example: Item = 1, bins = [10, 10, 1.1]
+        # Excess: [9, 9, 0.1]
+        # score_A for 0.1: logistic(30 * (0.01 - 0.1)) = logistic(-2.7) ~ 0.06
+        # score_B for 0.1: logistic(-20 * 0.1) = logistic(-2.0) ~ 0.12
+        # Combined: 1.0 * 0.06 + 0.5 * 0.12 = 0.06 + 0.06 = 0.12. This is low.
+
+        # Let's flip the logistic usage:
+        # Prioritize minimal residual space: favor `excess_capacity` close to 0.
+        # `logistic(-steepness * excess_capacity)` -> Peaks at 0.5 for excess=0, decays.
+        # Prioritize slight positive gap: favor `excess_capacity` close to `ideal_gap`.
+        # `logistic(steepness * (ideal_gap - excess_capacity))` -> Peaks at 1 for `ideal_gap`.
+
+        # Let's adjust the structure:
+        # Bin remaining capacity `c`. Item size `i`. Bin capacity `C`. `excess = c - i`.
+        #
+        # Heuristic:
+        # 1. Try to find bins where `c - i` is small and positive (e.g., `0 < c - i < 0.1`).
+        # 2. If not found, try to find bins where `c - i = 0`.
+        # 3. If not found, consider other bins.
+
+        # Score function `S(excess)`:
+        # S(0) = high
+        # S(small_positive) = very high (peak)
+        # S(larger_positive) = medium, decreasing
+        # S(very_large_positive) = low
+
+        # Let's refine the "peak at `ideal_gap`" part.
+        # `logistic(steepness * (ideal_gap - excess))` gives scores that are:
+        # `ideal_gap`: 1.0
+        # `0`: logistic(steepness * ideal_gap) (near 1 for small ideal_gap)
+        # `very large`: close to 0.
+        # This doesn't quite distinguish between 0 and ideal_gap as well as we might like.
+
+        # Let's try a different combination using sigmoids:
+        # Score = `w1 * sigmoid(s1 * (ideal_gap - excess))`  # Favors excess < ideal_gap
+        #       + `w2 * sigmoid(s2 * (0 - excess))`        # Favors excess == 0
+
+        # Let's use the `priority_v1` structure but enhance it for "worst fit reduction".
+        # The `priority_v1` uses `sigmoid(steepness * (ideal_gap - excess_capacities))`.
+        # This already penalizes large excesses.
+        # "Worst fit reduction" in this context might mean: if there are multiple bins with similar "good fit" scores,
+        # prefer the one that is "least empty" among them, or penalize those that are "most empty" among the good fits.
+        #
+        # Consider bins with `excess_capacity` within a certain range around `ideal_gap`.
+        # Among these, pick the one with minimal `excess_capacity`.
+
+        # Let's apply a bonus for minimal waste (excess=0) and a penalty for large waste.
+        # Base priority = `logistic(steepness * (ideal_gap - excess_capacities))` (peaks at ideal_gap)
+        # Bonus for exact fit = `logistic(-steepness_zero * excess_capacities)` (peaks at 0)
+        # Penalty for large excess = `sigmoid(steepness_penalty * (excess_capacities - penalty_threshold))`
+
+        # Let's try a simpler approach inspired by Best Fit Decreasing (BFD) for online.
+        # The "residual space" matters.
+        # Consider the ratio `item_size / bin_capacity`.
+        # Or `bin_remaining_cap / bin_capacity`.
+        #
+        # The goal is to minimize the number of bins.
+        # So, we want to fill bins as much as possible.
+        # This means minimizing `excess_capacity`.
+        #
+        # So, a priority function that decreases with `excess_capacity` is good.
+        # `f(excess) = 1 / (1 + excess)`
+        # `f(excess) = exp(-k * excess)`
+        #
+        # Let's return to the interpretation of "best fit" as minimal excess.
+        # We want to prioritize bins where `excess_capacity` is smallest.
+        #
+        # "Prioritize exact fits, then minimal residual space."
+        # This implies:
+        # 1. `excess_capacity = 0` is best.
+        # 2. `excess_capacity` slightly > 0 is next best.
+        # 3. `excess_capacity` larger is worse.
+        #
+        # This is what `logistic(-k * excess)` combined with `logistic(k * (ideal_gap - excess))` could achieve.
+
+        # Let's define the score `S(excess)` as:
+        # `S(excess) = a * logistic(-s1 * excess) + b * logistic(s2 * (ideal_gap - excess))`
+        # `a` and `b` are weights, `s1` and `s2` are steepness.
+        # `ideal_gap = 0.01`
+
+        steepness_exact = 20.0
+        steepness_gap = 25.0
+        ideal_gap = 0.01
+
+        # Score component for exact fit (peaks at excess=0)
+        score_exact = logistic(-steepness_exact * excess_capacities)
+
+        # Score component for slight gap (peaks at excess=ideal_gap)
+        score_gap = logistic(steepness_gap * (ideal_gap - excess_capacities))
+
+        # Combine them. We want exact fit to be good, slight gap to be even better.
+        # If we want `ideal_gap` to be the absolute maximum score:
+        # This requires careful weighting.
+        # If `excess = ideal_gap`: `score_exact` = logistic(-s1 * ideal_gap) ( < 0.5)
+        #                         `score_gap` = logistic(0) = 0.5.
+        # This doesn't work as intended. The logistic function with `(ideal_gap - excess)` peaks at 1.
+        # The logistic function with `-steepness * excess` peaks at 0.5.
+
+        # Let's use the `priority_v1` structure and modify it to ensure the peak is indeed at `ideal_gap`.
+        # The function `f(x) = sigmoid(steepness * (center - x))` has its midpoint at `center`.
+        # If we want peak priority AT `ideal_gap`, then `ideal_gap` should map to a high value.
+        #
+        # Let's use the original `priority_v1` concept: prioritizing bins where remaining capacity is *slightly* larger.
+        # `excess_capacities = bins_remain_cap[fits_mask] - item`
+        # We want to maximize a function `P(excess_capacity)`.
+        # `P(0)` should be high.
+        # `P(ideal_gap)` should be the highest.
+        # `P(large_excess)` should be low.
+
+        # Let's define `P(x)` as:
+        # `P(x) = 1 / (1 + exp(-k * (x - ideal_gap)^2))`  -- Gaussian-like
+        # This isn't directly a sigmoid.
+
+        # Let's try to combine two sigmoids carefully.
+        # 1. `sigmoid_exact = sigmoid(steepness_exact * (0 - excess_capacities))` -> Favors excess close to 0.
+        # 2. `sigmoid_gap = sigmoid(steepness_gap * (ideal_gap - excess_capacities))` -> Favors excess close to `ideal_gap`.
+        #
+        # The original `priority_v1` function IS using `sigmoid(steepness * (ideal_gap - excess_capacities))`.
+        # Let's analyze that:
+        # `ideal_gap = 0.05`, `steepness = 10`.
+        # `excess = 0`: `sigmoid(10 * (0.05 - 0)) = sigmoid(0.5) ≈ 0.62`
+        # `excess = 0.05`: `sigmoid(10 * (0.05 - 0.05)) = sigmoid(0) = 0.5`
+        # `excess = 0.1`: `sigmoid(10 * (0.05 - 0.1)) = sigmoid(-0.5) ≈ 0.38`
+        # `excess = 0.02`: `sigmoid(10 * (0.05 - 0.02)) = sigmoid(0.3) ≈ 0.57`
+        #
+        # This function *decreases* from 0.62 at excess=0 to 0.5 at excess=0.05 and further down.
+        # It does NOT peak at `ideal_gap`. It prioritizes smaller excesses, with a slight bias.
+
+        # To peak at `ideal_gap`:
+        # We need a function that is high for `ideal_gap`, and lower for `0` and `larger_excess`.
+        # A "bell curve" shape.
+        # `exp(-(excess - ideal_gap)^2 / sigma^2)`
+        #
+        # Using sigmoids to approximate a peak:
+        # Priority = `sigmoid(k1 * (ideal_gap - excess)) * sigmoid(k2 * (excess - 0))`
+        # This gives `sigmoid(k1*ideal_gap) * sigmoid(0)` at `excess=0`.
+        # And `sigmoid(0) * sigmoid(k2 * ideal_gap)` at `excess=ideal_gap`.
+        # This doesn't directly yield a peak.
+
+        # Let's reconsider the "worst fit reduction".
+        # If we have bins [10, 10, 10, 10, 10] and item = 1.
+        # Excesses are all 9.
+        # If we have bins [5, 5, 5, 5, 5] and item = 4.
+        # Excesses are all 1.
+        #
+        # "Worst fit reduction": Amongst bins that are *not* best fits, pick the one with the largest remaining capacity.
+        # This means that if `ideal_gap` fit is not found, and exact fit is not found, then among the remaining,
+        # pick the one that is "least full". This is counter-intuitive for minimizing bins.
+        #
+        # Alternative interpretation: Prioritize small excesses, and if there are multiple bins with similar small excesses,
+        # prefer the one that has a larger capacity (to potentially save smaller bins for smaller items later).
+        #
+        # Let's try to model:
+        # Score = `f(excess_capacity)`
+        # `f(0)` is good.
+        # `f(ideal_gap)` is best.
+        # `f(excess)` decreases as `excess` increases.
+        #
+        # Function: `1 / (1 + (excess - ideal_gap)^2)` ? Not sigmoid.
+        #
+        # Let's refine the sigmoid approach.
+        # We want a function that:
+        # - Has a maximum value.
+        # - The maximum value occurs at `ideal_gap`.
+        # - Values decrease as `excess_capacity` moves away from `ideal_gap` in either direction (but especially for larger positive excess).
+        #
+        # Let `score = sigmoid(steepness * (ideal_gap - excess))` for `excess <= ideal_gap`.
+        # And `score = sigmoid(steepness * (excess - ideal_gap))` for `excess > ideal_gap`, but inverted.
+        #
+        # Consider the function: `f(x) = sigmoid(k * (ideal_gap - x))`
+        # At `x = ideal_gap`, `f(ideal_gap) = sigmoid(0) = 0.5`.
+        # This is the center of the sigmoid.
+        #
+        # To get a peak AT `ideal_gap`, we need the function to be maximal there.
+        #
+        # Final attempt at interpretation:
+        # Priority = `WeightBestFit * ScoreBestFit` + `WeightLeastWaste * ScoreLeastWaste`
+        # `ScoreBestFit`: High for `excess` near `ideal_gap`.
+        # `ScoreLeastWaste`: High for `excess` near `0`.
+        #
+        # `ScoreBestFit = logistic(steepness_ideal * (ideal_gap - excess))`
+        # `ScoreLeastWaste = logistic(-steepness_zero * excess)`
+        #
+        # If `ideal_gap = 0.01`:
+        # excess=0: SF=logistic(-s_z*0) = 0.5; SB=logistic(s_i*0.01) (near 1)
+        # excess=0.01: SF=logistic(-s_z*0.01) (near 0.5); SB=logistic(0) = 0.5
+        #
+        # This still doesn't make `ideal_gap` the absolute peak if `s_i` is not chosen carefully relative to `s_z`.
+        #
+        # Let's assume "minimal residual space" is the MOST important factor.
+        # This means `excess_capacity` should be as small as possible.
+        #
+        # Priority = `f(excess_capacity)` where `f` is decreasing.
+        # `f(x) = 1 / (1 + x)`
+        # `f(x) = exp(-k*x)`
+        #
+        # The `priority_v1` is already quite good for this. It penalizes larger excesses.
+        #
+        # How to incorporate "worst fit reduction"?
+        # If we have bins [10, 20, 30] and item=5:
+        # Excesses: [5, 15, 25].
+        # Priority: `sigmoid(10 * (0.05 - excess))`
+        # excess=5: sigmoid(-4.95) ~ 0
+        # excess=15: sigmoid(-14.95) ~ 0
+        # excess=25: sigmoid(-24.95) ~ 0
+        #
+        # If we have bins [5, 6, 7] and item=4:
+        # Excesses: [1, 2, 3]
+        # Priority:
+        # excess=1: sigmoid(10 * (0.05 - 1)) = sigmoid(-9.5) ~ 0
+        # excess=2: sigmoid(10 * (0.05 - 2)) = sigmoid(-19.5) ~ 0
+        # excess=3: sigmoid(10 * (0.05 - 3)) = sigmoid(-29.5) ~ 0
+        #
+        # The steepness needs to be adjusted based on the expected range of `excess_capacities`.
+        # If `excess_capacities` can be large, `steepness` should be adjusted or the function modified.
+        #
+        # Let's consider the "worst fit reduction" as a way to break ties or modify scores for less ideal fits.
+        # If multiple bins have similar "good" scores, pick the one that's "least empty".
+        #
+        # Modified score: `priority = base_score + alpha * (bins_remain_cap[fits_mask] / MAX_CAPACITY)`
+        # Where `base_score` is the sigmoid score.
+        #
+        # Let's try:
+        # Base score: `logistic(-steepness_least_waste * excess_capacities)` -> Favors minimal waste (excess near 0)
+        # Bonus for "least empty" among these: `bonus = bins_remain_cap[fits_mask]`. Normalize this.
+        #
+        # Final approach based on reflection:
+        # 1. Prioritize exact fits (excess=0) => High score for excess=0.
+        # 2. Then minimal residual space (excess near 0) => High score for small positive excess.
+        # 3. Combine 'best fit' (minimal excess) with 'worst fit reduction' (prefer fuller bins among non-ideal).
+
+        # Let's prioritize minimal excess first.
+        # Score = `logistic(-steepness_minimal_waste * excess_capacities)`
+        # This function peaks at 0.5 for excess=0 and decreases.
+        #
+        # To make it "prioritize exact fits, then minimal residual space":
+        # We need the value at excess=0 to be higher than for slightly positive excess.
+        # But the reflection says "then minimal residual space".
+        # Let's assume "exact fits" is the primary goal.
+        #
+        # If `excess_capacity = 0`, assign a high score.
+        # If `0 < excess_capacity < threshold`, assign good scores.
+        # If `excess_capacity >= threshold`, assign lower scores.
+        #
+        # Let's try to model this with two components, weighted.
+        # Component 1: Exact fit bonus.
+        #   `score_exact = 1.0` if `excess == 0`, else `0.0`. (Hard threshold)
+        #   Or `score_exact = exp(-steepness_e * excess)` (Soft threshold)
+        # Component 2: Minimal residual space / Best fit.
+        #   `score_bestfit = logistic(steepness_bf * (ideal_gap - excess))`
+        #
+        # Combining them:
+        # `priority = w_exact * score_exact + w_bestfit * score_bestfit`
+        #
+        # Let's use soft thresholds for all.
+        steepness_exact_fit = 50.0 # Very steep near 0
+        steepness_best_fit = 20.0
+        ideal_gap = 0.02 # Small positive remainder
+
+        # Score for exact fit (high for excess=0, drops rapidly)
+        score_exact = logistic(steepness_exact_fit * (0 - excess_capacities))
+
+        # Score for best fit (high for excess near ideal_gap, decreases)
+        score_best_fit = logistic(steepness_best_fit * (ideal_gap - excess_capacities))
+
+        # Combine: Exact fit is paramount, followed by best fit.
+        # Give exact fit a higher weight.
+        weight_exact = 1.0
+        weight_bestfit = 0.7
+
+        # The combined score will be:
+        # At excess=0: `1.0*logistic(0) + 0.7*logistic(20*0.02)` = `1.0*0.5 + 0.7*logistic(0.4)`
+        #             `0.5 + 0.7 * (1 / (1 + exp(-0.4)))` = `0.5 + 0.7 * (1 / (1 + 0.67))`
+        #             `0.5 + 0.7 * (1 / 1.67)` = `0.5 + 0.7 * 0.598` = `0.5 + 0.418` = 0.918
+        # At excess=ideal_gap=0.02: `1.0*logistic(-50*0.02) + 0.7*logistic(0)`
+        #                         `1.0*logistic(-1.0) + 0.7*0.5`
+        #                         `0.268 + 0.35` = 0.618
+        # This gives higher priority to exact fits.
+
+        # "Worst fit reduction": among the "best fit" candidates, prefer fuller bins.
+        # If `score_best_fit` is similar, we want to boost bins with smaller `excess_capacities`.
+        # This is implicitly handled by `score_exact` and the way `score_best_fit` decays from `ideal_gap`.
+        #
+        # Let's add a term that specifically boosts smaller `excess_capacities` when `score_best_fit` is relevant.
+        # Consider the ratio `excess_capacities / bins_remain_cap[fits_mask]`. This isn't right.
+        #
+        # The reflection stated: "Combine 'best fit' with 'worst fit reduction'."
+        # If "best fit" is minimal excess, then "worst fit reduction" might mean:
+        # Among bins that are NOT best fits, prefer the one that has the largest remaining capacity.
+        # This seems to imply a secondary sorting criteria or a blended score.
+
+        # Let's use a score that prioritizes minimal excess, and then adds a bonus for larger remaining capacity among those that are similar.
+        #
+        # Final Score = `f(excess_capacity, remaining_capacity)`
+        # Prioritize `excess_capacity` being small.
+        # If `excess_capacity` values are close, boost based on `remaining_capacity` (larger is better).
+
+        # Let `f(excess) = logistic(-steepness_minimal_waste * excess)`.
+        # This gives higher scores for smaller excesses.
+        # Let `g(rem_cap) = rem_cap / MAX_BIN_CAPACITY`. Add this as bonus.
+        # `priority = f(excess) + bonus_weight * g(remaining_capacity)`
+        #
+        # Let's pick `MAX_BIN_CAPACITY` dynamically or assume a constant.
+
+        # Let's assume max bin capacity is 1.0 for simplicity, or we need it passed in.
+        # For now, we can normalize by the maximum *available* capacity, but that's unstable.
+        # Let's normalize by a fixed expected max capacity if known, otherwise by a representative value.
+        # Assume max capacity is 1.0 for normalization scale.
+
+        # `priorities[fits_mask] = logistic(-steepness_minimal_waste * excess_capacities) \
+        #                         + 0.3 * (bins_remain_cap[fits_mask] / 1.0)` # Normalize remaining capacity
+
+        steepness_minimal_waste = 25.0
+        bonus_weight = 0.3
+        assumed_max_capacity = 1.0 # Normalize remaining capacity by this value.
+
+        # Minimal waste score
+        score_minimal_waste = logistic(-steepness_minimal_waste * excess_capacities)
+
+        # Worst fit bonus (prefer fuller bins among those with similar minimal waste scores)
+        # If excess is small, remaining capacity is also small (close to item size).
+        # If remaining capacity is larger, it's less "wasteful" among options with small excess.
+        # This is confusing. "Worst fit reduction" implies penalizing large capacities.
+        #
+        # Let's assume the reflection means:
+        # 1. Prioritize bins where `excess_capacity` is minimal.
+        # 2. If there's a tie in minimal excess, pick the bin with largest `remaining_capacity`.
+        #
+        # This can be achieved by sorting by `(excess_capacity, -remaining_capacity)`.
+        # Our priority function should reflect this ordering.
+        #
+        # Let the score be dominated by `excess_capacity`.
+        # Use `1 / (1 + excess_capacity)` as a base.
+        # Then add a bonus for larger remaining capacity.
+        #
+        # Base score based on minimal waste:
+        # `base_score = 1 / (1 + excess_capacities)`
+        # Bonus for fuller bins:
+        # `bonus = bins_remain_cap[fits_mask]`
+        # Normalize bonus: `bonus_normalized = bonus / np.max(bonus)` (careful if only one bin)
+        # A fixed `MAX_CAPACITY` is better.
+
+        # Let's use the logistic function for minimal waste, and add the bonus.
+        # Minimal waste score: `logistic(-steepness * excess)`
+        # Bonus: Normalize remaining capacity. Higher is better.
+        # We want to penalize large remaining capacity for the "reduction" part.
+        #
+        # So, prioritize small excess, AND penalize large remaining capacity.
+        # This implies `excess` is the primary factor, and `remaining_capacity` is secondary,
+        # where higher `remaining_capacity` leads to LOWER priority (if we interpret "reduction" as penalty).
+
+        # Let's try to directly fulfill the interpretation:
+        # "Prioritize exact fits, then minimal residual space."
+        # => Maximize `f(excess)` where `f(0)` is highest, and `f(x)` decreases for `x > 0`.
+        #
+        # "Combine 'best fit' (minimal excess) with 'worst fit reduction'."
+        # If "worst fit reduction" means preferring fuller bins among equally-good fits.
+        #
+        # Let's take the minimal waste score `logistic(-steepness * excess_capacity)`.
+        # This handles minimal waste well.
+        # How to add "worst fit reduction" meaning "prefer fuller bins"?
+        # It means, if two bins have similar small `excess_capacity`, pick the one that is "less empty".
+        # This means picking the bin with the largest `remaining_capacity`.
+        #
+        # So, a score that uses `excess_capacity` as primary and `remaining_capacity` as secondary (descending).
+        # `score = Base(excess_capacity) + bonus(remaining_capacity)`
+        #
+        # `Base(excess) = logistic(-steepness * excess)`
+        # `bonus(rem_cap) = weight * (rem_cap / MAX_CAP)`
+        # This boosts bins with larger remaining capacity.
+        #
+        # `excess = rem_cap - item`. So `rem_cap = excess + item`.
+        # Maximizing `rem_cap` is equivalent to maximizing `excess` (if item is constant).
+        # This contradicts minimal waste.
+
+        # Re-reading again: "Combine 'best fit' with 'worst fit reduction'".
+        # This often means:
+        # - Best Fit: minimal `excess_capacity`.
+        # - Worst Fit: maximal `remaining_capacity`.
+        # - Reduction: Avoid the *worst* aspect of worst fit. The worst aspect is having large `remaining_capacity`.
+        #   So, if we *must* pick a bin that is not a "best fit", we should avoid picking one with *extremely* large `remaining_capacity`.
+        #   This implies that among non-best-fit bins, we prefer those with smaller `remaining_capacity` (i.e., less empty).
+
+        # So, prioritize:
+        # 1. Minimal `excess_capacity` (best fit).
+        # 2. Among bins with similar minimal `excess_capacity`, prefer smaller `remaining_capacity`.
+        # This is effectively prioritizing minimal `excess_capacity`.
+
+        # Let's implement the minimal waste priority with a bonus for NOT being overly empty.
+        # `excess_capacity` is primary.
+        # `remaining_capacity` is secondary for tie-breaking or small adjustments.
+        #
+        # `priority_score = logistic(-steepness * excess_capacity)`
+        #
+        # If two bins have very similar `excess_capacity` (e.g., 0.01 and 0.011), the logistic function will give similar scores.
+        # To break ties or differentiate slightly: add a term based on `remaining_capacity`.
+        # If we want to prefer bins that are "less empty" among these, we would add a term that increases with `remaining_capacity`.
+        # BUT, this contradicts the goal of minimal residual space.
+
+        # Let's stick to the idea of prioritizing minimal excess, and if "worst fit reduction" means
+        # "don't leave *too much* empty space if a better option exists", then our decaying function is sufficient.
+        # The key is that the score should be high for small `excess_capacity`.
+
+        # Using `priority_v1` function's core idea:
+        # `sigmoid(steepness * (ideal_gap - excess))`
+        # This prioritizes bins where `excess_capacity < ideal_gap`.
+        # It decays for larger excesses.
+        # Let's make `ideal_gap` smaller and steepness higher.
+        #
+        # `ideal_gap = 0.01`
+        # `steepness = 25`
+        # `priority = sigmoid(25 * (0.01 - excess))`
+        #
+        # excess=0: sigmoid(25*0.01) = sigmoid(0.25) = 0.56
+        # excess=0.01: sigmoid(0) = 0.5
+        # excess=0.02: sigmoid(25*(-0.01)) = sigmoid(-0.25) = 0.44
+        #
+        # This prioritizes smaller excesses, but not strictly minimal excess.
+        # It also doesn't guarantee a peak at `ideal_gap`.
+
+        # Let's try the combination:
+        # Score = `w1 * logistic(-s1 * excess)` (favors minimal waste)
+        #       + `w2 * logistic(s2 * (ideal_gap - excess))` (favors slight gap)
+
+        steepness_min_waste = 20.0
+        steepness_slight_gap = 25.0
+        ideal_gap_val = 0.01
+
+        score_min_waste = logistic(-steepness_min_waste * excess_capacities)
+        score_slight_gap = logistic(steepness_slight_gap * (ideal_gap_val - excess_capacities))
+
+        # Combine them, perhaps giving more weight to minimal waste.
+        weight_min_waste = 1.0
+        weight_slight_gap = 0.6
+
+        # Final score calculation
+        priorities[fits_mask] = weight_min_waste * score_min_waste + weight_slight_gap * score_slight_gap
+
+        # What about "worst fit reduction"?
+        # If `excess_capacities` is large, scores will be low.
+        # The `score_slight_gap` will be low. The `score_min_waste` will be low.
+        # This inherently reduces priority for bins with large excess.
+        #
+        # Let's add a small penalty for very large remaining capacities IF they are not "best fits".
+        # This is tricky to implement cleanly with a single score.
+        # The current combined score already penalizes large excesses.
+        #
+        # Let's consider the "worst fit reduction" as a modifier to the score.
+        # If a bin has a large `excess_capacity`, we might want to reduce its score further.
+        # The current score already does this.
+        #
+        # Let's assume "worst fit reduction" in context of "best fit" means:
+        # Among bins that are *not* best fits (i.e., `excess_capacity` > `ideal_gap`), pick the one that's least wasteful (smallest `excess_capacity`).
+        # And if they are equal, pick the one with larger `remaining_capacity`.
+        #
+        # The current combined score:
+        # At excess=0: `1.0*logistic(0) + 0.6*logistic(25*0.01)` = `0.5 + 0.6*logistic(0.25)` = `0.5 + 0.6*0.56` = `0.5 + 0.336` = 0.836
+        # At excess=0.01: `1.0*logistic(-20*0.01) + 0.6*logistic(0)` = `1.0*logistic(-0.2) + 0.6*0.5` = `0.452 + 0.3` = 0.752
+        # At excess=0.02: `1.0*logistic(-20*0.02) + 0.6*logistic(25*(-0.01))` = `1.0*logistic(-0.4) + 0.6*logistic(-0.25)`
+        #              `0.401 + 0.6*0.44 = 0.401 + 0.264` = 0.665
+        #
+        # This combination prioritizes minimal waste (excess=0) and then slightly prefers the ideal gap.
+        # The scores decrease as `excess_capacity` increases.
+        # This seems to capture the main goals.
+
+    return priorities
+```

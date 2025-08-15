@@ -1,0 +1,72 @@
+```python
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Returns priority with which we want to add item to each bin using a
+    strategy that prioritizes exact fits and then uses softmax for exploration.
+
+    This heuristic prioritizes bins that can fit the item. Among those that fit,
+    it assigns a higher priority to bins that will have less remaining capacity
+    after the item is placed (closer to an exact fit). It then applies a
+    softmax function to these priorities to balance exploration and exploitation,
+    allowing for a chance to pack items into bins that are not the absolute best fit.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of remaining capacities for each bin.
+
+    Returns:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+    epsilon = 1e-9  # Small value to avoid division by zero
+
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    if not np.any(can_fit_mask):
+        return np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Calculate the remaining capacity if the item is placed in a fitting bin.
+    # We want to prioritize bins that leave *less* remaining capacity.
+    # Therefore, the "quality" of a fit is inversely related to the remaining capacity.
+    # A small positive remainder is good. A negative remainder means it doesn't fit.
+    # To use softmax, we need positive values. A simple way is to use the
+    # inverse of the remaining capacity plus a small constant for stability.
+    # Alternatively, we can use the negative of the remaining capacity and
+    # adjust the softmax interpretation.
+    # Let's stick to the idea of inverse remaining capacity for now.
+    remaining_after_placement = bins_remain_cap[can_fit_mask] - item
+
+    # We want to maximize the "goodness" of the fit. A smaller remainder is better.
+    # The score should reflect this: higher score for smaller remainders.
+    # A common approach is 1 / (remainder + epsilon).
+    # We'll scale these scores before applying softmax to control the spread.
+    fit_scores = 1.0 / (remaining_after_placement + epsilon)
+
+    # Scale scores to prevent very large or small exponents in softmax.
+    # A simple normalization can be dividing by the maximum score among fitting bins.
+    max_fit_score = np.max(fit_scores) if fit_scores.size > 0 else 1.0
+    if max_fit_score > epsilon: # Avoid division by zero if all fit_scores are ~0
+        scaled_fit_scores = fit_scores / max_fit_score
+    else:
+        scaled_fit_scores = np.ones_like(fit_scores) # If all scores are negligible, treat them equally
+
+    # Apply softmax. This converts scores into probabilities, balancing exploration
+    # (more uniform probabilities) and exploitation (probabilities concentrated on high scores).
+    # A temperature parameter could be introduced for more fine-grained control,
+    # but here we use a standard softmax.
+    exp_scores = np.exp(scaled_fit_scores)
+    sum_exp_scores = np.sum(exp_scores)
+
+    if sum_exp_scores > epsilon:
+        probabilities = exp_scores / sum_exp_scores
+    else:
+        # This case should be rare with the scaling, but for safety,
+        # assign uniform probabilities if the sum is too small.
+        probabilities = np.ones_like(fit_scores) / len(fit_scores)
+
+    # Assign these probabilities as priorities to the bins that can fit the item.
+    priorities[can_fit_mask] = probabilities
+
+    return priorities
+```

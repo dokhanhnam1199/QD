@@ -1,0 +1,58 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines tight fit score with bin fullness score using a weighted sum and sigmoid.
+    Prioritizes bins that minimize remaining capacity after packing, and also favor bins that are already fuller.
+    """
+    eligible_bins_mask = bins_remain_cap >= item
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    if np.any(eligible_bins_mask):
+        eligible_capacities = bins_remain_cap[eligible_bins_mask]
+        
+        # Score 1: Tight fit (inverse proximity)
+        # Smaller gap (eligible_capacities - item) means higher score. Add epsilon for stability.
+        tight_fit_scores = 1.0 / (eligible_capacities - item + 1e-9)
+
+        # Score 2: Bin fullness (inverse of remaining capacity)
+        # Fuller bins (smaller remaining capacity) get higher scores. Add epsilon.
+        fullness_scores = 1.0 / (eligible_capacities + 1e-9)
+
+        # Normalize scores to a common range (e.g., 0 to 1) for combination
+        # Normalize tight_fit_scores
+        min_tf, max_tf = np.min(tight_fit_scores), np.max(tight_fit_scores)
+        if max_tf > min_tf:
+            normalized_tight_fit = (tight_fit_scores - min_tf) / (max_tf - min_tf)
+        else:
+            normalized_tight_fit = np.ones_like(tight_fit_scores) * 0.5
+
+        # Normalize fullness_scores
+        min_fs, max_fs = np.min(fullness_scores), np.max(fullness_scores)
+        if max_fs > min_fs:
+            normalized_fullness = (fullness_scores - min_fs) / (max_fs - min_fs)
+        else:
+            normalized_fullness = np.ones_like(fullness_scores) * 0.5
+
+        # Combine scores with weights (can be tuned)
+        # Weights determine the relative importance of tight fit vs. fullness
+        weight_tight_fit = 0.6
+        weight_fullness = 0.4
+        combined_scores = (weight_tight_fit * normalized_tight_fit) + (weight_fullness * normalized_fullness)
+
+        # Apply sigmoid to the combined scores to get smooth priorities
+        # A steeper sigmoid (e.g., 10) emphasizes differences more.
+        # We want higher combined_scores to map to higher sigmoid outputs.
+        sigmoid_priorities = 1 / (1 + np.exp(-10 * (combined_scores - 0.5)))
+        
+        priorities[eligible_bins_mask] = sigmoid_priorities
+        
+        # If all eligible bins result in identical sigmoid priorities (e.g., all scores are same),
+        # assign a neutral priority of 0.5 to ensure some differentiation if possible.
+        # This also handles cases where combined_scores are all exactly 0.5.
+        if np.all(priorities[eligible_bins_mask] == 0.5) and np.any(eligible_bins_mask):
+             priorities[eligible_bins_mask] = 0.5 # Assign neutral priority if all are same
+
+    return priorities
+```

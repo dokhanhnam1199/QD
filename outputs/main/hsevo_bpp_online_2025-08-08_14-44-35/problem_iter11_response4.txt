@@ -1,0 +1,76 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """
+    Combines tightest fit with a penalty for under-utilized bins,
+    using a novel exploration strategy to balance exploitation and exploration.
+    """
+    epsilon = 1e-9
+    exploration_factor = 0.2  # Controls the degree of exploration
+
+    # Mask for bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    if not np.any(can_fit_mask):
+        return priorities  # No bin can fit the item
+
+    fitting_bins_remain_cap = bins_remain_cap[can_fit_mask]
+
+    # --- Exploitation Component: Tightest Fit ---
+    # Prioritize bins that leave minimal remaining capacity after packing.
+    # Higher score for smaller remaining space.
+    remaining_after_packing = fitting_bins_remain_cap - item
+    tight_fit_scores = 1.0 / (remaining_after_packing + epsilon)
+
+    # --- Exploitation Component: Utilization Penalty ---
+    # Penalize bins that are significantly under-utilized (i.e., have a lot of remaining capacity).
+    # This encourages filling existing bins before opening new ones.
+    # We use the inverse of the *initial* remaining capacity as a proxy for utilization.
+    # Higher utilization (less remaining capacity) gets a higher score.
+    utilization_scores = 1.0 / (fitting_bins_remain_cap + epsilon)
+
+    # --- Combine Exploitation Scores ---
+    # Weighted sum of tight fit and utilization scores.
+    # Giving slightly more weight to tight fit as it's the primary goal of BPP.
+    combined_exploitation_scores = 0.6 * tight_fit_scores + 0.4 * utilization_scores
+
+    # Normalize exploitation scores to [0, 1]
+    max_exploitation_score = np.max(combined_exploitation_scores)
+    if max_exploitation_score > epsilon:
+        normalized_exploitation_scores = combined_exploitation_scores / max_exploitation_score
+    else:
+        normalized_exploitation_scores = np.zeros_like(combined_exploitation_scores)
+
+    # --- Exploration Component: Adaptive Exploration ---
+    # We want to explore bins that are not necessarily the best according to exploitation.
+    # Instead of random choice, we will boost the scores of bins that are "average" or slightly below average
+    # in terms of exploitation, giving them a chance.
+    num_fitting_bins = len(fitting_bins_remain_cap)
+    
+    # Calculate a baseline score (e.g., mean exploitation score)
+    mean_exploitation_score = np.mean(normalized_exploitation_scores)
+    
+    # Create exploration scores: higher for bins closer to the mean exploitation score.
+    # This aims to explore "promising but not top" candidates.
+    # We add a small constant to ensure even the lowest scores get some exploration boost if needed.
+    exploration_scores = np.exp(-((normalized_exploitation_scores - mean_exploitation_score) / (mean_exploitation_score + epsilon))**2)
+    
+    # Apply the exploration factor to blend exploitation and exploration
+    # The final priority is a mix:
+    # (1 - exploration_factor) * exploitation_scores + exploration_factor * exploration_scores
+    # This ensures that exploration never completely overrides exploitation,
+    # and also that exploitation still has a significant impact.
+    final_priorities_unnormalized = (1 - exploration_factor) * normalized_exploitation_scores + exploration_factor * exploration_scores
+
+    # Normalize final priorities for the fitting bins
+    sum_final_priorities = np.sum(final_priorities_unnormalized)
+    if sum_final_priorities > epsilon:
+        priorities[can_fit_mask] = final_priorities_unnormalized / sum_final_priorities
+    else:
+        # If all scores are zero, distribute probability equally among fitting bins
+        priorities[can_fit_mask] = 1.0 / num_fitting_bins
+
+    return priorities
+```

@@ -1,0 +1,60 @@
+```python
+import numpy as np
+
+def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
+    """Returns priority with which we want to add item to each bin using a best-fit approach with a soft constraint for exploration.
+
+    This heuristic prioritizes bins that can fit the item. Among those that fit,
+    it assigns a higher priority to bins that will have less remaining capacity
+    after the item is placed. To encourage exploration of less-filled bins and
+    prevent premature convergence to suboptimal solutions, a softmax function
+    is applied to the calculated priorities. This allows bins with slightly
+    more remaining capacity to also have a non-negligible chance of being selected.
+
+    Args:
+        item: Size of item to be added to the bin.
+        bins_remain_cap: Array of capacities for each bin.
+
+    Return:
+        Array of same size as bins_remain_cap with priority score of each bin.
+    """
+    priorities = np.zeros_like(bins_remain_cap, dtype=float)
+
+    # Identify bins that can accommodate the item
+    can_fit_mask = bins_remain_cap >= item
+
+    # Calculate the remaining capacity if the item is placed in a fitting bin
+    remaining_after_placement = bins_remain_cap[can_fit_mask] - item
+
+    # Assign higher priority to bins that will have less remaining capacity.
+    # We invert the remaining capacity so that smaller remaining capacity gets higher priority.
+    # Adding a small epsilon to avoid division by zero.
+    fit_priorities = 1.0 / (remaining_after_placement + 1e-9)
+
+    # Apply softmax to introduce exploration.
+    # A higher 'temperature' (e.g., 1.0) means more uniform probabilities (more exploration).
+    # A lower 'temperature' means probabilities are more skewed towards the best bins.
+    # We can also consider a temperature that adapts based on how many bins are available or
+    # the current state of the packing. For simplicity, we use a fixed temperature here.
+    temperature = 1.0
+    if np.any(fit_priorities):
+        # Normalize priorities to prevent very large or small numbers after exponentiation
+        normalized_fit_priorities = fit_priorities - np.max(fit_priorities)
+        probabilities = np.exp(normalized_fit_priorities / temperature)
+        # Ensure probabilities sum to 1 for bins that can fit the item
+        sum_probabilities = np.sum(probabilities)
+        if sum_probabilities > 0:
+            probabilities /= sum_probabilities
+        else:
+            # If all exponentiated values are zero (e.g., due to very small negative exponents),
+            # assign equal probability to fitting bins.
+            probabilities = np.ones_like(fit_priorities) / len(fit_priorities)
+    else:
+        probabilities = np.zeros_like(fit_priorities)
+
+
+    # Assign the calculated probabilities back to the original priority array
+    priorities[can_fit_mask] = probabilities
+
+    return priorities
+```
