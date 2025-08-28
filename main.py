@@ -3,10 +3,15 @@ import logging
 import os
 from pathlib import Path
 import subprocess
-
+from dotenv import load_dotenv
 
 ROOT_DIR = os.getcwd()
 logging.basicConfig(level=logging.INFO)
+
+# Load environment variables from .env file
+load_dotenv()
+os.environ["NVIDIA_NIM_API_KEY"] = os.getenv("NVIDIA_NIM_API_KEY", "")
+os.environ["NVIDIA_NIM_API_BASE"] = os.getenv("NVIDIA_NIM_API_BASE", "")
 
 @hydra.main(version_base=None, config_path="cfg", config_name="config")
 def main(cfg):

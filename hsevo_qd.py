@@ -5,6 +5,7 @@ import tiktoken
 from datetime import datetime
 from utils.utils import *
 from baselines.reevo.gls_tsp_adapt.gls_tsp_eval import Sandbox
+from embedding_cluster import *
 
 
 class HSEvo_QD:
@@ -38,6 +39,7 @@ class HSEvo_QD:
         logging.info("Problem: " + self.problem)
         logging.info("Problem description: " + self.problem_desc)
         logging.info("Function name: " + self.func_name)
+        logging.info("Stop condition: " + self.cfg.stop_condition)
 
         self.prompt_dir = f"{self.root_dir}/prompts"
         self.output_file = f"{self.root_dir}/problems/{self.problem}/gpt.py"
@@ -300,12 +302,14 @@ class HSEvo_QD:
                         # Split the output into lines
                         lines = stdout_str.strip().split('\n')
                         l = len(self.cfg.bd_list)
-
                         individual["obj"] = float(lines[-(l+1)]) if self.obj_type == "min" else -float(lines[-(l+1)])
 
                         for i, bd in enumerate(self.cfg.bd_list):
                             individual[bd] = float(lines[-l + i])
-                    
+
+                        if self.cfg.qd_type == "embedding":
+                            self.get_embedding(individual)
+                        
                         individual["exec_success"] = True
                     except:
                         population[response_id] = self.mark_invalid_individual(population[response_id], "Invalid std out / objective value!")
@@ -357,74 +361,92 @@ class HSEvo_QD:
 
         return process
 
+    def get_embedding(self, individual: dict):
+        code = individual["code"]
+        code_clean = remove_comments_and_docstrings(code)
+        code_pep8 = standardize_code(code_clean)
+        individual["embedding"] = get_nvidia_embedding(code_pep8, self.cfg.embedding_model)
+
     def archive_evaluated_population(self, evaluated_population: list[dict]) -> None:
-        # if not self.population:
-        #     # When population is empty, remove individuals with duplicate bd values
-        #     bd_to_individual = {}
-
-        #     for individual in evaluated_population:
-        #         try:
-        #             bd_values = tuple(
-        #                 individual[self.cfg.bd_list[i]] // div
-        #                 for i, div in enumerate(self.cfg.bd_step)
-        #             )
-
-        #             obj = individual['obj']  
-        #             if (bd_values not in bd_to_individual) or (obj < bd_to_individual[bd_values]['obj']):
-        #                 bd_to_individual[bd_values] = individual
-        #         except KeyError as e:
-        #             missing_key = str(e)
-        #             logging.info(f"Skipping individual due to missing behavior descriptor: {missing_key}")
-        #             continue
-
-        #     self.population = list(bd_to_individual.values())
-        #     return  # Done early since we handled the empty-population case
-
         # Create a dictionary to map bd values to individuals in self.population
         bd_to_individual = {}
+        # Only consider successful individuals
+        valid_individuals = [ind for ind in evaluated_population if ind.get("exec_success", False)]
+        print(len(valid_individuals))
+        if self.cfg.qd_type == "embedding":
+            # Combine current population and new valid individuals
+            combined_population = self.population + valid_individuals
+            combined_embeddings = [ind["embedding"] for ind in combined_population]
+            clusters = []  # Each cluster is a list of indices in combined_population
 
-        # Build from existing population
-        for individual in self.population:
-            if all(key in individual for key in self.cfg.bd_list):
+            for idx, emb in enumerate(combined_embeddings):
+                assigned = False
+                for cluster in clusters:
+                    # Check similarity with all members in the cluster
+                    sims = [cosine_similarity([emb], [combined_embeddings[member_idx]])[0][0] for member_idx in cluster]
+                    if all(sim > self.cfg.alpha for sim in sims):
+                        cluster.append(idx)
+                        assigned = True
+                        break
+                if not assigned:
+                    clusters.append([idx])
+
+            # For each cluster, keep only the best individual
+            best_individuals = []
+            for cluster in clusters:
+                cluster_inds = [combined_population[i] for i in cluster]
+                if self.obj_type == "min":
+                    best_ind = min(cluster_inds, key=lambda ind: ind["obj"])
+                else:
+                    best_ind = max(cluster_inds, key=lambda ind: ind["obj"])
+                best_individuals.append(best_ind)
+
+            # Update population with best individuals from clusters
+            self.population = best_individuals
+
+        if self.cfg.qd_type == "bd":
+            # Build from existing population
+            for individual in self.population:
+                if all(key in individual for key in self.cfg.bd_list):
+                    try:
+                        bd_values = tuple(
+                            individual[self.cfg.bd_list[i]] // div
+                            for i, div in enumerate(self.cfg.bd_step)
+                        )
+
+                        obj = individual['obj']
+                        if (bd_values not in bd_to_individual) or (obj < bd_to_individual[bd_values]['obj']):
+                            bd_to_individual[bd_values] = individual
+
+                    except KeyError as e:
+                        logging.info(f"Skipping individual due to missing key: {e}")
+                        continue
+
+            for evaluated_individual in valid_individuals:
                 try:
+                    # Get the behavior descriptor (bd) values as a tuple
                     bd_values = tuple(
-                        individual[self.cfg.bd_list[i]] // div
+                        evaluated_individual[self.cfg.bd_list[i]] // div
                         for i, div in enumerate(self.cfg.bd_step)
                     )
 
-                    obj = individual['obj']
-                    if (bd_values not in bd_to_individual) or (obj < bd_to_individual[bd_values]['obj']):
-                        bd_to_individual[bd_values] = individual
+                    if bd_values in bd_to_individual:
+                        # Compare objective values and keep the one with the lower obj value
+                        existing_individual = bd_to_individual[bd_values]
+                        if evaluated_individual["obj"] < existing_individual["obj"]:
+                            bd_to_individual[bd_values] = evaluated_individual
+                    else:
+                        # Add the new individual if no matching bd values exist
+                        bd_to_individual[bd_values] = evaluated_individual
 
                 except KeyError as e:
-                    logging.info(f"Skipping individual due to missing key: {e}")
+                    # Log a warning and skip the individual if a key is missing
+                    missing_key = str(e)
+                    logging.info(f"Skipping individual due to missing behavior descriptor: {missing_key}")
                     continue
 
-        for evaluated_individual in evaluated_population:
-            try:
-                # Get the behavior descriptor (bd) values as a tuple
-                bd_values = tuple(
-                    evaluated_individual[self.cfg.bd_list[i]] // div
-                    for i, div in enumerate(self.cfg.bd_step)
-                )
-
-                if bd_values in bd_to_individual:
-                    # Compare objective values and keep the one with the lower obj value
-                    existing_individual = bd_to_individual[bd_values]
-                    if evaluated_individual["obj"] < existing_individual["obj"]:
-                        bd_to_individual[bd_values] = evaluated_individual
-                else:
-                    # Add the new individual if no matching bd values exist
-                    bd_to_individual[bd_values] = evaluated_individual
-
-            except KeyError as e:
-                # Log a warning and skip the individual if a key is missing
-                missing_key = str(e)
-                logging.info(f"Skipping individual due to missing behavior descriptor: {missing_key}")
-                continue
-
-        # Update self.population with the archived individuals
-        self.population = list(bd_to_individual.values())
+            # Update self.population with the archived individuals
+            self.population = list(bd_to_individual.values())
 
     def update_iter(self) -> None:
         """
@@ -446,8 +468,12 @@ class HSEvo_QD:
             logging.info(f"Iteration {self.iteration}: Elitist: {self.elitist['obj']}")
 
         # Dump the current population to a JSON file for inspection
+        population_to_dump = [
+            {k: v for k, v in individual.items() if k != "embedding"}
+            for individual in self.population
+        ]
         with open(f"population_iter{self.iteration}.json", "w") as f:
-            json.dump(self.population, f, indent=2)
+            json.dump(population_to_dump, f, indent=2)
 
         logging.info(f"Iteration {self.iteration} finished...")
         logging.info(f"Best obj: {self.best_obj_overall}, Best Code Path: {self.best_code_path_overall}")
@@ -464,29 +490,38 @@ class HSEvo_QD:
         logging.info(f"Function Evals: {self.function_evals}")
         self.generation += 1
 
-    def random_select(self, population: list[dict]):
+    def rank_select(self, population: list[dict]) -> list[dict]:
         """
-        Random selection, select individuals with equal probability.
+        Rank-based selection using np.random.choice (without replacement) with
+        requirement that each parent pair has different 'obj'.
         """
-        selected_population = []
-        # Eliminate invalid individuals
+        # Filter valid individuals
         if self.problem_type == "black_box":
-            population = [individual for individual in population if
-                          individual["exec_success"] and individual["obj"] < self.seed_ind["obj"]]
+            population = [ind for ind in population if
+                        ind["exec_success"] and ind["obj"] < self.seed_ind["obj"]]
         else:
-            population = [individual for individual in population if individual["exec_success"]]
+            population = [ind for ind in population if ind["exec_success"]]
         if len(population) < 2:
             return None
+
+        # Sort by 'obj' (lower is better here)
+        sorted_pop = sorted(population, key=lambda ind: ind["obj"])
+        ranks = np.arange(len(sorted_pop))
+        probs = 1 / (ranks + 1 + len(sorted_pop))
+        probs /= probs.sum()  # normalize to sum = 1
+
+        selected_population = []
         trial = 0
         while len(selected_population) < 2 * self.cfg.pop_size:
             trial += 1
-            parents = np.random.choice(population, size=2, replace=False) # type: ignore
-            # If two parents have the same objective value, consider them as identical;
-            # otherwise, add them to the selected population
-            if parents[0]["obj"] != parents[1]["obj"]:
-                selected_population.extend(parents)
+            # Select 2 without replacement based on rank weights
+            idxs = np.random.choice(len(sorted_pop), size=2, replace=False, p=probs)
+            p1, p2 = sorted_pop[idxs[0]], sorted_pop[idxs[1]]
+            if p1["obj"] != p2["obj"]:
+                selected_population.extend([p1, p2])
             if trial > 1000:
                 return None
+
         return selected_population
 
     def flash_reflection(self, population: list[dict]) -> None:
@@ -782,15 +817,31 @@ class HSEvo_QD:
         population_hs[best_obj_id]["tryHS"] = True
         return population_hs[best_obj_id]
 
+    def stop(self) -> bool:
+        """
+        Check if the stopping condition is met, based on config.stop_condition.
+        Supported conditions: 'token', 'fe', 'gen'
+        """
+        cond = self.cfg.stop_condition
+        if cond == "token":
+            return (self.prompt_tokens + self.completion_tokens) >= self.cfg.max_token
+        elif cond == "fe":
+            return self.function_evals >= self.cfg.max_fe
+        elif cond == "gen":
+            return self.generation >= self.cfg.max_gen
+        else:
+            # Default: stop if max_token reached
+            return (self.prompt_tokens + self.completion_tokens) >= self.cfg.max_token
+        
     def evolve(self):
-        while (self.prompt_tokens + self.completion_tokens) < self.cfg.max_token:
+        while not self.stop():
             # If all individuals are invalid, stop
             if all([not individual["exec_success"] for individual in self.population]):
                 raise RuntimeError(f"All individuals are invalid. Please check the stdout files in {os.getcwd()}.")
             # Select
             population_to_select = self.population if (self.elitist is None or self.elitist in self.population) else [
                                                                                                                          self.elitist] + self.population  # add elitist to population for selection
-            selected_population = self.random_select(population_to_select)
+            selected_population = self.rank_select(population_to_select)
             if selected_population is None:
                 raise RuntimeError("Selection failed. Please check the population.")
 

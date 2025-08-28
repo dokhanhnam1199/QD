@@ -14,6 +14,7 @@ class ReEvo:
 
         self.mutation_rate = cfg.mutation_rate
         self.iteration = 0
+        self.generation = 0
         self.function_evals = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
@@ -39,6 +40,7 @@ class ReEvo:
         logging.info("Problem: " + self.problem)
         logging.info("Problem description: " + self.problem_desc)
         logging.info("Function name: " + self.func_name)
+        logging.info("Stop condition: " + self.cfg.stop_condition)
 
         self.prompt_dir = f"{self.root_dir}/baselines/reevo/prompts"
         self.output_file = f"{self.root_dir}/problems/{self.problem}/gpt.py"
@@ -160,6 +162,7 @@ class ReEvo:
         # Update iteration
         self.population = population
         self.update_iter()
+        self.update_generation()
 
     def response_to_individual(self, response: str, response_id: int, file_name: str = None) -> dict:
         """
@@ -358,6 +361,14 @@ class ReEvo:
         logging.info(f"Function Evals: {self.function_evals}")
         self.iteration += 1
 
+    def update_generation(self) -> None:
+        logging.info(f"Generation {self.generation} finished...")
+        logging.info(f"Best obj: {self.best_obj_overall}, Best Code Path: {self.best_code_path_overall}")
+        logging.info(f"LLM usage: prompt_tokens = {self.prompt_tokens}, completion_tokens = {self.completion_tokens}")
+        logging.info(f"LLM Requests: {self.llm_request}")
+        logging.info(f"Function Evals: {self.function_evals}")
+        self.generation += 1
+
     def random_select(self, population: list[dict]) -> list[dict]:
         """
         Random selection, select individuals with equal probability.
@@ -541,8 +552,24 @@ class ReEvo:
                       enumerate(responses)]
         return population
 
+    def stop(self) -> bool:
+        """
+        Check if the stopping condition is met, based on config.stop_condition.
+        Supported conditions: 'token', 'fe', 'gen'
+        """
+        cond = self.cfg.stop_condition
+        if cond == "token":
+            return (self.prompt_tokens + self.completion_tokens) >= self.cfg.max_token
+        elif cond == "fe":
+            return self.function_evals >= self.cfg.max_fe
+        elif cond == "gen":
+            return self.generation >= self.cfg.max_gen
+        else:
+            # Default: stop if max_token reached
+            return (self.prompt_tokens + self.completion_tokens) >= self.cfg.max_token
+        
     def evolve(self):
-        while (self.prompt_tokens + self.completion_tokens) < self.cfg.max_token:
+        while not self.stop():
             # If all individuals are invalid, stop
             if all([not individual["exec_success"] for individual in self.population]):
                 raise RuntimeError(f"All individuals are invalid. Please check the stdout files in {os.getcwd()}.")
@@ -568,5 +595,5 @@ class ReEvo:
             self.population.extend(self.evaluate_population(mutated_population))
             # Update
             self.update_iter()
-
+            self.update_generation()
         return self.best_code_overall, self.best_code_path_overall
