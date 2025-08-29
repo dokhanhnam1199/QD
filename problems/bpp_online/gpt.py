@@ -1,33 +1,21 @@
 import numpy as np
 
-def priority_v1(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
-    """Returns priority with which we want to add item to each bin.
-    Args:
-        item: Size of item to be added to the bin.
-        bins_remain_cap: Array of capacities for each bin.
-    Return:
-        Array of same size as bins_remain_cap with priority score of each bin.
-    """
-    priorities = np.zeros_like(bins_remain_cap)
-    return priorities
-
 def priority_v2(item: float, bins_remain_cap: np.ndarray) -> np.ndarray:
-    """Returns priority with which we want to add item to each bin using Softmax-Based Fit strategy.
+    """Returns priority with which we want to add item to each bin, prioritizing higher space utilization and proximity fit, and minimizing wasted space.
     Args:
         item: Size of item to be added to the bin.
         bins_remain_cap: Array of capacities for each bin.
-    Return:
+    Returns:
         Array of same size as bins_remain_cap with priority score of each bin.
     """
-    # Calculate the fit of the item into each bin
-    fit = np.where(bins_remain_cap >= item, bins_remain_cap - item, 0)
+    possible_bins = bins_remain_cap >= item
+    if not np.any(possible_bins):
+        return np.zeros_like(bins_remain_cap)
 
-    # Calculate the normalized fit (softmax)
-    if np.sum(fit) > 0:
-        probabilities = np.exp(fit / np.sum(fit))
-    else:
-        probabilities = np.zeros_like(bins_remain_cap)
-        probabilities[np.argmin(bins_remain_cap)] = 1.0 #give priority to smallest if all bins are full.
-
-
-    return probabilities
+    remaining_after_item = bins_remain_cap[possible_bins] - item
+    wasted_space_ratio = remaining_after_item / bins_remain_cap[possible_bins]
+    fit_score = 1.0 / (wasted_space_ratio + 1e-6)
+    priorities = fit_score - (0.5 * wasted_space_ratio**2)  # Non-linear penalty
+    result = np.zeros_like(bins_remain_cap)
+    result[possible_bins] = priorities
+    return result
