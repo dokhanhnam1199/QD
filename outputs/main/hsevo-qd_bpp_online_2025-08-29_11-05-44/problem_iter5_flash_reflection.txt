@@ -1,0 +1,15 @@
+**Analysis:**
+
+Comparing (1st) vs (2nd), both use `np.exp(-waste / item)` and `np.where(waste == 0, 1000.0, 1.0 / (waste + 1e-6))` for priority calculation, but the 2nd adds `np.log(np.sum(possible_bins)) / 10` subtraction. This seems to *degrade* performance, introducing a global term that penalizes all bins based on the number of valid bins. (3rd) is identical to (2nd), thus also performing worse. 
+
+Comparing (4th) vs (5th), (4th) initializes priorities to zero then computes `1.0 / (waste + 1e-9)`. (5th) has similar logic but adds a redundant docstring and calculates `1.0 / (bins_remain_cap[valid_bins] - item + 1e-6)` directly.  (5th) is slightly cleaner but provides no benefit. (6th) is identical to (4th) and (7th) is cleaner with better naming than (4th) and (5th), thus (7th) is slightly better than (4th) and (5th).
+
+Comparing (8th) vs (9th), they are identical; both initialize priorities to zero and then calculate `1.0 / (waste + 1e-6)`.  (10th) introduces a major flaw - it assigns the *maximum* waste to *all* valid bins, leading to extremely poor bin selection. This is clearly detrimental. (11th) builds on (10th)'s flaw and adds a small boost to the 'best' bin, but it does not mitigate the core issue of assigning maximum waste to all valid bins. (12th) is identical to (10th). 
+
+(13th) uses the inverse of remaining capacities, a reasonable approach. (14th) and (15th) are identical and introduce a boost to the best-fit bin which adds value, but the underlying approach of prioritizing all other bins equally is suboptimal. (16th) normalizes based on total waste, which could be sensitive to outliers and potentially less effective than the simple inverse. (17th) and (18th) are identical and use the remaining capacity directly which is not as good as inverse as a higher value is desired. (19th) calculates `exp(temp)` and normalizes, it’s a better direction than straight subtraction but normalization introduces another potential issue. (20th) just uses `worst_fit_bins`, similar to (10th) but without max, still, it is a bad strategy.
+
+Overall: The best heuristics (1st) use `np.exp(-waste / item)` which provides a good balance. A simple inverse of waste (like 4th, 5th, 7th, 8th, 9th) also does well, but heuristics introducing maximum or sum-based penalty terms (10th, 11th, 12th, 16th) or direct waste values (17th, 18th) significantly degrade performance. Normalization can be tricky, and boosting a single bin (14th, 15th) isn't enough to overcome a poor underlying prioritization.
+
+**Experience:**
+
+Prioritize simplicity and direct relevance to the objective (minimizing waste). Avoid global terms or normalization that can introduce unintended consequences.  Inverse of remaining capacity or an exponential decay based on waste are strong starting points. Don't assign the same priority to all possible bins; differentiate them based on their fit.
